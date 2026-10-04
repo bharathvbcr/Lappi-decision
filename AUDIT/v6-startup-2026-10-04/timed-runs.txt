@@ -1,0 +1,70 @@
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:31:54 start timed1
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:31:55 [timed      0.0 s] main starts (imports done)
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:31:56 [timed      1.9 s] real_ft_run.check_defect_source: 0.7 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:31:57 [timed      2.6 s] real_ft_run.corpus_facts: 0.8 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:31:59 [timed      4.7 s] qd_data.defect_class.load_defect_rows: 2.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:32:04 [timed      9.3 s] qd_data.defect_class.load_defect_rows: 6.6 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:32:05 [timed     10.6 s] real_tokenizer_pipeline.general_rows: 1.3 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:32:07 [timed     12.7 s] qd_data.decisions.load_decision_pool: 2.2 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:33:20 [timed     85.8 s] qd_data.mixture.drop_contradictory_prompts: 51.7 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:33:21 [timed     86.1 s] qd_data.mixture.build_mixture: 73.4 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:33:21 [timed     86.2 s] qd_train.exclusions.drop_before_dedupe: 0.1 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:34:16 [timed    141.4 s] real_tokenizer_pipeline._run_prep: 11.8 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:34:18 [timed    143.3 s] real_tokenizer_pipeline.native_minhash entered (shingled and signed): 57.2 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:34:27 [timed    152.3 s] real_tokenizer_pipeline._run_prep: 1.4 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:06 [timed    191.3 s] qd_data.dedupe.dedupe: 47.9 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:10 [timed    195.3 s] real_tokenizer_pipeline._run_prep: 1.6 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 [timed    206.4 s] qd_data.split.split: 15.1 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 [timed    206.4 s] real_tokenizer_pipeline.native_minhash body (dedupe + split, LSH inside): 63.1 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 minhash: 485362 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 57.2 s (shingling and canaries included), 941195 lookups, 8 canaries equal to the reference; 485474 distinct te [... omitted end of long line]
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 12.9 s (canaries included), 7864424 pairs, every canary equal to the reference; 0 handed to the reference (a n [... omitted end of long line]
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 [timed    206.5 s] real_tokenizer_pipeline.native_minhash whole block: 120.3 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 [timed    206.7 s] real_ft_run.ft_split_report: 204.1 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 [timed    206.7 s] real_tokenizer_pipeline.exclusions_then_contrast: 0.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 [timed    206.7 s] real_ft_run.ft_split_rows: 204.1 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:21 [timed    206.7 s] SystemExit: /Users/bharath/qd-campaign/v5-containment-scoped-2026-10-03/attestation.json was made for corpus {'commitpackft': None, 'decisions_pool_examples_sha256': 'f3942c1475c695099064d792429e348d0172640db8b961c7874a608 [... omitted end of long line]
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed1.log:07:35:27 end timed1 rc=1
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:42 start timed2
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:43 [timed      0.0 s] main starts (imports done)
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:45 [timed      2.0 s] real_ft_run.check_defect_source: 0.9 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:45 [timed      2.8 s] real_ft_run.corpus_facts: 0.9 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:47 [timed      4.9 s] qd_data.defect_class.load_defect_rows: 2.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:52 [timed      9.4 s] qd_data.defect_class.load_defect_rows: 6.5 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:53 [timed     10.4 s] real_tokenizer_pipeline.general_rows: 1.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:37:55 [timed     12.7 s] qd_data.decisions.load_decision_pool: 2.3 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:39:08 [timed     85.8 s] qd_data.mixture.drop_contradictory_prompts: 51.5 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:39:09 [timed     86.1 s] qd_data.mixture.build_mixture: 73.4 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:39:09 [timed     86.2 s] qd_train.exclusions.drop_before_dedupe: 0.1 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:40:06 [timed    142.9 s] real_tokenizer_pipeline._run_prep: 11.4 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:40:07 [timed    144.8 s] real_tokenizer_pipeline.native_minhash entered (shingled and signed): 58.6 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:40:12 [timed    149.4 s] real_tokenizer_pipeline._run_prep: 1.3 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:40:52 [timed    189.3 s] qd_data.dedupe.dedupe: 44.5 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:40:56 [timed    193.2 s] real_tokenizer_pipeline._run_prep: 1.7 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 [timed    203.9 s] qd_data.split.split: 14.6 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 [timed    203.9 s] real_tokenizer_pipeline.native_minhash body (dedupe + split, LSH inside): 59.2 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 minhash: 485362 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 58.6 s (shingling and canaries included), 941195 lookups, 8 canaries equal to the reference; 485474 distinct te [... omitted end of long line]
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 14.1 s (canaries included), 7864424 pairs, every canary equal to the reference; 0 handed to the reference (a n [... omitted end of long line]
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 [timed    204.0 s] real_tokenizer_pipeline.native_minhash whole block: 117.8 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 [timed    204.3 s] real_ft_run.ft_split_report: 201.4 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 [timed    204.5 s] real_tokenizer_pipeline.exclusions_then_contrast: 0.3 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:07 [timed    204.6 s] real_ft_run.ft_split_rows: 201.8 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:09 [timed    206.4 s] real_ft_run.open_val_set: 1.6 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:09 [timed    206.5 s] real_tokenizer_pipeline.general_rows: 0.1 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:11 [timed    208.1 s] qd_data.mixture.drop_contradictory_prompts: 0.8 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:11 [timed    208.2 s] qd_data.mixture.build_mixture: 1.7 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:11 [timed    208.2 s] qd_train.exclusions.drop_before_dedupe: 0.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:11 [timed    208.8 s] real_tokenizer_pipeline._run_prep: 0.4 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:12 [timed    208.9 s] real_tokenizer_pipeline.native_minhash entered (shingled and signed): 0.8 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:12 [timed    209.3 s] real_tokenizer_pipeline._run_prep: 0.3 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:12 [timed    209.5 s] qd_data.dedupe.dedupe: 0.5 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 [timed    209.9 s] real_tokenizer_pipeline._run_prep: 0.3 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 [timed    210.0 s] qd_data.split.split: 0.5 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 [timed    210.0 s] real_tokenizer_pipeline.native_minhash body (dedupe + split, LSH inside): 1.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 minhash: 16829 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 0.8 s (shingling and canaries included), 51794 lookups, 8 canaries equal to the reference; 16829 distinct texts  [... omitted end of long line]
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 0.6 s (canaries included), 68533 pairs, every canary equal to the reference; 0 handed to the reference (a nega [... omitted end of long line]
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 [timed    210.0 s] real_tokenizer_pipeline.native_minhash whole block: 1.8 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 [timed    210.0 s] real_ft_run.ft_split_report: 3.6 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:13 [timed    210.0 s] real_tokenizer_pipeline.exclusions_then_contrast: 0.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:17 [timed    214.9 s] real_ft_run.prepare_ood: 8.5 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:18 [timed    215.0 s] real_ft_run._checkpoint_step: 0.0 s
+/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/timed2.log:07:41:24 end timed2 rc=1

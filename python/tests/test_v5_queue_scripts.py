@@ -1018,14 +1018,28 @@ def split_rebuild_flags() -> set[str]:
     """The command-line flags ``tools/real_ft_run.py``'s ``main`` feeds its split rebuild: the
     keywords of its one ``ft_split_rows`` call (which forwards each to ``ft_splits``), mapped to
     the options whose dest they are. ``config`` is checked to be ``DataConfig()`` with no
-    arguments, so no argv reaches the rebuild through it."""
+    arguments, so no argv reaches the rebuild through it.
+
+    The call is either ``ft_split_rows(...)`` or ``functools.partial(ft_split_rows, ...)``: since
+    ``--split-cache``, ``main`` binds the keywords once in a partial, so that the cache keys
+    exactly the arguments the rebuild receives. The keywords are read from whichever form
+    is present, and there must be exactly one."""
     tree = ast.parse((REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8"))
     main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
-    calls = [
-        n
-        for n in ast.walk(main)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "ft_split_rows"
-    ]
+
+    def binds_ft_split_rows(n: ast.AST) -> bool:
+        if not isinstance(n, ast.Call):
+            return False
+        if isinstance(n.func, ast.Name) and n.func.id == "ft_split_rows":
+            return True
+        return (
+            ast.unparse(n.func) == "functools.partial"
+            and bool(n.args)
+            and isinstance(n.args[0], ast.Name)
+            and n.args[0].id == "ft_split_rows"
+        )
+
+    calls = [n for n in ast.walk(main) if binds_ft_split_rows(n)]
     assert len(calls) == 1, f"main calls ft_split_rows {len(calls)} times"
     names = {k.arg for k in calls[0].keywords}
     assert None not in names, "ft_split_rows is called with **kwargs: its flags are unreadable here"

@@ -90,6 +90,7 @@ import argparse
 import collections
 import copy
 import dataclasses
+import functools
 import gc
 import hashlib
 import inspect
@@ -2523,7 +2524,7 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     family; its own settings are in ``recipe``. Every other row hashes its own recipe.
     """
     reasons = [r for r in quick_reasons if r.strip()]
-    return RunRecorder(
+    recorder = RunRecorder(
         ledger,
         entry_point=Path(__file__),
         protocol=(
@@ -2542,6 +2543,17 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
         quick_reason="; ".join(reasons) if reasons else None,
         notes=notes,
     )
+    for name, value in _RUN_METRICS.items():
+        recorder.metric(name, value)
+    return recorder
+
+
+#: Metrics every row of this run carries: set by ``main``, cleared when it starts. Only
+#: ``--split-cache``'s state rides here (``split_cache``: hit, miss or corrupt, with the key).
+#: How the run got its rows is a fact all of the run's rows share, and it is a metric, not a
+#: recipe key, so a cached and an uncached run of one arm keep one recipe_hash. Off, nothing
+#: is set and every row is what it was, as ``native_spancheck`` is absent when its flag is.
+_RUN_METRICS: dict[str, TriState] = {}
 
 
 def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
@@ -4306,6 +4318,47 @@ def ft_split_rows(
         pre_dedupe_drops=pre_dedupe_drops,
     )
     return splits["train"], splits["val"]
+
+
+def split_rebuild_inputs(
+    *, general_record: Path | None, exclude_identity_keys: Path | None, repo_history: bool,
+) -> tuple[dict[str, Path], dict[str, object]]:
+    """What :func:`ft_split_rows` reads that none of its arguments names: ``(trees and files by
+    label, other facts by label)``, which ``--split-cache`` keys beside the arguments.
+
+    Observed, not inferred. ``AUDIT/v6-startup-2026-10-04/split_inputs_audit.py`` recorded
+    every file the v5 rebuild opened, and every data file it read sits under an argument's path
+    or under one of the following:
+
+    * ``REPO/data/pool``. The defect corpus's parts resolve under the repository root: a
+      composed corpus names its base corpora, a noul manifest names its parts, and the prose
+      units sit there too. So does ``DEFAULT_DEFECT_DOWNLOAD`` when ``--defect-download`` is
+      not given.
+    * The general record's directory. ``general_rows`` reads every cache under it. Each jsonl
+      is pinned by the record's sha256, but ``intent_names.json`` only by its count.
+    * The exclusion list's ``attestation.json``, which ``qd_train.exclusions`` reads beside it.
+
+    With repository history, the rows come from ``git`` at the resolved ``rev`` (an argument).
+    Git's version is keyed too, because its output is what the history reader parses. That
+    path was not observed by the audit: v5 ran with ``--no-repo-history``.
+    """
+    from qd_train.exclusions import ATTESTATION_NAME
+
+    inputs: dict[str, Path] = {"repo_data_pool": REPO / "data" / "pool"}
+    if general_record is not None:
+        inputs["general_record_root"] = general_record.parent
+    if exclude_identity_keys is not None:
+        inputs["exclusions_attestation"] = exclude_identity_keys.parent / ATTESTATION_NAME
+    facts: dict[str, object] = {}
+    if repo_history:
+        try:
+            done = subprocess.run(
+                ["git", "--version"], capture_output=True, text=True, timeout=30, check=True
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SystemExit(f"--split-cache: git --version could not run ({exc})") from exc
+        facts["git_version"] = done.stdout.strip()
+    return inputs, facts
 
 
 #: Where ``tools/real_tokenizer_pipeline.py`` writes the train manifest, under its --out.
@@ -8350,7 +8403,12 @@ REPORT_ONLY_NOTE: Final[str] = (
 #: ``--score-checkpoint`` writes. ``ood``: the OOD suite alone, a quick diagnostic row
 #: (:func:`run_ood_diagnostic`) -- never a gate, never a promotion input. ``composed``: the
 #: report-only composed slice (:func:`run_composed_slice`), likewise a quick diagnostic row.
-PLAN_PASSES: Final[tuple[str, ...]] = ("gates", "ood", "composed")
+#: ``trajectory``: v5's OOD-only trajectory row (:data:`OOD_TRAJECTORY_ROW`: tag
+#: ``trajectory-ood``, ``ood_abstain.<category>`` and ``checkpoint_step``) on one retained
+#: snapshot -- the row ``--score-checkpoint`` with ``--ood`` and without ``--score-val`` writes,
+#: so a seed's snapshots share one startup instead of paying one each. A trajectory kind runs
+#: nothing else, and a plan with one is all trajectory kinds, scored without ``--score-val``.
+PLAN_PASSES: Final[tuple[str, ...]] = ("gates", "ood", "composed", "trajectory")
 #: Kinds one plan may hold. Each loads a model; a bound on fan-out, not a judgement.
 PLAN_MAX_KINDS: Final[int] = 8
 #: Bytes a plan file may hold: a list of kinds, nothing more.
@@ -8382,6 +8440,12 @@ class ScorePlan:
 
     def wants(self, name: str) -> bool:
         return any(name in kind.passes for kind in self.kinds)
+
+    @property
+    def ood_only(self) -> bool:
+        """Every kind is a trajectory point: the plan form of :func:`_ood_only`, scored without
+        ``--score-val`` (:func:`read_score_plan` refuses a trajectory kind beside any other)."""
+        return all(kind.passes == ("trajectory",) for kind in self.kinds)
 
     def note(self, kind: PlanKind) -> str:
         """The sentence a kind's rows carry in their notes (never their recipe)."""
@@ -8442,6 +8506,12 @@ def read_score_plan(path: Path) -> ScorePlan:
                 f"{at}: 'gates' already decodes the OOD suite (the ood_abstain gate, with the "
                 "in-distribution bound); an 'ood' pass beside it would decode it twice"
             )
+        if "trajectory" in passes and len(passes) > 1:
+            raise SystemExit(
+                f"{at}: a 'trajectory' kind is one snapshot's OOD-only row (--score-checkpoint "
+                f"with --ood and without --score-val) and runs nothing else; {passes} would "
+                "decode the OOD suite twice or need the --score-val it is scored without"
+            )
         kinds.append(PlanKind(
             name=name,
             checkpoints=tuple(
@@ -8457,6 +8527,12 @@ def read_score_plan(path: Path) -> ScorePlan:
     names = [k.name for k in kinds]
     if len(set(names)) != len(names):
         raise SystemExit(f"{where}: kind names repeat: {names}")
+    trajectory = [k.name for k in kinds if "trajectory" in k.passes]
+    if trajectory and len(trajectory) != len(kinds):
+        raise SystemExit(
+            f"{where}: one plan is trajectory kinds or none: {trajectory} are scored without "
+            "--score-val and the rest need it"
+        )
     return ScorePlan(path=path, sha256=hashlib.sha256(raw).hexdigest(), kinds=tuple(kinds))
 
 
@@ -8470,8 +8546,11 @@ def plan_output(path: Path, kind: str, part: str | None = None) -> Path:
 
 def plan_kind_args(args: argparse.Namespace, kind: PlanKind) -> argparse.Namespace:
     """``args`` as ``--score-checkpoint`` with this kind's checkpoints, ft rows and seeds
-    would have parsed them: one checkpoint a Path and one ft row id a str, several lists."""
+    would have parsed them: one checkpoint a Path and one ft row id a str, several lists.
+    ``score_plan`` is kept and ``plan_passes`` names the kind's passes, which is what
+    :func:`_ood_only` reads to tell a trajectory kind (that mode) from every other kind."""
     out = copy.copy(args)
+    out.plan_passes = kind.passes
     out.score_checkpoint = (
         kind.checkpoints[0] if len(kind.checkpoints) == 1 else list(kind.checkpoints)
     )
@@ -8511,10 +8590,17 @@ def _check_score_plan_flags(args: argparse.Namespace, *, seeds_given: bool) -> S
         )
     if args.needle and not plan.wants("gates"):
         raise SystemExit("--needle is a gate; no kind of this plan runs the 'gates' pass")
-    if args.ood and not (plan.wants("gates") or plan.wants("ood")):
+    if args.ood and not (plan.wants("gates") or plan.wants("ood") or plan.wants("trajectory")):
         raise SystemExit("--ood would build a suite no kind of this plan decodes")
     if plan.wants("ood") and not args.ood:
         raise SystemExit("an 'ood' pass decodes the OOD suite: it needs --ood")
+    if plan.wants("trajectory") and not args.ood:
+        raise SystemExit("a 'trajectory' pass decodes the OOD suite: it needs --ood")
+    if plan.ood_only and args.score_val:
+        raise SystemExit(
+            "a 'trajectory' kind is the OOD-only row, scored without --score-val (as "
+            "--score-checkpoint without it is); --score-val would build a val pass no kind decodes"
+        )
     if args.verdicts_out is not None and not plan.wants("gates"):
         raise SystemExit("--verdicts-out writes val verdicts; no kind of this plan decodes val")
     if plan.wants("composed") != (args.composed_slice is not None):
@@ -8603,16 +8689,24 @@ OOD_TRAJECTORY_ROW: Final[OodOnlyRow] = OodOnlyRow(
     quick_reason=OOD_TRAJECTORY_QUICK_REASON, gate=OOD_TRAJECTORY_GATE,
     describes="--score-checkpoint OOD-only trajectory point", checkpoint_step=True,
 )
+#: The plan passes that score the OOD suite alone, and the row each writes. A 'trajectory'
+#: kind's row is the per-snapshot call's, field for field, but for the plan's sentence in its
+#: notes (python/tests/test_score_plan_trajectory.py).
+PLAN_OOD_ONLY_ROWS: Final[dict[str, OodOnlyRow]] = {
+    "ood": OOD_DIAGNOSTIC_ROW, "trajectory": OOD_TRAJECTORY_ROW,
+}
 
 
 def _ood_only(args: argparse.Namespace) -> bool:
     """``--score-checkpoint`` with ``--ood`` and without ``--score-val``: the trajectory row,
-    the OOD suite alone on one model. A ``--score-plan`` kind is never one (its passes say
-    what it decodes), and every other scoring mode still needs ``--score-val``."""
-    return (
-        not args.score_val and args.score_checkpoint is not None
-        and args.score_plan is None and bool(args.ood)
-    )
+    the OOD suite alone on one model. Within a ``--score-plan`` its passes say what a kind
+    decodes: a 'trajectory' kind's namespace (:func:`plan_kind_args`) is this mode and no
+    other kind's is, nor the plan's own. Every other scoring mode still needs ``--score-val``."""
+    if args.score_val or not args.ood or args.score_checkpoint is None:
+        return False
+    if args.score_plan is not None:
+        return tuple(getattr(args, "plan_passes", ())) == ("trajectory",)
+    return True
 
 
 def run_ood_diagnostic(
@@ -8722,12 +8816,13 @@ def run_score_plan(
     """
     if plan.wants("composed") and composed is None:
         raise SystemExit("a 'composed' pass needs the slice, and none was opened")
-    if plan.wants("ood") and (
+    if any(plan.wants(p) for p in PLAN_OOD_ONLY_ROWS) and (
         ood_suite.not_run is not None or ood_suite.second_pass is None
         or ood_suite.second_pass.not_run is not None
     ):
         raise SystemExit(
-            "an 'ood' pass needs the OOD suite and its second pass, and they did not build: "
+            "an 'ood' or 'trajectory' pass needs the OOD suite and its second pass, and they did "
+            "not build: "
             f"{ood_suite.not_run or (ood_suite.second_pass and ood_suite.second_pass.not_run)}"
         )
     widths = suite_widths(needle_suite, ood_suite, composed=composed)
@@ -8759,18 +8854,20 @@ def run_score_plan(
             recorded.append((kind.name, "gates", row_id))
             for g in gates:
                 print(f"  {kind.name} {g.name}: {json.dumps(g.state.to_json())[:300]}")
-        if "ood" in kind.passes:
+        for pass_name, row in PLAN_OOD_ONLY_ROWS.items():
+            if pass_name not in kind.passes:
+                continue
             row_id, lines, row_seed = run_ood_diagnostic(
                 kind_args, loaded=loaded, reader=reader, val=val, device=device, ledger=ledger,
                 reasons_for=reasons_for, ood_suite=ood_suite, suite_seed=suite_seed,
-                plan_note=note,
+                plan_note=note, row=row,
             )
             suite_lines.extend(
-                {"eval_row_id": row_id, "seed": int(row_seed), "gate": OOD_DIAGNOSTIC_GATE,
+                {"eval_row_id": row_id, "seed": int(row_seed), "gate": row.gate,
                  "score_kind": kind.name, **v}
                 for v in lines
             )
-            recorded.append((kind.name, "ood", row_id))
+            recorded.append((kind.name, pass_name, row_id))
         composed_lines: list[dict[str, object]] = []
         if "composed" in kind.passes:
             assert composed is not None  # refused above
@@ -8791,7 +8888,7 @@ def run_score_plan(
         if args.verdicts_out is not None and "gates" in kind.passes:
             write_verdicts_jsonl(plan_output(args.verdicts_out, kind.name), verdict_lines)
         if args.suite_verdicts_out is not None:
-            if "gates" in kind.passes or "ood" in kind.passes:
+            if "gates" in kind.passes or any(p in kind.passes for p in PLAN_OOD_ONLY_ROWS):
                 write_suite_verdicts_jsonl(
                     plan_output(args.suite_verdicts_out, kind.name), suite_lines
                 )
@@ -9973,6 +10070,7 @@ VERDICT_FAMILY_KEYS: Final[tuple[str, ...]] = (
 
 
 def main(argv: list[str] | None = None) -> int:
+    _RUN_METRICS.clear()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, help="the pipeline's --out directory")
     parser.add_argument("--passes", type=int, default=60)
@@ -10198,6 +10296,18 @@ def main(argv: list[str] | None = None) -> int:
             "the exclusion list's attestation"
         ),
     )
+    parser.add_argument(
+        "--split-cache", type=Path, default=None, metavar="DIR",
+        help=(
+            "read the split rebuild's result (the train and val rows: ~202 s of the v5 Mac "
+            "prelude) from DIR when an entry's key matches and the entry passes its checks; "
+            "otherwise rebuild and store it there. The key is every input the rebuild reads, "
+            "by content, and the code that reads them. Off by default. Not recipe: every row "
+            "of the run carries a split_cache metric (hit, miss or corrupt, with the key). DIR "
+            "must be owned by the running user, not group- or world-writable and not a "
+            "symlink; it is created 0700 when absent. See tools/split_cache.py"
+        ),
+    )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
     parser.add_argument(
         "--no-memorise", action="store_true",
@@ -10286,13 +10396,17 @@ def main(argv: list[str] | None = None) -> int:
             "average), \"seeds\", \"passes\"}]}, each kind exactly what --score-checkpoint "
             "and its --ft-row-id/--seeds would name. passes: \"gates\" (the val pass and every "
             "gate: the --score-checkpoint row), \"ood\" (the OOD suite alone: a quick "
-            "diagnostic row, tag <kind tag>-ood-diagnostic) or \"composed\" (the report-only "
-            "composed slice, --composed-slice: a quick row, tag <kind tag>-composed-slice). One "
+            "diagnostic row, tag <kind tag>-ood-diagnostic), \"composed\" (the report-only "
+            "composed slice, --composed-slice: a quick row, tag <kind tag>-composed-slice) or "
+            "\"trajectory\" (alone in its kind: the OOD-only trajectory row of one retained "
+            "snapshot, tag trajectory-ood, exactly as --score-checkpoint --ood without "
+            "--score-val writes it; a plan with one is all trajectory kinds, needs --ood and "
+            "refuses --score-val). One "
             "model is loaded per kind and freed before the next; --verdicts-out/"
             "--suite-verdicts-out are written per kind as <stem>-<name><suffix>, a composed "
-            "pass's lines as <stem>-<name>.composed<suffix>. Needs --score-val, "
-            "--real-backbone, --ft-ledger and one --devices entry; refuses --score-checkpoint, "
-            "--ft-row-id and --seeds"
+            "pass's lines as <stem>-<name>.composed<suffix>. Needs --score-val (but for a "
+            "trajectory plan), --real-backbone, --ft-ledger and one --devices entry; refuses "
+            "--score-checkpoint, --ft-row-id and --seeds"
         ),
     )
     parser.add_argument(
@@ -10644,6 +10758,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--probe", help=argparse.SUPPRESS)
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv)
+    if args.split_cache is not None:
+        # Refused in seconds, not after the shard set is read: the cache reads pickles.
+        import split_cache
+
+        split_cache.check_dir(args.split_cache)
     seeds_given = args.seeds is not None
     if not seeds_given:
         args.seeds = list(DEFAULT_SEEDS)
@@ -10857,8 +10976,9 @@ def main(argv: list[str] | None = None) -> int:
     if (args.ood_general_record is not None) != args.ood:
         raise SystemExit("--ood and --ood-general-record are given together or not at all")
     # --score-checkpoint with --ood and without --score-val is the OOD-only trajectory row:
-    # the OOD suite alone, report-only. Every other --ood needs the val pass it is bounded by.
-    ood_only = _ood_only(args)
+    # the OOD suite alone, report-only; a plan of 'trajectory' kinds is the same row on several
+    # snapshots. Every other --ood needs the val pass it is bounded by.
+    ood_only = _ood_only(args) or (score_plan is not None and score_plan.ood_only)
     if args.ood and not ((args.score_val or ood_only) and args.real_backbone is not None):
         raise SystemExit(
             "--ood scores the model the val pass scores and encodes with the real "
@@ -11009,7 +11129,10 @@ def main(argv: list[str] | None = None) -> int:
         replay_partition=args.replay_partition,
         decisions_pool=args.decisions_pool is not None,
     )
-    train_rows, val_rows = ft_split_rows(
+    # One set of arguments for the rebuild and for the split cache's key, so what is keyed is
+    # what is rebuilt. The module global is read here, at call time, as it always was.
+    rebuild = functools.partial(
+        ft_split_rows,
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
@@ -11018,6 +11141,20 @@ def main(argv: list[str] | None = None) -> int:
         exclude_identity_keys=args.exclude_identity_keys, decisions_pool=args.decisions_pool,
         pre_dedupe_drops=args.pre_dedupe_drops,
     )
+    if args.split_cache is None:
+        train_rows, val_rows = rebuild()
+    else:
+        import split_cache
+
+        extra_inputs, extra_facts = split_rebuild_inputs(
+            general_record=args.general_record, exclude_identity_keys=args.exclude_identity_keys,
+            repo_history=args.repo_history,
+        )
+        train_rows, val_rows, _RUN_METRICS["split_cache"] = split_cache.cached_split_rows(
+            args.split_cache, kwargs=rebuild.keywords, rebuild=rebuild,
+            extra_inputs=extra_inputs, extra_facts=extra_facts, out=args.out, config=config,
+            repo=REPO,
+        )
     # A pool set is paired by its sequence index too: its rows, like the general record's,
     # are not this repository's history, so only the index ties a sequence to its row.
     require_index = (
@@ -11207,8 +11344,8 @@ def main(argv: list[str] | None = None) -> int:
     # --score-plan, like --score-checkpoint below, trains nothing: one kind after another over
     # the suites built above, each written as it finishes.
     if score_plan is not None:
-        if val_set is None:  # pragma: no cover - _check_score_plan_flags needs --score-val
-            raise SystemExit("--score-plan needs --score-val's val set")
+        if val_set is None:  # pragma: no cover - --score-val, or a trajectory plan (ood_only)
+            raise SystemExit("--score-plan needs --score-val's val set (or trajectory kinds)")
         composed: ComposedSlice | None = None
         if score_plan.wants("composed"):
             import real_tokenizer_pipeline as pipeline

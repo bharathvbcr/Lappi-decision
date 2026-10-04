@@ -1,0 +1,2972 @@
+FFFFFF.FFFFFF.F                                                          [100%]
+=================================== FAILURES ===================================
+________ test_trajectory_is_a_plan_pass_and_a_plan_of_them_is_ood_only _________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_trajectory_is_a_plan_pass0')
+
+    def test_trajectory_is_a_plan_pass_and_a_plan_of_them_is_ood_only(tmp_path):
+>       plan = rft.read_score_plan(_plan(
+            tmp_path, _kind("step2", "trajectory"),
+            _kind("step1", "trajectory", checkpoints=("/c/epoch-seed0-cuda-step1.json",)),
+        ))
+
+python/tests/test_score_plan_trajectory.py:70: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_trajectory_is_a_plan_pass0/plan.json')
+
+    def read_score_plan(path: Path) -> ScorePlan:
+        """Read and check a plan, refusing anything it does not define."""
+        where = f"--score-plan {path}"
+        try:
+            size = path.stat().st_size
+            if size > PLAN_MAX_BYTES:
+                raise SystemExit(f"{where}: {size} bytes, more than a plan's {PLAN_MAX_BYTES}")
+            raw = path.read_bytes()
+            body = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"{where}: {exc}") from exc
+        if not isinstance(body, dict) or set(body) != {"kinds"}:
+            raise SystemExit(f"{where}: a plan is an object with one key, 'kinds'")
+        listed = body["kinds"]
+        if not isinstance(listed, list) or not 1 <= len(listed) <= PLAN_MAX_KINDS:
+            raise SystemExit(f"{where}: 'kinds' is a list of 1 to {PLAN_MAX_KINDS} kinds")
+        kinds: list[PlanKind] = []
+        for i, entry in enumerate(listed):
+            at = f"{where} kind {i}"
+            if not isinstance(entry, dict):
+                raise SystemExit(f"{at}: a kind is an object")
+            unknown = sorted(set(entry) - PLAN_KIND_KEYS)
+            missing = sorted(PLAN_KIND_REQUIRED - set(entry))
+            if unknown or missing:
+                raise SystemExit(f"{at}: unknown keys {unknown}, missing keys {missing}")
+            name = entry["name"]
+            if not isinstance(name, str) or PLAN_KIND_NAME.fullmatch(name) is None:
+                raise SystemExit(f"{at}: name {name!r} is not {PLAN_KIND_NAME.pattern}")
+            at = f"{where} kind {name!r}"
+            seeds = entry["seeds"]
+            if not (isinstance(seeds, list) and 1 <= len(seeds) <= MAX_SEEDS
+                    and all(isinstance(s, int) and not isinstance(s, bool) for s in seeds)):
+                raise SystemExit(f"{at}: seeds is a list of 1 to {MAX_SEEDS} integers")
+            passes = entry["passes"]
+            if not (isinstance(passes, list) and passes
+                    and all(isinstance(p, str) and p in PLAN_PASSES for p in passes)
+                    and len(set(passes)) == len(passes)):
+>               raise SystemExit(f"{at}: passes is a non-empty list of distinct {list(PLAN_PASSES)}")
+E               SystemExit: --score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_trajectory_is_a_plan_pass0/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']
+
+tools/real_ft_run.py:8439: SystemExit
+_______________ test_a_trajectory_kind_runs_nothing_else[gates] ________________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_kind_runs_no0')
+other = 'gates'
+
+    @pytest.mark.parametrize("other", ["gates", "ood", "composed"])
+    def test_a_trajectory_kind_runs_nothing_else(tmp_path, other):
+        """``gates`` and ``ood`` would decode the OOD suite a second time; a trajectory point is one
+        snapshot's OOD-only row, so a pass beside it is refused rather than given a meaning."""
+>       with pytest.raises(SystemExit, match="a 'trajectory' kind is one snapshot's OOD-only row"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: "a 'trajectory' kind is one snapshot's OOD-only row"
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_kind_runs_no0/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:83: AssertionError
+________________ test_a_trajectory_kind_runs_nothing_else[ood] _________________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_kind_runs_no1')
+other = 'ood'
+
+    @pytest.mark.parametrize("other", ["gates", "ood", "composed"])
+    def test_a_trajectory_kind_runs_nothing_else(tmp_path, other):
+        """``gates`` and ``ood`` would decode the OOD suite a second time; a trajectory point is one
+        snapshot's OOD-only row, so a pass beside it is refused rather than given a meaning."""
+>       with pytest.raises(SystemExit, match="a 'trajectory' kind is one snapshot's OOD-only row"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: "a 'trajectory' kind is one snapshot's OOD-only row"
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_kind_runs_no1/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:83: AssertionError
+______________ test_a_trajectory_kind_runs_nothing_else[composed] ______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_kind_runs_no2')
+other = 'composed'
+
+    @pytest.mark.parametrize("other", ["gates", "ood", "composed"])
+    def test_a_trajectory_kind_runs_nothing_else(tmp_path, other):
+        """``gates`` and ``ood`` would decode the OOD suite a second time; a trajectory point is one
+        snapshot's OOD-only row, so a pass beside it is refused rather than given a meaning."""
+>       with pytest.raises(SystemExit, match="a 'trajectory' kind is one snapshot's OOD-only row"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: "a 'trajectory' kind is one snapshot's OOD-only row"
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_kind_runs_no2/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:83: AssertionError
+_________________ test_the_plans_other_kinds_are_not_ood_only __________________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_the_plans_other_kinds_are0')
+
+    def test_the_plans_other_kinds_are_not_ood_only(tmp_path):
+        plan = rft.read_score_plan(_plan(tmp_path, _kind("seed0", "ood")))
+>       assert not plan.ood_only
+                   ^^^^^^^^^^^^^
+E       AttributeError: 'ScorePlan' object has no attribute 'ood_only'
+
+python/tests/test_score_plan_trajectory.py:89: AttributeError
+_ test_a_trajectory_kinds_namespace_is_the_ood_only_mode_and_no_other_kinds_is _
+
+    def test_a_trajectory_kinds_namespace_is_the_ood_only_mode_and_no_other_kinds_is():
+        """``_ood_only`` is the one owner of "this namespace is the trajectory row": argv checks it,
+        and ``_seed_weights`` scores a snapshot before the final step only under it. A trajectory
+        kind's namespace is that mode; an 'ood' kind's and the plan's own are not."""
+        args = argparse.Namespace(score_checkpoint=None, score_plan=Path("plan.json"),
+                                  score_val=False, ood=True, ft_row_id=None, seeds=[])
+        trajectory = rft.PlanKind("step2", (Path("/c/epoch-seed0-cuda-step2.json"),), ("aaaaaaaa",),
+                                  (0,), ("trajectory",))
+        diagnostic = dataclasses.replace(trajectory, name="seed0", passes=("ood",))
+>       assert rft._ood_only(rft.plan_kind_args(args, trajectory))
+E       AssertionError: assert False
+E        +  where False = <function _ood_only at 0x113fec250>(Namespace(score_checkpoint=PosixPath('/c/epoch-seed0-cuda-step2.json'), score_plan=PosixPath('plan.json'), score_val=False, ood=True, ft_row_id='aaaaaaaa', seeds=[0]))
+E        +    where <function _ood_only at 0x113fec250> = rft._ood_only
+E        +    and   Namespace(score_checkpoint=PosixPath('/c/epoch-seed0-cuda-step2.json'), score_plan=PosixPath('plan.json'), score_val=False, ood=True, ft_row_id='aaaaaaaa', seeds=[0]) = <function plan_kind_args at 0x113ffbed0>(Namespace(score_checkpoint=None, score_plan=PosixPath('plan.json'), score_val=False, ood=True, ft_row_id=None, seeds=[]), PlanKind(name='step2', checkpoints=(PosixPath('/c/epoch-seed0-cuda-step2.json'),), ft_row_ids=('aaaaaaaa',), seeds=(0,), passes=('trajectory',)))
+E        +      where <function plan_kind_args at 0x113ffbed0> = rft.plan_kind_args
+
+python/tests/test_score_plan_trajectory.py:101: AssertionError
+_______ test_a_trajectory_plan_passes_every_argv_check_without_score_val _______
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_passes_0')
+
+    def test_a_trajectory_plan_passes_every_argv_check_without_score_val(tmp_path):
+        """It stops at the first thing that reads the disk: resolving --rev, which no repository
+        here has. Before 'trajectory' existed the plan was refused at its first kind."""
+        plan = _plan(tmp_path, _kind("step2", "trajectory"))
+        with pytest.raises(subprocess.CalledProcessError, match="rev-parse"):
+>           rft.main(_argv(tmp_path, plan, *_OOD))
+
+python/tests/test_score_plan_trajectory.py:133: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/real_ft_run.py:10842: in main
+    score_plan = _check_score_plan_flags(args, seeds_given=seeds_given)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tools/real_ft_run.py:8489: in _check_score_plan_flags
+    plan = read_score_plan(args.score_plan)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_passes_0/plan.json')
+
+    def read_score_plan(path: Path) -> ScorePlan:
+        """Read and check a plan, refusing anything it does not define."""
+        where = f"--score-plan {path}"
+        try:
+            size = path.stat().st_size
+            if size > PLAN_MAX_BYTES:
+                raise SystemExit(f"{where}: {size} bytes, more than a plan's {PLAN_MAX_BYTES}")
+            raw = path.read_bytes()
+            body = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"{where}: {exc}") from exc
+        if not isinstance(body, dict) or set(body) != {"kinds"}:
+            raise SystemExit(f"{where}: a plan is an object with one key, 'kinds'")
+        listed = body["kinds"]
+        if not isinstance(listed, list) or not 1 <= len(listed) <= PLAN_MAX_KINDS:
+            raise SystemExit(f"{where}: 'kinds' is a list of 1 to {PLAN_MAX_KINDS} kinds")
+        kinds: list[PlanKind] = []
+        for i, entry in enumerate(listed):
+            at = f"{where} kind {i}"
+            if not isinstance(entry, dict):
+                raise SystemExit(f"{at}: a kind is an object")
+            unknown = sorted(set(entry) - PLAN_KIND_KEYS)
+            missing = sorted(PLAN_KIND_REQUIRED - set(entry))
+            if unknown or missing:
+                raise SystemExit(f"{at}: unknown keys {unknown}, missing keys {missing}")
+            name = entry["name"]
+            if not isinstance(name, str) or PLAN_KIND_NAME.fullmatch(name) is None:
+                raise SystemExit(f"{at}: name {name!r} is not {PLAN_KIND_NAME.pattern}")
+            at = f"{where} kind {name!r}"
+            seeds = entry["seeds"]
+            if not (isinstance(seeds, list) and 1 <= len(seeds) <= MAX_SEEDS
+                    and all(isinstance(s, int) and not isinstance(s, bool) for s in seeds)):
+                raise SystemExit(f"{at}: seeds is a list of 1 to {MAX_SEEDS} integers")
+            passes = entry["passes"]
+            if not (isinstance(passes, list) and passes
+                    and all(isinstance(p, str) and p in PLAN_PASSES for p in passes)
+                    and len(set(passes)) == len(passes)):
+>               raise SystemExit(f"{at}: passes is a non-empty list of distinct {list(PLAN_PASSES)}")
+E               SystemExit: --score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_passes_0/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']
+
+tools/real_ft_run.py:8439: SystemExit
+_ test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds0-extra0-a 'trajectory' kind is the OOD-only row, scored without --score-val] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu0')
+kinds = [{'name': 'step2', 'checkpoints': ['/c/epoch-seed0-cuda-step2.json'], 'ft_row_ids': ['aaaaaaaa'], 'seeds': [0], ...}]
+extra = ('--score-val', '--ood', '--ood-general-record', '/g.json')
+match = "a 'trajectory' kind is the OOD-only row, scored without --score-val"
+
+    @pytest.mark.parametrize(
+        ("kinds", "extra", "match"),
+        [
+            ([_kind("step2", "trajectory")], ("--score-val", *_OOD),
+             "a 'trajectory' kind is the OOD-only row, scored without --score-val"),
+            ([_kind("step2", "trajectory")], (),
+             "a 'trajectory' pass decodes the OOD suite: it needs --ood"),
+            ([_kind("step2", "trajectory")], ("--needle", *_OOD), "--needle is a gate"),
+            ([_kind("step2", "trajectory"), _kind("seed0", "ood")], ("--score-val", *_OOD),
+             "one plan is trajectory kinds or none"),
+            ([_kind("step2", "trajectory", checkpoints=("/c/epoch-seed0-cuda.json",
+                                                        "/c/epoch-seed1-cuda.json"),
+                    ft_row_ids=("aaaaaaaa", "bbbbbbbb"), seeds=(0, 1))], _OOD,
+             "kind 'step2': .*a logit ensemble is scored with --score-val"),
+        ],
+    )
+    def test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is(tmp_path, kinds, extra, match):
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: "a 'trajectory' kind is the OOD-only row, scored without --score-val"
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu0/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:153: AssertionError
+_ test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds1-extra1-a 'trajectory' pass decodes the OOD suite: it needs --ood] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu1')
+kinds = [{'name': 'step2', 'checkpoints': ['/c/epoch-seed0-cuda-step2.json'], 'ft_row_ids': ['aaaaaaaa'], 'seeds': [0], ...}]
+extra = (), match = "a 'trajectory' pass decodes the OOD suite: it needs --ood"
+
+    @pytest.mark.parametrize(
+        ("kinds", "extra", "match"),
+        [
+            ([_kind("step2", "trajectory")], ("--score-val", *_OOD),
+             "a 'trajectory' kind is the OOD-only row, scored without --score-val"),
+            ([_kind("step2", "trajectory")], (),
+             "a 'trajectory' pass decodes the OOD suite: it needs --ood"),
+            ([_kind("step2", "trajectory")], ("--needle", *_OOD), "--needle is a gate"),
+            ([_kind("step2", "trajectory"), _kind("seed0", "ood")], ("--score-val", *_OOD),
+             "one plan is trajectory kinds or none"),
+            ([_kind("step2", "trajectory", checkpoints=("/c/epoch-seed0-cuda.json",
+                                                        "/c/epoch-seed1-cuda.json"),
+                    ft_row_ids=("aaaaaaaa", "bbbbbbbb"), seeds=(0, 1))], _OOD,
+             "kind 'step2': .*a logit ensemble is scored with --score-val"),
+        ],
+    )
+    def test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is(tmp_path, kinds, extra, match):
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: "a 'trajectory' pass decodes the OOD suite: it needs --ood"
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu1/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:153: AssertionError
+_ test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds2-extra2---needle is a gate] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu2')
+kinds = [{'name': 'step2', 'checkpoints': ['/c/epoch-seed0-cuda-step2.json'], 'ft_row_ids': ['aaaaaaaa'], 'seeds': [0], ...}]
+extra = ('--needle', '--ood', '--ood-general-record', '/g.json')
+match = '--needle is a gate'
+
+    @pytest.mark.parametrize(
+        ("kinds", "extra", "match"),
+        [
+            ([_kind("step2", "trajectory")], ("--score-val", *_OOD),
+             "a 'trajectory' kind is the OOD-only row, scored without --score-val"),
+            ([_kind("step2", "trajectory")], (),
+             "a 'trajectory' pass decodes the OOD suite: it needs --ood"),
+            ([_kind("step2", "trajectory")], ("--needle", *_OOD), "--needle is a gate"),
+            ([_kind("step2", "trajectory"), _kind("seed0", "ood")], ("--score-val", *_OOD),
+             "one plan is trajectory kinds or none"),
+            ([_kind("step2", "trajectory", checkpoints=("/c/epoch-seed0-cuda.json",
+                                                        "/c/epoch-seed1-cuda.json"),
+                    ft_row_ids=("aaaaaaaa", "bbbbbbbb"), seeds=(0, 1))], _OOD,
+             "kind 'step2': .*a logit ensemble is scored with --score-val"),
+        ],
+    )
+    def test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is(tmp_path, kinds, extra, match):
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: '--needle is a gate'
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu2/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:153: AssertionError
+_ test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds3-extra3-one plan is trajectory kinds or none] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu3')
+kinds = [{'name': 'step2', 'checkpoints': ['/c/epoch-seed0-cuda-step2.json'], 'ft_row_ids': ['aaaaaaaa'], 'seeds': [0], ...}, {'name': 'seed0', 'checkpoints': ['/c/epoch-seed0-cuda-step2.json'], 'ft_row_ids': ['aaaaaaaa'], 'seeds': [0], ...}]
+extra = ('--score-val', '--ood', '--ood-general-record', '/g.json')
+match = 'one plan is trajectory kinds or none'
+
+    @pytest.mark.parametrize(
+        ("kinds", "extra", "match"),
+        [
+            ([_kind("step2", "trajectory")], ("--score-val", *_OOD),
+             "a 'trajectory' kind is the OOD-only row, scored without --score-val"),
+            ([_kind("step2", "trajectory")], (),
+             "a 'trajectory' pass decodes the OOD suite: it needs --ood"),
+            ([_kind("step2", "trajectory")], ("--needle", *_OOD), "--needle is a gate"),
+            ([_kind("step2", "trajectory"), _kind("seed0", "ood")], ("--score-val", *_OOD),
+             "one plan is trajectory kinds or none"),
+            ([_kind("step2", "trajectory", checkpoints=("/c/epoch-seed0-cuda.json",
+                                                        "/c/epoch-seed1-cuda.json"),
+                    ft_row_ids=("aaaaaaaa", "bbbbbbbb"), seeds=(0, 1))], _OOD,
+             "kind 'step2': .*a logit ensemble is scored with --score-val"),
+        ],
+    )
+    def test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is(tmp_path, kinds, extra, match):
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'one plan is trajectory kinds or none'
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu3/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:153: AssertionError
+_ test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds4-extra4-kind 'step2': .*a logit ensemble is scored with --score-val] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu4')
+kinds = [{'name': 'step2', 'checkpoints': ['/c/epoch-seed0-cuda.json', '/c/epoch-seed1-cuda.json'], 'ft_row_ids': ['aaaaaaaa', 'bbbbbbbb'], 'seeds': [0, 1], ...}]
+extra = ('--ood', '--ood-general-record', '/g.json')
+match = "kind 'step2': .*a logit ensemble is scored with --score-val"
+
+    @pytest.mark.parametrize(
+        ("kinds", "extra", "match"),
+        [
+            ([_kind("step2", "trajectory")], ("--score-val", *_OOD),
+             "a 'trajectory' kind is the OOD-only row, scored without --score-val"),
+            ([_kind("step2", "trajectory")], (),
+             "a 'trajectory' pass decodes the OOD suite: it needs --ood"),
+            ([_kind("step2", "trajectory")], ("--needle", *_OOD), "--needle is a gate"),
+            ([_kind("step2", "trajectory"), _kind("seed0", "ood")], ("--score-val", *_OOD),
+             "one plan is trajectory kinds or none"),
+            ([_kind("step2", "trajectory", checkpoints=("/c/epoch-seed0-cuda.json",
+                                                        "/c/epoch-seed1-cuda.json"),
+                    ft_row_ids=("aaaaaaaa", "bbbbbbbb"), seeds=(0, 1))], _OOD,
+             "kind 'step2': .*a logit ensemble is scored with --score-val"),
+        ],
+    )
+    def test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is(tmp_path, kinds, extra, match):
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: "kind 'step2': .*a logit ensemble is scored with --score-val"
+E         Actual message: "--score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_a_trajectory_plan_is_refu4/plan.json kind 'step2': passes is a non-empty list of distinct ['gates', 'ood', 'composed']"
+
+python/tests/test_score_plan_trajectory.py:153: AssertionError
+_ test_plumbing_parity_toy_corpus_plan_trajectory_rows_equal_per_snapshot_rows _
+
+corpus = Corpus(out=PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/rungd-corp...private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/rungd-corpus0/tiny-snapshot-h64'))
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_plumbing_parity_toy_corpu0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x114f66520>
+
+    def test_plumbing_parity_toy_corpus_plan_trajectory_rows_equal_per_snapshot_rows(
+        corpus, tmp_path, monkeypatch  # noqa: F811 - the fixture imported from test_real_ft_rungd_flags
+    ):
+        """PLUMBING PARITY ON THE TOY CORPUS, NOT 2B PARITY. Steps 3 then 1 (the final step first,
+        as v5 orders them) scored twice: by two v5-style ``--score-checkpoint`` calls and by one
+        ``--score-plan`` of two trajectory kinds. Every row field and every suite-verdict byte must
+        agree except the three named differences, which are asserted."""
+        ck = tmp_path / "ck"
+        ft = _only(
+            _run(corpus, tmp_path / "ft.jsonl", "--deterministic", "--max-steps", "3",
+                 "--checkpoint-dir", str(ck), "--retain-tower-every", "1", real=True, short=True),
+            "ft",
+        )
+        main_second = _toy_ood(monkeypatch)
+        record = tmp_path / "general-record.json"
+        record.write_text("{}", encoding="utf-8")
+        tokenizer = _tokenizer_json(tmp_path / "tokenizer.json")
+        common = (
+            "--out", str(corpus.out), "--rev", REV, "--devices", "cpu",
+            "--real-backbone", str(corpus.snapshot), "--ft-ledger", str(tmp_path / "ft.jsonl"),
+            "--tokenizer-json", str(tokenizer), "--ood", "--ood-general-record", str(record),
+        )
+        steps = (3, 1)
+        old_dir, new_dir = tmp_path / "old", tmp_path / "new"
+        old_dir.mkdir()
+        new_dir.mkdir()
+    
+        # v5: one process per snapshot (box_q_v5traj.sh).
+        old_ledger = tmp_path / "old.jsonl"
+        for step in steps:
+            code, text = _main(
+                corpus, *common, "--seeds", "0", "--ft-row-id", ft.row_id,
+                "--score-checkpoint", str(ck / f"epoch-seed0-cpu-step{step}.json"),
+                "--ledger", str(old_ledger),
+                "--suite-verdicts-out", str(old_dir / f"traj-s0-step{step}.jsonl"),
+            )
+            assert code == 0, text
+    
+        # v6: one process, one kind per snapshot.
+        plan_path = tmp_path / "traj-plan.json"
+        plan_path.write_text(json.dumps({"kinds": [
+            {"name": f"step{step}", "checkpoints": [str(ck / f"epoch-seed0-cpu-step{step}.json")],
+             "ft_row_ids": [ft.row_id], "seeds": [0], "passes": ["trajectory"]}
+            for step in steps
+        ]}), encoding="utf-8")
+        new_ledger = tmp_path / "new.jsonl"
+>       code, text = _main(
+            corpus, *common, "--score-plan", str(plan_path), "--ledger", str(new_ledger),
+            "--suite-verdicts-out", str(new_dir / "traj-s0.jsonl"),
+        )
+
+python/tests/test_score_plan_trajectory.py:275: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/tests/test_checkpoint_retain.py:266: in _main
+    code = rft.main(list(argv))
+           ^^^^^^^^^^^^^^^^^^^^
+tools/real_ft_run.py:10842: in main
+    score_plan = _check_score_plan_flags(args, seeds_given=seeds_given)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tools/real_ft_run.py:8489: in _check_score_plan_flags
+    plan = read_score_plan(args.score_plan)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_plumbing_parity_toy_corpu0/traj-plan.json')
+
+    def read_score_plan(path: Path) -> ScorePlan:
+        """Read and check a plan, refusing anything it does not define."""
+        where = f"--score-plan {path}"
+        try:
+            size = path.stat().st_size
+            if size > PLAN_MAX_BYTES:
+                raise SystemExit(f"{where}: {size} bytes, more than a plan's {PLAN_MAX_BYTES}")
+            raw = path.read_bytes()
+            body = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"{where}: {exc}") from exc
+        if not isinstance(body, dict) or set(body) != {"kinds"}:
+            raise SystemExit(f"{where}: a plan is an object with one key, 'kinds'")
+        listed = body["kinds"]
+        if not isinstance(listed, list) or not 1 <= len(listed) <= PLAN_MAX_KINDS:
+            raise SystemExit(f"{where}: 'kinds' is a list of 1 to {PLAN_MAX_KINDS} kinds")
+        kinds: list[PlanKind] = []
+        for i, entry in enumerate(listed):
+            at = f"{where} kind {i}"
+            if not isinstance(entry, dict):
+                raise SystemExit(f"{at}: a kind is an object")
+            unknown = sorted(set(entry) - PLAN_KIND_KEYS)
+            missing = sorted(PLAN_KIND_REQUIRED - set(entry))
+            if unknown or missing:
+                raise SystemExit(f"{at}: unknown keys {unknown}, missing keys {missing}")
+            name = entry["name"]
+            if not isinstance(name, str) or PLAN_KIND_NAME.fullmatch(name) is None:
+                raise SystemExit(f"{at}: name {name!r} is not {PLAN_KIND_NAME.pattern}")
+            at = f"{where} kind {name!r}"
+            seeds = entry["seeds"]
+            if not (isinstance(seeds, list) and 1 <= len(seeds) <= MAX_SEEDS
+                    and all(isinstance(s, int) and not isinstance(s, bool) for s in seeds)):
+                raise SystemExit(f"{at}: seeds is a list of 1 to {MAX_SEEDS} integers")
+            passes = entry["passes"]
+            if not (isinstance(passes, list) and passes
+                    and all(isinstance(p, str) and p in PLAN_PASSES for p in passes)
+                    and len(set(passes)) == len(passes)):
+>               raise SystemExit(f"{at}: passes is a non-empty list of distinct {list(PLAN_PASSES)}")
+E               SystemExit: --score-plan /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_plumbing_parity_toy_corpu0/traj-plan.json kind 'step3': passes is a non-empty list of distinct ['gates', 'ood', 'composed']
+
+tools/real_ft_run.py:8439: SystemExit
+---------------------------- Captured stdout setup -----------------------------
+[ERROR] `loss` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in /Users/bharath/.venvs/ml/lib/python3.14/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py.
+[ERROR] `logits` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in /Users/bharath/.venvs/ml/lib/python3.14/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py.
+---------------------------- Captured stderr setup -----------------------------
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+------------------------------ Captured log setup ------------------------------
+WARNING  transformers.models.qwen3_5.modeling_qwen3_5:logging.py:340 The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+----------------------------- Captured stdout call -----------------------------
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/rungd-corpus0/shards/train
+  rows in -> out: 172 -> 172  (0 excluded)  tokens 150716  vocab 256
+  choice  n= 172  len 457..459 (mean 458.6)  gold is noul: 0  rendered rows [5]
+  span    n= 172  len 416..418 (mean 417.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
+  letter rows whose gold is noul: 0 of 172
+  prompt-identical rows: 0 of 344; of those, 0 rows in 0 groups carry DIFFERENT golds ({})
+  letters -> post-remap ids: {'A': 65, 'B': 66, 'C': 67, 'D': 68, 'Z': 90}
+  padding waste: 0 padding of 150716 positions (0.00%) over 344 sequences; gate is <= 15%. buckets=[416, 418, 457, 459]
+  span_check: {"state": "not_run", "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset map
+  remap beside the shards: {"state": "ran", "passed": true, "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df", "n": 256, "n_total": 256, "detail": "/private/var/folders/wl/qc_0nnp91
+  epoch at batch_tokens=459: 344 batches, 172 carry a span row, 172 have no letter row; letter-channel chunks 172 live of 344
+devices: ['cpu'] (from --devices; auto-detection skipped)
+
+feasibility, one forward+backward per bucket width, in a subprocess:
+  (a 128x4 stand-in, NOT the real tower: this establishes the device and the shape, not that the real model fits)
+  cpu bucket 0 (1 x 416): ok 0.0s
+  cpu bucket 1 (1 x 418): ok 0.0s
+  cpu bucket 2 (1 x 457): ok 0.0s
+  cpu bucket 3 (1 x 459): ok 0.0s
+
+arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
+batch order: plan seed 20260919 (DataConfig().seed: every seed trains on this one order), order digest 7b942ae07cec5e2f (arm 2 7b942ae07cec5e2f)
+
+arm 2: NOT RUN -- --no-memorise
+  progress epoch cpu seed=0: step 1/3 elapsed 0s 0.24s/step 1887 pos/s eta 0s loss 5.4477
+  snapshot: step 1 -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_plumbing_parity_toy_corpu0/ck/epoch-seed0-cpu-step1.json (0.00 GiB in 0.0s; tower and span head, no optimizer state)
+  snapshot: step 2 -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_plumbing_parity_toy_corpu0/ck/epoch-seed0-cpu-step2.json (0.00 GiB in 0.0s; tower and span head, no optimizer state)
+  snapshot: step 3 -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/test_plumbing_parity_toy_corpu0/ck/epoch-seed0-cpu-step3.json (0.00 GiB in 0.0s; tower and span head, no optimizer state)
+arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, total 5.4477 -> 7.2093, 0.503s, termination steps_exhausted, ft row 1076e6d2-c743-43a3-b737-c34a23b9fbcc
+{
+  "arm1": [
+    {
+      "attn_implementation": "sdpa",
+      "backbone_params": 4000000,
+      "backbone_snapshot": "tiny-snapshot-h64",
+      "backbone_vocab": 256,
+      "cost": "CostEstimate(usd_per_hour=0.0, cap=WallClockCap(cap_s=1800.0), n_gpus=0, instance='local-cpu', usd_per_gpu_hour=None)",
+      "device": "cpu",
+      "final": {
+        "not_run": "the whole-plan floor evaluation (_evaluate) did not run: this arm records no floor metric from it; only the memorise arm does"
+      },
+      "ft_row_id": "1076e6d2-c743-43a3-b737-c34a23b9fbcc",
+      "letter_at_first_joint_batch": NaN,
+      "letter_first": 5.447668075561523,
+      "letter_floor": 0.0,
+      "letter_last": 5.543972492218018,
+      "max_steps": 3,
+      "micro_batches": 3,
+      "no_memorise": true,
+      "optimizer_recipe": "bf16",
+      "optimizer_steps": 3,
+      "padding_fraction": 0.0,
+      "params": 112680,
+      "prompt_format": 2,
+      "seed": 0,
+      "span_at_first_joint_batch": NaN,
+      "span_first": 7.209263324737549,
+      "span_floor": 0.0,
+      "span_last": 7.209263324737549,
+      "span_rows": 1,
+      "span_weight": 1.0,
+      "steps_per_s": 5.97,
+      "steps_requested": 3,
+      "supervised_tokens": 2,
+      "tag": "epoch",
+      "termination": "steps_exhausted",
+      "total_first": 5.447668075561523,
+      "total_last": 7.209263324737549,
+      "wall_clock_s": 0.503
+    }
+  ],
+  "arm2": [],
+  "batches": {
+    "batches": 344,
+    "batches_letter_only": 172,
+    "batches_span_only": 172,
+    "batches_with_a_span_row": 172,
+    "letter_channel_live_chunks": 172,
+    "letter_channel_total_chunks": 344,
+    "widths": [
+      416,
+      418,
+      457,
+      459
+    ]
+  },
+  "batches_with_span": [
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 2,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 4,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 6,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 9,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 10,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 12,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 13,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 15,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 16,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 17,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 18,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 19,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 20,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 21,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 22,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 23,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 26,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 31,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 33,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 34,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 36,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 40,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 43,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 45,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 48,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 50,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 52,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 53,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 55,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 56,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 58,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 60,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 62,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 63,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 65,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 66,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 67,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 68,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 69,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 71,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 73,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 75,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 79,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 80,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 82,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 88,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 90,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 93,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 99,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 100,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 101,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 103,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 104,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 106,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 107,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 109,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 112,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 113,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 115,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 117,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 118,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 119,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 120,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 125,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 127,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 129,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 132,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 134,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 136,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 137,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 138,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 143,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 147,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 148,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 149,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 151,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 152,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 153,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 154,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 159,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 161,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 162,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 164,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 165,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 170,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 172,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 173,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 174,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 175,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 176,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 180,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 182,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 183,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 187,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 188,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 189,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 191,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 193,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 194,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 196,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 197,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 202,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 203,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 206,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 207,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 210,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 212,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 218,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 219,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 220,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 221,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 222,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 224,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 225,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 226,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 227,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 229,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 230,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 232,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 233,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 235,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 239,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 240,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 244,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 245,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 246,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 247,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 250,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 251,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 254,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 255,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 258,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 261,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 266,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 268,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 270,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 272,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 273,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 274,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 276,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 279,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 280,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 281,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 282,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 288,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 289,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 293,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 294,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 295,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 296,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 302,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 305,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 309,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 311,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 312,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 313,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 314,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 317,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 320,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 322,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 325,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 327,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 328,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 329,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 331,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 335,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 337,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 339,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 340,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 341,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 342,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 343,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    }
+  ],
+  "failures": [
+    "arm1 cpu seed=0: the letter loss did not fall"
+  ],
+  "inventory": {
+    "buckets": [
+      416,
+      418,
+      457,
+      459
+    ],
+    "contradictions": {
+      "contradicting_groups": 0,
+      "contradicting_rows": 0,
+      "examples": [],
+      "per_kind": {},
+      "rows_sharing_a_prefix": 0,
+      "sequences": 344
+    },
+    "coverage": {
+      "detail": "every row in the manifest was tokenized into the shard set",
+      "n": 172,
+      "n_total": 172,
+      "passed": true,
+      "state": "ran",
+      "value": 172
+    },
+    "excluded_examples": [],
+    "excluded_rows": 0,
+    "letter_rows": 172,
+    "letter_rows_whose_gold_is_noul": 0,
+    "padding_waste": {
+      "detail": "0 padding of 150716 positions (0.00%) over 344 sequences; gate is <= 15%. buckets=[416, 418, 457, 459]",
+      "n": 344,
+      "n_total": 344,
+      "passed": true,
+      "state": "ran",
+      "value": 0.0
+    },
+    "per_kind": {
+      "choice": {
+        "families": {
+          "code.defect_class": 172
+        },
+        "gold_is_noul": 0,
+        "len_max": 459,
+        "len_mean": 458.6,
+        "len_min": 457,
+        "n": 172,
+        "n_total": 344,
+        "row_widths": [
+          5
+        ],
+        "tokens": 78884
+      },
+      "span": {
+        "candidates_max": 7,
+        "candidates_min": 7,
+        "candidates_total": 1204,
+        "families": {
+          "code.defect_class": 172
+        },
+        "gold_is_noul": 172,
+        "len_max": 418,
+        "len_mean": 417.6,
+        "len_min": 416,
+        "n": 172,
+        "n_total": 344,
+        "pointer_abstaining": 43,
+        "row_widths": [
+          1
+        ],
+        "tokens": 71832
+      }
+    },
+    "remap_check": {
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "n": 256,
+      "n_total": 256,
+      "passed": true,
+      "state": "ran",
+      "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
+    },
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-161/rungd-corpus0/shards/train",
+    "sequences": 344,
+    "span_check": {
+      "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
+      "state": "not_run"
+    },
+    "tokens": 150716,
+    "vocab_size": 256
+  },
+  "letter_ids": {
+    "A": 65,
+    "B": 66,
+    "C": 67,
+    "D": 68,
+    "Z": 90
+  },
+  "probes": [
+    {
+      "bucket": 0,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 418
+    },
+    {
+      "bucket": 2,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 457
+    },
+    {
+      "bucket": 3,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 459
+    }
+  ],
+  "torch": "2.12.1"
+}
+
+FAILED: 1 claim(s) did not hold:
+  - arm1 cpu seed=0: the letter loss did not fall
+
+----------------------------- Captured stderr call -----------------------------
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+------------------------------ Captured log call -------------------------------
+WARNING  transformers.utils.generic:logging.py:340 `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+=============================== warnings summary ===============================
+python/tests/test_score_plan_trajectory.py::test_plumbing_parity_toy_corpus_plan_trajectory_rows_equal_per_snapshot_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_score_plan_trajectory.py::test_plumbing_parity_toy_corpus_plan_trajectory_rows_equal_per_snapshot_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED python/tests/test_score_plan_trajectory.py::test_the_kind_name_lands_on_v5s_per_snapshot_file_name
+PASSED python/tests/test_score_plan_trajectory.py::test_an_ood_diagnostic_plan_still_needs_score_val
+FAILED python/tests/test_score_plan_trajectory.py::test_trajectory_is_a_plan_pass_and_a_plan_of_them_is_ood_only
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_kind_runs_nothing_else[gates]
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_kind_runs_nothing_else[ood]
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_kind_runs_nothing_else[composed]
+FAILED python/tests/test_score_plan_trajectory.py::test_the_plans_other_kinds_are_not_ood_only
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_kinds_namespace_is_the_ood_only_mode_and_no_other_kinds_is
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_plan_passes_every_argv_check_without_score_val
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds0-extra0-a 'trajectory' kind is the OOD-only row, scored without --score-val]
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds1-extra1-a 'trajectory' pass decodes the OOD suite: it needs --ood]
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds2-extra2---needle is a gate]
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds3-extra3-one plan is trajectory kinds or none]
+FAILED python/tests/test_score_plan_trajectory.py::test_a_trajectory_plan_is_refused_where_the_per_snapshot_call_is[kinds4-extra4-kind 'step2': .*a logit ensemble is scored with --score-val]
+FAILED python/tests/test_score_plan_trajectory.py::test_plumbing_parity_toy_corpus_plan_trajectory_rows_equal_per_snapshot_rows
+13 failed, 2 passed, 2 warnings in 8.87s
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

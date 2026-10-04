@@ -1,0 +1,2658 @@
+fail-first: tests from the working tree, code from 981ca7c exported to /private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c
+981ca7c3ba46a5ed81af540e2f90820136a34b9a
+FFF                                                                      [100%]
+==================================== ERRORS ====================================
+______________ ERROR collecting python/tests/test_split_cache.py _______________
+ImportError while importing test module '/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache.py:40: in <module>
+    import split_cache as sc  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'split_cache'
+=================================== FAILURES ===================================
+____ test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows _____
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache_main.py:107: in test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+    code, text[name] = _main(
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache_main.py:72: in _main
+    code = rft.main(list(argv))
+           ^^^^^^^^^^^^^^^^^^^^
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/tools/real_ft_run.py:10690: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: in exit
+    _sys.exit(status)
+E   SystemExit: 2
+---------------------------- Captured stdout setup -----------------------------
+[ERROR] `loss` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in /Users/bharath/.venvs/ml/lib/python3.14/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py.
+[ERROR] `logits` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in /Users/bharath/.venvs/ml/lib/python3.14/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py.
+---------------------------- Captured stderr setup -----------------------------
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+------------------------------ Captured log setup ------------------------------
+WARNING  transformers.models.qwen3_5.modeling_qwen3_5:logging.py:340 The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+----------------------------- Captured stdout call -----------------------------
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-169/rungd-corpus0/shards/train
+  rows in -> out: 172 -> 172  (0 excluded)  tokens 150716  vocab 256
+  choice  n= 172  len 457..459 (mean 458.6)  gold is noul: 0  rendered rows [5]
+  span    n= 172  len 416..418 (mean 417.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
+  letter rows whose gold is noul: 0 of 172
+  prompt-identical rows: 0 of 344; of those, 0 rows in 0 groups carry DIFFERENT golds ({})
+  letters -> post-remap ids: {'A': 65, 'B': 66, 'C': 67, 'D': 68, 'Z': 90}
+  padding waste: 0 padding of 150716 positions (0.00%) over 344 sequences; gate is <= 15%. buckets=[416, 418, 457, 459]
+  span_check: {"state": "not_run", "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset map
+  remap beside the shards: {"state": "ran", "passed": true, "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df", "n": 256, "n_total": 256, "detail": "/private/var/folders/wl/qc_0nnp91
+  epoch at batch_tokens=459: 344 batches, 172 carry a span row, 172 have no letter row; letter-channel chunks 172 live of 344
+devices: ['cpu'] (from --devices; auto-detection skipped)
+
+feasibility, one forward+backward per bucket width, in a subprocess:
+  (a 128x4 stand-in, NOT the real tower: this establishes the device and the shape, not that the real model fits)
+  cpu bucket 0 (1 x 416): ok 0.0s
+  cpu bucket 1 (1 x 418): ok 0.0s
+  cpu bucket 2 (1 x 457): ok 0.0s
+  cpu bucket 3 (1 x 459): ok 0.0s
+
+arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
+batch order: plan seed 20260919 (DataConfig().seed: every seed trains on this one order), order digest 7b942ae07cec5e2f (arm 2 7b942ae07cec5e2f)
+
+arm 2: NOT RUN -- --no-memorise
+  progress epoch cpu seed=0: step 1/3 elapsed 0s 0.22s/step 2073 pos/s eta 0s loss 5.4477
+  snapshot: step 3 -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-169/test_plumbing_toy_corpus_split0/ck/epoch-seed0-cpu-step3.json (0.00 GiB in 0.0s; tower and span head, no optimizer state)
+arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, total 5.4477 -> 7.2093, 0.541s, termination steps_exhausted, ft row 891101e2-ecaa-4a8f-9715-0f446c2d9507
+{
+  "arm1": [
+    {
+      "attn_implementation": "sdpa",
+      "backbone_params": 4000000,
+      "backbone_snapshot": "tiny-snapshot-h64",
+      "backbone_vocab": 256,
+      "cost": "CostEstimate(usd_per_hour=0.0, cap=WallClockCap(cap_s=1800.0), n_gpus=0, instance='local-cpu', usd_per_gpu_hour=None)",
+      "device": "cpu",
+      "final": {
+        "not_run": "the whole-plan floor evaluation (_evaluate) did not run: this arm records no floor metric from it; only the memorise arm does"
+      },
+      "ft_row_id": "891101e2-ecaa-4a8f-9715-0f446c2d9507",
+      "letter_at_first_joint_batch": NaN,
+      "letter_first": 5.447668075561523,
+      "letter_floor": 0.0,
+      "letter_last": 5.543972492218018,
+      "max_steps": 3,
+      "micro_batches": 3,
+      "no_memorise": true,
+      "optimizer_recipe": "bf16",
+      "optimizer_steps": 3,
+      "padding_fraction": 0.0,
+      "params": 112680,
+      "prompt_format": 2,
+      "seed": 0,
+      "span_at_first_joint_batch": NaN,
+      "span_first": 7.209263324737549,
+      "span_floor": 0.0,
+      "span_last": 7.209263324737549,
+      "span_rows": 1,
+      "span_weight": 1.0,
+      "steps_per_s": 5.55,
+      "steps_requested": 3,
+      "supervised_tokens": 2,
+      "tag": "epoch",
+      "termination": "steps_exhausted",
+      "total_first": 5.447668075561523,
+      "total_last": 7.209263324737549,
+      "wall_clock_s": 0.541
+    }
+  ],
+  "arm2": [],
+  "batches": {
+    "batches": 344,
+    "batches_letter_only": 172,
+    "batches_span_only": 172,
+    "batches_with_a_span_row": 172,
+    "letter_channel_live_chunks": 172,
+    "letter_channel_total_chunks": 344,
+    "widths": [
+      416,
+      418,
+      457,
+      459
+    ]
+  },
+  "batches_with_span": [
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 2,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 4,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 6,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 9,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 10,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 12,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 13,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 15,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 16,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 17,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 18,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 19,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 20,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 21,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 22,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 23,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 26,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 31,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 33,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 34,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 36,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 40,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 43,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 45,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 48,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 50,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 52,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 53,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 55,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 56,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 58,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 60,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 62,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 63,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 65,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 66,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 67,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 68,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 69,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 71,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 73,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 75,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 79,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 80,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 82,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 88,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 90,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 93,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 99,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 100,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 101,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 103,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 104,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 106,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 107,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 109,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 112,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 113,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 115,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 117,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 118,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 119,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 120,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 125,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 127,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 129,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 132,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 134,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 136,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 137,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 138,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 143,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 147,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 148,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 149,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 151,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 152,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 153,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 154,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 159,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 161,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 162,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 164,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 165,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 170,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 172,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 173,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 174,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 175,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 176,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 180,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 182,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 183,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 187,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 188,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 189,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 191,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 193,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 194,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 196,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 197,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 202,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 203,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 206,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 207,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 210,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 212,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 218,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 219,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 220,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 221,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 222,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 224,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 225,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 226,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 227,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 229,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 230,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 232,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 233,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 235,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 239,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 240,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 244,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 245,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 246,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 247,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 250,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 251,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 254,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 255,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 258,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 261,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 266,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 268,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 270,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 272,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 273,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 274,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 276,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 279,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 280,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 281,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 282,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 288,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 289,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 293,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 294,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 295,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 296,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 302,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 305,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 309,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 311,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 312,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 313,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 314,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 317,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 320,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 322,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 325,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 327,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 328,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 329,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 331,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 0,
+      "chunks": 1,
+      "index": 335,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 337,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 339,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 340,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 341,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 342,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    },
+    {
+      "bucket": 1,
+      "chunks": 1,
+      "index": 343,
+      "kinds": {
+        "span": 1
+      },
+      "live_chunks": 0,
+      "rows": 1,
+      "span_rows": 1,
+      "supervised": 0,
+      "width": 418
+    }
+  ],
+  "failures": [
+    "arm1 cpu seed=0: the letter loss did not fall"
+  ],
+  "inventory": {
+    "buckets": [
+      416,
+      418,
+      457,
+      459
+    ],
+    "contradictions": {
+      "contradicting_groups": 0,
+      "contradicting_rows": 0,
+      "examples": [],
+      "per_kind": {},
+      "rows_sharing_a_prefix": 0,
+      "sequences": 344
+    },
+    "coverage": {
+      "detail": "every row in the manifest was tokenized into the shard set",
+      "n": 172,
+      "n_total": 172,
+      "passed": true,
+      "state": "ran",
+      "value": 172
+    },
+    "excluded_examples": [],
+    "excluded_rows": 0,
+    "letter_rows": 172,
+    "letter_rows_whose_gold_is_noul": 0,
+    "padding_waste": {
+      "detail": "0 padding of 150716 positions (0.00%) over 344 sequences; gate is <= 15%. buckets=[416, 418, 457, 459]",
+      "n": 344,
+      "n_total": 344,
+      "passed": true,
+      "state": "ran",
+      "value": 0.0
+    },
+    "per_kind": {
+      "choice": {
+        "families": {
+          "code.defect_class": 172
+        },
+        "gold_is_noul": 0,
+        "len_max": 459,
+        "len_mean": 458.6,
+        "len_min": 457,
+        "n": 172,
+        "n_total": 344,
+        "row_widths": [
+          5
+        ],
+        "tokens": 78884
+      },
+      "span": {
+        "candidates_max": 7,
+        "candidates_min": 7,
+        "candidates_total": 1204,
+        "families": {
+          "code.defect_class": 172
+        },
+        "gold_is_noul": 172,
+        "len_max": 418,
+        "len_mean": 417.6,
+        "len_min": 416,
+        "n": 172,
+        "n_total": 344,
+        "pointer_abstaining": 43,
+        "row_widths": [
+          1
+        ],
+        "tokens": 71832
+      }
+    },
+    "remap_check": {
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-169/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "n": 256,
+      "n_total": 256,
+      "passed": true,
+      "state": "ran",
+      "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
+    },
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-169/rungd-corpus0/shards/train",
+    "sequences": 344,
+    "span_check": {
+      "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
+      "state": "not_run"
+    },
+    "tokens": 150716,
+    "vocab_size": 256
+  },
+  "letter_ids": {
+    "A": 65,
+    "B": 66,
+    "C": 67,
+    "D": 68,
+    "Z": 90
+  },
+  "probes": [
+    {
+      "bucket": 0,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 416
+    },
+    {
+      "bucket": 1,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 418
+    },
+    {
+      "bucket": 2,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 457
+    },
+    {
+      "bucket": 3,
+      "device": "cpu",
+      "ok": true,
+      "rows": 1,
+      "wall_s": 0.0,
+      "why": "stubbed in-process",
+      "width": 459
+    }
+  ],
+  "torch": "2.12.1"
+}
+
+FAILED: 1 claim(s) did not hold:
+  - arm1 cpu seed=0: the letter loss did not fall
+
+----------------------------- Captured stderr call -----------------------------
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+usage: python -m pytest [-h] [--out OUT] [--passes PASSES]
+                        [--seeds SEEDS [SEEDS ...]] [--prior-sd PRIOR_SD]
+                        [--target-difference TARGET_DIFFERENCE]
+                        [--span-weight SPAN_WEIGHT]
+                        [--checkpoint-dir CHECKPOINT_DIR]
+                        [--checkpoint-every CHECKPOINT_EVERY]
+                        [--retain-tower-every N] [--resume-from RESUME_FROM]
+                        [--hidden HIDDEN] [--heads HEADS] [--lr LR]
+                        [--min-lr MIN_LR] [--batch-order {seed}]
+                        [--noul-weight W] [--max-width MAX_WIDTH]
+                        [--max-pairs MAX_PAIRS] [--no-repo-history]
+                        [--rev REV] [--commitpackft COMMITPACKFT]
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS] [--epoch]
+                        [--no-memorise] [--wall-clock-cap-s WALL_CLOCK_CAP_S]
+                        [--batch-tokens BATCH_TOKENS] [--score-val]
+                        [--score-checkpoint SCORE_CHECKPOINT [SCORE_CHECKPOINT ...]]
+                        [--ft-ledger FT_LEDGER]
+                        [--ft-row-id FT_ROW_ID [FT_ROW_ID ...]]
+                        [--score-plan PLAN.json] [--composed-slice SLICE_OUT]
+                        [--composed-slice-corpus COMPOSED_SLICE_CORPUS]
+                        [--score-dtype {fp32,bf16}] [--needle] [--ood]
+                        [--ood-general-record OOD_GENERAL_RECORD]
+                        [--needle-predictions-out NEEDLE_PREDICTIONS_OUT]
+                        [--needle-handoff NEEDLE_HANDOFF] [--ledger LEDGER]
+                        [--optimizer {bf16,master}]
+                        [--real-backbone REAL_BACKBONE]
+                        [--devices {cpu,cuda,mps} [{cpu,cuda,mps} ...]]
+                        [--instance INSTANCE] [--usd-per-hour USD_PER_HOUR]
+                        [--usd-per-gpu-hour USD_PER_GPU_HOUR]
+                        [--approved-by APPROVED_BY]
+                        [--attn-implementation ATTN_IMPLEMENTATION]
+                        [--deterministic] [--fused-adamw]
+                        [--train-attention-mask {padding,none}]
+                        [--max-steps N] [--probe-shapes MARGIN_GIB]
+                        [--train-dtype {bf16,fp32}] [--span-head-init PATH]
+                        [--span-head-init-manifest PATH]
+                        [--span-head-init-digest]
+                        [--checkpoint-skip-layers CHECKPOINT_SKIP_LAYERS]
+                        [--lower-layers-n LOWER_LAYERS_N]
+                        [--lower-layers-lr-scale LOWER_LAYERS_LR_SCALE]
+                        [--beta2 BETA2]
+                        [--option-permutation-seed OPTION_PERMUTATION_SEED]
+                        [--tokenizer-json TOKENIZER_JSON]
+                        [--replay-shards REPLAY_SHARDS]
+                        [--replay-attestation REPLAY_ATTESTATION]
+                        [--replay-cache REPLAY_CACHE]
+                        [--replay-weight REPLAY_WEIGHT]
+                        [--replay-every REPLAY_EVERY]
+                        [--needle-control TOKENS,TOKENS,...]
+                        [--suite-verdicts-out SUITE_VERDICTS_OUT]
+                        [--suite-logits] [--verdicts-out VERDICTS_OUT]
+                        [--shuffled-label EVAL_ROW_ID]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-169/test_plumbing_toy_corpus_split0/split-cache
+------------------------------ Captured log call -------------------------------
+WARNING  transformers.utils.generic:logging.py:340 `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+______ test_an_unsafe_split_cache_dir_is_refused_before_anything_is_read _______
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache_main.py:141: in test_an_unsafe_split_cache_dir_is_refused_before_anything_is_read
+    with pytest.raises(SystemExit, match="group- or world-writable"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'group- or world-writable'
+E     Actual message: '2'
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] [--out OUT] [--passes PASSES]
+                        [--seeds SEEDS [SEEDS ...]] [--prior-sd PRIOR_SD]
+                        [--target-difference TARGET_DIFFERENCE]
+                        [--span-weight SPAN_WEIGHT]
+                        [--checkpoint-dir CHECKPOINT_DIR]
+                        [--checkpoint-every CHECKPOINT_EVERY]
+                        [--retain-tower-every N] [--resume-from RESUME_FROM]
+                        [--hidden HIDDEN] [--heads HEADS] [--lr LR]
+                        [--min-lr MIN_LR] [--batch-order {seed}]
+                        [--noul-weight W] [--max-width MAX_WIDTH]
+                        [--max-pairs MAX_PAIRS] [--no-repo-history]
+                        [--rev REV] [--commitpackft COMMITPACKFT]
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS] [--epoch]
+                        [--no-memorise] [--wall-clock-cap-s WALL_CLOCK_CAP_S]
+                        [--batch-tokens BATCH_TOKENS] [--score-val]
+                        [--score-checkpoint SCORE_CHECKPOINT [SCORE_CHECKPOINT ...]]
+                        [--ft-ledger FT_LEDGER]
+                        [--ft-row-id FT_ROW_ID [FT_ROW_ID ...]]
+                        [--score-plan PLAN.json] [--composed-slice SLICE_OUT]
+                        [--composed-slice-corpus COMPOSED_SLICE_CORPUS]
+                        [--score-dtype {fp32,bf16}] [--needle] [--ood]
+                        [--ood-general-record OOD_GENERAL_RECORD]
+                        [--needle-predictions-out NEEDLE_PREDICTIONS_OUT]
+                        [--needle-handoff NEEDLE_HANDOFF] [--ledger LEDGER]
+                        [--optimizer {bf16,master}]
+                        [--real-backbone REAL_BACKBONE]
+                        [--devices {cpu,cuda,mps} [{cpu,cuda,mps} ...]]
+                        [--instance INSTANCE] [--usd-per-hour USD_PER_HOUR]
+                        [--usd-per-gpu-hour USD_PER_GPU_HOUR]
+                        [--approved-by APPROVED_BY]
+                        [--attn-implementation ATTN_IMPLEMENTATION]
+                        [--deterministic] [--fused-adamw]
+                        [--train-attention-mask {padding,none}]
+                        [--max-steps N] [--probe-shapes MARGIN_GIB]
+                        [--train-dtype {bf16,fp32}] [--span-head-init PATH]
+                        [--span-head-init-manifest PATH]
+                        [--span-head-init-digest]
+                        [--checkpoint-skip-layers CHECKPOINT_SKIP_LAYERS]
+                        [--lower-layers-n LOWER_LAYERS_N]
+                        [--lower-layers-lr-scale LOWER_LAYERS_LR_SCALE]
+                        [--beta2 BETA2]
+                        [--option-permutation-seed OPTION_PERMUTATION_SEED]
+                        [--tokenizer-json TOKENIZER_JSON]
+                        [--replay-shards REPLAY_SHARDS]
+                        [--replay-attestation REPLAY_ATTESTATION]
+                        [--replay-cache REPLAY_CACHE]
+                        [--replay-weight REPLAY_WEIGHT]
+                        [--replay-every REPLAY_EVERY]
+                        [--needle-control TOKENS,TOKENS,...]
+                        [--suite-verdicts-out SUITE_VERDICTS_OUT]
+                        [--suite-logits] [--verdicts-out VERDICTS_OUT]
+                        [--shuffled-label EVAL_ROW_ID]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-169/test_an_unsafe_split_cache_dir0/shared
+___ test_the_split_cache_flag_is_documented_as_off_by_default_and_not_recipe ___
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache_main.py:150: in test_the_split_cache_flag_is_documented_as_off_by_default_and_not_recipe
+    assert "--split-cache DIR" in flat
+E   assert '--split-cache DIR' in "usage: python -m pytest [-h] [--out OUT] [--passes PASSES] [--seeds SEEDS [SEEDS ...]] [--prior-sd PRIOR_SD] [--targe...al_row_id, in the target's seed family. Needs --epoch, --no-memorise, --score-val and one --seeds/--devices entry each"
+=============================== warnings summary ===============================
+python/tests/test_split_cache_main.py::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_split_cache_main.py::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED ../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache_main.py::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+FAILED ../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache_main.py::test_an_unsafe_split_cache_dir_is_refused_before_anything_is_read
+FAILED ../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache_main.py::test_the_split_cache_flag_is_documented_as_off_by_default_and_not_recipe
+ERROR ../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ff-981ca7c/python/tests/test_split_cache.py
+3 failed, 2 warnings, 1 error in 4.88s
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+pytest exit 1

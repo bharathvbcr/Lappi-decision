@@ -1,0 +1,16 @@
+........................................................................ [ 28%]
+..........................................s............................. [ 57%]
+........................................................................ [ 85%]
+....................................                                     [100%]
+=============================== warnings summary ===============================
+python/tests/test_score_plan_trajectory.py::test_plumbing_parity_toy_corpus_plan_trajectory_rows_equal_per_snapshot_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_score_plan_trajectory.py::test_plumbing_parity_toy_corpus_plan_trajectory_rows_equal_per_snapshot_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] python/tests/test_real_ft_composed_slice.py:361: QD_SLICE_* do not name the real slice
+251 passed, 1 skipped, 2 warnings in 22.54s
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

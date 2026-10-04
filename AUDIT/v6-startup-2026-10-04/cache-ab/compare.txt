@@ -1,0 +1,18 @@
+ab-hit1  wall   21.54 s  peak RSS   4.44 GiB  window 39 lines
+         split cache: READ FROM the split cache /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/split-cache-ab/a5eb300a98b8cde6a9ff41cb4792887afa66e9574d7e518a350d10631815088b.rows.pkl -- 487407 train + 223
+ab-hit2  wall   21.20 s  peak RSS   4.44 GiB  window 39 lines
+         split cache: READ FROM the split cache /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/split-cache-ab/a5eb300a98b8cde6a9ff41cb4792887afa66e9574d7e518a350d10631815088b.rows.pkl -- 487407 train + 223
+ab-hit3  wall   21.26 s  peak RSS   4.43 GiB  window 39 lines
+         split cache: READ FROM the split cache /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/split-cache-ab/a5eb300a98b8cde6a9ff41cb4792887afa66e9574d7e518a350d10631815088b.rows.pkl -- 487407 train + 223
+ab-miss  wall  236.35 s  peak RSS  26.00 GiB  window 39 lines
+         split cache: miss for key a5eb300a98b8cde6a9ff41cb4792887afa66e9574d7e518a350d10631815088b (no entry for this key); rebuilding
+         split cache: STORED /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/split-cache-ab/a5eb300a98b8cde6a9ff41cb4792887afa66e9574d7e518a350d10631815088b.rows.pkl (1707290395 bytes, entry and sidecar 12.
+ab-off1  wall  221.31 s  peak RSS  26.47 GiB  window 39 lines
+ab-off2  wall  222.60 s  peak RSS  25.96 GiB  window 39 lines
+ab-off3  wall  220.53 s  peak RSS  25.98 GiB  window 39 lines
+PASS  1. saving min(OFF) - min(HIT) = 220.53 - 21.20 = 199.33 s >= 60 s
+PASS  2. HIT peak RSS 4.44 GiB <= OFF peak RSS 26.47 GiB
+PASS  3. MISS wall 236.35 s <= min(OFF) + 30 = 250.53 s, and MISS peak RSS 26.00 GiB <= OFF peak + 2 = 28.47 GiB
+PASS  4. downstream windows equal across OFF and HIT (39 lines): all equal
+(not a bar) MISS's downstream window equals OFF's: True
+GO

@@ -1,0 +1,6 @@
+mac_heavy: 2026-10-04T08:58:57Z 'v6-cache-notorch' holds the lock (waited 0s; load 4.64, 1369 processes); running: bash /Users/bharath/Code/research/Lappi-decision/build/v6-startup-msgs/in_wt.sh bash -c /Users/bharath/Code/research/Lappi-decision/.venv/bin/python -c "import importlib.util as u; print(\"torch importable in main .venv:\", u.find_spec(\"torch\") is not None)"; /Users/bharath/Code/research/Lappi-decision/.venv/bin/python -m pytest -o addopts= -p no:cacheprovider -q python/tests/test_split_cache.py
+in_wt: cwd=/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt
+torch importable in main .venv: False
+.............................................                            [100%]
+45 passed in 2.90s
+mac_heavy: 2026-10-04T08:59:01Z 'v6-cache-notorch' finished with exit 0

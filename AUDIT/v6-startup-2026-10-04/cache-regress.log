@@ -1,0 +1,87 @@
+pytest in /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt at 981ca7c3ba46a5ed81af540e2f90820136a34b9a + working tree: python/tests/test_backbone.py python/tests/test_batch_order.py python/tests/test_calib_fit_row.py python/tests/test_campaign_driver.py python/tests/test_checkpoint_retain.py python/tests/test_ckpt_average_norm_preserving.py python/tests/test_ckpt_average_trajectory.py python/tests/test_composed_slice.py python/tests/test_containment_exclusions.py python/tests/test_defect_noul.py python/tests/test_fingerprint.py python/tests/test_ft_linear_control.py python/tests/test_ft_splits_contrast.py python/tests/test_gate_report_parity.py python/tests/test_ledger.py python/tests/test_mac_zero_shot_cuda.py python/tests/test_margin_probe_row.py python/tests/test_min_lr.py python/tests/test_needle_ft_contract.py python/tests/test_needle_handoff.py python/tests/test_needle_real_tokens.py python/tests/test_noul_weight.py python/tests/test_ood_abstain.py python/tests/test_ood_only_scoring.py python/tests/test_optim.py python/tests/test_option_control.py python/tests/test_pipeline_commitpackft_pool.py python/tests/test_pipeline_general.py python/tests/test_pipeline_repo_history.py python/tests/test_power.py python/tests/test_pre_dedupe_drops.py python/tests/test_promotion_decisions.py python/tests/test_prompt_format_chain.py python/tests/test_qd_prep_lsh_parity.py python/tests/test_qd_prep_minhash_parity.py python/tests/test_real_ft_campaign.py python/tests/test_real_ft_composed_slice.py python/tests/test_real_ft_decisions_pool.py python/tests/test_real_ft_device_budget.py python/tests/test_real_ft_ensemble.py python/tests/test_real_ft_family_metrics.py python/tests/test_real_ft_final_checkpoint.py python/tests/test_real_ft_general_record.py python/tests/test_real_ft_metal_export.py python/tests/test_real_ft_mps_watermark.py python/tests/test_real_ft_permutation_consistency.py python/tests/test_real_ft_pieces.py python/tests/test_real_ft_prep.py python/tests/test_real_ft_prep_benchmark.py python/tests/test_real_ft_probe_shapes.py python/tests/test_real_ft_progress.py python/tests/test_real_ft_protocol.py python/tests/test_real_ft_report_metrics.py python/tests/test_real_ft_rungd_flags.py python/tests/test_real_ft_score_checkpoint.py python/tests/test_real_ft_score_plan.py python/tests/test_real_ft_score_val.py python/tests/test_real_ft_shuffled_label.py python/tests/test_real_ft_suite_logits.py python/tests/test_replay.py python/tests/test_repo_git.py python/tests/test_row_cost.py python/tests/test_score_plan_trajectory.py python/tests/test_shards.py python/tests/test_split_cache.py python/tests/test_split_cache_main.py python/tests/test_token_index_for_chars.py python/tests/test_tool_call_sites.py python/tests/test_traj_plan_common.py python/tests/test_v5_prelude_mac.py python/tests/test_v5_queue_scripts.py python/tests/test_wall_clock.py
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [ 10%]
+........................................................................ [ 13%]
+....
+defect-noul-v1: max 8-gram containment against the suite = 0.0000
+.ss
+defect-noul-v3b: max 8-gram containment against the suite = 0.0241
+.
+defect-noul-v1 vs the gate's own suite (seed 20260919): 2502 rows x 180 cases, max 8-gram containment 0.0000
+.ss
+defect-noul-v3b vs the gate's own suite (seed 20260919): 5004 rows x 180 cases, max 8-gram containment 0.0106
+.ss.ss
+defect-noul-v3b vs the general val split: 5004 rows x 14108 val rows, 0 hits each way, 1005 question rows not verbatim in val
+.ss.................................................... [ 17%]
+........................................................................ [ 20%]
+........................................................................ [ 24%]
+........................................................................ [ 27%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 38%]
+........................................................................ [ 41%]
+.....s....s...........s................................................. [ 45%]
+.............s.......................................................... [ 48%]
+........................................................................ [ 51%]
+.................................................................s...... [ 55%]
+........................................................................ [ 58%]
+.............................................sss........................ [ 62%]
+........................................................................ [ 65%]
+........................................................................ [ 69%]
+........................................................................ [ 72%]
+........................................................................ [ 76%]
+........................................................................ [ 79%]
+........................................................................ [ 83%]
+........................................................................ [ 86%]
+....................................................................F... [ 90%]
+........................................................................ [ 93%]
+........................................................................ [ 97%]
+..............................................................           [100%]
+=================================== FAILURES ===================================
+__ test_v5_split_flags_are_the_data_flags_real_ft_run_rebuilds_its_split_from __
+python/tests/test_v5_queue_scripts.py:1062: in test_v5_split_flags_are_the_data_flags_real_ft_run_rebuilds_its_split_from
+    rebuild = split_rebuild_flags()
+              ^^^^^^^^^^^^^^^^^^^^^
+python/tests/test_v5_queue_scripts.py:1029: in split_rebuild_flags
+    assert len(calls) == 1, f"main calls ft_split_rows {len(calls)} times"
+E   AssertionError: main calls ft_split_rows 0 times
+E   assert 0 == 1
+E    +  where 0 = len([])
+=============================== warnings summary ===============================
+python/tests/test_backbone.py::test_the_real_checkpoints_text_keys_are_a_bijection_with_the_text_model_class
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_backbone.py::test_the_real_checkpoints_text_keys_are_a_bijection_with_the_text_model_class
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+python/tests/test_split_cache.py::test_rows_a_failed_load_unpickled_are_released_before_the_rebuild_runs
+  /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/tests/test_split_cache.py:651: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    baseline = sum(isinstance(o, DataRow) for o in gc.get_objects())
+
+python/tests/test_split_cache.py::test_rows_a_failed_load_unpickled_are_released_before_the_rebuild_runs
+  /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/tests/test_split_cache.py:656: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    live_at_rebuild.append(sum(isinstance(o, DataRow) for o in gc.get_objects()))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_qd_prep_lsh_parity.py:347: the reference-vs-qd-prep LSH benchmark runs only with QD_PREP_BENCH=1 (~15 s)
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:140: the reference-vs-qd-prep benchmark runs only with QD_PREP_BENCH=1 (~1 minute)
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:463: the shingle-table benchmark runs only with QD_PREP_BENCH=1 (~1 minute)
+SKIPPED [1] python/tests/test_real_ft_composed_slice.py:361: QD_SLICE_* do not name the real slice
+SKIPPED [1] python/tests/test_real_ft_prep_benchmark.py:256: QD_PREP_BENCH_BEFORE (a pre-change checkout) and QD_PREP_BIN gate this ~30-minute benchmark
+SKIPPED [1] python/tests/test_real_ft_rungd_flags.py:630: opt-in: set QD_SPAN_HEAD_INIT_H2048 to L-oracle's span_head_init-seed0.safetensors (main checkout, data/checkpoints/span-head-init/, ignored). Builds a hidden-2048 stand-in tower on CPU
+SKIPPED [2] python/tests/test_real_ft_rungd_flags.py:708: opt-in: set QD_BYTE_IDENTITY_BASE to the git ref the new flags were added on top of (e21066c). A differential against a fixed base fails by design once the tool legitimately changes, so it is run for the change, not on every suite
+1 failed, 2059 passed, 18 skipped, 4 warnings in 851.03s (0:14:11)
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+pytest exit 1

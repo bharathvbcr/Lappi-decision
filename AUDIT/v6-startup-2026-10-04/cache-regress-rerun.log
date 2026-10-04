@@ -1,0 +1,26 @@
+pytest in /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt at 981ca7c3ba46a5ed81af540e2f90820136a34b9a + working tree: python/tests/test_v5_queue_scripts.py python/tests/test_split_cache.py python/tests/test_split_cache_main.py
+........................................................................ [ 19%]
+........................................................................ [ 39%]
+........................................................................ [ 58%]
+........................................................................ [ 78%]
+........................................................................ [ 97%]
+.........                                                                [100%]
+=============================== warnings summary ===============================
+python/tests/test_split_cache.py::test_rows_a_failed_load_unpickled_are_released_before_the_rebuild_runs
+  /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/tests/test_split_cache.py:651: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    baseline = sum(isinstance(o, DataRow) for o in gc.get_objects())
+
+python/tests/test_split_cache.py::test_rows_a_failed_load_unpickled_are_released_before_the_rebuild_runs
+  /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/tests/test_split_cache.py:656: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    live_at_rebuild.append(sum(isinstance(o, DataRow) for o in gc.get_objects()))
+
+python/tests/test_split_cache_main.py::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_split_cache_main.py::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+369 passed, 4 warnings in 175.49s (0:02:55)
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+pytest exit 0
