@@ -27,7 +27,7 @@ use std::time::Instant;
 use qd_metal::model::Model;
 use qd_metal::tokenizer::QwenTokenizer;
 use qd_metal::{MetalError, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // ---- thresholds, fixed before the first run ----------------------------------------------------
 /// Per layer, per prompt: `||metal - bf16in|| / ||bf16in||` over the dumped rows.
@@ -85,7 +85,11 @@ fn f32_list(v: &Value, key: &str) -> Result<Vec<f32>> {
         .and_then(Value::as_array)
         .ok_or_else(|| MetalError::Input(format!("manifest: no {key}")))?
         .iter()
-        .map(|x| x.as_f64().map(|f| f as f32).ok_or_else(|| MetalError::Input(format!("{key}: not a number"))))
+        .map(|x| {
+            x.as_f64()
+                .map(|f| f as f32)
+                .ok_or_else(|| MetalError::Input(format!("{key}: not a number")))
+        })
         .collect()
 }
 
@@ -109,7 +113,8 @@ fn str_field<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
 }
 
 fn read_hidden(path: &Path, layers: usize, rows: usize, hidden: usize) -> Result<Vec<f32>> {
-    let a = tessl::npy::read_npy(path).map_err(|e| MetalError::Input(format!("{}: {e}", path.display())))?;
+    let a = tessl::npy::read_npy(path)
+        .map_err(|e| MetalError::Input(format!("{}: {e}", path.display())))?;
     if a.shape != [layers, rows, hidden] {
         return Err(MetalError::Input(format!(
             "{}: shape {:?}, expected [{layers}, {rows}, {hidden}]",
@@ -121,7 +126,14 @@ fn read_hidden(path: &Path, layers: usize, rows: usize, hidden: usize) -> Result
 }
 
 /// (||a - b|| / ||b||, max |a - b|, max |b|)
+///
+/// A non-finite value on either side returns NaN for every component.
+/// `f64::max` ignores NaN, so folding from 0 used to report a distance of 0
+/// for an all-NaN GPU tensor and the gate passed.
 fn compare(a: &[f32], b: &[f32]) -> (f64, f64, f64) {
+    if a.iter().any(|value| !value.is_finite()) || b.iter().any(|value| !value.is_finite()) {
+        return (f64::NAN, f64::NAN, f64::NAN);
+    }
     let (mut d2, mut b2, mut dmax, mut bmax) = (0f64, 0f64, 0f64, 0f64);
     for (&x, &y) in a.iter().zip(b) {
         let d = f64::from(x) - f64::from(y);
@@ -149,11 +161,22 @@ fn top2_margin(v: &[f32]) -> f64 {
     s[0] - s.get(1).copied().unwrap_or(f64::NEG_INFINITY)
 }
 
+/// NaN or infinity on either side is a non-finite distance, not a distance of 0.
+/// `fold(0.0, f64::max)` drops NaN (`max` returns the other argument) and an
+/// all-NaN GPU output used to pass every absolute gate.
 fn max_abs_diff(a: &[f32], b: &[f32]) -> f64 {
+    if a.iter().any(|value| !value.is_finite()) || b.iter().any(|value| !value.is_finite()) {
+        return f64::NAN;
+    }
     a.iter()
         .zip(b)
         .map(|(&x, &y)| (f64::from(x) - f64::from(y)).abs())
         .fold(0.0, f64::max)
+}
+
+/// A non-finite distance fails the gate. `NaN > limit` is false.
+fn gate_over(value: f64, limit: f64) -> bool {
+    !value.is_finite() || value > limit
 }
 
 #[derive(Default, Clone, Copy)]
@@ -217,7 +240,11 @@ fn run(args: &Args) -> Result<bool> {
     println!("device: {}", rt.device_name());
     let t0 = Instant::now();
     let model = Model::load(&rt, &snapshot)?;
-    println!("weights loaded in {:.1} s; weight hash {}", t0.elapsed().as_secs_f64(), model.weight_hash());
+    println!(
+        "weights loaded in {:.1} s; weight hash {}",
+        t0.elapsed().as_secs_f64(),
+        model.weight_hash()
+    );
     let (n_layers, hidden) = (model.config().n_layers(), model.config().hidden);
     let letters = tok.letter_ids().to_vec();
 
@@ -228,9 +255,22 @@ fn run(args: &Args) -> Result<bool> {
     for (pi, p) in prompts.iter().enumerate() {
         let id = str_field(p, "id")?;
         let ids = u32_list(p, "ids")?;
-        let keep: Vec<usize> = u32_list(p, "rows")?.into_iter().map(|r| r as usize).collect();
-        let ref_fp32 = read_hidden(&args.fixtures.join(format!("hidden_{pi:02}_fp32.npy")), n_layers, keep.len(), hidden)?;
-        let ref_bf = read_hidden(&args.fixtures.join(format!("hidden_{pi:02}_bf16in.npy")), n_layers, keep.len(), hidden)?;
+        let keep: Vec<usize> = u32_list(p, "rows")?
+            .into_iter()
+            .map(|r| r as usize)
+            .collect();
+        let ref_fp32 = read_hidden(
+            &args.fixtures.join(format!("hidden_{pi:02}_fp32.npy")),
+            n_layers,
+            keep.len(),
+            hidden,
+        )?;
+        let ref_bf = read_hidden(
+            &args.fixtures.join(format!("hidden_{pi:02}_bf16in.npy")),
+            n_layers,
+            keep.len(),
+            hidden,
+        )?;
 
         let mut got: Vec<Vec<f32>> = Vec::with_capacity(n_layers);
         let mut observe = |_layer: usize, resid: &[f32]| -> Result<()> {
@@ -241,7 +281,8 @@ fn run(args: &Args) -> Result<bool> {
             got.push(rows);
             Ok(())
         };
-        let t = u32::try_from(ids.len()).map_err(|_| MetalError::Input("prompt too long".into()))?;
+        let t =
+            u32::try_from(ids.len()).map_err(|_| MetalError::Input("prompt too long".into()))?;
         let out = model.run(&ids, 1, t, None, false, Some(&mut observe))?;
         let whole = model.score(&out, &[t - 1], &letters)?;
         drop(out);
@@ -252,15 +293,27 @@ fn run(args: &Args) -> Result<bool> {
             let (rb, _, _) = compare(&got[l], &ref_bf[l * per..(l + 1) * per]);
             let (rf, af, mf) = compare(&got[l], &ref_fp32[l * per..(l + 1) * per]);
             let w = &mut worst[l];
-            w.rel_bf16in = w.rel_bf16in.max(rb);
-            w.rel_fp32 = w.rel_fp32.max(rf);
-            w.abs_fp32 = w.abs_fp32.max(af);
-            w.ref_max = w.ref_max.max(mf);
-            if rb > TIGHT_LAYER_REL_L2 {
-                failures.push(format!("{id} layer {l}: rel L2 vs bf16in {rb:.3e} > {TIGHT_LAYER_REL_L2:e}"));
+            if rb.is_finite() {
+                w.rel_bf16in = w.rel_bf16in.max(rb);
             }
-            if rf > LOOSE_LAYER_REL_L2 {
-                failures.push(format!("{id} layer {l}: rel L2 vs fp32 {rf:.3e} > {LOOSE_LAYER_REL_L2:e}"));
+            if rf.is_finite() {
+                w.rel_fp32 = w.rel_fp32.max(rf);
+            }
+            if af.is_finite() {
+                w.abs_fp32 = w.abs_fp32.max(af);
+            }
+            if mf.is_finite() {
+                w.ref_max = w.ref_max.max(mf);
+            }
+            if gate_over(rb, TIGHT_LAYER_REL_L2) {
+                failures.push(format!(
+                    "{id} layer {l}: rel L2 vs bf16in {rb:.3e} > {TIGHT_LAYER_REL_L2:e}"
+                ));
+            }
+            if gate_over(rf, LOOSE_LAYER_REL_L2) {
+                failures.push(format!(
+                    "{id} layer {l}: rel L2 vs fp32 {rf:.3e} > {LOOSE_LAYER_REL_L2:e}"
+                ));
             }
             layer_rows.push(json!({"layer": l, "rel_l2_bf16in": rb, "rel_l2_fp32": rf, "max_abs_fp32": af, "ref_max_abs": mf}));
         }
@@ -269,11 +322,15 @@ fn run(args: &Args) -> Result<bool> {
         let lp_bf = f32_list(p, "logprobs_bf16in")?;
         let d_bf = max_abs_diff(&whole.logprobs, &lp_bf);
         let d_fp = max_abs_diff(&whole.logprobs, &lp_fp32);
-        if d_bf > TIGHT_LOGPROB_ABS {
-            failures.push(format!("{id}: letter logprob max |d| vs bf16in {d_bf:.4} > {TIGHT_LOGPROB_ABS}"));
+        if gate_over(d_bf, TIGHT_LOGPROB_ABS) {
+            failures.push(format!(
+                "{id}: letter logprob max |d| vs bf16in {d_bf:.4} > {TIGHT_LOGPROB_ABS}"
+            ));
         }
-        if d_fp > LOOSE_LOGPROB_ABS {
-            failures.push(format!("{id}: letter logprob max |d| vs fp32 {d_fp:.4} > {LOOSE_LOGPROB_ABS}"));
+        if gate_over(d_fp, LOOSE_LOGPROB_ABS) {
+            failures.push(format!(
+                "{id}: letter logprob max |d| vs fp32 {d_fp:.4} > {LOOSE_LOGPROB_ABS}"
+            ));
         }
         let (am, ar) = (argmax(&whole.logprobs), argmax(&lp_fp32));
         let margin = top2_margin(&lp_fp32);
@@ -293,11 +350,12 @@ fn run(args: &Args) -> Result<bool> {
             .ok_or_else(|| MetalError::Input("manifest: no prefix_tokens".into()))?;
         let (_, state) = model.prefill(&ids[..prefix_tokens])?;
         let suffix = &ids[prefix_tokens..];
-        let s = u32::try_from(suffix.len()).map_err(|_| MetalError::Input("suffix too long".into()))?;
+        let s =
+            u32::try_from(suffix.len()).map_err(|_| MetalError::Input("suffix too long".into()))?;
         let cont = model.run(suffix, 1, s, Some(&state), false, None)?;
         let split = model.score(&cont, &[s - 1], &letters)?;
         let d_path = max_abs_diff(&split.logprobs, &whole.logprobs);
-        if d_path > DECODE_PATH_LOGPROB_ABS {
+        if gate_over(d_path, DECODE_PATH_LOGPROB_ABS) {
             failures.push(format!("{id}: snapshot path vs whole prompt max |d| {d_path:.4} > {DECODE_PATH_LOGPROB_ABS}"));
         }
         let worst_bf = layer_rows
@@ -320,14 +378,22 @@ fn run(args: &Args) -> Result<bool> {
 
     let agreement = agree as f64 / prompts.len() as f64;
     if agreement < ARGMAX_MIN_AGREEMENT {
-        failures.push(format!("argmax agreement {agree}/{} < {ARGMAX_MIN_AGREEMENT}", prompts.len()));
+        failures.push(format!(
+            "argmax agreement {agree}/{} < {ARGMAX_MIN_AGREEMENT}",
+            prompts.len()
+        ));
     }
     if !tokenizer_mismatch.is_empty() {
-        failures.push(format!("tokenizer ids differ from Python on {tokenizer_mismatch:?}"));
+        failures.push(format!(
+            "tokenizer ids differ from Python on {tokenizer_mismatch:?}"
+        ));
     }
 
     println!("\nper layer, worst over {} prompts", prompts.len());
-    println!("{:>5} {:>14} {:>14} {:>14} {:>14}", "layer", "relL2 bf16in", "relL2 fp32", "max|d| fp32", "max|ref|");
+    println!(
+        "{:>5} {:>14} {:>14} {:>14} {:>14}",
+        "layer", "relL2 bf16in", "relL2 fp32", "max|d| fp32", "max|ref|"
+    );
     for (l, w) in worst.iter().enumerate() {
         println!(
             "{l:>5} {:>14.3e} {:>14.3e} {:>14.3e} {:>14.3e}",
@@ -352,7 +418,10 @@ fn run(args: &Args) -> Result<bool> {
             ("tight_logprob_abs_vs_bf16in", TIGHT_LOGPROB_ABS),
             ("loose_logprob_abs_vs_fp32", LOOSE_LOGPROB_ABS),
             ("argmax_min_agreement", ARGMAX_MIN_AGREEMENT),
-            ("argmax_disagree_max_ref_margin", ARGMAX_DISAGREE_MAX_REF_MARGIN),
+            (
+                "argmax_disagree_max_ref_margin",
+                ARGMAX_DISAGREE_MAX_REF_MARGIN,
+            ),
             ("snapshot_path_logprob_abs", DECODE_PATH_LOGPROB_ABS),
         ]);
         let mut row = json!({
@@ -375,7 +444,11 @@ fn run(args: &Args) -> Result<bool> {
         let id = qd_runtime::hex(&qd_runtime::sha256(row.to_string().as_bytes()));
         row["row_id"] = json!(format!("qdm-parity-{}", &id[..16]));
         append_line(ledger, &row.to_string())?;
-        println!("ledger row {} appended to {}", row["row_id"], ledger.display());
+        println!(
+            "ledger row {} appended to {}",
+            row["row_id"],
+            ledger.display()
+        );
     }
     Ok(pass)
 }
@@ -392,6 +465,33 @@ fn append_line(path: &Path, line: &str) -> Result<()> {
     f.write_all(&buf)
         .and_then(|()| f.sync_all())
         .map_err(|e| MetalError::Input(format!("{}: {e}", path.display())))
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::{compare, gate_over, max_abs_diff};
+
+    #[test]
+    fn an_all_nan_gpu_output_fails_the_absolute_gate() {
+        let nan = [f32::NAN, f32::NAN, f32::NAN];
+        let distance = max_abs_diff(&nan, &nan);
+        assert!(
+            !distance.is_finite(),
+            "all-NaN diff was {distance}; fold(0, f64::max) reports 0 and the gate passes"
+        );
+        assert!(gate_over(distance, 1e-3));
+    }
+
+    #[test]
+    fn a_nan_hidden_state_fails_the_relative_gate() {
+        let (rel, abs, _) = compare(&[1.0, f32::NAN], &[1.0, 1.0]);
+        assert!(
+            gate_over(rel, 1e-2) || gate_over(abs, 1e-2),
+            "rel={rel} abs={abs}"
+        );
+        let (rel_inf, _, _) = compare(&[f32::INFINITY], &[0.0]);
+        assert!(gate_over(rel_inf, 1e-2), "inf GPU output rel={rel_inf}");
+    }
 }
 
 fn main() -> ExitCode {
