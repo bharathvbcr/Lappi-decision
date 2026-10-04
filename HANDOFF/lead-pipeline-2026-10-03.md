@@ -6,6 +6,51 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## 19:36Z 2026-10-04: early attempt 3 complete; seed 2's OFF-arm control row 8f895758
+
+[V, `/home/ubuntu/logs/q-post-queue-early-3.log`, the control's stamped log and the scratch row,
+copied to `build/post-queue/early3-row.jsonl` (git-ignored)]:
+- **Timing.** The split rebuild ran 18:04:41–18:12:57Z. The n-gram arm ran 18:12:57–19:32:31Z;
+  the length arm ran 19:32:31–19:36:24Z. The row was written at 19:36:26Z and the session ended
+  at 19:36:35Z. The control's `wall_clock_s` is 5,006 s, inside the 18,000 s cap.
+- **Not run.** 98 of 332 tasks were fitted in each arm. The other 234, all `synth.general`, are
+  `not_run` with their reasons. Examples:
+  - `synth.general/access_route`: "the training split holds 0 row(s)";
+  - `synth.general/account_age`: no label space every row shares.
+- **The fix held.** The task after `synth.general/action_next`, attempt 2's crash, was skipped
+  without error. The control log has no traceback.
+- **The length arm** ran over all 98 fitted tasks for the first time at this scale, at about
+  1–6 s a task (5 features).
+- **The guard:** "1 completed letter control row(s) ['8f895758-…']", exit 1, as required.
+  `ft_linear_control` exited 3: its pooled gate is `not_run`. The early check is complete.
+- **Projection vs actual.** I had projected 7,800–12,700 s. The actual run was much shorter
+  because 234 tasks are not fitted at all. The 98 fitted tasks ran ~0.65× attempt 2's fit
+  times on 26 physical cores instead of 13 × 2.
+
+**Row 8f895758 (scratch; not a gate's row; v5 seed 2, eval row 2af3c80d; main 97bb3e2):**
+- `paired_margin_vs_linear.choice.code.defect_class` (the successor rule's `MARGIN_KEY`):
+  **+0.3915 [+0.3707, +0.4128], ran, passed.**
+- The pooled `gates.paired_margin_vs_linear` is **`not_run`**: "234 of 332 inputs did not run".
+  The synth.general family margin is `not_run` too (234 of 267 inputs). Every other gate in the
+  row is `not_run`: this tool measures only the margins.
+- **The pooled gate's `not_run` is structural for v5** [inferred]. Every uncached v5 control
+  will carry it, because the synth.general tasks the fix makes `not_run` are part of v5's split.
+  Single-class tasks were `not_run` before the fix too. Rule 2 stands: nothing here moves a
+  threshold.
+  - Open for Fable and the human: how the TierB rule's clause 2 (`paired_ci`,
+    `qd_post_f_rules.rs:4696`) treats a `not_run` pooled gate.
+- **intent.in_scope: −0.0293 [−0.0452, −0.0140], ran, failed**, the whole interval below zero.
+  The n-gram and the length control give the same margin there.
+- **openjev.game: +0.1935 [−0.0323, +0.4194]** against the n-gram control: the CI includes
+  zero (31 val rows). Against the length control it is +0.4194 [+0.1935, +0.6129].
+- The other 18 of the 22 families pass against both controls, as code.defect_class does:
+  - lowest: pairwise.helpfulness +0.0860;
+  - highest: intent.classification +0.8295 against the n-gram control.
+- `paired_margin_vs_linear.span` is `not_run` by design: the 7,238 pointer rows are not scored.
+
+**The box's CPUs are free again.** That reopens the team-anomaly discriminators, which need
+Fable's ruling (`HANDOFF/v6-linfit-pool-2026-10-04.md` on its branch).
+
 ## ~18:05Z 2026-10-04: the fix merged (97bb3e2); attempt 3 runs on 26 physical cores, cap 18,000 s
 
 The human: "ok, merge it and launch attempt 3 after the suite".
