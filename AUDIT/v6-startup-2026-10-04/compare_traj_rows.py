@@ -14,6 +14,19 @@ ledger prices from wall_clock_s; --wall-clock-cap-s is not recorded in the row) 
 new notes must be the old notes plus one space and the plan's sentence). Every suite line must be
 byte-equal once the row id is replaced and the plan's ``score_kind`` key removed. Exit 0 when
 everything else is equal, 1 with every difference listed.
+
+Two more differences are named only when asked for, so a run without the flags compares as before:
+
+- ``--cross-commit``: the new run is at another commit than the old (the post-queue session runs
+  main against v5's pinned L), so ``code_commit`` and ``metrics.code_that_ran`` differ. Both values
+  are printed, not compared.
+- ``--old-split-cache`` / ``--new-split-cache`` ``absent|miss|hit``: the ``split_cache`` metric
+  ``--split-cache`` puts on every row. Each row's must be what its flag says (default ``absent``),
+  a ``miss`` or ``hit`` being a passed check of that value, and is then left out of the
+  comparison. A row whose cache did not do what its flag says is a difference: a HIT arm that
+  missed is a check that did not run.
+- ``--old-plan``: the old rows are a ``--score-plan`` run's too (a HIT run against its MISS run),
+  so the notes must be equal rather than the old notes plus the plan's sentence.
 """
 
 from __future__ import annotations
@@ -24,6 +37,24 @@ import sys
 from pathlib import Path
 
 IDENTITY = ("row_id", "prev_row_hash", "written_at", "wall_clock_s", "cost_usd")
+CACHE_STATES = ("absent", "miss", "hit")
+
+
+def _take_split_cache(row: dict, want: str, side: str, out: list[str]) -> None:
+    """Remove the row's ``split_cache`` metric, recording a difference unless it is ``want``."""
+    got = (row.get("metrics") or {}).pop("split_cache", None)
+    if want == "absent":
+        ok = got is None
+    else:
+        ok = (isinstance(got, dict) and got.get("state") == "ran" and got.get("passed") is True
+              and got.get("value") == want)
+    if not ok:
+        out.append(f"{side} row's metrics.split_cache: want {want}, got {json.dumps(got)[:200]}")
+
+
+def _take_commit(row: dict) -> tuple[object, object]:
+    code = (row.get("metrics") or {}).pop("code_that_ran", None)
+    return row.pop("code_commit", None), code.get("value") if isinstance(code, dict) else code
 
 
 def _rows(ledger: Path) -> list[dict]:
@@ -73,6 +104,12 @@ def main(argv: list[str]) -> int:
     p.add_argument("--new-dir", type=Path, required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--steps", type=int, nargs="+", required=True)
+    p.add_argument("--cross-commit", action="store_true",
+                   help="name code_commit and metrics.code_that_ran as differences")
+    p.add_argument("--old-split-cache", choices=CACHE_STATES, default="absent")
+    p.add_argument("--new-split-cache", choices=CACHE_STATES, default="absent")
+    p.add_argument("--old-plan", action="store_true",
+                   help="the old rows are a --score-plan run's too, so the notes must be equal")
     a = p.parse_args(argv)
     if len(a.steps) < 2:
         raise SystemExit("the parity bar is two snapshots or more")
@@ -82,7 +119,15 @@ def main(argv: list[str]) -> int:
         old = _row_for(old_rows, a.seed, step, a.old_ledger)
         new = _row_for(new_rows, a.seed, step, a.new_ledger)
         diffs: list[str] = []
-        if not str(new["notes"]).startswith(f"{old['notes']} Scored as kind 'step{step}'"):
+        _take_split_cache(old, a.old_split_cache, "old", diffs)
+        _take_split_cache(new, a.new_split_cache, "new", diffs)
+        if a.cross_commit:
+            for side, (commit, code) in (("old", _take_commit(old)), ("new", _take_commit(new))):
+                print(f"step {step}: {side} code_commit {commit} code_that_ran {code} (named)")
+        if a.old_plan:
+            if new["notes"] != old["notes"]:
+                diffs.append("notes: the two plan runs' notes differ")
+        elif not str(new["notes"]).startswith(f"{old['notes']} Scored as kind 'step{step}'"):
             diffs.append("notes: the new notes are not the old notes plus the plan's sentence")
         _diff({k: v for k, v in old.items() if k not in (*IDENTITY, "notes")},
               {k: v for k, v in new.items() if k not in (*IDENTITY, "notes")}, "row", diffs)
