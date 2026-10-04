@@ -9864,7 +9864,11 @@ def _replay_plan(
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
         decisions_pool=args.decisions_pool, drop_before_dedupe=args.pre_dedupe_drops,
     )
-    if attestation.get("corpus") != corpus:
+    from qd_train.exclusions import corpus_matches
+
+    # The one comparison the containment attestation uses: max_pairs only where it bounds a row
+    # (GAP-V5-CONTROL-MAX-PAIRS-KEY-MISMATCH-2026-10-04).
+    if not corpus_matches(attestation.get("corpus"), corpus):
         raise SystemExit(
             f"the attestation was made against corpus {attestation.get('corpus')} and this "
             f"run's is {corpus}: its val/heldout target sets are not this run's"

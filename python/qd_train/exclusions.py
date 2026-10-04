@@ -117,6 +117,27 @@ def containment_corpus(identity: Mapping[str, object]) -> dict[str, object]:
     return {**identity, "qd_data_fingerprint_sha256": hashlib.sha256(fingerprint).hexdigest()}
 
 
+def _deciding(corpus: Mapping[str, object]) -> dict[str, object]:
+    """``corpus`` as it decides rows. ``max_pairs`` bounds only the repository-history rows and
+    the ``--commitpackft`` sample (``real_tokenizer_pipeline.base_sources`` reads it nowhere
+    else), so a key that names neither -- ``repo_history`` False, which ``corpus_identity``
+    writes only when False, and no ``commitpackft`` -- drops it. The tools disagree on its value
+    there: ``real_ft_run.py`` keys its default 400, ``tools/ft_linear_control.py`` keys 0 and
+    refuses the flag, so v5's controls were refused against v5's own attestation
+    (GAP-V5-CONTROL-MAX-PAIRS-KEY-MISMATCH-2026-10-04)."""
+    key = dict(corpus)
+    if key.get("repo_history") is False and key.get("commitpackft") is None:
+        key.pop("max_pairs", None)
+    return key
+
+
+def corpus_matches(attested: object, built: Mapping[str, object]) -> bool:
+    """Whether an attestation's ``corpus`` names the corpus this build reads: equal once each
+    side drops what decides no row (:func:`_deciding`). Every other key, and ``max_pairs``
+    wherever it bounds a row, must be equal."""
+    return isinstance(attested, Mapping) and _deciding(attested) == _deciding(built)
+
+
 def _keys_of(path: Path, raw: bytes) -> list[str]:
     if raw and not raw.endswith(b"\n"):
         raise ExclusionRefusal(f"{path}: the last line has no LF; exclusions.txt ends each key")
@@ -207,7 +228,7 @@ def read_exclusions(path: Path, *, corpus: Mapping[str, object]) -> Exclusions:
             f"remaining_hits={remaining}, excluded_from={att.get('excluded_from')!r}, "
             f"because {att.get('not_clean_because')}): this build is refused"
         )
-    if att.get("corpus") != dict(corpus):
+    if not corpus_matches(att.get("corpus"), corpus):
         raise ExclusionRefusal(
             f"{att_path} was made for corpus {att.get('corpus')}, and this build is "
             f"{dict(corpus)}: an exclusion list for another corpus excludes the wrong rows"
