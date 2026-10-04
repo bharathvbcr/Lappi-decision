@@ -6,6 +6,55 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~12:20Z 2026-10-04: v6-ctlcache reported; Fable's rulings; the merge waits on the human
+
+The lane's work is on branch `v6-ctlcache`, six commits, the change being 5602617. Its report is
+`HANDOFF/v6-ctlcache-2026-10-04.md`.
+- **The change:** `tools/ft_linear_control.py` takes `--split-cache DIR` and
+  `--split-cache-shards DIR`, both letter and option controls.
+- **The test:** fails first at 0dd472c.
+- **Measured on the Mac:** getting v5's split took 221 s with the cache empty (MISS) and 9.9 s
+  from it (HIT). Peak memory was 26.8 GiB on the MISS and 3.77 GiB on a HIT.
+
+I read the diff. Without the flags the tool behaves as before. It keys the cache through
+`real_ft_run`'s own `ft_split_rows` and `split_rebuild_inputs`, and it checks the shard set before
+rebuilding.
+
+**Fable's rulings:**
+1. **The option row's cache metric** is named `linear_option_control.split_cache`. Accepted: the
+   bare name would mean relaxing a test. `compare_control_rows.py` now picks the name by row kind
+   and pops the dotted key whole.
+2. **The shard-set refusal.** The control now refuses unless the shard set's `train.json` names the
+   eval row's `data_snapshot_hash`. Accepted: it fails closed in 0.8 s.
+   - **Verified on the box, read-only** (`build/post-queue/probe_snapshot.py`): the shard set and
+     the eval rows of seeds 2 (`2af3c80d`) and 3 (`e09b652a`) all carry `cb4b7d3a…a7b5`.
+   - **Inferred, not verified:** seeds 0, 1 and 4 and the arm come from the same `--out`.
+   - If a later seed differs, its cached control refuses loudly and the summary shows 0 rows for
+     it.
+3. **Guard files.** The post-queue session calls the tool directly and guards by ledger rows
+   (`existing_controls.py`). It never goes through `controls_block`, so the stale
+   `*.letter.started` markers do not stop it.
+4. **The merge goes into main,** which the post-queue session clones. It follows fbd43f5's
+   mechanics: a temp worktree, `--no-ff --no-commit`, `gaps.jsonl` union-resolved, the full suite
+   with datasketch, then `--ff-only`. **Not merged yet:** the human's yes is pending.
+
+**After the merge, the launch line:**
+`run <merge-sha> --cache-option-control -- --split-cache /home/ubuntu/post-queue/split-cache-ctl --split-cache-shards /home/ubuntu/v5-data-2026-10-03`.
+The test now passes both flags, and its fake control refuses one flag without the other, as the
+tool does. 35 of 35 checks pass.
+
+**Phase A's memory:** three rebuilds run side by side, so the lane's "run first calls alone"
+warning needs an answer:
+- OFF, ~27 GiB;
+- seed 0's letter MISS, ~27 GiB plus its store;
+- parity A's `real_ft_run` rebuild, of a similar order.
+
+That is under ~100 GiB of the box's 442 GiB, after the queue has ended.
+
+**One gap, not two:** the lane's "not end to end on real rows" and this session's "real tools on
+real rows" are the same gap. Only a real control on a v5 eval row retires it: either the early
+OFF-arm check (pending the human's yes) or the session itself.
+
 ## ~12:00Z 2026-10-04: the post-queue session is built and dry-run (not launched)
 
 The post-queue session Fable ruled at ~10:55Z is built. It is not launched. It runs once the v5
