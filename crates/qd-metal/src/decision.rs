@@ -8,7 +8,7 @@
 //! # What one decision is here
 //!
 //! One `choice` slot of `k` options, answered the way `qd_runtime::answer` answers it through
-//! [`crate::backend::MetalBackend`] (`backend.rs` prefill 462-476, decode 584-630):
+//! [`crate::backend::MetalBackend`] (its worker's `prefill` and `decode_slot`):
 //!
 //! ```text
 //! prefill(prefix)               -> PrefixState            Model::prefill
@@ -24,7 +24,8 @@
 //! `prefix + suffix` after the prefix's, refused if the boundary merges, as the backend does.
 //!
 //! This drives [`Model`] and not `MetalBackend`: the backend caches prefills by prompt digest
-//! (`backend.rs:448-461`), so every timed iteration after the first would skip the prefill, and
+//! (`prompt_digest`, the worker's `prefill`), so every timed iteration after the first would skip
+//! the prefill, and
 //! its `MetalConfig` cannot carry the A/B flags (`backend.rs` is another session's file today).
 //!
 //! # T
@@ -53,7 +54,7 @@ use serde_json::{json, Value};
 
 use crate::error::{MetalError, Result};
 use crate::ledger::{self, Provenance, TreeState};
-use crate::model::{EmbedPath, Model};
+use crate::model::Model;
 use crate::tokenizer::QwenTokenizer;
 
 pub const DEFAULT_T: [usize; 3] = [512, 2048, 8192];
@@ -72,36 +73,46 @@ const TASK: &str = "code.defect_class";
 const QUESTION: &str = "What kind of change is this diff?";
 const SLOT: &str = "defect_class";
 /// The context's source text. Throughput does not depend on which tokens; real code keeps the
-/// tokenizer's work and the prompt's shape realistic.
-const CONTEXT_SOURCE: &str = include_str!("model.rs");
-const CONTEXT_SOURCE_NAME: &str = "crates/qd-metal/src/model.rs";
+/// tokenizer's work and the prompt's shape realistic. It is frozen: the `model.rs` that rows
+/// 147da0cc and 28505f4c read (3d68484 + the tested 1a diff), so a later row feeds the same ids
+/// (`data_snapshot_hash` 3d38c835...) whatever model.rs has become. Reading the live model.rs
+/// made every edit to it a new input. A different context is a new file (`-v2`), never an edit
+/// of this one; `tests::the_bench_context_is_the_frozen_v1_file` pins its sha256, and every row
+/// records it as `context_sha256`.
+const CONTEXT_SOURCE: &str = include_str!("../fixtures/decision-context-v1.txt");
+const CONTEXT_SOURCE_NAME: &str = "crates/qd-metal/fixtures/decision-context-v1.txt";
 
-/// One arm of the A/B: the flags a decision runs under.
+/// One arm of the A/B: the one flag it varies, every other flag at the product's setting, so an
+/// arm is fully determined by its name. No flag is left to vary: the `embed=host|device` and
+/// `digest=serial|parallel` arms went with the paths they compared (their rows keep their
+/// `embed_*` / `digest_*` keys), and [`Arm::Product`] runs the product as it is, one arm whose
+/// samples are checked bit for bit against each other. A next flag, if one is approved, is a
+/// variant here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Arm {
-    pub embed: EmbedPath,
+pub enum Arm {
+    Product,
 }
 
 impl Arm {
     pub fn name(&self) -> String {
-        format!("embed={}", self.embed.as_str())
+        match self {
+            Arm::Product => "product".to_string(),
+        }
     }
 
-    /// `embed=host` / `embed=device`.
+    /// `product`, the only arm there is.
     pub fn parse(s: &str) -> Result<Self> {
-        match s.split_once('=') {
-            Some(("embed", v)) => Ok(Arm {
-                embed: EmbedPath::parse(v)?,
-            }),
+        match s {
+            "product" => Ok(Arm::Product),
             _ => Err(MetalError::Input(format!(
-                "arm {s:?} is not `embed=host` or `embed=device`"
+                "arm {s:?} is not `product`, the one arm this bench runs"
             ))),
         }
     }
 
-    /// The metric-key form of the name: `embed_host`.
+    /// The metric-key form of the name: `product`.
     fn key(&self) -> String {
-        format!("embed_{}", self.embed.as_str())
+        self.name().replace('=', "_")
     }
 }
 
@@ -114,6 +125,61 @@ pub enum RowTarget {
     None,
 }
 
+/// The tessl runtime a run opens: one per process, so it is a run flag (`--runtime`), not an
+/// arm. qd-metal reads no GPU timestamps, so the two differ only in the CounterHeap work tessl
+/// does at each commit (tessl runtime.rs `new_inference`: "host encode tax").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeKind {
+    /// `GpuRuntime::new`, timestamps on: what `MetalBackend`'s worker opens. The default.
+    Timestamps,
+    /// `GpuRuntime::new_inference`, no CounterHeap timestamps.
+    Inference,
+}
+
+impl RuntimeKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            RuntimeKind::Timestamps => "timestamps",
+            RuntimeKind::Inference => "inference",
+        }
+    }
+
+    /// `timestamps|inference`.
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "timestamps" => Ok(RuntimeKind::Timestamps),
+            "inference" => Ok(RuntimeKind::Inference),
+            _ => Err(MetalError::Input(format!(
+                "--runtime {s:?} is not `timestamps|inference`"
+            ))),
+        }
+    }
+
+    /// Open the runtime as `MetalBackend`'s worker does, with this constructor.
+    pub fn open(&self) -> Result<std::sync::Arc<tessl::GpuRuntime>> {
+        let rt = match self {
+            RuntimeKind::Timestamps => tessl::GpuRuntime::new(),
+            RuntimeKind::Inference => tessl::GpuRuntime::new_inference(),
+        }
+        .map_err(MetalError::Gpu)?;
+        rt.set_async_encode(true).map_err(MetalError::Gpu)?;
+        Ok(rt)
+    }
+
+    /// The recipe's `runtime`. The default's text is the one every earlier row recorded.
+    fn recipe(&self) -> &'static str {
+        match self {
+            RuntimeKind::Timestamps => {
+                "tessl::GpuRuntime::new + set_async_encode(true), as MetalBackend's worker"
+            }
+            RuntimeKind::Inference => {
+                "tessl::GpuRuntime::new_inference + set_async_encode(true): no CounterHeap timestamps; \
+                 MetalBackend's worker opens ::new"
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionArgs {
     pub ts: Vec<usize>,
@@ -121,6 +187,7 @@ pub struct DecisionArgs {
     pub iters: usize,
     pub warmup: usize,
     pub arms: Vec<Arm>,
+    pub runtime: RuntimeKind,
     pub row: RowTarget,
     pub snapshot: Option<PathBuf>,
 }
@@ -137,6 +204,11 @@ fn parse_list(v: &str, what: &str) -> Result<Vec<usize>> {
     if out.is_empty() || out.contains(&0) {
         return Err(MetalError::Input(format!("{what} must be positive counts, got {v:?}")));
     }
+    // A repeated T would run twice and write the same `decision.t<T>.*` keys, the second run
+    // silently replacing the first while `t_coverage` still matched the recipe.
+    if let Some((i, x)) = out.iter().enumerate().find(|&(i, x)| out[..i].contains(x)) {
+        return Err(MetalError::Input(format!("{what}: {x} is given twice (position {i}) in {v:?}")));
+    }
     Ok(out)
 }
 
@@ -150,7 +222,7 @@ fn parse_one(v: &str, what: &str) -> Result<usize> {
 /// Parse the arguments after `--decision`:
 ///
 /// ```text
-/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms embed=host,embed=device]
+/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms product] [--runtime timestamps]
 /// [--snapshot DIR] (--ledger ledger/mac-qd-metal-<date>.jsonl | --no-ledger)
 /// ```
 pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
@@ -158,14 +230,8 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
     let mut k = DEFAULT_K;
     let mut iters = DEFAULT_ITERS;
     let mut warmup = DEFAULT_WARMUP;
-    let mut arms = vec![
-        Arm {
-            embed: EmbedPath::Host,
-        },
-        Arm {
-            embed: EmbedPath::Device,
-        },
-    ];
+    let mut arms = vec![Arm::Product];
+    let mut runtime = RuntimeKind::Timestamps;
     let mut ledger: Option<PathBuf> = None;
     let mut no_ledger = false;
     let mut snapshot = None;
@@ -195,6 +261,7 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
                         .map(|s| Arm::parse(s.trim()))
                         .collect::<Result<_>>()?;
                 }
+                "--runtime" => runtime = RuntimeKind::parse(&value("--runtime")?)?,
                 "--ledger" => ledger = Some(PathBuf::from(value("--ledger")?)),
                 "--no-ledger" => no_ledger = true,
                 "--snapshot" => snapshot = Some(PathBuf::from(value("--snapshot")?)),
@@ -216,6 +283,16 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
         if arms[..i].contains(a) {
             return Err(MetalError::Input(format!("arm {} is given twice", a.name())));
         }
+    }
+    // An A/B varies one flag: two arms naming different flags each differ from the product in a
+    // different flag, so their delta is neither flag's. (Unreachable while `product` is the only arm;
+    // it holds the rule for the next flag.)
+    if let Some(a) = arms.iter().find(|a| std::mem::discriminant(*a) != std::mem::discriminant(&arms[0])) {
+        return Err(MetalError::Input(format!(
+            "arms {} and {} vary different flags; an A/B varies one",
+            arms[0].name(),
+            a.name()
+        )));
     }
     let row = match (ledger, no_ledger) {
         (Some(p), false) => {
@@ -240,6 +317,7 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
         iters,
         warmup,
         arms,
+        runtime,
         row,
         snapshot,
     })
@@ -377,6 +455,12 @@ pub fn build_prompt(tok: &QwenTokenizer, target: usize, k: usize) -> Result<Deci
     })
 }
 
+/// The text `p` was tokenized from: the rendered prefix and the two passes' suffixes, as a
+/// `DecisionBackend` caller hands them over (the product path tokenizes them itself).
+pub fn prompt_text(p: &DecisionPrompt, k: usize) -> Result<(String, [String; 2])> {
+    rendered(p.context_lines, k)
+}
+
 /// sha256 over every id the bench feeds, length-prefixed: the row's `data_snapshot_hash`.
 pub fn inputs_digest(prompts: &[DecisionPrompt]) -> String {
     let mut acc = b"qd-metal.decision-bench.inputs.v1\0".to_vec();
@@ -503,9 +587,8 @@ pub fn arm_order(n_arms: usize, i: usize) -> Vec<usize> {
 /// Warm up every arm, then `iters` interleaved rounds. Every sample of every arm must give the
 /// same prefix-state digest and the same logits bits as the first arm's first sample when the
 /// arms are expected to agree bitwise; that is checked by the caller from the samples.
-pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: &[Arm], warmup: usize, iters: usize) -> Result<TResult> {
-    for arm in arms {
-        model.set_embed_path(arm.embed);
+pub fn run_t(model: &Model, prompt: &DecisionPrompt, answers: &[u32], arms: &[Arm], warmup: usize, iters: usize) -> Result<TResult> {
+    for _ in arms {
         for _ in 0..warmup {
             run_decision(model, prompt, answers)?;
         }
@@ -519,7 +602,6 @@ pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: 
         .collect();
     for i in 0..iters {
         for j in arm_order(arms.len(), i) {
-            model.set_embed_path(arms[j].embed);
             results[j].samples.push(run_decision(model, prompt, answers)?);
         }
     }
@@ -530,7 +612,8 @@ pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: 
 }
 
 /// Whether every sample of every arm produced the first sample's logits and state digest, bit
-/// for bit. The embed arms are exact by construction (`EmbedPath`), so a difference is a defect.
+/// for bit. The product repeats bit for bit (every sample of rows 147da0cc, 28505f4c and
+/// dc51c827 agreed, and the GPU pin test repeats each digest), so a difference is a defect.
 pub fn bit_identical(t: &TResult) -> (bool, usize, usize) {
     let Some(first) = t.arms.first().and_then(|a| a.samples.first()) else {
         return (false, 0, 0);
@@ -581,10 +664,11 @@ pub fn recipe(args: &DecisionArgs, snapshot: &Path, vocab: usize) -> Result<Valu
         "interleaved": "every round runs every arm once, the order rotated each round",
         "request": {"task": TASK, "question": QUESTION, "slot": SLOT, "options": &OPTIONS[..args.k], "route": "generic"},
         "context_source": CONTEXT_SOURCE_NAME,
+        "context_sha256": qd_runtime::hex(&qd_runtime::sha256(CONTEXT_SOURCE.as_bytes())),
         "decision": "prefill + digest, then 2 read-only passes (run + score k+1 rows) each followed by a digest",
         "backbone_snapshot": snapshot.file_name().and_then(|n| n.to_str()).unwrap_or(""),
         "backbone_vocab": vocab,
-        "runtime": "tessl::GpuRuntime::new + set_async_encode(true), as MetalBackend's worker",
+        "runtime": args.runtime.recipe(),
     }))
 }
 
@@ -629,13 +713,18 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         let (same, n_same, n) = bit_identical(t);
         m.insert(
             format!("{tk}.arms_bit_identical"),
-            tri(
-                same,
-                Value::from(n_same as u64),
-                "samples whose logits (both passes) and prefix-state digest equal the first arm's \
-                 first sample bit for bit; the embed arms are exact by construction",
-            )
-            .with_coverage(n_same as u64, n as u64),
+            if n == 0 {
+                TriState::not_run("no arm produced a sample at this T, so nothing was compared")
+            } else {
+                tri(
+                    same,
+                    Value::from(n_same as u64),
+                    "samples whose logits (both passes) and prefix-state digest equal the first \
+                     arm's first sample bit for bit; the product repeats bit for bit, so every \
+                     sample must",
+                )
+                .with_coverage(n_same as u64, n as u64)
+            },
         );
         for a in &t.arms {
             let ak = format!("{tk}.{}", a.arm.key());
@@ -689,7 +778,20 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         }
     }
     let all_same = results.iter().all(|t| bit_identical(t).0);
-    let status = if tessl_held { Status::Completed } else { Status::Failed };
+    // Every T the recipe names must have run: a run cut short (bench.rs stops when tessl moves)
+    // is a capped sample, never a complete row, even if tessl later reads unchanged again.
+    let ran_ts: Vec<usize> = results.iter().map(|t| t.prompt.target).collect();
+    let all_ts = ran_ts == args.ts;
+    m.insert(
+        "t_coverage".into(),
+        tri(
+            all_ts,
+            json!(ran_ts),
+            format!("the Ts that ran, against the recipe's t_targets {:?}", args.ts),
+        )
+        .with_coverage(ran_ts.len() as u64, args.ts.len() as u64),
+    );
+    let status = if tessl_held && all_ts && all_same { Status::Completed } else { Status::Failed };
     Ok(Row {
         run_kind: "throughput".into(),
         protocol,
@@ -709,15 +811,282 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         wall_clock_s: ctx.wall_clock_s,
         wall_clock_source: WallClockSource::Caller,
         notes: format!(
-            "qd-metal decision latency on {} (Qwen3.5-2B-Base, the base weights every qd-metal tool \
-             resolves; no trained release exists on this Mac). Arms bit-identical at every T: {all_same}.{}",
+            "qd-metal decision latency on {} (weight hash {}). Samples bit-identical at every T: \
+             {all_same}.{}{}{}",
             ctx.snapshot.display(),
+            ctx.weight_hash,
             if tessl_held {
-                String::new()
+                ""
             } else {
                 " tessl changed during the run: the A/B is discarded (status failed) and must be re-run."
-                    .to_string()
-            }
+            },
+            if all_ts {
+                String::new()
+            } else {
+                format!(
+                    " Only {} of {} Ts ran ({ran_ts:?} of {:?}): a capped sample, status failed.",
+                    ran_ts.len(),
+                    args.ts.len(),
+                    args.ts
+                )
+            },
+            if all_same { "" } else { " Samples disagreed bit for bit: status failed." },
+        ),
+        recipe,
+    })
+}
+
+/// One timed product-path decision through `MetalBackend` (item B), each call timed from the
+/// caller's side, job hop included.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductSample {
+    pub total_ms: f64,
+    pub prefill_ms: f64,
+    pub snapshot_ms: f64,
+    pub decode_ms: [f64; 2],
+}
+
+/// Item B at one T: the product path against `run_decision` on the same ids, in one process,
+/// and the checks that make the two comparable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductPathT {
+    pub prompt: DecisionPrompt,
+    /// `run_decision` totals before and after the product phase.
+    pub model_before_ms: Vec<f64>,
+    pub model_after_ms: Vec<f64>,
+    pub product: Vec<ProductSample>,
+    /// The backend's host tokenization alone: the prefix once, prefix + suffix per pass.
+    pub encode_ms: Vec<f64>,
+    /// Product samples whose letter logits equal the Model path's bit for bit.
+    pub logits_same: usize,
+    /// Whether the two Model phases agreed bit for bit.
+    pub model_phases_same: bool,
+    /// Timed prefills that missed the cache (each got a new entry).
+    pub fresh_prefills: usize,
+}
+
+/// The product-path recipe: one fixed procedure, so only the Ts, `k` and the counts vary.
+pub fn product_recipe(
+    ts: &[usize],
+    k: usize,
+    warmup: usize,
+    iters: usize,
+    snapshot: &Path,
+    vocab: usize,
+) -> Value {
+    json!({
+        "tool": "crates/qd-metal/tests/gpu.rs gpu_product_path_host_cost_vs_model",
+        "mode": "product-path",
+        "label": "item B: MetalBackend product path vs Model-driven decision",
+        "t_targets": ts,
+        "k": k,
+        "iters": iters,
+        "warmup": warmup,
+        "phases": "Model, then MetalBackend, then Model, in one process with one model loaded at a time",
+        "model": "decision::run_decision: prefill + digest, 2 read-only passes each followed by a digest",
+        "product": "MetalBackend with the committed backend.rs/tokenizer.rs: prefill (tokenize, prompt \
+                    sha256, prefill, digest) + snapshot + 2 read-only decode_slot (re-tokenize prefix + \
+                    suffix, run, score, digest); max_entries 1, so every prefill misses the cache",
+        "request": {"task": TASK, "question": QUESTION, "slot": SLOT, "options": &OPTIONS[..k], "route": "generic"},
+        "context_source": CONTEXT_SOURCE_NAME,
+        "context_sha256": qd_runtime::hex(&qd_runtime::sha256(CONTEXT_SOURCE.as_bytes())),
+        "backbone_snapshot": snapshot.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        "backbone_vocab": vocab,
+        "runtime": RuntimeKind::Timestamps.recipe(),
+    })
+}
+
+/// Item B's row. Completed only when every T ran and, at every T, the product's logits equalled
+/// the Model path's, the two Model phases agreed, every timed prefill missed the cache, and tessl
+/// held; the delta itself is reported, never judged.
+pub fn build_product_row(
+    ts: &[usize],
+    k: usize,
+    warmup: usize,
+    results: &[ProductPathT],
+    ctx: &RunContext,
+) -> Result<Row> {
+    let iters = results.first().map_or(0, |t| t.product.len());
+    let recipe = product_recipe(ts, k, warmup, iters, &ctx.snapshot, ctx.vocab);
+    let prompts: Vec<DecisionPrompt> = results.iter().map(|t| t.prompt.clone()).collect();
+    let protocol = Protocol {
+        data_snapshot_hash: inputs_digest(&prompts),
+        tokenizer_hash: ctx.tokenizer_hash.clone(),
+        backbone_commit: ledger::backbone_commit(&ctx.snapshot, ctx.vocab)?,
+        recipe_hash: ledger::recipe_hash(&recipe)?,
+        seed: 0,
+    };
+    let mut m: BTreeMap<String, TriState> = ctx.provenance.metrics();
+    let tessl_held = ctx.tessl_after == ctx.provenance.tessl;
+    m.insert(
+        "tessl_unchanged_during_run".into(),
+        tri(
+            tessl_held,
+            Value::from(ctx.tessl_after.digest()),
+            format!("after the last phase: {}", ctx.tessl_after.describe()),
+        ),
+    );
+    m.insert(
+        "load_s".into(),
+        tri(
+            true,
+            ledger::float(ctx.load_s)?,
+            "the first Model phase's Model::load wall clock",
+        ),
+    );
+    m.insert(
+        "weight_hash".into(),
+        tri(
+            true,
+            Value::from(ctx.weight_hash.as_str()),
+            "the loader's hash over every tensor it read",
+        ),
+    );
+    m.insert(
+        "device".into(),
+        tri(
+            true,
+            Value::from(ctx.device.as_str()),
+            "tessl GpuRuntime device",
+        ),
+    );
+    let mut checks_held = true;
+    for t in results {
+        let p = &t.prompt;
+        let tk = format!("product_path.t{}", p.target);
+        let n = t.product.len();
+        let same = n > 0 && t.logits_same == n && t.model_phases_same;
+        let fresh = n > 0 && t.fresh_prefills == n;
+        checks_held &= same && fresh;
+        m.insert(
+            format!("{tk}.tokens"),
+            tri(
+                true,
+                json!({"prefix": p.prefix.len(), "pass0": p.passes[0].len(), "pass1": p.passes[1].len(), "context_lines": p.context_lines}),
+                "prefix (prefill) tokens and each pass's suffix tokens",
+            ),
+        );
+        m.insert(
+            format!("{tk}.logits_bit_identical"),
+            tri(
+                same,
+                json!({"product_samples": t.logits_same, "model_phases_agree": t.model_phases_same}),
+                "product samples whose letter logits (both passes) equal the Model path's bit for bit, \
+                 and whether the two Model phases agreed: the two paths did the same work",
+            )
+            .with_coverage(t.logits_same as u64, n as u64),
+        );
+        m.insert(
+            format!("{tk}.fresh_prefills"),
+            tri(
+                fresh,
+                Value::from(t.fresh_prefills as u64),
+                "timed prefills that missed the cache (a new entry each)",
+            )
+            .with_coverage(t.fresh_prefills as u64, n as u64),
+        );
+        let before = min(&t.model_before_ms);
+        let after = min(&t.model_after_ms);
+        let model_min = before.min(after);
+        let col =
+            |f: &dyn Fn(&ProductSample) -> f64| -> Vec<f64> { t.product.iter().map(f).collect() };
+        let product_total = col(&|s: &ProductSample| s.total_ms);
+        let product_min = min(&product_total);
+        m.insert(
+            format!("{tk}.model_ms"),
+            tri(
+                true,
+                json!({"min": ledger::float(model_min)?, "min_before": ledger::float(before)?, "min_after": ledger::float(after)?,
+                       "drift": ledger::float((before - after).abs())?}),
+                format!("run_decision total, min of {} per Model phase; drift is |before - after|", t.model_before_ms.len()),
+            ),
+        );
+        m.insert(
+            format!("{tk}.product_ms"),
+            tri(
+                true,
+                json!({
+                    "min": ledger::float(product_min)?,
+                    "median": ledger::float(median(&product_total))?,
+                    "prefill_min": ledger::float(min(&col(&|s: &ProductSample| s.prefill_ms)))?,
+                    "snapshot_min": ledger::float(min(&col(&|s: &ProductSample| s.snapshot_ms)))?,
+                    "decode0_min": ledger::float(min(&col(&|s: &ProductSample| s.decode_ms[0])))?,
+                    "decode1_min": ledger::float(min(&col(&|s: &ProductSample| s.decode_ms[1])))?,
+                }),
+                format!("MetalBackend calls timed from the caller, min (and total median) of {n}"),
+            )
+            .with_coverage(n as u64, n as u64),
+        );
+        m.insert(
+            format!("{tk}.delta_ms"),
+            tri(
+                true,
+                ledger::float(product_min - model_min)?,
+                "product min total - Model min total: what the product path adds; report only (Fable ruling 2, step 6a)",
+            ),
+        );
+        m.insert(
+            format!("{tk}.host_encode_ms"),
+            tri(
+                true,
+                ledger::float(min(&t.encode_ms))?,
+                "QwenTokenizer::encode alone, as the backend calls it: the prefix once, prefix + suffix per pass; min",
+            ),
+        );
+    }
+    let ran_ts: Vec<usize> = results.iter().map(|t| t.prompt.target).collect();
+    let all_ts = ran_ts == ts;
+    m.insert(
+        "t_coverage".into(),
+        tri(
+            all_ts,
+            json!(ran_ts),
+            format!("the Ts that ran, against the recipe's t_targets {ts:?}"),
+        )
+        .with_coverage(ran_ts.len() as u64, ts.len() as u64),
+    );
+    let status = if tessl_held && all_ts && checks_held {
+        Status::Completed
+    } else {
+        Status::Failed
+    };
+    Ok(Row {
+        run_kind: "throughput".into(),
+        protocol,
+        status,
+        quick_reason:
+            "a latency measurement: one process, base weights, a fixed synthetic request per T; \
+                       rule 8: quick, excluded from every decision"
+                .into(),
+        code_commit: ctx.provenance.code_commit.clone(),
+        env: Environment {
+            torch: "n/a: Rust binary, no torch in the process".into(),
+            transformers_sha: "n/a: Rust binary, no transformers in the process".into(),
+            device: "metal".into(),
+            host: ctx.provenance.host.clone(),
+        },
+        metrics: m,
+        noul_rate: TriState::not_run("a benchmark decodes no verdicts against a gate"),
+        wall_clock_s: ctx.wall_clock_s,
+        wall_clock_source: WallClockSource::Caller,
+        notes: format!(
+            "Item B, product path vs Model-driven decision on {} (weight hash {}). Caveats: it times the \
+             committed backend.rs/tokenizer.rs (QwenTokenizer::encode), not main's uncommitted \
+             encode_untrusted, so it does not measure H1; it runs the base snapshot, so its absolute \
+             ms are not comparable to rows on the release weights; the reading is only the \
+             in-process delta. Identity checks held at every T: {checks_held}.{}{}",
+            ctx.snapshot.display(),
+            ctx.weight_hash,
+            if tessl_held {
+                ""
+            } else {
+                " tessl changed during the run: status failed."
+            },
+            if all_ts {
+                ""
+            } else {
+                " Not every T ran: a capped sample, status failed."
+            },
         ),
         recipe,
     })
@@ -736,7 +1105,7 @@ mod tests {
         let a = parse_args(&strs(&["T=512,2048,8192", "k=4", "--ledger", "/r/ledger/mac-qd-metal-2026-10-02.jsonl"])).unwrap();
         assert_eq!(a.ts, vec![512, 2048, 8192]);
         assert_eq!((a.k, a.iters, a.warmup), (4, 7, 2));
-        assert_eq!(a.arms.iter().map(Arm::name).collect::<Vec<_>>(), ["embed=host", "embed=device"]);
+        assert_eq!(a.arms.iter().map(Arm::name).collect::<Vec<_>>(), ["product"]);
         assert_eq!(a.row, RowTarget::Ledger(PathBuf::from("/r/ledger/mac-qd-metal-2026-10-02.jsonl")));
         let b = parse_args(&strs(&["--no-ledger"])).unwrap();
         assert_eq!(b.ts, DEFAULT_T.to_vec());
@@ -764,16 +1133,48 @@ mod tests {
             &["k=4,5", "--no-ledger"],
             &["--iters", "0", "--no-ledger"],
             &["--iters", "--no-ledger"],
-            &["--arms", "embed=gpu", "--no-ledger"],
-            &["--arms", "embed=host,embed=host", "--no-ledger"],
+            &["--arms", "product,product", "--no-ledger"],
+            &["--arms", "", "--no-ledger"],
             &["--arms", "digest=device", "--no-ledger"],
             &["--wat", "--no-ledger"],
         ] {
             assert!(parse_args(&strs(bad)).is_err(), "{bad:?} was accepted");
         }
-        let a = parse_args(&strs(&["--iters", "3", "--warmup", "0", "--arms", "embed=device", "--no-ledger"])).unwrap();
+        let a = parse_args(&strs(&["--iters", "3", "--warmup", "0", "--arms", "product", "--no-ledger"])).unwrap();
         assert_eq!((a.iters, a.warmup), (3, 0));
-        assert_eq!(a.arms, vec![Arm { embed: EmbedPath::Device }]);
+        assert_eq!(a.arms, vec![Arm::Product]);
+    }
+
+    /// Fail-first (Fable ruling 2, #6): a repeated T used to parse, run twice and write one set of
+    /// `decision.t<T>.*` keys, the second run replacing the first under a passing `t_coverage`.
+    #[test]
+    fn a_repeated_t_is_refused() {
+        for bad in [&["T=512,512", "--no-ledger"][..], &["T=131,409,131", "--no-ledger"]] {
+            let e = parse_args(&strs(bad)).expect_err(&format!("{bad:?} was accepted")).to_string();
+            assert!(e.contains("given twice"), "{e}");
+        }
+        assert_eq!(parse_args(&strs(&["T=131,409", "--no-ledger"])).unwrap().ts, vec![131, 409]);
+    }
+
+    /// The one-thread digest and the device embedding gather are gone, and with them the
+    /// `digest=` and `embed=` arms: asking for one is refused, naming the one arm there is, never
+    /// silently run as the product.
+    #[test]
+    fn the_retired_arms_are_refused() {
+        for bad in [
+            "digest=serial,digest=parallel",
+            "digest=serial",
+            "embed=host,embed=device",
+            "embed=host",
+            "embed=device",
+            "product,embed=host",
+            "embed=host,digest=parallel",
+        ] {
+            let e = parse_args(&strs(&["--arms", bad, "--no-ledger"]))
+                .expect_err(&format!("--arms {bad} was accepted"))
+                .to_string();
+            assert!(e.contains("is not `product`, the one arm"), "{e}");
+        }
     }
 
     #[test]
@@ -792,6 +1193,46 @@ mod tests {
         assert_eq!(median(&v), 4.0);
         assert_eq!(median(&[1.0, 3.0]), 2.0);
         assert!(median(&[]).is_nan());
+    }
+
+    /// `--runtime` picks the constructor and the row says which. The default is the worker's and
+    /// keeps the text every earlier row recorded, so a default run's recipe does not move.
+    #[test]
+    fn the_runtime_is_a_run_flag_defaulting_to_the_workers() {
+        let at = |a: &[&str]| parse_args(&strs(a));
+        let default = at(&["--no-ledger"]).unwrap();
+        assert_eq!(default.runtime, RuntimeKind::Timestamps);
+        let inf = at(&["--runtime", "inference", "--no-ledger"]).unwrap();
+        assert_eq!(inf.runtime, RuntimeKind::Inference);
+        for bad in [
+            &["--runtime", "fast", "--no-ledger"][..],
+            &["--runtime", "", "--no-ledger"],
+            &["--runtime"],
+        ] {
+            assert!(at(bad).is_err(), "{bad:?} was accepted");
+        }
+        let snap = Path::new("/hf/snapshots/b1485b2f");
+        let r = recipe(&default, snap, 248_320).unwrap();
+        let worker = "tessl::GpuRuntime::new + set_async_encode(true), as MetalBackend's worker";
+        assert_eq!(r["runtime"], worker);
+        let r = recipe(&inf, snap, 248_320).unwrap();
+        let inference = r["runtime"].as_str().unwrap();
+        assert!(inference.starts_with("tessl::GpuRuntime::new_inference"));
+    }
+
+    /// The context is the frozen v1 file, byte for byte, and the row says which: an edit to the
+    /// fixture fails here rather than silently feeding later rows different ids.
+    #[test]
+    fn the_bench_context_is_the_frozen_v1_file() {
+        const V1_SHA256: &str = "32549c5c4ada77173dd0c5339992c31b087de3c8b0eed3ced74009b68785ebc0";
+        let sha = qd_runtime::hex(&qd_runtime::sha256(CONTEXT_SOURCE.as_bytes()));
+        assert_eq!(sha, V1_SHA256);
+        assert_eq!(CONTEXT_SOURCE.lines().count(), 1150);
+        let args = parse_args(&strs(&["--no-ledger"])).unwrap();
+        let r = recipe(&args, Path::new("/hf/snapshots/b1485b2f"), 248_320).unwrap();
+        assert_eq!(r["context_source"], CONTEXT_SOURCE_NAME);
+        assert!(CONTEXT_SOURCE_NAME.ends_with("fixtures/decision-context-v1.txt"));
+        assert_eq!(r["context_sha256"], V1_SHA256);
     }
 
     #[test]

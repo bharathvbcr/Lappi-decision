@@ -10,7 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use qd_runtime::backend::{
-    BackendIdentity, DecisionBackend, DecodeMode, Logits, PrefillHandle, SlotQuery, StateSnapshot,
+    BackendIdentity, DecisionBackend, DecodeMode, Logits, PrefillHandle, SlotQuery, StateBuffer,
+    StateSnapshot,
 };
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::reference::ReferenceBackend;
@@ -135,6 +136,9 @@ pub enum Behaviour {
     /// Declares itself a model whose state is **not** host-visible, so the slot-isolation check
     /// cannot run.
     OpaqueState,
+    /// Declares host-visible state, then snapshots none: an empty state buffer hashes the same
+    /// either side of any decode, so the check must read as not run.
+    ClaimsVisibleStateButHasNone,
     /// Poisons on prefill.
     PoisonsOnPrefill,
     /// Sleeps in prefill when the prompt names `slow-task`.
@@ -157,6 +161,10 @@ impl Wrapped {
             }
             Behaviour::ClaimsToBeAModel => {
                 identity.name = "test-claims-to-be-a-model".to_string();
+                identity.is_model = true;
+            }
+            Behaviour::ClaimsVisibleStateButHasNone => {
+                identity.name = "test-visible-but-empty-state".to_string();
                 identity.is_model = true;
             }
             _ => {}
@@ -198,7 +206,11 @@ impl DecisionBackend for Wrapped {
     }
 
     fn snapshot(&self, handle: &PrefillHandle) -> Result<StateSnapshot, BackendError> {
-        self.inner.snapshot(handle)
+        let mut snapshot = self.inner.snapshot(handle)?;
+        if let Behaviour::ClaimsVisibleStateButHasNone = self.behaviour {
+            snapshot.state = StateBuffer::opaque();
+        }
+        Ok(snapshot)
     }
 
     fn decode_slot(

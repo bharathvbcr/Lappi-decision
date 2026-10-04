@@ -5,7 +5,7 @@
 //! and state carried in and out:
 //!
 //! ```text
-//! resid = embed(ids)                       host gather of the bf16 table, widened to f32
+//! resid = embed(ids)                       host gather, or qwen35::embed_rows (EmbedPath)
 //! per layer:
 //!   xb = rms_norm_bf16(resid, 1 + w_in_norm)
 //!   GDN:  proj = xb @ W_in;  qkv = conv1d_silu(proj[:, :conv_dim], conv state)
@@ -64,44 +64,79 @@ pub const RECURRENT_MAX_SEQ: u32 = 16;
 /// Layers prepared on the CPU at once during load (bounds the host copies held at a time).
 const LOAD_PARALLEL_LAYERS: usize = 6;
 
+/// Where a pass's embedding rows are gathered: the first write of every [`Model::run`].
+///
+/// Both read the same bf16 table and widen bf16 to f32 by a 16-bit shift, which is exact, so the
+/// two produce the same bits and every logit downstream is unchanged. `tests/gpu.rs`
+/// (`gpu_embed_paths_are_bit_identical`) asserts that on the real weights; it is kept as a flag so
+/// `qd-metal-bench --decision` can time both arms interleaved (Fable's Mac ruling, item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbedPath {
+    /// Map the 1 GB table and the residual on the host and convert there. Mapping a shared
+    /// buffer commits and waits for every GPU command already encoded, so this is also a sync.
+    Host,
+    /// `tessl::qwen35::embed_rows`: one dispatch, ids uploaded as `u32`, no host map of the table.
+    Device,
+}
+
+impl EmbedPath {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EmbedPath::Host => "host",
+            EmbedPath::Device => "device",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "host" => Ok(EmbedPath::Host),
+            "device" => Ok(EmbedPath::Device),
+            other => Err(MetalError::Input(format!(
+                "embed path {other:?} is not `host` or `device`"
+            ))),
+        }
+    }
+}
+
+/// How [`PrefixState::digest_by`] computes the v1 record. Both give the same bytes: each buffer is
+/// one ordinary SHA-256 either way, and only which thread computes it changes. Kept as a flag so
+/// `qd-metal-bench --decision` can time both arms interleaved (Fable's 2026-10-03 ruling, item 1a);
+/// the serial arm goes once its A/B row is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DigestPath {
+    /// One SHA-256 per buffer, on the calling thread, straight from each buffer's host mapping:
+    /// the digest the v1 pins in `tests/gpu.rs` were captured from.
+    Serial,
+    /// Each buffer copied into a reused host scratch, one mapping at a time, then the buffers
+    /// hashed by `qd_runtime::sha256_slices_parallel`.
+    Parallel,
+}
+
+impl DigestPath {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DigestPath::Serial => "serial",
+            DigestPath::Parallel => "parallel",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "serial" => Ok(DigestPath::Serial),
+            "parallel" => Ok(DigestPath::Parallel),
+            other => Err(MetalError::Input(format!(
+                "digest path {other:?} is not `serial` or `parallel`"
+            ))),
+        }
+    }
+}
+
 /// The v1 prefix-state record's domain tag.
 const DIGEST_V1_TAG: &[u8] = b"qd-metal.prefix-state.v1\0";
 
-/// The digest scratch kept between digests is bounded by a state of this many tokens:
-/// `qd-metal-serve`'s default `--max-tokens` (bin/serve.rs), so the product's longest default
-/// context reuses its scratch (~423 MB on the 2B) instead of re-faulting it three times per
-/// decision. A longer context's scratch is released after its digest.
-pub const DIGEST_SCRATCH_RETAIN_TOKENS: u32 = 16_384;
-
-/// Device bytes of a batch-1 [`PrefixState`] of `tokens` tokens on `cfg`, the
-/// [`PrefixState::nbytes`] of such a state: per GDN layer the conv state `[conv_dim, kernel - 1]`
-/// and the recurrent state, per attention layer K and V `[tokens, kv_heads, head_dim]`, all f32.
-pub fn prefix_state_nbytes(cfg: &ModelConfig, tokens: u32) -> Result<usize> {
-    let gdn = cfg.gdn_layout()?;
-    let conv = gdn.conv_dim() as usize * (cfg.conv_kernel as usize - 1);
-    let recurrent = gdn.dims(1, 1).state_elems_per_row();
-    let per_pos = cfg.kv_heads as usize * cfg.head_dim as usize;
-    let elems = cfg
-        .n_gdn()
-        .checked_mul(conv + recurrent)
-        .zip(cfg.n_attention().checked_mul(2 * per_pos).and_then(|n| n.checked_mul(tokens as usize)))
-        .and_then(|(fixed, kv)| fixed.checked_add(kv))
-        .and_then(|n| n.checked_mul(4))
-        .ok_or_else(|| MetalError::Input(format!("a {tokens}-token prefix state overflows usize bytes")))?;
-    Ok(elems)
-}
-
-/// The most scratch a thread keeps between digests: the state of [`DIGEST_SCRATCH_RETAIN_TOKENS`].
-fn digest_scratch_retain_bytes(cfg: &ModelConfig) -> Result<usize> {
-    prefix_state_nbytes(cfg, DIGEST_SCRATCH_RETAIN_TOKENS)
-}
-
-/// Release `scratch` if it holds more than `keep` bytes of capacity.
-fn release_oversized_scratch(scratch: &mut Vec<u8>, keep: usize) {
-    if scratch.capacity() > keep {
-        *scratch = Vec::new();
-    }
-}
+/// A digest scratch larger than this is released after the digest instead of kept: about one
+/// state of 8.5K tokens (~225 MB) stays resident per thread, a longer context's does not.
+const DIGEST_SCRATCH_RETAIN_BYTES: usize = 256 << 20;
 
 thread_local! {
     /// The host copy the parallel digest hashes, reused across digests on this thread. A copy is
@@ -168,8 +203,6 @@ pub struct PrefixState {
     /// Per attention layer: `[1, tokens, kv_heads, head_dim]` f32, capacity exactly `tokens`.
     k: Vec<GpuBuffer>,
     v: Vec<GpuBuffer>,
-    /// [`digest_scratch_retain_bytes`] of the model that built this state.
-    scratch_retain_bytes: usize,
 }
 
 impl PrefixState {
@@ -193,19 +226,41 @@ impl PrefixState {
 
     /// SHA-256 over the state **as it is in device memory**: the token count, then each
     /// buffer's tag, length and SHA-256, in a fixed order (the v1 record, [`digest_v1`]). Reading
-    /// maps the shared buffers, which first waits for every GPU command already encoded. Each
-    /// buffer is one ordinary SHA-256, computed in parallel across buffers
-    /// ([`qd_runtime::sha256_slices_parallel`]): the bytes a one-thread loop would give, which
-    /// the 2026-10-03 A/B rows checked bit for bit before the one-thread loop was deleted.
+    /// maps the shared buffers, which first waits for every GPU command already encoded. The
+    /// buffers are hashed in parallel ([`DigestPath::Parallel`]); the bytes are the serial ones.
     pub fn digest(&self) -> Result<[u8; 32]> {
-        DIGEST_SCRATCH.with(|cell| {
-            let mut scratch = cell.try_borrow_mut().map_err(|_| {
-                MetalError::State("the prefix-state digest re-entered itself on one thread".into())
-            })?;
-            let out = self.digest_parallel(&mut scratch);
-            release_oversized_scratch(&mut scratch, self.scratch_retain_bytes);
-            out
-        })
+        self.digest_by(DigestPath::Parallel)
+    }
+
+    /// [`PrefixState::digest`] by an explicit [`DigestPath`], for the A/B and the bit-identity test.
+    pub fn digest_by(&self, path: DigestPath) -> Result<[u8; 32]> {
+        match path {
+            DigestPath::Serial => self.digest_serial(),
+            DigestPath::Parallel => DIGEST_SCRATCH.with(|cell| {
+                let mut scratch = cell.try_borrow_mut().map_err(|_| {
+                    MetalError::State("the prefix-state digest re-entered itself on one thread".into())
+                })?;
+                let out = self.digest_parallel(&mut scratch);
+                if scratch.capacity() > DIGEST_SCRATCH_RETAIN_BYTES {
+                    *scratch = Vec::new();
+                }
+                out
+            }),
+        }
+    }
+
+    /// The v1 digest as it was before the parallel path, kept verbatim as the A/B's serial arm.
+    fn digest_serial(&self) -> Result<[u8; 32]> {
+        let mut acc = Vec::with_capacity(64 + 48 * (self.conv.len() * 2 + self.k.len() * 2));
+        acc.extend_from_slice(b"qd-metal.prefix-state.v1\0");
+        acc.extend_from_slice(&self.tokens.to_le_bytes());
+        for (tag, b) in self.buffers() {
+            let bytes = b.try_contents_u8().gpu("map state for hashing")?;
+            acc.extend_from_slice(tag.as_bytes());
+            acc.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+            acc.extend_from_slice(&qd_runtime::sha256(&bytes));
+        }
+        Ok(qd_runtime::sha256(&acc))
     }
 
     /// Copy every buffer into `scratch`, one host mapping at a time (each dropped before the next
@@ -265,6 +320,7 @@ pub struct Model {
     embed: Tensor,
     weight_hash: String,
     embed_digest: [u8; 32],
+    embed_path: EmbedPath,
 }
 
 fn upload_f32(rt: &Arc<GpuRuntime>, data: &[f32], what: &str) -> Result<GpuBuffer> {
@@ -526,7 +582,19 @@ impl Model {
             embed,
             weight_hash,
             embed_digest,
+            // The path every measured number so far ran on. `Device` becomes the default only
+            // after the bit-identity test and the parity gate pass on the GPU with it (rule 2).
+            embed_path: EmbedPath::Host,
         })
+    }
+
+    /// Which embedding gather [`Model::run`] uses from now on.
+    pub fn set_embed_path(&mut self, path: EmbedPath) {
+        self.embed_path = path;
+    }
+
+    pub fn embed_path(&self) -> EmbedPath {
+        self.embed_path
     }
 
     pub fn config(&self) -> &ModelConfig {
@@ -547,13 +615,60 @@ impl Model {
         self.embed_digest
     }
 
-    /// Gather the bf16 embedding rows of `ids` into `resid` as f32, on the host: the first write
-    /// of every [`Model::run`], whose caller checked `ids` against the vocabulary. Mapping the
-    /// table and the residual commits and waits for every GPU command already encoded. A one-
-    /// dispatch GPU gather (`tessl::qwen35::embed_rows`) gave the same bits and measured no faster
-    /// (ledger mac-qd-metal-2026-10-02, total min 409.7 vs 410.5 ms at T=512, 4,275.7 vs 4,281.1
-    /// at T=8192), so it was deleted.
+    /// The f32 embedding rows of `ids` (`[ids.len(), hidden]`) as the current [`EmbedPath`]
+    /// gathers them, read back. What every [`Model::run`] starts from; exposed so the two paths
+    /// can be compared bit for bit (`tests/gpu.rs`). Waits for the GPU.
+    pub fn gather_embeddings(&self, ids: &[u32]) -> Result<Vec<f32>> {
+        if ids.is_empty() {
+            return Err(MetalError::Input("no ids to embed".into()));
+        }
+        if let Some(bad) = ids.iter().find(|&&id| id as usize >= self.cfg.vocab) {
+            return Err(MetalError::Input(format!(
+                "token id {bad} is outside the {}-row vocabulary",
+                self.cfg.vocab
+            )));
+        }
+        let h = self.cfg.hidden;
+        let out = self.rt.alloc_tensor_f32(&[ids.len(), h]).gpu("embedding readback")?;
+        if out.byte_offset() != 0 {
+            return Err(MetalError::Gpu("the embedding gather writes from its buffer's start".into()));
+        }
+        self.embed_rows(ids, &out)?;
+        let m = out.buffer.try_contents_f32().gpu("read embeddings")?;
+        Ok(m[..ids.len() * h].to_vec())
+    }
+
+    /// Gather the bf16 embedding rows of `ids` into `resid` as f32, by [`Model::embed_path`].
+    /// `ids` were checked against the vocabulary by [`Model::run`].
     fn embed_rows(&self, ids: &[u32], resid: &Tensor) -> Result<()> {
+        match self.embed_path {
+            EmbedPath::Host => self.embed_rows_host(ids, resid),
+            EmbedPath::Device => self.embed_rows_device(ids, resid),
+        }
+    }
+
+    /// `tessl::qwen35::embed_rows` over the resident table: `out[r] = widen(table[ids[r]])`.
+    fn embed_rows_device(&self, ids: &[u32], resid: &Tensor) -> Result<()> {
+        let rt = &self.rt;
+        let n = to_u32(ids.len(), "embedding rows")?;
+        let ids_buf = upload_u32(rt, ids, "embed ids")?;
+        qwen35::embed_rows(
+            rt,
+            &ids_buf,
+            n,
+            LmHead {
+                weight: &self.embed.buffer,
+                dtype: DType::BF16,
+                vocab: to_u32(self.cfg.vocab, "vocab")?,
+            },
+            to_u32(self.cfg.hidden, "hidden")?,
+            &resid.buffer,
+        )
+        .gpu("qwen35::embed_rows")
+    }
+
+    /// Host gather of the bf16 embedding rows into f32.
+    fn embed_rows_host(&self, ids: &[u32], resid: &Tensor) -> Result<()> {
         let h = self.cfg.hidden;
         let mut rows = vec![0f32; ids.len() * h];
         {
@@ -889,7 +1004,6 @@ impl Model {
                 gdn: state_gdn,
                 k: state_k,
                 v: state_v,
-                scratch_retain_bytes: digest_scratch_retain_bytes(cfg)?,
             })
         } else {
             None
@@ -1007,17 +1121,12 @@ pub fn weights_file(snapshot: &Path) -> Result<std::path::PathBuf> {
 
 #[cfg(test)]
 mod digest_record_tests {
-    use super::{
-        digest_scratch_retain_bytes, digest_v1, prefix_state_nbytes, release_oversized_scratch,
-        DIGEST_SCRATCH_RETAIN_TOKENS,
-    };
-    use crate::config::tests_support::QWEN35_2B;
-    use crate::config::ModelConfig;
+    use super::{digest_v1, DigestPath};
 
     /// The v1 record against an independent oracle: Python's `hashlib` over the same layout
-    /// (`AUDIT/qdm-digest-2026-10-03/digest_v1_oracle.py`). It pins the record layout the GPU
-    /// pins rely on without a GPU, and with qd-runtime's `sha256_parallel_tests` (each parallel
-    /// hash equals the one-thread `sha256`) it is the tessl-independent guard on the digest code.
+    /// (`~/qd-campaign/lappi-bench-2026-10-03/digest_v1_oracle.py`). Characterization: the record
+    /// layout is the one the serial digest builds, so this passes on both sides; it pins the
+    /// layout the GPU pins rely on without needing a GPU.
     #[test]
     fn the_v1_record_matches_an_independent_oracle() {
         let k: Vec<u8> = (0..=255u8).cycle().take(768).collect();
@@ -1029,37 +1138,13 @@ mod digest_record_tests {
         );
     }
 
-    /// The size formula against states measured on the GPU: `state_mb` of the 2026-10-03 A/B
-    /// rows (147da0cc, 28505f4c) at prefixes of 115, 399, 762, 2033 and 8185 tokens.
     #[test]
-    fn prefix_state_bytes_match_the_measured_states() {
-        let cfg = ModelConfig::from_json(QWEN35_2B).unwrap();
-        for (tokens, bytes) in [
-            (115, 23_027_712),
-            (399, 30_007_296),
-            (762, 38_928_384),
-            (2033, 70_164_480),
-            (8185, 221_356_032),
-        ] {
-            assert_eq!(prefix_state_nbytes(&cfg, tokens).unwrap(), bytes, "{tokens} tokens");
+    fn digest_paths_parse_and_refuse() {
+        for p in [DigestPath::Serial, DigestPath::Parallel] {
+            assert_eq!(DigestPath::parse(p.as_str()).unwrap(), p);
         }
-    }
-
-    /// Fail-first (Fable ruling 2, #1): the retain cap was a fixed 256 MiB, below the ~423 MB
-    /// state of the 16,384 tokens `qd-metal-serve` admits by default, so that scratch was released
-    /// after every digest and re-faulted on the next. The capacity is reserved, never touched.
-    #[test]
-    fn the_scratch_of_a_default_max_tokens_state_is_kept() {
-        let cfg = ModelConfig::from_json(QWEN35_2B).unwrap();
-        let state = prefix_state_nbytes(&cfg, DIGEST_SCRATCH_RETAIN_TOKENS).unwrap();
-        assert!(state > 256 << 20, "the case this test is about: {state} bytes");
-        let keep = digest_scratch_retain_bytes(&cfg).unwrap();
-        let mut scratch: Vec<u8> = Vec::with_capacity(state);
-        release_oversized_scratch(&mut scratch, keep);
-        assert!(scratch.capacity() >= state, "a {state}-byte scratch was released (keep {keep})");
-        // One token past the bound is released: the cap still bounds.
-        let mut longer: Vec<u8> = Vec::with_capacity(keep + 1);
-        release_oversized_scratch(&mut longer, keep);
-        assert_eq!(longer.capacity(), 0);
+        for bad in ["", "Serial", "device", "parallel "] {
+            assert!(DigestPath::parse(bad).is_err(), "{bad:?} was accepted");
+        }
     }
 }

@@ -107,3 +107,27 @@ fn snapshot_decision_prompts_fill_each_t_from_below() {
     }
     assert!(qd_metal::decision::build_prompt(&tok, 16, 4).is_err(), "a T below the fixed text is refused");
 }
+
+/// The frozen context feeds the ids rows 147da0cc and 28505f4c fed: their `data_snapshot_hash`
+/// and context lines, at their five Ts. This is what makes a later row comparable to them; it
+/// failed while the context was read from the live model.rs. The ids depend on the tokenizer, so
+/// it must be the one those rows recorded; on another the test refuses rather than mismatch.
+#[test]
+#[ignore = "needs the model snapshot"]
+fn snapshot_decision_inputs_reproduce_rows_1_and_2() {
+    const ROWS_TOKENIZER: &str = "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927";
+    const ROWS_INPUTS: &str = "3d38c835cfe2c4b8704d9208e16f5a4597bcd3cc0db2509ae2e1a80467c3b16f";
+    let tok = QwenTokenizer::load(&snapshot().join("tokenizer.json")).unwrap();
+    assert_eq!(tok.hash(), ROWS_TOKENIZER, "not rows 1-2's tokenizer");
+    let ts = [131, 409, 770, 2048, 8192];
+    let prompts: Vec<_> = ts
+        .iter()
+        .map(|&t| qd_metal::decision::build_prompt(&tok, t, 4).unwrap())
+        .collect();
+    let lines: Vec<usize> = prompts.iter().map(|p| p.context_lines).collect();
+    let prefix: Vec<usize> = prompts.iter().map(|p| p.prefix.len()).collect();
+    println!("context lines {lines:?}, prefix tokens {prefix:?}");
+    assert_eq!(lines, [3, 18, 38, 145, 690]);
+    assert_eq!(prefix, [115, 399, 762, 2033, 8185]);
+    assert_eq!(qd_metal::decision::inputs_digest(&prompts), ROWS_INPUTS);
+}

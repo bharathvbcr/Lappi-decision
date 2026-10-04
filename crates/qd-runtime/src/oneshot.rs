@@ -86,6 +86,14 @@ pub fn ask_over_socket(
             "request is over the payload cap",
         ));
     }
+    // std refuses a zero read/write timeout, but only after the connect: the agent would see a
+    // connection that sends nothing, and the caller a fallback blamed on an agent "not answering".
+    if timeout.is_zero() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a zero socket timeout cannot bound the exchange; refused before connecting",
+        ));
+    }
     let stream = UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;

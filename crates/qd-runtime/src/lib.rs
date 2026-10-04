@@ -144,6 +144,260 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     h.finalize().into()
 }
 
+/// The most threads [`sha256_slices_parallel`] ever runs on, whatever the machine offers. Eight
+/// is the bound in the lead's lane grant for this change (2026-10-03, `min(available_parallelism,
+/// 8)`), set after the two kernel panics of 2026-10-02: a hash fan-out is bounded like every other
+/// one. More threads would buy little, because each buffer is one sequential SHA-256 and the
+/// largest buffer on the slowest core bounds a round: at 8K the state is 12 K/V buffers of
+/// ~16.8 MB, two rounds on 8 threads; at task length it is 18 buffers of ~1 MB either way.
+pub const SHA256_PARALLEL_MAX_WORKERS: std::num::NonZeroUsize =
+    std::num::NonZeroUsize::new(8).unwrap();
+
+/// How many threads (the calling one included) [`sha256_slices_parallel`] uses for `slices`
+/// slices on a machine offering `available`: the caller's request, never above
+/// [`SHA256_PARALLEL_MAX_WORKERS`], the machine or the work. 1 (or 0 for no slices) is serial.
+pub fn sha256_worker_count(
+    max_workers: std::num::NonZeroUsize,
+    available: usize,
+    slices: usize,
+) -> usize {
+    max_workers
+        .get()
+        .min(SHA256_PARALLEL_MAX_WORKERS.get())
+        .min(available)
+        .min(slices)
+}
+
+/// [`sha256`] of every slice, in input order, computed on up to `max_workers` threads.
+///
+/// [`SHA256_PARALLEL_MAX_WORKERS`] is a ceiling no caller can raise: `max_workers` is a request
+/// that can only lower it ([`sha256_worker_count`]).
+///
+/// `out[i] == sha256(slices[i])` bit for bit: each slice is one ordinary SHA-256 and only which
+/// thread computes it changes, so a record built from these hashes is the record a serial loop
+/// builds. The calling thread hashes too, beside `sha256_worker_count(..) - 1` helpers in a
+/// `std::thread::scope`; all of them take
+/// slices largest-first from one shared cursor, so a long slice starts first rather than last.
+/// A helper the OS refuses to start costs speed, never coverage: the cursor still hands every
+/// slice to some thread. A panic in a helper is re-raised on the calling thread with its
+/// original payload. No slices is no hashes.
+pub fn sha256_slices_parallel(
+    slices: &[&[u8]],
+    max_workers: std::num::NonZeroUsize,
+) -> Vec<[u8; 32]> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let available = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let workers = sha256_worker_count(max_workers, available, slices.len());
+    if workers <= 1 {
+        return slices.iter().map(|s| sha256(s)).collect();
+    }
+    let mut order: Vec<usize> = (0..slices.len()).collect();
+    // Stable: equal lengths keep input order, so the schedule depends on the lengths alone.
+    order.sort_by_key(|&i| std::cmp::Reverse(slices[i].len()));
+    let cursor = AtomicUsize::new(0);
+    // Captures only shared references, so it is `Copy`: each helper gets its own copy.
+    let work = || {
+        let mut done = Vec::new();
+        loop {
+            let k = cursor.fetch_add(1, Ordering::Relaxed);
+            let Some(&i) = order.get(k) else { break };
+            done.push((i, sha256(slices[i])));
+        }
+        done
+    };
+    let parts: Vec<Vec<(usize, [u8; 32])>> = std::thread::scope(|scope| {
+        let helpers: Vec<_> = (1..workers)
+            .filter_map(|n| {
+                std::thread::Builder::new()
+                    .name(format!("qd-sha256-{n}"))
+                    .spawn_scoped(scope, work)
+                    .ok()
+            })
+            .collect();
+        let mut parts = vec![work()];
+        for h in helpers {
+            parts.push(
+                h.join()
+                    .unwrap_or_else(|payload| std::panic::resume_unwind(payload)),
+            );
+        }
+        parts
+    });
+    let mut out: Vec<Option<[u8; 32]>> = vec![None; slices.len()];
+    for (i, h) in parts.into_iter().flatten() {
+        assert!(out[i].replace(h).is_none(), "slice {i} was hashed twice");
+    }
+    out.into_iter()
+        .enumerate()
+        .map(|(i, h)| h.unwrap_or_else(|| panic!("slice {i} was never hashed")))
+        .collect()
+}
+
+#[cfg(test)]
+mod sha256_parallel_tests {
+    //! Characterization of [`sha256_slices_parallel`] against the serial [`sha256`]. Every test
+    //! here passes on both sides of the parallel digest by construction; the fail-first artifact
+    //! for that change is its A/B ledger row (`digest_ms`), not these.
+
+    use std::num::NonZeroUsize;
+
+    use super::{
+        CounterRng, SHA256_PARALLEL_MAX_WORKERS, sha256, sha256_slices_parallel,
+        sha256_worker_count,
+    };
+
+    /// The ceiling holds against any request, machine or batch: no argument raises it above 8.
+    #[test]
+    fn no_request_raises_the_thread_ceiling() {
+        let ceiling = SHA256_PARALLEL_MAX_WORKERS.get();
+        assert_eq!(ceiling, 8);
+        for request in [1, 2, 7, 8, 9, 18, 1000, usize::MAX] {
+            for available in [1, 6, 8, 18, 64, usize::MAX] {
+                for slices in [0, 1, 7, 48, 10_000] {
+                    let n = sha256_worker_count(nz(request), available, slices);
+                    assert!(n <= ceiling, "{request}/{available}/{slices} -> {n}");
+                    assert!(n <= request && n <= available && n <= slices, "{n}");
+                }
+            }
+        }
+        assert_eq!(sha256_worker_count(nz(usize::MAX), 18, 48), 8);
+        assert_eq!(sha256_worker_count(nz(3), 18, 48), 3);
+    }
+
+    fn nz(n: usize) -> NonZeroUsize {
+        NonZeroUsize::new(n).unwrap()
+    }
+
+    fn serial(slices: &[&[u8]]) -> Vec<[u8; 32]> {
+        slices.iter().map(|s| sha256(s)).collect()
+    }
+
+    /// Deterministic bytes: the slice contents differ, so a hash landing on the wrong index shows.
+    /// One `CounterRng` draw seeds each slice and a splitmix64 stream fills it, eight bytes a step:
+    /// a SHA-256 per byte would make the fixtures, not the code under test, the slow part.
+    fn buffers(lens: &[usize], seed: &[u8]) -> Vec<Vec<u8>> {
+        let mut rng = CounterRng::new("sha256_parallel_tests", seed);
+        lens.iter()
+            .map(|&n| {
+                let mut state = rng.next_u64();
+                let mut out = Vec::with_capacity(n + 8);
+                while out.len() < n {
+                    state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                    let mut z = state;
+                    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                    out.extend_from_slice(&(z ^ (z >> 31)).to_le_bytes());
+                }
+                out.truncate(n);
+                out
+            })
+            .collect()
+    }
+
+    fn check(lens: &[usize], workers: usize) {
+        let owned = buffers(lens, format!("{lens:?}/{workers}").as_bytes());
+        let slices: Vec<&[u8]> = owned.iter().map(Vec::as_slice).collect();
+        assert_eq!(
+            sha256_slices_parallel(&slices, nz(workers)),
+            serial(&slices),
+            "lens {lens:?}, {workers} workers"
+        );
+    }
+
+    #[test]
+    fn a_known_answer_survives_the_fan_out() {
+        // FIPS 180-2 "abc", at every position of a batch large enough to fan out.
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let slices: Vec<&[u8]> = vec![b"abc"; 9];
+        for h in sha256_slices_parallel(&slices, SHA256_PARALLEL_MAX_WORKERS) {
+            assert_eq!(super::hex(&h), abc);
+        }
+    }
+
+    #[test]
+    fn no_slices_is_no_hashes() {
+        assert!(sha256_slices_parallel(&[], SHA256_PARALLEL_MAX_WORKERS).is_empty());
+        assert!(sha256_slices_parallel(&[], nz(1)).is_empty());
+    }
+
+    #[test]
+    fn edge_lengths_match_the_serial_hash() {
+        check(&[0], 8);
+        check(&[1], 8);
+        check(&[0, 0, 0, 0], 8);
+        check(&[1, 0, 64, 55, 56, 63, 65, 1], 8); // SHA-256 padding boundaries
+        check(&[0, 1 << 20, 0, 3], 8);
+    }
+
+    #[test]
+    fn every_worker_count_matches_the_serial_hash() {
+        // The prefix state's shape: 18 conv, 18 GDN, 6 K, 6 V buffers of unequal size.
+        let mut lens = vec![24_576; 18];
+        lens.extend(vec![262_144; 18]);
+        lens.extend(vec![
+            200_000, 1, 0, 199_999, 100, 7, 200_000, 3, 0, 9, 4096, 5,
+        ]);
+        for workers in [1, 2, 3, 7, 8, 9, 48, 49, 1000, usize::MAX] {
+            check(&lens, workers);
+        }
+    }
+
+    #[test]
+    fn more_workers_than_slices_and_duplicate_contents() {
+        let same = vec![7u8; 1000];
+        let slices: Vec<&[u8]> = vec![&same, &same, &same];
+        assert_eq!(sha256_slices_parallel(&slices, nz(64)), serial(&slices));
+        check(&[5, 5], 64);
+    }
+
+    #[test]
+    fn randomized_shapes_match_the_serial_hash() {
+        let mut rng = CounterRng::new("sha256_parallel_tests.shapes", b"v1");
+        // ~0.5 MB a round on average: the shapes, not the volume, are what this varies.
+        for round in 0..200u64 {
+            let n = (rng.next_u64() % 49) as usize;
+            let lens: Vec<usize> = (0..n)
+                .map(|_| match rng.next_u64() % 4 {
+                    0 => 0,
+                    1 => (rng.next_u64() % 130) as usize,
+                    2 => (rng.next_u64() % 20_000) as usize,
+                    _ => (rng.next_u64() % 150_000) as usize,
+                })
+                .collect();
+            let workers = 1 + (rng.next_u64() % 12) as usize;
+            let owned = buffers(&lens, &round.to_le_bytes());
+            let slices: Vec<&[u8]> = owned.iter().map(Vec::as_slice).collect();
+            assert_eq!(
+                sha256_slices_parallel(&slices, nz(workers)),
+                serial(&slices),
+                "round {round}: lens {lens:?}, {workers} workers"
+            );
+        }
+    }
+
+    #[test]
+    fn concurrent_callers_each_get_their_own_answers() {
+        // Several callers fanning out at once: no shared state between calls.
+        let lens: Vec<usize> = (0..40).map(|i| (i * 7919) % 100_000).collect();
+        std::thread::scope(|scope| {
+            for t in 0..3u8 {
+                let lens = lens.clone();
+                scope.spawn(move || {
+                    for r in 0..4u8 {
+                        let owned = buffers(&lens, &[t, r]);
+                        let slices: Vec<&[u8]> = owned.iter().map(Vec::as_slice).collect();
+                        assert_eq!(
+                            sha256_slices_parallel(&slices, SHA256_PARALLEL_MAX_WORKERS),
+                            serial(&slices)
+                        );
+                    }
+                });
+            }
+        });
+    }
+}
+
 /// A counter-mode PRNG over SHA-256.
 ///
 /// Used for exactly one thing: the option permutation of the contract's **second pass**. It is

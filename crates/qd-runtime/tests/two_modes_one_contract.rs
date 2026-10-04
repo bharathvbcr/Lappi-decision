@@ -87,6 +87,25 @@ fn assert_identical(tag: &str, cfg: ServiceConfig, payload: &[u8], expected_stat
     );
 }
 
+/// Fail-first (audit 2026-10-03, M4): a zero timeout used to connect, then fail on std's refusal
+/// of a zero read timeout: the agent saw a connection that sent nothing, and `qd oneshot` fell
+/// back to the sidecar saying the agent was "not answering".
+#[test]
+fn a_zero_socket_timeout_is_refused_before_connecting() {
+    let path = common::temp_socket_path("zero-timeout");
+    let listener = std::os::unix::net::UnixListener::bind(&path).expect("binds");
+    listener.set_nonblocking(true).expect("non-blocking");
+    let e = ask_over_socket(&path, b"{}", Duration::ZERO).expect_err("a zero timeout was used");
+    std::fs::remove_file(&path).ok();
+    assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{e}");
+    assert!(e.to_string().contains("zero socket timeout"), "{e}");
+    match listener.accept() {
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+        Ok(_) => panic!("a zero timeout still connected to the agent"),
+        Err(err) => panic!("accept failed: {err}"),
+    }
+}
+
 #[test]
 fn an_answer_is_byte_identical_in_both_modes() {
     assert_identical(
