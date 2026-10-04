@@ -24,11 +24,31 @@ startup:**
 
 | Phase | Time |
 |---|---|
-| Python before MinHash | ~3.6 min [I: the MinHash line prints at 07:06:10 after 89.2 s; LSH took 32.2 s] |
-| MinHash + LSH in `qd-prep-v5` (Rust), the same input on every call | ~2.0 min |
+| Python before the MinHash block | ~3.6 min [I: the MinHash line prints at 07:06:10 after 89.2 s; LSH took 32.2 s] |
+| the MinHash block (see the correction below), the same input on every call | ~2.0 min |
 | val, OOD and shard load | ~12 s |
 | model load | ~24 s |
 | the OOD scoring itself | ~16 s on the GPU |
+
+**Correction, ~07:50Z, from the v6-startup lane.** The lead read the "minhash … in 89.2 s" and
+"lsh … in 32.2 s" lines as Rust time, and told the human twice that "122 s is already in Rust".
+That was wrong. The lines print at the block's exit, and their times include Python shingling,
+packing and canaries.
+
+The lane's phase timers on the Mac, v5 data, unprofiled (`AUDIT/v6-startup-2026-10-04/timed_prelude.py`
+on branch `v6-startup`), give a ~204 s split rebuild:
+
+| Part | Time on the Mac |
+|---|---|
+| source loads | 12.7 s |
+| `build_mixture` | 73.4 s, of which `drop_contradictory_prompts` 51.7 s; cProfile names `render._escape`, a per-character Python scanner, 5.3M calls |
+| the native_minhash block | 120.3 s |
+| … its entry | 57.2 s, mostly Python shingling; the `qd-prep` minhash subprocess is 11.8 s |
+| … dedupe | 47.9 s of Python `exact_jaccard` etc.; LSH inside it 1.4 s |
+| … split | 15.1 s; LSH inside it 1.6 s |
+
+So the Rust is ~15 s of ~204 s on the Mac [V, the lane's numbers]. The box's split is not
+measured. The Python share of startup is larger than the lead first reported.
 
 So one snapshot is ~6.5 min of wall time for ~16 s of GPU. At that rate the 3,600 s cap fits
 ~9 of the 13 snapshots [I]. The count is to be checked against
@@ -49,8 +69,13 @@ pre-registered, so that is a finding to report, not to act on.
    corpus proves the plumbing only. The 2B parity needs v5's step snapshots, which exist only on
    the H100 box, so it is written as a box command and is NOT RUN. Spending box time on it is
    the human's call.
-2. Profile the ~3.6 min pre-MinHash Python phase.
-3. Cache the dedupe result in qd-prep, keyed by content and the binary's sha.
+2. The Python split rebuild, measured above. The lead redirected the lane at ~07:50Z.
+   - Item 3, a cache of qd-prep's dedupe result, has a ceiling of ≤15 s and was stopped.
+   - The lane first answers whether the whole rebuild's result can be cached, content-addressed,
+     for a ceiling of ~190 s per startup.
+   - Failing that: port `_escape`, shingling and the `exact_jaccard` bucket through the
+     native_minhash seam (ceiling ~135 s). It must have no pre-pass (spancheck's 0.81× lesson),
+     and its no-go margin is named before the interleaved A/B.
 
 ## 06:51Z 2026-10-04: v5 seeds 2 and 3 scored; both hold R9's bar, not poor
 
