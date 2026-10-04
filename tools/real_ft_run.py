@@ -90,6 +90,7 @@ import argparse
 import collections
 import copy
 import dataclasses
+import functools
 import gc
 import hashlib
 import inspect
@@ -2523,7 +2524,7 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     family; its own settings are in ``recipe``. Every other row hashes its own recipe.
     """
     reasons = [r for r in quick_reasons if r.strip()]
-    return RunRecorder(
+    recorder = RunRecorder(
         ledger,
         entry_point=Path(__file__),
         protocol=(
@@ -2542,6 +2543,17 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
         quick_reason="; ".join(reasons) if reasons else None,
         notes=notes,
     )
+    for name, value in _RUN_METRICS.items():
+        recorder.metric(name, value)
+    return recorder
+
+
+#: Metrics every row of this run carries: set by ``main``, cleared when it starts. Only
+#: ``--split-cache``'s state rides here (``split_cache``: hit, miss or corrupt, with the key).
+#: How the run got its rows is a fact all of the run's rows share, and it is a metric, not a
+#: recipe key, so a cached and an uncached run of one arm keep one recipe_hash. Off, nothing
+#: is set and every row is what it was, as ``native_spancheck`` is absent when its flag is.
+_RUN_METRICS: dict[str, TriState] = {}
 
 
 def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
@@ -4306,6 +4318,47 @@ def ft_split_rows(
         pre_dedupe_drops=pre_dedupe_drops,
     )
     return splits["train"], splits["val"]
+
+
+def split_rebuild_inputs(
+    *, general_record: Path | None, exclude_identity_keys: Path | None, repo_history: bool,
+) -> tuple[dict[str, Path], dict[str, object]]:
+    """What :func:`ft_split_rows` reads that none of its arguments names: ``(trees and files by
+    label, other facts by label)``, which ``--split-cache`` keys beside the arguments.
+
+    Observed, not inferred. ``AUDIT/v6-startup-2026-10-04/split_inputs_audit.py`` recorded
+    every file the v5 rebuild opened, and every data file it read sits under an argument's path
+    or under one of the following:
+
+    * ``REPO/data/pool``. The defect corpus's parts resolve under the repository root: a
+      composed corpus names its base corpora, a noul manifest names its parts, and the prose
+      units sit there too. So does ``DEFAULT_DEFECT_DOWNLOAD`` when ``--defect-download`` is
+      not given.
+    * The general record's directory. ``general_rows`` reads every cache under it. Each jsonl
+      is pinned by the record's sha256, but ``intent_names.json`` only by its count.
+    * The exclusion list's ``attestation.json``, which ``qd_train.exclusions`` reads beside it.
+
+    With repository history, the rows come from ``git`` at the resolved ``rev`` (an argument).
+    Git's version is keyed too, because its output is what the history reader parses. That
+    path was not observed by the audit: v5 ran with ``--no-repo-history``.
+    """
+    from qd_train.exclusions import ATTESTATION_NAME
+
+    inputs: dict[str, Path] = {"repo_data_pool": REPO / "data" / "pool"}
+    if general_record is not None:
+        inputs["general_record_root"] = general_record.parent
+    if exclude_identity_keys is not None:
+        inputs["exclusions_attestation"] = exclude_identity_keys.parent / ATTESTATION_NAME
+    facts: dict[str, object] = {}
+    if repo_history:
+        try:
+            done = subprocess.run(
+                ["git", "--version"], capture_output=True, text=True, timeout=30, check=True
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SystemExit(f"--split-cache: git --version could not run ({exc})") from exc
+        facts["git_version"] = done.stdout.strip()
+    return inputs, facts
 
 
 #: Where ``tools/real_tokenizer_pipeline.py`` writes the train manifest, under its --out.
@@ -10013,6 +10066,7 @@ VERDICT_FAMILY_KEYS: Final[tuple[str, ...]] = (
 
 
 def main(argv: list[str] | None = None) -> int:
+    _RUN_METRICS.clear()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, help="the pipeline's --out directory")
     parser.add_argument("--passes", type=int, default=60)
@@ -10236,6 +10290,18 @@ def main(argv: list[str] | None = None) -> int:
             "same train rows before dedupe. Its sha256 is part of the corpus, so with "
             "--exclude-identity-keys a rebuild without it (or with another) is refused by "
             "the exclusion list's attestation"
+        ),
+    )
+    parser.add_argument(
+        "--split-cache", type=Path, default=None, metavar="DIR",
+        help=(
+            "read the split rebuild's result (the train and val rows: ~202 s of the v5 Mac "
+            "prelude) from DIR when an entry's key matches and the entry passes its checks; "
+            "otherwise rebuild and store it there. The key is every input the rebuild reads, "
+            "by content, and the code that reads them. Off by default. Not recipe: every row "
+            "of the run carries a split_cache metric (hit, miss or corrupt, with the key). DIR "
+            "must be owned by the running user, not group- or world-writable and not a "
+            "symlink; it is created 0700 when absent. See tools/split_cache.py"
         ),
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
@@ -10688,6 +10754,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--probe", help=argparse.SUPPRESS)
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv)
+    if args.split_cache is not None:
+        # Refused in seconds, not after the shard set is read: the cache reads pickles.
+        import split_cache
+
+        split_cache.check_dir(args.split_cache)
     seeds_given = args.seeds is not None
     if not seeds_given:
         args.seeds = list(DEFAULT_SEEDS)
@@ -11054,7 +11125,10 @@ def main(argv: list[str] | None = None) -> int:
         replay_partition=args.replay_partition,
         decisions_pool=args.decisions_pool is not None,
     )
-    train_rows, val_rows = ft_split_rows(
+    # One set of arguments for the rebuild and for the split cache's key, so what is keyed is
+    # what is rebuilt. The module global is read here, at call time, as it always was.
+    rebuild = functools.partial(
+        ft_split_rows,
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
@@ -11063,6 +11137,20 @@ def main(argv: list[str] | None = None) -> int:
         exclude_identity_keys=args.exclude_identity_keys, decisions_pool=args.decisions_pool,
         pre_dedupe_drops=args.pre_dedupe_drops,
     )
+    if args.split_cache is None:
+        train_rows, val_rows = rebuild()
+    else:
+        import split_cache
+
+        extra_inputs, extra_facts = split_rebuild_inputs(
+            general_record=args.general_record, exclude_identity_keys=args.exclude_identity_keys,
+            repo_history=args.repo_history,
+        )
+        train_rows, val_rows, _RUN_METRICS["split_cache"] = split_cache.cached_split_rows(
+            args.split_cache, kwargs=rebuild.keywords, rebuild=rebuild,
+            extra_inputs=extra_inputs, extra_facts=extra_facts, out=args.out, config=config,
+            repo=REPO,
+        )
     # A pool set is paired by its sequence index too: its rows, like the general record's,
     # are not this repository's history, so only the index ties a sequence to its row.
     require_index = (

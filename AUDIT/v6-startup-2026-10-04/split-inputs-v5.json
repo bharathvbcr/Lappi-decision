@@ -1,0 +1,536 @@
+{
+ "argv": [
+  "--out",
+  "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03",
+  "--no-repo-history",
+  "--rev",
+  "8e6a00952a09e31a09cc3f5270229a935b7235cc",
+  "--defect-class",
+  "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-composed-v2",
+  "--defect-download",
+  "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft",
+  "--defect-noul",
+  "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/defect-noul-v3c",
+  "--general-record",
+  "/Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json",
+  "--general-max-rows",
+  "200000",
+  "--decisions-pool",
+  "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4",
+  "--drop-before-dedupe",
+  "/Users/bharath/qd-campaign/v5-predrops-2026-10-03/pre-dedupe-drops.txt",
+  "--exclude-identity-keys",
+  "/Users/bharath/qd-campaign/v5-containment-predrops-2026-10-03/exclusions.txt",
+  "--real-backbone",
+  "/Users/bharath/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+  "--devices",
+  "cpu",
+  "--seeds",
+  "2",
+  "--ood",
+  "--ood-general-record",
+  "/Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json",
+  "--score-checkpoint",
+  "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/absent/epoch-seed2-cpu-step1000.json",
+  "--ft-ledger",
+  "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/absent/ft.jsonl",
+  "--ft-row-id",
+  "00000000-0000-4000-8000-000000000000",
+  "--ledger",
+  "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/inputs1-never.jsonl"
+ ],
+ "files": [
+  {
+   "bytes": 136428,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/dev.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/dev.jsonl"
+  },
+  {
+   "bytes": 7510640,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/test.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/test.jsonl"
+  },
+  {
+   "bytes": 822702,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/validation.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/validation.jsonl"
+  },
+  {
+   "bytes": 2375,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/intent_names.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/intent_names.json"
+  },
+  {
+   "bytes": 370749,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/test.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/test.jsonl"
+  },
+  {
+   "bytes": 1024150,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/train.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/train.jsonl"
+  },
+  {
+   "bytes": 207620,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/validation.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/validation.jsonl"
+  },
+  {
+   "bytes": 3818,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/clinc__oos-eval/828f8093932c8fe6ca7936c3d2e52903b1c523de/domains.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/clinc__oos-eval/828f8093932c8fe6ca7936c3d2e52903b1c523de/domains.json"
+  },
+  {
+   "bytes": 5850,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json"
+  },
+  {
+   "bytes": 126530572,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/train.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/train.jsonl"
+  },
+  {
+   "bytes": 12570953,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/validation.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/validation.jsonl"
+  },
+  {
+   "bytes": 346768,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/test.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/test.jsonl"
+  },
+  {
+   "bytes": 2967622,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/train.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/train.jsonl"
+  },
+  {
+   "bytes": 369089,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/validation.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/validation.jsonl"
+  },
+  {
+   "bytes": 628082582,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-composed-v2/examples.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-data-2026-10-02/data/pool/commitpackft-composed-v2/examples.jsonl"
+  },
+  {
+   "bytes": 7574,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-composed-v2/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-composed-v2/manifest.json"
+  },
+  {
+   "bytes": 182816385,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-corpus-v3/examples.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft-corpus-v3/examples.jsonl"
+  },
+  {
+   "bytes": 22230,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-corpus-v3/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-corpus-v3/manifest.json"
+  },
+  {
+   "bytes": 1109833,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-g6-v1/examples.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-data-2026-10-02/data/pool/commitpackft-g6-v1/examples.jsonl"
+  },
+  {
+   "bytes": 9177,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-g6-v1/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-g6-v1/manifest.json"
+  },
+  {
+   "bytes": 118791181,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-pool-v2.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft-pool-v2.jsonl"
+  },
+  {
+   "bytes": 4760396,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/defect-noul-v3b/examples.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-data-2026-10-02/data/pool/defect-noul-v3b/examples.jsonl"
+  },
+  {
+   "bytes": 6221,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/defect-noul-v3b/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/defect-noul-v3b/manifest.json"
+  },
+  {
+   "bytes": 2079,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/defect-noul-v3c/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/defect-noul-v3c/manifest.json"
+  },
+  {
+   "bytes": 293545,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/own-prose-v1/files.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/own-prose-v1/files.jsonl"
+  },
+  {
+   "bytes": 11565,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/own-prose-v1/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/own-prose-v1/manifest.json"
+  },
+  {
+   "bytes": 1101355,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/own-prose-v1/units.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-data-2026-10-02/data/pool/own-prose-v1/units.jsonl"
+  },
+  {
+   "bytes": 0,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/__init__.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/__init__.py"
+  },
+  {
+   "bytes": 9531,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/config.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/config.py"
+  },
+  {
+   "bytes": 10190,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/decisions.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/decisions.py"
+  },
+  {
+   "bytes": 25928,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/dedupe.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/dedupe.py"
+  },
+  {
+   "bytes": 84960,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/defect_class.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/defect_class.py"
+  },
+  {
+   "bytes": 14981,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/errors.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/errors.py"
+  },
+  {
+   "bytes": 6903,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/fingerprint.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/fingerprint.py"
+  },
+  {
+   "bytes": 27326,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/general.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/general.py"
+  },
+  {
+   "bytes": 13666,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/licences.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/licences.py"
+  },
+  {
+   "bytes": 27589,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/loaders.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/loaders.py"
+  },
+  {
+   "bytes": 15486,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/manifest.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/manifest.py"
+  },
+  {
+   "bytes": 15386,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/minhash.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/minhash.py"
+  },
+  {
+   "bytes": 76228,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/mixture.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/mixture.py"
+  },
+  {
+   "bytes": 9375,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/pool_builder.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/pool_builder.py"
+  },
+  {
+   "bytes": 34113,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/render.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/render.py"
+  },
+  {
+   "bytes": 12412,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/rows.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/rows.py"
+  },
+  {
+   "bytes": 31849,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/schema.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/schema.py"
+  },
+  {
+   "bytes": 38505,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/sources.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/sources.py"
+  },
+  {
+   "bytes": 24902,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/split.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data/split.py"
+  },
+  {
+   "bytes": 10013,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_train/byte_context.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_train/byte_context.py"
+  },
+  {
+   "bytes": 36752,
+   "code_py": true,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_train/mutate_adapter.py",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_train/mutate_adapter.py"
+  },
+  {
+   "bytes": 12417842,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/go.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/go.jsonl"
+  },
+  {
+   "bytes": 1979,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/manifest.json"
+  },
+  {
+   "bytes": 135858935,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/python.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/python.jsonl"
+  },
+  {
+   "bytes": 7411711,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/rust.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/rust.jsonl"
+  },
+  {
+   "bytes": 14620423,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/typescript.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft/typescript.jsonl"
+  },
+  {
+   "bytes": 3622691,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/qd-campaign/v5-containment-predrops-2026-10-03/attestation.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-containment-predrops-2026-10-03/attestation.json"
+  },
+  {
+   "bytes": 443120,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/qd-campaign/v5-containment-predrops-2026-10-03/exclusions.txt",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-containment-predrops-2026-10-03/exclusions.txt"
+  },
+  {
+   "bytes": 438831021,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4/examples.jsonl",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4/examples.jsonl"
+  },
+  {
+   "bytes": 21542,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4/manifest.json",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4/manifest.json"
+  },
+  {
+   "bytes": 300576,
+   "code_py": false,
+   "interpreter": false,
+   "path": "/Users/bharath/qd-campaign/v5-predrops-2026-10-03/pre-dedupe-drops.txt",
+   "read_only": true,
+   "realpath": "/Users/bharath/qd-campaign/v5-predrops-2026-10-03/pre-dedupe-drops.txt"
+  }
+ ],
+ "hook_errors": [],
+ "kwargs": {
+  "commitpackft": "None",
+  "config": "DataConfig(seed=20260919, licence=LicenceConfig(admitted_by_human={}, admitted_sources_by_human={}), held_out_families=('code.language_id', 'qa.answerability'), held_out_roots=(PosixPath('data/heldout'),), held_out_path_markers=('heldout', 'held_out', 'held-out'), dedupe_threshold=0.8, shingle_size=5, num_perm=128, train_fraction=0.9, val_fraction=0.05, max_rows_per_source=2000000, max_row_bytes=1048576, max_candidate_pairs=5000000, metadata={})",
+  "decisions_pool": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4",
+  "defect_class": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/commitpackft-composed-v2",
+  "defect_download": "/Users/bharath/Code/research/Lappi-decision/data/pool/commitpackft",
+  "defect_max_rows": "None",
+  "defect_noul": "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/data/pool/defect-noul-v3c",
+  "exclude_identity_keys": "/Users/bharath/qd-campaign/v5-containment-predrops-2026-10-03/exclusions.txt",
+  "general_max_rows": "200000",
+  "general_record": "/Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json",
+  "max_pairs": "400",
+  "pre_dedupe_drops": "/Users/bharath/qd-campaign/v5-predrops-2026-10-03/pre-dedupe-drops.txt",
+  "replay_partition": "False",
+  "repo_history": "False",
+  "rev": "'8e6a00952a09e31a09cc3f5270229a935b7235cc'"
+ },
+ "listed": [
+  "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/python/qd_data"
+ ],
+ "rows": {
+  "train": 487407,
+  "val": 22393
+ },
+ "spawned": [
+  "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep"
+ ]
+}
