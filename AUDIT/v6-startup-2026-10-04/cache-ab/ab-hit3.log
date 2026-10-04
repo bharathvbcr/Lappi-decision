@@ -1,0 +1,59 @@
+08:54:52 start ab-hit3
+08:55:03 split cache: READ FROM the split cache /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/split-cache-ab/a5eb300a98b8cde6a9ff41cb4792887afa66e9574d7e518a350d10631815088b.rows.pkl -- 487407 train + 22393 val rows, NOT rebuilt by this run (written 2026-10-04T08:42:52.110567+00:00; key 1.8 s, load and checks 6.3 s)
+08:55:05 val set: 24492 sequences in 1711 batches, remap e7d0890c547b4381 (the train set's) -- opened for the OOD suite, not decoded
+08:55:05 permutation second pass: not run -- the OOD-only trajectory row decodes no val row
+08:55:05 needle suite: not run -- --needle was not given
+08:55:08 minhash: 16829 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 0.5 s (shingling and canaries included), 51794 lookups, 8 canaries equal to the reference; 16829 distinct texts shingled once, 51794 lookups
+08:55:08 lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 0.2 s (canaries included), 68533 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+08:55:11 OOD suite: 180 cases, 180 deranged for the second pass
+08:55:11 shard set: /Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train
+08:55:11   train relabel, per-kind inventory and contradictions: NOT RUN -- --score-checkpoint trains nothing and no row it writes reads the train split's labels, inventory or contradictions; every letter a val or OOD row offers was confirmed against the val golds, and the ids come from /Users/bharath/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c/tokenizer.json
+08:55:11   letters -> post-remap ids: {'A': 32, 'B': 33, 'C': 34, 'D': 35, 'E': 36, 'F': 37, 'G': 38, 'H': 39, 'I': 40, 'J': 41, 'K': 42, 'L': 43, 'M': 44, 'N': 45, 'O': 46, 'P': 47, 'Z': 57}
+08:55:11   padding waste: 23724771 padding of 409971559 positions (5.79%) over 558790 sequences; gate is <= 15%. buckets=[179, 214, 240, 270, 299, 333, 374, 423, 477, 547, 626, 697, 777, 855, 968, 1112, 1304, 1529, 1876, 2285, 2746, 3278, 3821, 4390, 5012, 5622, 6312, 6972, 7640, 8305, 8945, 9638]
+08:55:11   span_check: {"state": "ran", "passed": true, "value": 177240, "n": 177240, "n_total": 177240, "detail": "every span sequence's gold positions and full candidate set were checked against tokeni
+08:55:11   remap beside the shards: {"state": "ran", "passed": true, "value": "e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab", "n": 248320, "n_total": 248320, "detail": "/Users/bharath/qd-campaign/
+08:55:11   epoch at batch_tokens=9638: NOT RUN -- --score-checkpoint trains nothing, so no epoch is planned and no device is probed
+08:55:11 devices: ['cpu'] (from --devices; auto-detection skipped)
+08:55:11 Traceback (most recent call last):
+08:55:11   File "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/tools/real_ft_run.py", line 12032, in <module>
+08:55:11     raise SystemExit(main())
+08:55:11                      ~~~~^^
+08:55:11   File "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/tools/real_ft_run.py", line 11398, in main
+08:55:11     loaded = _checkpoint_step(
+08:55:11         args, reader=reader, val=val_set, device=devices[0],
+08:55:11         eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=config.seed,
+08:55:11     )
+08:55:11   File "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/tools/real_ft_run.py", line 7303, in _checkpoint_step
+08:55:11     ft, recipe, seed, meta, weights = _seed_weights(args, reader=reader)
+08:55:11                                       ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+08:55:11   File "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/tools/real_ft_run.py", line 7376, in _seed_weights
+08:55:11     ft = _ft_row(args.ft_ledger, row_id)
+08:55:11   File "/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/tools/real_ft_run.py", line 7208, in _ft_row
+08:55:11     json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()
+08:55:11                                  ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+08:55:11   File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py", line 787, in read_text
+08:55:11     with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+08:55:11          ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08:55:11   File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py", line 771, in open
+08:55:11     return io.open(self, mode, buffering, encoding, errors, newline)
+08:55:11            ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08:55:11 FileNotFoundError: [Errno 2] No such file or directory: '/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/build/v6-profile/absent/ft.jsonl'
+08:55:13        21.26 real        18.80 user         1.92 sys
+08:55:13           4762042368  maximum resident set size
+08:55:13                    0  average shared memory size
+08:55:13                    0  average unshared data size
+08:55:13                    0  average unshared stack size
+08:55:13               706590  page reclaims
+08:55:13                  112  page faults
+08:55:13                    0  swaps
+08:55:13                    0  block input operations
+08:55:13                    0  block output operations
+08:55:13                   30  messages sent
+08:55:13                   78  messages received
+08:55:13                    0  signals received
+08:55:13                 1386  voluntary context switches
+08:55:13                11127  involuntary context switches
+08:55:13         315906241534  instructions retired
+08:55:13          86524592089  cycles elapsed
+08:55:13           4681404496  peak memory footprint
+08:55:13 end ab-hit3 rc=1
