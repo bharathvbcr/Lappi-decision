@@ -6,6 +6,80 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~12:00Z 2026-10-04: the post-queue session is built and dry-run (not launched)
+
+The post-queue session Fable ruled at ~10:55Z is built. It is not launched. It runs once the v5
+queue ends, about 16:00-17:00Z on Oct 5.
+
+- **Location:** `build/post-queue/`, git-ignored local tooling.
+- **Command:**
+  `post_queue.sh print|run|check <main sha> [--cache-option-control] [-- <control cache flags>]`.
+
+**What it runs:**
+- **Source:** a fresh clone of main from `main.bundle` at the given sha, with the pinned clone's
+  untracked `data/` copied in (1.1 GB, no `data/heldout`). It verifies that no tracked file changed.
+- **Controls:** the 16 letter and option controls, v5 seeds 0-4 and arm seeds 0-2. Each runs only
+  where `existing_controls.py` finds no row of that kind for the eval row, and each row carries a
+  `--note` naming the refusal it replaces.
+- **Control-side cache check, when flags are given:**
+  - seed 2's letter control runs without the flags, its row on a scratch ledger via
+    `--write-ledger`; this is the OFF arm;
+  - seed 0's real letter control stores the cache entry (MISS);
+  - seed 2's real letter control reads it (HIT);
+  - `compare_control_rows.py` passes only if the two rows are equal and the HIT row's
+    `split_cache` metric says hit.
+- **Parity, on GPU 0:** HANDOFF/v6-startup's two-snapshot run on seed 2, done twice with
+  `--split-cache`:
+  - run A (MISS) is compared with v5's rows, which ran without the cache (OFF);
+  - run B (HIT) is compared with run A.
+  - Both comparisons use `compare_traj_rows.py`, extended in **6ce4ec8**: `--cross-commit` names
+    code_commit and code_that_ran, `--old/--new-split-cache` requires each row's cache state, and
+    `--old-plan` covers two plan runs.
+
+**Scheduling:** at most one control writes to a ledger at a time. The v5 stream and the arm stream
+run side by side, with the parity beside both.
+
+**Caps:**
+
+| Step | Cap |
+| --- | --- |
+| Each control | 2,400 s |
+| Each parity run | 1,800 s, with `flock -w 900` on gpu0.lock |
+| The session | no step starts after 10,800 s |
+
+The ceiling is ~3.7 h, ~$31 at $8.38/h. The expected run is ~1.2 h, ~$10.
+
+**Preconditions:** both `v5laneN.done` markers exist, every `*traj-s*.queued` has its `.done`, no
+queue, ft or control process is running, both GPU locks are free, and no earlier session or clone
+exists.
+
+**Verified:**
+- `test/post_queue_test.sh` passes 35 of 35 checks on the Mac. It runs a fake box home with doubles
+  for the two tools. The comparators, the guard, git, rsync and the script itself are real. Among
+  the checks:
+  - every precondition refusal;
+  - one row per seed and kind;
+  - a pre-existing row is not written twice;
+  - a HIT arm that missed is reported as a failure;
+  - a drifted parity metric is reported.
+- On the box, `check` finds every required input present. The arm's ledger and the verdicts of
+  unscored seeds show as "not yet".
+- On the box, `print` under bash 5.1.16 shows 17 controls and 2 parity runs, and creates nothing.
+
+**Not verified:**
+- The real tools on the real rows, which only the session itself runs.
+- The control cache flags, which wait on the v6-ctlcache lane's report.
+- Whether the option control accepts those flags. They are passed to letter controls only unless
+  `--cache-option-control` is given.
+
+**To launch:**
+1. The v6-ctlcache lane reports, and its merge is approved.
+2. Bundle main at the sha.
+3. Copy `main.bundle`, `existing_controls.py`, `compare_control_rows.py` and `plan-s2.json`, with
+   the script, to `/home/ubuntu/post-queue/`.
+4. Run `check`, then `nohup setsid bash /home/ubuntu/post-queue/post_queue.sh run <sha> -- <flags>`,
+   alone in its ssh call, with the caps and cost stated.
+
 ## ~10:55Z 2026-10-04: v6-startup merged; the human's four approvals and Fable's rulings
 
 **The human, ~10:30Z:** "Merge the fix", then "I approve all those decisions ask fable too".
