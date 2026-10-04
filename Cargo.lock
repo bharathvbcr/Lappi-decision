@@ -339,6 +339,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
  "bitflags",
+ "block2",
+ "libc",
  "objc2",
 ]
 
@@ -579,6 +581,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ojas-core"
+version = "0.1.0"
+
+[[package]]
+name = "ojas-io"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+]
+
+[[package]]
+name = "ojas-qwen35"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+ "ojas-io",
+ "tessl",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -673,7 +695,9 @@ dependencies = [
 name = "qd-metal"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "qd-runtime",
+ "qd-train",
  "serde_json",
  "tessl",
  "tokenizers",
@@ -717,6 +741,7 @@ name = "qd-prep"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "serde_json",
 ]
 
 [[package]]
@@ -730,6 +755,28 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "qd-train"
+version = "0.1.0"
+dependencies = [
+ "qd-export",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "qd-train-metal"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+ "ojas-qwen35",
+ "qd-export",
+ "qd-train",
+ "serde_json",
 ]
 
 [[package]]
@@ -971,6 +1018,8 @@ dependencies = [
 name = "tessl"
 version = "0.2.0"
 dependencies = [
+ "block2",
+ "dispatch2",
  "libc",
  "objc2",
  "objc2-foundation",
