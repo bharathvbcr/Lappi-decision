@@ -6,6 +6,31 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## 04:53Z 2026-10-04: J6(f) done; the holder has the GH200's GPU
+
+**J6(f)** ended at 04:52:58Z ("item 6 all done", `/home/ubuntu/logs/q-j6f.log`). Its rows are
+in `/home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl`:
+- **ft row** cb3a0cda;
+- **score row** cd2e4f82 [V, `read_v5_rows.py`]:
+  - span 6537/7238 = 0.903;
+  - 8K needle worst bucket 80–100% at 43/61 = 0.705 (gate fails against 0.95);
+  - ood_abstain 0.483 (fails), permutation_consistency 0.911 (fails);
+- **needle-control row** 5bb906f0: 1K 0.789, 2K 0.803, 4K 0.797.
+
+That is within F's spread. Its reading belongs to the post-F rules that read it later in the
+chain.
+
+**The handover [V]:**
+- **The holder.** `mlr.holding` is 04:52:58Z; it took the lock the moment J6(f) exited.
+- **Item 9 (nomask)** started at 04:53:17Z and refused before the lock: "P2 verdicts {'A':
+  'inconclusive', 'B': 'inconclusive'}: outcome run cancelled", exit 5. That is its own P2 gate,
+  not the holder; `nomask.done` follows.
+- **Item 7 (tierb2)** started at 04:53:47Z at f6a0928. It is blocked in
+  `flock /home/ubuntu/queue/gpu.lock timeout 2400 … real_ft_run.py` (pid 1708295) behind the
+  holder, as designed.
+- **The MLresearch session** had three GPU processes by 04:54Z (13.7, 16.2 and 13.7 GiB), working
+  under `/home/ubuntu/mlr`.
+
 ## ~03:05Z 2026-10-04: overnight rule, written before any v5 row exists
 
 **The human, ~02:40Z:** "I would sleep by 06:45 Z; if the results are poor, post-train and
