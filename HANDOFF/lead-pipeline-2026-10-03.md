@@ -6,6 +6,48 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## State at ~00:50Z 2026-10-04: v5's measured rate; v6 spancheck is a negative result
+
+**v5 rate [V]** (`/home/ubuntu/v5/train-s{2,3}.log`, 00:45:45Z):
+- Both seeds run at 1.81–1.82 s/step and ~18,500 pos/s. Peak allocated is 61.3 GiB; nvidia-smi
+  shows 72.8 and 73.5 GiB with both GPUs at 100%.
+- 12,176 steps make ~6.1 h of training per seed. Seeds 2 and 3 should finish training ~06:40Z
+  and be scored by ~07:20Z, under the 9 h cap.
+- The six rounds still end ~16:00–17:00Z Oct 5, at ~$375 box spend [I: assumes the scoring
+  phase fits the pre-registration's ~7.0 h per seed; read it when seed 2 ends].
+
+**Per-run startup** is ~11 min, not the 456 s in the section below. That 456 s was seeds 0 and
+1 failing at the needle step.
+- Seed 2 started at 00:19:23Z (lane log) and reached step 1 at ~00:30:18Z [V].
+- MinHash took 88.3 s and LSH 33.8 s, already in Rust (`qd-prep-v5`) [V].
+- The feasibility probe took ~70 s (32 buckets × ~2.1 s, a 128×4 stand-in on the GPU) [V].
+- The other ~7.5 min have no per-stage timestamps in the log [U]: corpus rebuild, val, needle,
+  OOD, shard load and model load. Take a timestamped tail of the next startup (seed 0, ~07:20Z)
+  before choosing a v6 port.
+- Cheap v6 candidates, not built:
+  - cache the dedupe result across seeds (same data, same pairs);
+  - skip the stand-in feasibility probe once the memory probe has passed.
+- v5 is pinned at L 142a67c, so none of this changes the running seeds.
+
+**v6 spancheck lane: done, negative, not merged.**
+- **Branch:** `v6-spancheck` in `build/v6-spancheck-wt`: a9ddf61, cbc0edc, 363bb08, 4e97e02,
+  de50cb1, 19644dc. Its handoff is `HANDOFF/v6-spancheck-2026-10-03.md` on that branch.
+- **What it does:** `qd-prep spancheck` matches `_span_token_positions` byte for byte, end to
+  end on the Qwen3.5 tokenizer: every shard set and every measured value is equal.
+- **Speed:** slower. On a fixed 600-slot slice it ran at 0.81× the Python's speed with Qwen and
+  0.94× with the byte tokenizer, interleaved min-of-N.
+- **Why:** the bucket it replaces was ~13 s of the 626 s profile in
+  `AUDIT/perf-pipeline-shards-2026-09-30.md`. Encode (60.9 s) and decode check (35.2 s) dominate,
+  and the port adds a pre-pass encode.
+- **Disposition:** the branch stays as the reference implementation; `--native-spancheck` would
+  ship off by default. The lead checked 4e97e02's "wrong expectation": it was in the lane's own
+  new test (its fixture collapsed every row), not a moved reference value.
+- **Open, the human's call:**
+  - the decode check in Rust needs the `tokenizers` crate, a new dependency;
+  - encode-once under `--memo-limit 0` is a Python-only change, proposed and not made.
+- **The lane's four suite failures** were all against its base 8e6a009 or the worktree's name.
+  Main's `test_gaps_ledger.py` passes 10/10 at c28bcef (run 00:46Z).
+
 ## State at ~00:30Z 2026-10-04: seeds 0 and 1 failed at startup and were re-queued
 
 **What happened.** The probe passed on attempt 1 at 00:11:47Z:
