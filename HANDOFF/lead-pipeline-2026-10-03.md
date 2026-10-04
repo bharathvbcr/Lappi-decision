@@ -6,6 +6,52 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~01:31Z 2026-10-04: the GH200 is reserved for MLresearch after J6(f)
+
+**The human, ~01:25Z:** "spin a new session to work and hand over gh200 to work on MLresearch,
+when gh200 is free".
+
+**Why the post-F chain will stall after J6(f).** A holder, `/home/ubuntu/mlr-hold/mlr_hold.sh`,
+was launched at 01:31:07Z: pid and pgid 621107, log `/home/ubuntu/logs/mlr-hold.log`.
+- Source: `build/gh200-mlr/mlr_hold.sh`, sha256 63a267e7….
+- It does `exec 9>/home/ubuntu/queue/gpu.lock; flock 9`, blocked behind J6(f) (`box_q_j6f.sh`
+  holds fd 9 for its whole job).
+- Every Lappi GPU stage blocks on the same lock with no timeout [V]:
+  - `flock 9` in j6dv4, rung0, cudadev, rungd, fsucc, j5pp, j6a, j6g;
+  - `flock gpu.lock timeout N python` in `perf_tierb_outcome.sh`, which serves both nomask and
+    tierb2 (`perf_tierb_fused.sh` execs it).
+- So the chain queues behind the holder: no waiter was stopped or edited. At launch no other
+  process had `gpu.lock` open (`/proc/<pid>/fd` of every `box_q_*`) [V].
+
+**Markers in `/home/ubuntu/queue`:**
+- `mlr.queued`: the holder started.
+- `mlr.holding`: it has the lock.
+- `mlr.release`: the MLresearch session is done; the holder exits within 60 s.
+- `mlr.draining`: the cap was reached.
+- `mlr.released`: the holder exited, with the reason, written on every exit path.
+
+**It also releases by itself:**
+- after 90 min with no compute process on the GPU (`nvidia-smi --query-compute-apps`; an
+  nvidia-smi failure counts as busy);
+- after 30 h, when it drains for up to 2 h first.
+
+**Tested** on the GH200 by `build/gh200-mlr/mlr_hold_test.sh`, against scratch queue dirs and a
+fake nvidia-smi: 27 of 27 checks passed [V]. The cases:
+- waits behind a held lock, holds, then releases on `mlr.release`;
+- busy resets the idle count; idle releases;
+- a failing nvidia-smi is never counted as idle;
+- the cap drains, and the drain is bounded;
+- refuses over an earlier holder's markers;
+- TERM to its session while waiting exits without holding.
+
+**To cancel it:** `kill -TERM -- -621107` (the whole session; TERM to the bash alone is deferred
+until `flock` returns).
+
+**The MLresearch session** is a chip offered to the human (task_a0c9c840, cwd MLSystemsLab):
+experiments 1–10, ~160 jobs, ~17 GPU-h. It must never flock `gpu.lock`, must gate on
+`mlr.holding`/`mlr.released`, and must touch `mlr.release` when done. When `mlr.released`
+appears, Lappi's chain resumes with nomask (item 9), then tierb2, j6dv4 and the rest.
+
 ## State at ~00:50Z 2026-10-04: v5's measured rate; v6 spancheck is a negative result
 
 **v5 rate [V]** (`/home/ubuntu/v5/train-s{2,3}.log`, 00:45:45Z):
