@@ -6,7 +6,53 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
-## State at ~23:58Z: v5 LAUNCHED (supersedes everything below where they disagree)
+## State at ~00:30Z 2026-10-04: seeds 0 and 1 failed at startup and were re-queued
+
+**What happened.** The probe passed on attempt 1 at 00:11:47Z:
+- ft row `51c3e0f9-b63b-405e-9f42-92a4fd8d5b13`;
+- peak 65.7 GiB, with the 12 GiB margin;
+- 836 s, $0.97.
+
+Seeds 0 and 1 then both exited 1 at 00:19Z, at the end of startup, with no ledger row and no
+checkpoint. The cause is GAP-V5-H100-HF-CACHE-NO-REFS-MAIN-2026-10-04:
+- the box's HF cache had the snapshot but no `refs/main`;
+- the backbone loads by path, so the probe passed;
+- the needle tokenizer loads by repo id, so the seeds failed.
+
+The lanes moved on to seeds 2 and 3.
+
+**Fixes:**
+1. At 00:21Z: `refs/main` = b1485b2f… written on the box. An offline repo-id tokenizer load
+   then passed.
+2. At 00:24Z: seeds 0 and 1 re-queued under `v5.sched.lock`, by the repo rule "a run that did
+   not write its row is rerun".
+   - Their markers moved to `/home/ubuntu/queue/failed-startup-2026-10-04/` and their logs to
+     `/home/ubuntu/v5/failed-startup-2026-10-04/`.
+   - `v5.spend` keeps the $1.07.
+   - `v5_next_job` printed `job v5-s0`.
+   - Fable ruled to re-queue at once, so that a second failure could not make the next pick
+     `decide room` on two empty seeds.
+3. In ignored `build/`:
+   - `phase_a_transfer.sh` writes and checks `refs/main`;
+   - `box_prelaunch.sh` loads the tokenizer by repo id offline, and printed 248077.
+
+**Now.** Seeds 2 and 3 passed the needle step at ~00:29Z. Their batch-order digests equal the
+prelude record's: seed 2 876b9187…, seed 3 4f14ddb4….
+
+**Order:** [s2|s3] → [s0|s1] → [s4|arm0] → [arm1|arm2] → [J5′0|J5′1] → [J5′2|idle]. That ends
+~17:00Z Oct 5, with box spend ~$375–385.
+
+**Per-run startup** is ~456 s on CPU with the GPU idle (Python corpus rebuild): a v6 port
+candidate.
+
+**DevMap** broke mid-session: GAP-DEVMAP-INDEX-MALFORMED-2026-10-04.
+
+**GH200.** J6(f) is running and should finish ~04:30Z. The human chose to run their MLSystemsLab
+experiments (~17 GPU-h) on the GH200 after J6(f), from a separate session. The handover is open:
+either their session holds `/home/ubuntu/queue/gpu.lock` under flock, or the ten Lappi waiters
+are stopped, which needs the human's explicit yes.
+
+## State at ~23:58Z: v5 LAUNCHED (superseded where the section above disagrees)
 
 **Launched at 23:56:52Z.** `build/v5-h100/launch_lanes.sh` started both lanes on the 2× H100 box:
 `box_q_v5.sh 0` and `box_q_v5.sh 1`, each under nohup setsid in its own ssh call. It then wrote
