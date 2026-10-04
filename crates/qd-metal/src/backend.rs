@@ -38,11 +38,11 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use qd_runtime::BackendError;
 use qd_runtime::backend::{
     BackendIdentity, DecisionBackend, DecodeMode, Logits, PrefillHandle, QueryKind, SlotQuery,
     StateBuffer, StateSnapshot,
 };
-use qd_runtime::BackendError;
 
 use crate::error::{MetalError, Result};
 use crate::model::{Model, PrefixState};
@@ -178,9 +178,9 @@ impl MetalBackend {
                 }
             })
             .map_err(|e| MetalError::Gpu(format!("spawn GPU thread: {e}")))?;
-        let identity = ready_rx
-            .recv()
-            .map_err(|_| MetalError::Gpu("the GPU thread exited before reporting ready".into()))??;
+        let identity = ready_rx.recv().map_err(|_| {
+            MetalError::Gpu("the GPU thread exited before reporting ready".into())
+        })??;
         Ok(Self {
             identity,
             tx: Some(tx),
@@ -203,12 +203,12 @@ impl MetalBackend {
             Err(TrySendError::Full(_)) => {
                 return Err(BackendError::Overloaded {
                     limit: self.queue_capacity,
-                })
+                });
             }
             Err(TrySendError::Disconnected(_)) => {
                 return Err(BackendError::Unavailable {
                     detail: "the qd-metal GPU thread has exited".into(),
-                })
+                });
             }
         }
         match reply_rx.recv_timeout(self.job_timeout) {
@@ -275,7 +275,10 @@ impl DecisionBackend for MetalBackend {
         Ok(logits)
     }
 
-    fn pooled_features(&self, _snapshot: &StateSnapshot) -> std::result::Result<Vec<f32>, BackendError> {
+    fn pooled_features(
+        &self,
+        _snapshot: &StateSnapshot,
+    ) -> std::result::Result<Vec<f32>, BackendError> {
         Err(BackendError::Unavailable {
             detail: "pooled features are not defined for the base weights: docs/schema-api.md \
                      names a 'single GEMV on pooled features' but not the pooling, and a head \
@@ -316,11 +319,15 @@ struct Worker {
 }
 
 fn prefill_failed(e: MetalError) -> BackendError {
-    BackendError::PrefillFailed { detail: e.to_string() }
+    BackendError::PrefillFailed {
+        detail: e.to_string(),
+    }
 }
 
 fn decode_failed(e: impl std::fmt::Display) -> BackendError {
-    BackendError::DecodeFailed { detail: e.to_string() }
+    BackendError::DecodeFailed {
+        detail: e.to_string(),
+    }
 }
 
 impl Worker {
@@ -434,7 +441,10 @@ impl Worker {
     }
 
     fn record(&self, id: u64) -> std::result::Result<StateRecord, String> {
-        let e = self.entries.get(&id).ok_or_else(|| format!("entry {id} is gone"))?;
+        let e = self
+            .entries
+            .get(&id)
+            .ok_or_else(|| format!("entry {id} is gone"))?;
         Ok(StateRecord {
             entry: id,
             tokens: u64::from(e.state.tokens()),
@@ -451,7 +461,9 @@ impl Worker {
         {
             e.last_used = now;
             let tokens = e.state.tokens() as usize;
-            let rec = self.record(id).map_err(|m| BackendError::PrefillFailed { detail: m })?;
+            let rec = self
+                .record(id)
+                .map_err(|m| BackendError::PrefillFailed { detail: m })?;
             return Ok(PrefillHandle {
                 backend: BACKEND_NAME.to_string(),
                 prompt_digest,
@@ -459,9 +471,11 @@ impl Worker {
                 state: StateBuffer::from_bytes(rec.to_bytes()),
             });
         }
-        let ids = self.tok.encode(prefix).map_err(prefill_failed)?;
+        let ids = self.tok.encode_untrusted(prefix).map_err(prefill_failed)?;
         if ids.is_empty() {
-            return Err(prefill_failed(MetalError::Input("the prefix encodes to no tokens".into())));
+            return Err(prefill_failed(MetalError::Input(
+                "the prefix encodes to no tokens".into(),
+            )));
         }
         if ids.len() > self.max_tokens {
             return Err(prefill_failed(MetalError::Input(format!(
@@ -492,7 +506,9 @@ impl Worker {
             last_used: now,
         });
         self.prefills.insert(prompt_digest, id);
-        let rec = self.record(id).map_err(|m| BackendError::PrefillFailed { detail: m })?;
+        let rec = self
+            .record(id)
+            .map_err(|m| BackendError::PrefillFailed { detail: m })?;
         Ok(PrefillHandle {
             backend: BACKEND_NAME.to_string(),
             prompt_digest,
@@ -501,9 +517,16 @@ impl Worker {
         })
     }
 
-    fn lookup(&self, backend: &str, state: &StateBuffer, prompt_digest: &[u8; 32]) -> std::result::Result<u64, String> {
+    fn lookup(
+        &self,
+        backend: &str,
+        state: &StateBuffer,
+        prompt_digest: &[u8; 32],
+    ) -> std::result::Result<u64, String> {
         if backend != BACKEND_NAME {
-            return Err(format!("state belongs to backend {backend:?}, not {BACKEND_NAME}"));
+            return Err(format!(
+                "state belongs to backend {backend:?}, not {BACKEND_NAME}"
+            ));
         }
         let rec = StateRecord::parse(state.as_bytes())?;
         let e = self.entries.get(&rec.entry).ok_or_else(|| {
@@ -514,12 +537,18 @@ impl Worker {
             )
         })?;
         if &e.prompt_digest != prompt_digest || u64::from(e.state.tokens()) != rec.tokens {
-            return Err(format!("state entry {} does not match the handle it came with", rec.entry));
+            return Err(format!(
+                "state entry {} does not match the handle it came with",
+                rec.entry
+            ));
         }
         Ok(rec.entry)
     }
 
-    fn snapshot(&mut self, handle: &PrefillHandle) -> std::result::Result<StateSnapshot, BackendError> {
+    fn snapshot(
+        &mut self,
+        handle: &PrefillHandle,
+    ) -> std::result::Result<StateSnapshot, BackendError> {
         let id = self
             .lookup(&handle.backend, &handle.state, &handle.prompt_digest)
             .map_err(|detail| BackendError::PrefillFailed { detail })?;
@@ -536,7 +565,9 @@ impl Worker {
         };
         let tokens = entry.state.tokens() as usize;
         let new_id = self.insert(entry);
-        let rec = self.record(new_id).map_err(|detail| BackendError::PrefillFailed { detail })?;
+        let rec = self
+            .record(new_id)
+            .map_err(|detail| BackendError::PrefillFailed { detail })?;
         Ok(StateSnapshot {
             backend: BACKEND_NAME.to_string(),
             prompt_digest: handle.prompt_digest,
@@ -579,7 +610,11 @@ impl Worker {
                 ));
             }
             e.last_used = now;
-            (Rc::clone(&e.state), Rc::clone(&e.prefix), Rc::clone(&e.prefix_ids))
+            (
+                Rc::clone(&e.state),
+                Rc::clone(&e.prefix),
+                Rc::clone(&e.prefix_ids),
+            )
         };
         // The continuation's tokens are those of prefix + suffix after the prefix's: the model
         // must see exactly what one pass over the whole prompt would. A tokenization that merges
@@ -587,7 +622,7 @@ impl Worker {
         let mut whole = String::with_capacity(prefix.len() + suffix.len());
         whole.push_str(&prefix);
         whole.push_str(suffix);
-        let all = self.tok.encode(&whole).map_err(decode_failed)?;
+        let all = self.tok.encode_untrusted(&whole).map_err(decode_failed)?;
         if all.len() <= prefix_ids.len() || all[..prefix_ids.len()] != prefix_ids[..] {
             return Err(decode_failed(format!(
                 "slot `{slot}`: prefix + suffix does not tokenize as the prefix's tokens followed \
@@ -606,7 +641,9 @@ impl Worker {
         }
         let cont: Vec<u32> = all[prefix_ids.len()..].to_vec();
         if cont.is_empty() {
-            return Err(decode_failed(format!("slot `{slot}`: the suffix adds no tokens")));
+            return Err(decode_failed(format!(
+                "slot `{slot}`: the suffix adds no tokens"
+            )));
         }
         if state.tokens() as usize + cont.len() > self.max_tokens {
             return Err(decode_failed(format!(
@@ -681,8 +718,15 @@ mod tests {
 
     #[test]
     fn a_changed_digest_changes_the_bytes_the_runtime_hashes() {
-        let a = StateRecord { entry: 1, tokens: 5, digest: [0; 32] };
-        let b = StateRecord { digest: [1; 32], ..a };
+        let a = StateRecord {
+            entry: 1,
+            tokens: 5,
+            digest: [0; 32],
+        };
+        let b = StateRecord {
+            digest: [1; 32],
+            ..a
+        };
         assert_ne!(
             StateBuffer::from_bytes(a.to_bytes()).digest(),
             StateBuffer::from_bytes(b.to_bytes()).digest()
