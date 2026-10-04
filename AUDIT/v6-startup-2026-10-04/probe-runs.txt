@@ -1,0 +1,18 @@
+probe2.log:07:45:51 start probe2
+probe2.log:07:49:18 [probe] ft_split_rows: 203.5 s; train 487407 rows, val 22393 rows; peak RSS 26.5 GiB
+probe2.log:07:49:26 [probe] canonical digest (row_id + row_content_hash, in order) fce63f4791a41b0d9424cbf8ee75c907ef30dfc470d60853fa9219874d7e3bf3: 7.6 s
+probe2.log:07:49:39 [probe] pickle.dumps: 1707290395 bytes (1.59 GiB) in 12.5 s; sha256 0e1a955f7cb92857f014854a634b97f115772f794f5fa40ba67fa9402330b012
+probe2.log:07:49:39 [probe] write + fsync: 0.1 s
+probe2.log:07:49:48 [probe] read 0.1 s + pickle.loads 9.4 s; peak RSS 26.5 GiB
+probe2.log:07:49:49 [probe] loaded rows == rebuilt rows: True (0.5 s)
+probe2.log:07:49:49 [probe] val rows vs data/pool/val.json: 22393 rebuilt, 22393 in the manifest, 0 rebuilt rows missing or with another content hash (0.3 s)
+probe2.log:07:49:50 end probe2 rc=1
+probe1.log:07:41:48 start probe1
+probe1.log:07:45:12 [probe] ft_split_rows: 200.1 s; train 487407 rows, val 22393 rows; peak RSS 26.0 GiB
+probe1.log:07:45:19 [probe] canonical digest (row_id + row_content_hash, in order) fce63f4791a41b0d9424cbf8ee75c907ef30dfc470d60853fa9219874d7e3bf3: 7.8 s
+probe1.log:07:45:32 [probe] pickle.dumps: 1707290395 bytes (1.59 GiB) in 11.6 s; sha256 0e1a955f7cb92857f014854a634b97f115772f794f5fa40ba67fa9402330b012
+probe1.log:07:45:32 [probe] write + fsync: 0.2 s
+probe1.log:07:45:41 [probe] read 0.1 s + pickle.loads 9.3 s; peak RSS 26.0 GiB
+probe1.log:07:45:42 [probe] loaded rows == rebuilt rows: True (0.5 s)
+probe1.log:07:45:42 [probe] val rows vs data/pool/val.json: 22393 rebuilt, 22393 in the manifest, 0 rebuilt rows missing or with another content hash (0.3 s)
+probe1.log:07:45:43 end probe1 rc=1

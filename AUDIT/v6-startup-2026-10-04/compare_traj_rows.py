@@ -93,7 +93,9 @@ def main(argv: list[str]) -> int:
             differing = sum(x != y for x, y in zip(old_lines, new_lines, strict=False))
             diffs.append(f"suite lines: {len(old_lines)} old, {len(new_lines)} new, "
                          f"{differing} of the paired lines differ")
-        verdict = "EQUAL but for the named differences" if not diffs else f"{len(diffs)} differences"
+        verdict = (
+            f"{len(diffs)} differences" if diffs else "EQUAL but for the named differences"
+        )
         print(f"step {step}: old row {old['row_id']} new row {new['row_id']}: {verdict}")
         for d in diffs:
             print(f"  {d}")
