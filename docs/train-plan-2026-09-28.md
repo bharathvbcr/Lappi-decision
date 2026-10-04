@@ -22,6 +22,10 @@ builders are ordinary `qd_data` families.
 
 ---
 
+> **Update 2026-10-02.** This plan's GH200 campaign has run phases 0–4. Where it stands, what failed
+> and what is queued is in the README ("Where the 2B stands") and `HANDOFF/gh200-phase4-2026-10-01.md`;
+> the facts in the table below are the 2026-09-28 baseline and are not refreshed.
+
 ## Where things stand (verified 2026-09-28)
 
 | Fact | Evidence |

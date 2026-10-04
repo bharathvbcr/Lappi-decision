@@ -36,12 +36,12 @@ cost of each and they disagree by three orders of magnitude.
 | **0** | byte-level, from scratch, ~600K params | `cua-s1-forms`: 706K params, near-ceiling on a *narrow* task | **Trained & evaluated.** 80.97% best vs 88.5% control (`AUDIT/capacity-and-learning-rate.md`). Measured all 144 margins across 18 arms (`ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`); model trails control in 17/18 arms, establishing floor |
 | **1** | frozen base, option logits, no training | SemIf: 0.813 balanced accuracy on a frozen 4B | Planned as Step 1 in `docs/train-plan-2026-09-28.md` |
 | **2** | LoRA r=16, one epoch | Nimble: 90.12% raw agreement, 2,676 examples, two days | Planned as Step 6 control arm |
-| **3** | 2B Supervised FT / CPT | `decider-2b`: 0.805 in-task / 0.755 held-out | **Initial FT run completed.** 2k commitpackft rows on GH200 (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`); score slot learned on 2/3 seeds; fast-training plan in `docs/train-plan-2026-09-28.md` |
+| **3** | 2B Supervised FT / CPT | `decider-2b`: 0.805 in-task / 0.755 held-out | **Campaign running; no run clears the gates yet.** The 2k-row pilot (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`) learned the score slot on 2/3 seeds. The full-vocabulary GH200 campaign (`docs/train-plan-2026-09-28.md`) has since run through corpus v4; its latest run, F, fails permutation consistency, the in-distribution abstention cap, the 8K needle bucket and unseen-language abstention (README, "Where the 2B stands") |
 
 The ordering is deliberate and was a decision, not a default: **the cheap rungs run first**
 so the expensive one is justified by measurement rather than by plan. Rung 3 is the only one
 that needs the 2B base model weights (now cached on disk), and its training trajectory is
-governed by `docs/train-plan-2026-09-28.md`.
+governed by `docs/train-plan-2026-09-28.md` and the pre-registrations in `campaign/`.
 
 Rungs are not exclusive. A rung that clears the gates ships; the ladder exists to find the
 cheapest one that does.
@@ -86,6 +86,34 @@ which still tokenizes.
 
 That is the clearest argument for the ladder: rung 0 is not only cheaper, it avoids a problem
 rung 3 has to solve.
+
+## What the 2B campaign has taught (2026-10-02)
+
+Rung 3 has been run as a sequence of single-GPU phases, each pre-registered. What the measured rows
+say, without a model having shipped:
+
+- **The slots are learnable; calibration and long context are the hard part.** Defect-class choice
+  and span slots reach ~99% on in-distribution rows. General families are bound by the 2B base
+  (MMLU 0.61, CSQA 0.76), and a 61%-accurate slice cannot be 95% self-consistent *and* stay under a
+  5% abstention cap, because the permutation-disagreement rows **are** the abstentions. That
+  coupling is a promotion-population decision for the human, not a recipe problem.
+- **Abstention generalises narrowly.** Reserving a `noul` row did not make out-of-distribution
+  abstention appear for free: letter-noul on intents did not transfer to code-shaped OOD, noul rows
+  had to be re-formed (defect-noul v1 → v3b), and unseen-language abstention still needs more
+  *distinct* languages, not more repeats.
+- **Seeds disagree about long context.** Needle recall at 8K varied from 0.000 to 0.750 worst-bucket
+  across seeds on corpus v3, so the candidate is a three-seed artifact (weight average or logit
+  ensemble) or nothing; the weight average gave the best pooled top-1 (83.2%) and the worst OOD
+  abstention (0/180), which is why both are scored on identical rows.
+- **Contamination was found by the project's own gates.** 215 validation rows overlapped MMLU/CSQA
+  training rows; F's rows stand as measured, the re-score is report-only, and v5 excludes training
+  rows against every validation row.
+- **Span grounding survives BPE only with care.** Two blank context lines can merge into one Qwen
+  token, which collapses a line start; v4's train shards refuse a slot only when a *gold* line start
+  collides, while validation keeps the strict rule so no gate population moves.
+
+The line-mapping gap that rung 0 dissolved therefore returned at rung 3 exactly as predicted, and is
+handled by an explicit policy rather than by luck.
 
 ## What is honestly not claimed
 
