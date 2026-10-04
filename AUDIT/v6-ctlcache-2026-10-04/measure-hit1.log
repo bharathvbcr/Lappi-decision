@@ -1,0 +1,22 @@
+# 2026-10-04T11:51:12Z start hit1 HEAD 96e84d891e47f7ad6e63911b40335993889927ea dirty-tracked 0
+split cache: READ FROM the split cache /Users/bharath/Code/research/Lappi-decision/build/v6-ctlcache-wt/build/v6-ctlcache-measure/split-cache/335b0c2f1a74cafb07e57151fee3cb82014ec35d3aacfd0289878bc8d7e27813.rows.pkl -- 487407 train + 22393 val rows, NOT rebuilt by this run (written 2026-10-04T11:51:11.297547+00:00; key 1.9 s, load and checks 6.3 s)
+MEASURE {"cached_split_rows_s": 8.14, "control_row_written": false, "label": "hit1", "metric": {"detail": "key 335b0c2f1a74cafb07e57151fee3cb82014ec35d3aacfd0289878bc8d7e27813; READ FROM the split cache, not rebuilt; entry sha256 0e1a955f7cb92857f014854a634b97f115772f794f5fa40ba67fa9402330b012 written 2026-10-04T11:51:11.297547+00:00; checked: owner/mode/symlink, length, sha256, row counts vs data/pool/{train,val}.json, every val row vs val.json, rule 3", "passed": true, "state": "ran", "value": "hit"}, "rows_at_stop": 487407, "stopped": "after the split and the control's rule-3 check, at request_texts", "wall_to_stop_s": 9.79}
+       10.18 real         9.03 user         0.93 sys
+          4045766656  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              323280  page reclaims
+                 104  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                1771  voluntary context switches
+                3333  involuntary context switches
+        140556186560  instructions retired
+         42570049883  cycles elapsed
+          3998977576  peak memory footprint
+# 2026-10-04T11:51:22Z end hit1 rc=0
