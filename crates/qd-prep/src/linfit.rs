@@ -422,7 +422,11 @@ fn train_once(
     // Phase A, one item per run of rows: P = softmax(X @ W + b), the loss's
     // Y * log(clip(P)), and diff = (P - Y) / n.
     let phase_a = |item: usize| {
-        let w = read(&w_now);
+        let w_guard = read(&w_now);
+        // A plain slice, bound once per item: indexed through the guard, the hot loop reloads
+        // the Vec's pointer and length for every nonzero (its stores to `z` may alias them, as
+        // far as the compiler can tell), ~10% of phase A on the H100 box (box_ab8, box_ab9).
+        let w: &[f64] = &w_guard;
         let mut z = vec![0f64; k];
         let mut e = vec![0f64; k];
         for r in row_bounds[item]..row_bounds[item + 1] {
@@ -457,7 +461,9 @@ fn train_once(
     };
     // Phase B, one item per run of columns: gW = X.T @ diff + (2*l2)*W, and the Adam step.
     let phase_b = |item: usize| {
-        let (w, d) = (read(&w_now), read(&diff_now));
+        let (w_guard, d_guard) = (read(&w_now), read(&diff_now));
+        // Plain slices, bound once per item, as in phase A.
+        let (w, d): (&[f64], &[f64]) = (&w_guard, &d_guard);
         let (lr, bias_correction1, bias_correction2) = (step.get(0), step.get(1), step.get(2));
         let mut g = vec![0f64; k];
         for col in col_bounds[item]..col_bounds[item + 1] {
