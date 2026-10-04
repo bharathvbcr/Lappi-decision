@@ -6,6 +6,56 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~23:00Z 2026-10-04: the post-queue session is armed to launch when both v5 lanes end
+
+The human, in reply to the post-queue session's yes/no: "ask fable for advice". Fable's ruling
+(~22:45Z) was **yes, under that delegation**, on these terms:
+- each control is capped at 14,400 s, and no step starts after 79,200 s;
+- a box-side launcher starts the session when the lanes end (lane 0's J5′ s2, ~06:00Z), so the
+  start does not depend on this Mac session being awake;
+- the session uses the queue's `qd-prep-v5`. One binary per session: be65fa5's binary is not
+  deployed for v5, since it is bit-exact but only 2.6% faster;
+- GPU 1's idle window, from J5′ s1's end (~04:30Z) to the launch, is accepted;
+- the merge of `v6-linfit-pool` (7f0e3d1) into main waits for the human;
+- the human is told with a push that includes the cancel path. The ~7 h before the launch is
+  their window to object.
+
+**Done** [V]:
+- `build/post-queue/main.bundle` holds main at 4ebb790, sha256 `e2a7dd10…`. It is on the box,
+  checked by list-heads and sha256.
+- `post_queue.sh check 4ebb790… --cpus <even>` reported 0 missing, with verdicts-s4 present.
+- `build/post-queue/pq_launch_after_lanes.sh` is git-ignored tooling, sha256 `cb1c96c7…` at both
+  ends. It runs in three stages:
+  1. It polls `/home/ubuntu/queue/v5lane{0,1}.done` every 60 s, for at most 12 h. If
+     `/home/ubuntu/post-queue/LAUNCH_CANCEL` exists at any poll, it exits 5 and launches
+     nothing.
+  2. It runs `check`. A non-zero exit makes it exit 6 with no launch.
+  3. It runs `run 4ebb790… --ctl-cap-s 14400 --session-cap-s 79200 --cpus <even>
+     --cache-option-control -- --split-cache …/split-cache-ctl --split-cache-shards
+     …/v5-data-2026-10-03`, appending to `q-post-queue.log`. Exit 3 (a refused precondition,
+     such as a lane script still exiting) is retried every 120 s, at most 15 times. Any other
+     exit ends the launcher.
+- `build/post-queue/test/pq_launch_test.sh`: 13 passed, 0 failed.
+- The dry print at the launcher's flags reads: "caps: each control 14400 s at nice 10 on cpus
+  0,2,…,50, each parity run 1800 s on GPU 0, no step starts after 79200 s; ceiling 1560 min =
+  ~$217".
+- **Launched at 22:57:30Z** (pid 1406115). Its log, `/home/ubuntu/logs/q-post-queue-launcher.log`,
+  reads "launcher: waiting for … v5lane0.done and v5lane1.done".
+
+**Cost** [I]: the session's expected ~15.5 h is ~$130, with a ceiling of ~$217 at $8.38/h. The
+box stood at $225.23 at 22:37Z (`watch_h100.sh`). The lanes to ~06:00Z add ~$59 and the session
+~$130, so the box ends near ~$415, with a ceiling near ~$500.
+
+**Cancel** before ~06:00Z, with either of these:
+- `touch /home/ubuntu/post-queue/LAUNCH_CANCEL`;
+- `kill 1406115`.
+
+**Queue at 22:59Z** [V]:
+- J5′ s1 is on GPU 1 at step 1,380 of 12,176 (1.81 s/step, ETA 19,583 s, so ~04:25Z plus eval).
+- v5traj-s4 is on lane 0. Step 3,000 finished at 22:55:07Z (row bfb6bd32). GPU 0 is at 0% by
+  design, because each snapshot rebuilds the split on the CPU.
+- J5′ s2 follows on GPU 0.
+
 ## ~22:25Z 2026-10-04: early attempt 4 (be65fa5's qd-prep) is bit-exact on v5's control and only 2.5% faster; v5 s4 and J5′ s0 scored
 
 The human: "Ask fable for advice and work on it". Fable's rulings (~20:55Z):
@@ -1156,5 +1206,5 @@ The earlier list, as written:
 ## The first command for the next lane
 
 ```bash
-ssh -i /Users/bharath/.ssh/bharath_m5_macbook_pro.pem -o BatchMode=yes ubuntu@68.209.74.244 'ls /home/ubuntu/queue; tail -n 5 /home/ubuntu/logs/q-v5lane0.log /home/ubuntu/logs/q-v5lane1.log'
+ssh -i /Users/bharath/.ssh/bharath_m5_macbook_pro.pem -o BatchMode=yes ubuntu@68.209.74.244 'ls /home/ubuntu/queue; tail -n 5 /home/ubuntu/logs/q-v5lane0.log /home/ubuntu/logs/q-v5lane1.log /home/ubuntu/logs/q-post-queue-launcher.log'
 ```
