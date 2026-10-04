@@ -6,6 +6,101 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~15:00Z 2026-10-04: v6-ctlcache merged (bbed808); v5 seeds 0 and 1 scored; the early control check hit its cap
+
+The human, ~13:40Z: "yes to both, merge and run the check; ask fable for more advice". Later:
+"ask fable what to do about the control cap".
+
+**The merge.** `bbed808` merges `v6-ctlcache` (03d335d..7099cdb) into main, following fbd43f5's
+mechanics (scripts in ignored `build/merge-ctlcache/`).
+- There were no conflicts.
+- Main was fast-forwarded from f62d7ca, and the 16 uncommitted paths in main's tree were
+  unchanged across it.
+- Suite on the merged tree [V, `build/merge-ctlcache/suite.log`]: 4,335 passed, 68 skipped,
+  2 failed.
+  - Both failures are worktree-only: `test_gaps_writer` (it needs the checkout's name) and
+    `test_lint_gate::test_ruff_is_installed_not_merely_declared` (it needs `.venv/bin/ruff`).
+  - Rerun in main with `test_gaps_ledger`: 32 passed [V, `build/merge-ctlcache/main-recheck.log`].
+
+**v5 seeds 0 and 1 scored** [V, `read_v5_rows.py` and `build/v5-h100/read_row_detail.py`]:
+
+| | v5 s0 (166f7ebd) | v5 s1 (e1bafd6f) | v5 s2 | v5 s3 |
+|---|---|---|---|---|
+| val_top1.span | 0.911 | 0.915 | 0.913 | 0.908 |
+| val_top1.choice | 0.840 | 0.846 | 0.839 | 0.847 |
+| 8K needle worst bucket (gate 0.95) | 0.918 fails | 1.000 passes | 0.705 fails | 0.967 passes |
+| OOD abstained of 180 (Wilson lower vs 0.9) | 87.8% (0.822) | 90.0% (0.847) | 84.4% (0.784) | 86.7% (0.809) |
+| in-distribution abstain (Wilson upper vs cap 0.05) | 6.0% (0.064) | 6.3% (0.067) | 6.5% (0.069) | 5.6% (0.060) |
+| permutation_consistency (floor 0.95) | 0.946 | 0.945 | 0.943 | 0.949 |
+
+R9's bar holds on all four seeds. Rule 2 stands: these are readings, and ood_abstain and
+permutation_consistency fail on every seed. Both seeds' batch-order digests match the prelude,
+and their needle controls exited 0. Both trajectories started at 14:45 and 14:47Z.
+
+**The early check, attempt 1: killed by its cap.** It ran `post_queue.sh early bbed808…` from
+14:10:15Z. That is seed 2's uncached letter control, in its own clone, writing to a scratch
+ledger.
+- **What happened** [V, the box's `/home/ubuntu/post-queue/early/`]:
+  - `timeout` killed it at 14:50:16Z with exit 124, after 14 of the control's 300 tasks.
+  - No `qd-prep` or control process survived.
+  - Only the scratch ledger was written.
+- **A false pass, found and fixed.** The tool's run recorder wrote a row even for the killed run:
+  `5231c9a0`, status `killed`, only `code_that_ran` in its metrics, every gate `not_run`.
+  - `existing_controls.py` counted any row naming the tool and eval row, so the early check said
+    "complete".
+  - The same guard would have skipped the post-queue rerun over a killed row in v5's ledger.
+  - It now counts only `status == "completed"` rows, the successor rule's own criterion
+    (`qd_post_f_rules.rs:615-617` and `:1803-1820`), and lists the others. `compare_control_rows.py`
+    uses it, and the early check fails without a completed row.
+  - `post_queue_test.sh` passes 63/63. The 4 killed-row cases failed first. The re-run guard on
+    the box reads 5231c9a0 as "not counted (killed)", exit 0.
+- **Why 2,400 s was wrong.** It came from F's letter control: c89b89a1 on the GH200's
+  `gh200-p4-v4-2026-10-01.jsonl` covered 7 tasks and 10,985 rows in 434.5 s [V, read-only].
+  v5's control covers 300 tasks and 17,254 rows; its decisions pool adds 36
+  `procedural.decisions` and 235 `synth.general` tasks.
+- **Fit time is set by iterations, not size.**
+  - arc.science: 3,178 rows, 201 s, at ~6,100 iterations for l2 = 1e-4.
+  - openjev.game: 971 rows, 72 s.
+  - knowledge.multiple_choice: 13,124 rows, 14 s.
+  - code.defect_class: 71,435 rows, 489 s.
+
+  The 14 fits took 1,428 s of the run's ~2,400 s. The rest was the split rebuild plus Python
+  between fits, and it is untimed per task because the lines carry no time.
+- **Contention.** The two needle-control startups ran beside it at 14:31-14:41Z: MinHash took
+  116.9 s against 89.2 s (+31%) and LSH 41.1 s against 32.2 s (+28%). Training's step rate held
+  at 1.84 s/step (14:10-14:28Z).
+
+**Fable's rulings (~14:48Z):**
+1. **No new cap without a measurement.** Rerun the OFF arm as attempt 2 with:
+   - a 10,800 s cap, nice 19, `taskset -c 0-25`;
+   - every log line timestamped;
+   - its own root (`$PQ/early-2/`, `qd-post-queue-early-2`), so attempt 1's evidence stays.
+
+   Launch it at ~15:50Z, when both lanes are back in training. All 13 snapshots per seed are kept
+   under `ckpt/v5/` [V], so a slowed trajectory costs later GPU time, not data. It needs the
+   human's yes.
+2. **Fable withdraws its ruling "controls after the queue, not during".** That ruling assumed
+   ~6 min per control. At ~1 h per control, 16 controls are ~16 h of box time with both GPUs
+   idle (~$130).
+   - The ledger concern is answered: `Ledger.append` flocks (`ledger.py:1253-1274`), and
+     `Ledger.rows` is an unlocked read (`:1186-1195`).
+   - Contention is bounded by the core restriction.
+   - Running the real controls during the queue's training windows needs the human's yes, asked
+     with attempt 2's measurement.
+3. **`CTL_CAP_S` and `SESSION_CAP_S` are operational caps,** not gates; rule 2 is untouched. They
+   are set from the measurement. `post_queue.sh` now takes `--ctl-cap-s`, `--session-cap-s`,
+   `--nice`, `--cpus` and (early only) `--attempt`, and states a computed ceiling.
+4. **The solver is recorded, not changed.** A warm-started l2 path in `qd-prep linfit` (0.1 →
+   1e-4, each fit starting from the last) is a v6 target. It needs a committed parity test against
+   the current solver, and it is not for v5's rows, whose gate opponent it would change.
+
+**Open:** GAP-DEVMAP-FTS5-CORRUPT-2026-10-04. DevMap's search failed this session on an fts5
+corruption, so the no-lock and only-`--write-ledger` claims are rg- and read-confirmed.
+
+**Next, once the human says yes** (dry-run on the box: `print-early`, `check --cpus 0-25`, 0
+missing). Alone in its ssh call:
+`nohup setsid bash /home/ubuntu/post-queue/post_queue.sh early bbed80896d676b18baffa64bcd69dd4ae2b2bea3 --attempt 2 --ctl-cap-s 10800 --nice 19 --cpus 0-25 > /home/ubuntu/logs/q-post-queue-early-2.log 2>&1 < /dev/null &`
+
 ## ~12:20Z 2026-10-04: v6-ctlcache reported; Fable's rulings; the merge waits on the human
 
 The lane's work is on branch `v6-ctlcache`, six commits, the change being 5602617. Its report is
