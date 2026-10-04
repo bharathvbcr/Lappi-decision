@@ -12,8 +12,8 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use common::{Behaviour, Wrapped};
@@ -72,7 +72,8 @@ fn nothing_is_built_until_a_request_needs_it() {
     assert!(!service.is_warm());
     assert_eq!(service.status().builds, 0);
     assert_eq!(
-        service.status().last_cold_start_ms, None,
+        service.status().last_cold_start_ms,
+        None,
         "no build has happened, which is not the same fact as a zero-millisecond one"
     );
     // A control op must not warm the runtime.
@@ -276,7 +277,9 @@ fn a_runtime_that_poisons_again_after_a_rebuild_stops_rather_than_looping() {
     assert_eq!(common::status_of(&reply), "error");
     let parsed: serde_json::Value = serde_json::from_slice(&reply).expect("parses");
     assert_eq!(
-        parsed.pointer("/error/kind").and_then(serde_json::Value::as_str),
+        parsed
+            .pointer("/error/kind")
+            .and_then(serde_json::Value::as_str),
         Some("rebuild_failed")
     );
     assert_eq!(
@@ -284,6 +287,87 @@ fn a_runtime_that_poisons_again_after_a_rebuild_stops_rather_than_looping() {
         2,
         "one rebuild attempt, then stop: a hot loop is not a retry policy"
     );
+    assert!(
+        !service.is_warm(),
+        "the poisoned rebuild must not stay warm"
+    );
+
+    let again = service.handle_line(&common::line(&common::sample_request()));
+    assert_eq!(common::status_of(&again), "error");
+    assert_eq!(
+        builds.load(Ordering::SeqCst),
+        2,
+        "a later request rebuilt the model instead of failing closed"
+    );
+}
+
+#[test]
+fn status_answers_while_a_model_build_holds_the_factory() {
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let entered_factory = Arc::clone(&entered);
+    let release_factory = Arc::clone(&release);
+    let factory: RuntimeFactory = Arc::new(move || {
+        entered_factory.store(true, Ordering::SeqCst);
+        let started = Instant::now();
+        while !release_factory.load(Ordering::SeqCst) {
+            if started.elapsed() > Duration::from_secs(8) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Ok(Wrapped::runtime(Behaviour::ClaimsToBeAModel))
+    });
+    let service = Arc::new(Service::with_factory(
+        config(Duration::from_secs(600), Duration::from_secs(10), 4),
+        factory,
+    ));
+    let building = Arc::clone(&service);
+    let build =
+        std::thread::spawn(move || building.handle_line(&common::line(&common::sample_request())));
+    assert!(
+        wait_for(Duration::from_secs(2), || entered.load(Ordering::SeqCst)),
+        "the factory never started"
+    );
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ping_service = Arc::clone(&service);
+    std::thread::spawn(move || {
+        let reply = ping_service.handle_line(br#"{"op":"ping"}"#);
+        let _ = tx.send(reply);
+    });
+    let ping = rx.recv_timeout(Duration::from_millis(500));
+    release.store(true, Ordering::SeqCst);
+    let reply = build.join().expect("build thread");
+    assert!(ping.is_ok(), "ping blocked for the whole model build");
+    assert_eq!(common::status_of(&reply), "ok");
+}
+
+#[test]
+fn reset_allows_a_build_after_the_backend_failed_closed() {
+    let (factory, builds) = poison_then_clean(2);
+    let service = Service::with_factory(
+        config(Duration::from_secs(600), Duration::from_secs(10), 4),
+        factory,
+    );
+    let first = service.handle_line(&common::line(&common::sample_request()));
+    assert_eq!(common::status_of(&first), "error");
+    assert_eq!(builds.load(Ordering::SeqCst), 2);
+    assert!(!service.is_warm());
+
+    let blocked = service.handle_line(&common::line(&common::sample_request()));
+    assert_eq!(common::status_of(&blocked), "error");
+    assert_eq!(builds.load(Ordering::SeqCst), 2);
+
+    service.reset();
+    let after = service.handle_line(&common::line(&common::sample_request()));
+    assert_eq!(
+        common::status_of(&after),
+        "ok",
+        "reset did not allow a clean build: {}",
+        String::from_utf8_lossy(&after)
+    );
+    assert_eq!(builds.load(Ordering::SeqCst), 3);
 }
 
 #[test]
@@ -308,7 +392,9 @@ fn a_rebuild_that_cannot_build_is_reported_as_a_rebuild_failure() {
     let parsed: serde_json::Value = serde_json::from_slice(&reply).expect("parses");
     assert_eq!(common::status_of(&reply), "error");
     assert_eq!(
-        parsed.pointer("/error/kind").and_then(serde_json::Value::as_str),
+        parsed
+            .pointer("/error/kind")
+            .and_then(serde_json::Value::as_str),
         Some("rebuild_failed"),
         "a failed rebuild is its own error, not the original build's"
     );
@@ -391,7 +477,9 @@ fn requests_beyond_the_concurrency_cap_are_told_so() {
     let parsed: serde_json::Value = serde_json::from_slice(&reply).expect("parses");
     assert_eq!(common::status_of(&reply), "error");
     assert_eq!(
-        parsed.pointer("/error/kind").and_then(serde_json::Value::as_str),
+        parsed
+            .pointer("/error/kind")
+            .and_then(serde_json::Value::as_str),
         Some("overloaded"),
         "over the cap the agent says so rather than queueing without bound"
     );
@@ -424,7 +512,9 @@ fn a_request_that_outruns_its_deadline_is_stopped_and_names_the_limit() {
     let parsed: serde_json::Value = serde_json::from_slice(&reply).expect("parses");
     assert_eq!(common::status_of(&reply), "error");
     assert_eq!(
-        parsed.pointer("/error/kind").and_then(serde_json::Value::as_str),
+        parsed
+            .pointer("/error/kind")
+            .and_then(serde_json::Value::as_str),
         Some("deadline_exceeded")
     );
     assert_eq!(
@@ -484,9 +574,9 @@ fn the_status_counters_separate_answers_refusals_and_failures() {
         "refused"
     );
     assert_eq!(
-        common::status_of(&common::backendless_service().handle_line(&common::line(
-            &common::sample_request()
-        ))),
+        common::status_of(
+            &common::backendless_service().handle_line(&common::line(&common::sample_request()))
+        ),
         "error"
     );
 

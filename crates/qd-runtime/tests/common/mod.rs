@@ -20,8 +20,8 @@ use qd_runtime::render::RenderCaps;
 use qd_runtime::runtime::{Runtime, RuntimeConfig};
 use qd_runtime::schema::DecisionRequest;
 use qd_runtime::service::{Service, ServiceConfig};
-use qd_runtime::wire::{parse_line, Incoming};
-use serde_json::{json, Value};
+use qd_runtime::wire::{Incoming, parse_line};
+use serde_json::{Value, json};
 
 /// The context used by most tests: a stubbed function, three lines.
 pub const SAMPLE_CONTEXT: &str = "fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n";

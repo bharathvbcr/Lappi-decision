@@ -21,8 +21,8 @@ use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -128,10 +128,7 @@ impl Server {
         }
         let listener = UnixListener::bind(&options.socket_path)?;
         // A per-user agent socket. Other local users have no business talking to it.
-        std::fs::set_permissions(
-            &options.socket_path,
-            std::fs::Permissions::from_mode(0o600),
-        )?;
+        std::fs::set_permissions(&options.socket_path, std::fs::Permissions::from_mode(0o600))?;
         Ok(Self {
             listener,
             service,
@@ -185,17 +182,11 @@ impl Server {
 
             let service = Arc::clone(&self.service);
             let options = self.options.clone();
-            let live = Arc::clone(&self.live_connections);
-            live.fetch_add(1, Ordering::SeqCst);
-            match std::thread::Builder::new()
-                .name("qd-conn".to_string())
-                .spawn(move || {
-                    serve_connection(service, stream, &options);
-                    live.fetch_sub(1, Ordering::SeqCst);
-                }) {
+            match spawn_connection(&self.live_connections, move || {
+                serve_connection(service, stream, &options);
+            }) {
                 Ok(handle) => connections.push(handle),
                 Err(error) => {
-                    self.live_connections.fetch_sub(1, Ordering::SeqCst);
                     eprintln!("qd serve: could not spawn a connection thread: {error}");
                 }
             }
@@ -240,6 +231,30 @@ fn refuse_connection(stream: UnixStream, limit: usize) {
     let _ = stream.write_all(&reply);
     let _ = stream.write_all(b"\n");
     let _ = stream.flush();
+}
+
+/// Owns one `live_connections` increment. Dropped when the connection thread
+/// returns or panics, and when `spawn` fails (the closure is dropped unrun).
+struct ConnectionSlot(Arc<AtomicUsize>);
+
+impl Drop for ConnectionSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+fn spawn_connection(
+    live: &Arc<AtomicUsize>,
+    body: impl FnOnce() + Send + 'static,
+) -> io::Result<JoinHandle<()>> {
+    live.fetch_add(1, Ordering::SeqCst);
+    let slot = ConnectionSlot(Arc::clone(live));
+    std::thread::Builder::new()
+        .name("qd-conn".to_string())
+        .spawn(move || {
+            let _slot = slot;
+            body();
+        })
 }
 
 fn serve_connection(service: Arc<Service>, stream: UnixStream, options: &ServeOptions) {
@@ -325,7 +340,9 @@ fn read_line_bounded<R: BufRead>(reader: &mut R, cap: usize) -> io::Result<LineR
     if buf.last() == Some(&b'\n') {
         buf.pop();
         if buf.len() > cap {
-            return Ok(LineRead::OverCap { measured: buf.len() });
+            return Ok(LineRead::OverCap {
+                measured: buf.len(),
+            });
         }
         return Ok(LineRead::Line(buf));
     }
@@ -350,4 +367,25 @@ fn read_line_bounded<R: BufRead>(reader: &mut R, cap: usize) -> io::Result<LineR
         }
     }
     Ok(LineRead::OverCap { measured })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panicking_connection_releases_its_slot() {
+        let live = Arc::new(AtomicUsize::new(0));
+        let handle =
+            spawn_connection(&live, || panic!("connection handler panicked")).expect("spawn");
+        assert!(
+            handle.join().is_err(),
+            "the connection was supposed to panic"
+        );
+        assert_eq!(
+            live.load(Ordering::SeqCst),
+            0,
+            "the live_connections slot leaked across the panic"
+        );
+    }
 }

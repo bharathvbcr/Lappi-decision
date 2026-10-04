@@ -17,9 +17,10 @@
 //!
 //! [`crate::runtime::Runtime`] is immutable and shared behind an `Arc`. Everything that changes —
 //! the warm slot, eviction, poisoning, rebuilds, counters — is in this module behind one mutex, and
-//! **that mutex is never held across a decode**. A request locks to take an `Arc` and unlocks
-//! before it asks the backend anything, which is what stops one slow request from wedging the
-//! agent. `tests/lifecycle.rs` asserts it with a backend that blocks.
+//! **that mutex is never held across a decode or a model build**. A request locks to take an
+//! `Arc` and unlocks before it asks the backend anything, and a cold start builds the runtime
+//! outside the lock, which is what stops one slow request or one slow load from wedging status
+//! and ping. `tests/lifecycle.rs` asserts both.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -32,7 +33,7 @@ use crate::backend::BackendIdentity;
 use crate::refusal::BackendError;
 use crate::runtime::{Runtime, RuntimeConfig};
 use crate::schema::{DecisionRequest, Response};
-use crate::wire::{parse_line, ControlOp, Incoming};
+use crate::wire::{ControlOp, Incoming, parse_line};
 
 /// How a `Service` obtains a runtime. Injectable so a test can supply a backend that poisons, that
 /// blocks, or that writes back under `readonly`.
@@ -79,6 +80,11 @@ struct Lifecycle {
     last_cold_start: Option<Duration>,
     /// Set by a poison, consumed by the next build, which is then born `degraded`.
     next_build_degraded: bool,
+    /// True while `factory` is running. The build itself does not hold `state`.
+    building: bool,
+    /// A rebuild poisoned again. Further acquires fail without calling `factory`
+    /// until [`Service::reset`].
+    failed_closed: bool,
     shutdown_requested: bool,
 }
 
@@ -117,6 +123,8 @@ impl Service {
                 idle_evictions: 0,
                 last_cold_start: None,
                 next_build_degraded: false,
+                building: false,
+                failed_closed: false,
                 shutdown_requested: false,
             }),
             wake: Condvar::new(),
@@ -204,6 +212,9 @@ impl Service {
     fn rebuild_after_poison(&self, request: &DecisionRequest) -> Response {
         {
             let mut st = self.lock();
+            if st.failed_closed {
+                return Response::failed(failed_closed_error());
+            }
             st.warm = None;
             st.next_build_degraded = true;
             st.rebuilds_after_poison += 1;
@@ -214,10 +225,19 @@ impl Service {
                 let second = acquired.runtime.answer(request, deadline);
                 if is_poison(&second) {
                     // Poisoned again immediately after a rebuild: this is not a transient fault and
-                    // retrying forever would turn one bad request into a hot loop.
+                    // retrying forever would turn one bad request into a hot loop. Drop the warm
+                    // runtime. Leaving it in place made every later request rebuild under the
+                    // lifecycle lock.
+                    {
+                        let mut st = self.lock();
+                        st.warm = None;
+                        st.failed_closed = true;
+                        st.next_build_degraded = false;
+                    }
+                    self.wake.notify_all();
                     Response::failed(BackendError::RebuildFailed {
                         detail: "the rebuilt backend poisoned again on the same request; refusing \
-                                 to retry a second time"
+                                 to retry until reset"
                             .to_string(),
                     })
                 } else {
@@ -233,6 +253,9 @@ impl Service {
     fn acquire(&self) -> Result<Acquired<'_>, BackendError> {
         {
             let mut st = self.lock();
+            if st.failed_closed {
+                return Err(failed_closed_error());
+            }
             if st.in_flight >= self.cfg.max_in_flight {
                 return Err(BackendError::Overloaded {
                     limit: self.cfg.max_in_flight,
@@ -241,52 +264,119 @@ impl Service {
             st.in_flight += 1;
         }
         let guard = InFlight { service: self };
-
-        let runtime = {
-            let mut st = self.lock();
-            if st.warm.is_none() {
-                let degraded = st.next_build_degraded;
-                let started = Instant::now();
-                match (self.factory)() {
-                    Ok(mut runtime) => {
-                        if degraded {
-                            runtime.mark_degraded();
-                        }
-                        st.last_cold_start = Some(started.elapsed());
-                        st.builds += 1;
-                        st.next_build_degraded = false;
-                        st.warm = Some(Arc::new(runtime));
-                    }
-                    Err(error) => {
-                        st.build_failures += 1;
-                        let error = if degraded {
-                            BackendError::RebuildFailed {
-                                detail: error.to_string(),
-                            }
-                        } else {
-                            error
-                        };
-                        drop(st);
-                        return Err(error);
-                    }
-                }
-            }
-            st.last_used = Instant::now();
-            st.warm.clone()
-        };
-
-        match runtime {
-            Some(runtime) => Ok(Acquired {
+        match self.warm_or_build() {
+            Ok(runtime) => Ok(Acquired {
                 runtime,
                 _guard: guard,
             }),
-            // The block above either populated `warm` or returned; this arm exists so the happy
-            // path does not unwrap.
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Take the warm runtime, or build one. The factory runs without `state` held, so status and
+    /// ping can lock while a model is loading. One builder runs at a time; everyone else waits
+    /// on `wake` and then takes the slot the builder published.
+    fn warm_or_build(&self) -> Result<Arc<Runtime>, BackendError> {
+        loop {
+            let degraded = {
+                let mut st = self.lock();
+                if st.failed_closed {
+                    return Err(failed_closed_error());
+                }
+                if let Some(runtime) = st.warm.clone() {
+                    st.last_used = Instant::now();
+                    return Ok(runtime);
+                }
+                if st.building {
+                    None
+                } else {
+                    st.building = true;
+                    Some(st.next_build_degraded)
+                }
+            };
+            let Some(degraded) = degraded else {
+                let st = self.lock();
+                let st = self
+                    .wake
+                    .wait_while(st, |s| s.building && s.warm.is_none() && !s.failed_closed)
+                    .unwrap_or_else(|error| error.into_inner());
+                drop(st);
+                continue;
+            };
+
+            let built = self.build_outside_lock(degraded);
+            return built;
+        }
+    }
+
+    fn build_outside_lock(&self, degraded: bool) -> Result<Arc<Runtime>, BackendError> {
+        struct ClearBuilding<'a>(&'a Service);
+        impl Drop for ClearBuilding<'_> {
+            fn drop(&mut self) {
+                let mut st = self.0.lock();
+                if st.building {
+                    st.building = false;
+                    drop(st);
+                    self.0.wake.notify_all();
+                }
+            }
+        }
+        let _clear = ClearBuilding(self);
+        let started = Instant::now();
+        let built = (self.factory)();
+        let runtime = {
+            let mut st = self.lock();
+            st.building = false;
+            match built {
+                Ok(mut runtime) => {
+                    if degraded {
+                        runtime.mark_degraded();
+                    }
+                    st.last_cold_start = Some(started.elapsed());
+                    st.builds += 1;
+                    st.next_build_degraded = false;
+                    st.warm = Some(Arc::new(runtime));
+                    st.last_used = Instant::now();
+                    st.warm.clone()
+                }
+                Err(error) => {
+                    st.build_failures += 1;
+                    let error = if degraded {
+                        BackendError::RebuildFailed {
+                            detail: error.to_string(),
+                        }
+                    } else {
+                        error
+                    };
+                    drop(st);
+                    self.wake.notify_all();
+                    return Err(error);
+                }
+            }
+        };
+        self.wake.notify_all();
+        match runtime {
+            Some(runtime) => Ok(runtime),
             None => Err(BackendError::Unavailable {
                 detail: "the warm runtime slot was empty immediately after a successful build"
                     .to_string(),
             }),
         }
+    }
+
+    /// Drop the fail-closed latch and the warm runtime so a later request may build again.
+    ///
+    /// A rebuild that poisons a second time stays failed closed until this runs. A build already
+    /// in progress is left to finish; the latch is cleared either way.
+    pub fn reset(&self) {
+        let mut st = self.lock();
+        st.failed_closed = false;
+        if !st.building {
+            st.warm = None;
+            st.next_build_degraded = false;
+        }
+        drop(st);
+        self.wake.notify_all();
     }
 
     fn record(&self, response: &Response) {
@@ -397,6 +487,14 @@ impl Service {
 
 fn as_millis(d: Duration) -> u64 {
     d.as_millis().min(u64::MAX as u128) as u64
+}
+
+fn failed_closed_error() -> BackendError {
+    BackendError::RebuildFailed {
+        detail: "the backend is failed closed after a rebuild poisoned again; call reset before \
+                 another build"
+            .to_string(),
+    }
 }
 
 fn is_poison(response: &Response) -> bool {
