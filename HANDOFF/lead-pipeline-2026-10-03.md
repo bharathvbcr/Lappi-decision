@@ -6,6 +6,209 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~20:50Z 2026-10-04: the GPUs stay busy to ~05-06Z (J5′ s1, s2 queued); the linfit loss found and fixed (be65fa5)
+
+**The queue after the current runs** [V for the rule and the recorded spend; the arithmetic
+inferred from the pre-registration's estimates]:
+- `box_q_v5.sh:4-17` gives the order v5 s0-4, the arm iff room, then J5′ s0-2. With no room the
+  rounds are [s4 | J5′0], then [J5′1 | J5′2]. J5′ s1 and s2's inputs exist: v5 s0-2's ft rows
+  and v5 s1/s2's eval rows.
+- `v5_budget_ok` (`v5_common.sh`) admits a job while spent + in-flight + its estimate stay
+  within the approved ~$356 / 84.96 GPU-h.
+- `/home/ubuntu/queue/v5.spend` records $131.49 and 31.4 GPU-h. With the two running jobs
+  (~$33 + ~$28) and two J5′ seeds (~$25 each), the total is ~$240.
+- So both lanes take J5′ s1 and s2 when v5 s4 and J5′ s0 end (~22:10-23:15Z), and the GPUs stay
+  busy to ~05:00-06:00Z.
+- The post-queue session's `run` mode needs `v5lane{0,1}.done`, so it cannot start before then.
+  It still needs the human's yes. Its clone path and started marker are absent [V].
+
+**The linfit loss, found and fixed** (lane v6-linfit-pool; branch commits be65fa5 and 620dde4;
+the chain in `HANDOFF/v6-linfit-pool-2026-10-04.md` on that branch) [V,
+`/home/ubuntu/logs/q-linfit-ab{4..11}.log`]:
+- Fable withdrew its ~17:57Z decision rule. box_ab3's "the loss is the team mechanism;
+  UnsafeCell would not help" was wrong:
+  - its `--iters 3` was dominated by the single-threaded transpose;
+  - at 1 thread, phase B's gain masked phase A's loss.
+- **The cause:** the hot loops indexed the W / diff snapshots through their `RwLock` read
+  guards, reloading the Vec header for every nonzero. be65fa5 binds plain slices once per item,
+  bit for bit: 85 Rust tests and 111 parity tests passed.
+- **Deployment table** (box_ab11, 26 threads on the even CPUs, slices/old): tiny 0.06,
+  openjev-k4 0.59, openjev-k8 0.72, arc-k4 0.85, defect-k4 1.09, defect-k8 1.03.
+- **Projected on early attempt 3's 197 fits:** 4,974 s → 3,662–4,446 s (0.74–0.89×)
+  [inferred: band ratios].
+- **The residual** on defect at 26 threads (1.03–1.08) is open, and the `UnsafeCell` variant
+  (the crate's first `unsafe`) is the human's choice.
+- No rebuilt `qd-prep` reaches a v5 control without Fable's ruling and the human's yes.
+- The box lane is closed: no further box runs in this lane.
+
+## 19:36Z 2026-10-04: early attempt 3 complete; seed 2's OFF-arm control row 8f895758
+
+[V, `/home/ubuntu/logs/q-post-queue-early-3.log`, the control's stamped log and the scratch row,
+copied to `build/post-queue/early3-row.jsonl` (git-ignored)]:
+- **Timing.** The split rebuild ran 18:04:41–18:12:57Z. The n-gram arm ran 18:12:57–19:32:31Z;
+  the length arm ran 19:32:31–19:36:24Z. The row was written at 19:36:26Z and the session ended
+  at 19:36:35Z. The control's `wall_clock_s` is 5,006 s, inside the 18,000 s cap.
+- **Not run.** 98 of 332 tasks were fitted in each arm. The other 234, all `synth.general`, are
+  `not_run` with their reasons. Examples:
+  - `synth.general/access_route`: "the training split holds 0 row(s)";
+  - `synth.general/account_age`: no label space every row shares.
+- **The fix held.** The task after `synth.general/action_next`, attempt 2's crash, was skipped
+  without error. The control log has no traceback.
+- **The length arm** ran over all 98 fitted tasks for the first time at this scale, at about
+  1–6 s a task (5 features).
+- **The guard:** "1 completed letter control row(s) ['8f895758-…']", exit 1, as required.
+  `ft_linear_control` exited 3: its pooled gate is `not_run`. The early check is complete.
+- **Projection vs actual.** I had projected 7,800–12,700 s. The actual run was much shorter
+  because 234 tasks are not fitted at all. The 98 fitted tasks ran ~0.65× attempt 2's fit
+  times on 26 physical cores instead of 13 × 2.
+
+**Row 8f895758 (scratch; not a gate's row; v5 seed 2, eval row 2af3c80d; main 97bb3e2):**
+- `paired_margin_vs_linear.choice.code.defect_class` (the successor rule's `MARGIN_KEY`):
+  **+0.3915 [+0.3707, +0.4128], ran, passed.**
+- The pooled `gates.paired_margin_vs_linear` is **`not_run`**: "234 of 332 inputs did not run".
+  The synth.general family margin is `not_run` too (234 of 267 inputs). Every other gate in the
+  row is `not_run`: this tool measures only the margins.
+- **The pooled gate's `not_run` is not new** [V]. F's three control rows carry it too:
+  - `c89b89a1`, `c0e438e6` and `3f72112a` have `gates.paired_margin_vs_linear` `not_run`,
+    because 1 of 7 tasks, `intent.domain/domain`, did not converge in 6,000 iterations.
+  - Every uncached v5 control will carry it as well [inferred], because v5's split holds the
+    synth.general tasks that cannot be fitted.
+  - Rule 2 stands: nothing here moves a threshold.
+- **Exit 3** is `ft_linear_control`'s "the pooled gate is not `Ran`" [V,
+  `tools/ft_linear_control.py:1387`].
+- **What reads the pooled gate** [V, `crates/qd-runtime/src/bin/qd_post_f_rules.rs`]:
+  - `paired_ci` (:4703) refuses a gate that did not run (`row.ran("gates", …)?` at :4705).
+  - Its callers are the TierB rules (:5064, the pinned phase-3 reference control; :5292, a
+    candidate's control row). A TierB candidate whose control row has a `not_run` pooled gate is
+    refused, closed and loud.
+  - v5's successor rule reads the code.defect_class family margin (`MARGIN_KEY`, :1270), which
+    ran and passed here.
+  - Whether a v5 row is ever a TierB candidate is not established [unverified]; the TierB rule
+    pins phase-3's `val_shard_hash`.
+- **intent.in_scope: −0.0293 [−0.0452, −0.0140], ran, failed**, the whole interval below zero.
+  The n-gram and the length control give the same margin there.
+- **openjev.game: +0.1935 [−0.0323, +0.4194]** against the n-gram control: the CI includes
+  zero (31 val rows). Against the length control it is +0.4194 [+0.1935, +0.6129].
+- The other 18 of the 22 families pass against both controls, as code.defect_class does:
+  - lowest: pairwise.helpfulness +0.0860;
+  - highest: intent.classification +0.8295 against the n-gram control.
+- `paired_margin_vs_linear.span` is `not_run` by design: the 7,238 pointer rows are not scored.
+
+**The box's CPUs are free again.** That reopens the team-anomaly discriminators, which need
+Fable's ruling (`HANDOFF/v6-linfit-pool-2026-10-04.md` on its branch).
+
+## ~18:05Z 2026-10-04: the fix merged (97bb3e2); attempt 3 runs on 26 physical cores, cap 18,000 s
+
+The human: "ok, merge it and launch attempt 3 after the suite".
+
+**The merge** [V]:
+- `v6-ctl-minrows` 97bb3e2 was fast-forwarded onto main (015585a → 97bb3e2) by
+  `build/ctl-minrows/ff_main.sh`. Main's status was unchanged: the peer's 16 paths, none of them
+  the commit's.
+- The full Python suite on the branch's worktree passed except the two known worktree-only
+  failures (`build/ctl-minrows/suite.log`):
+  - `test_gaps_writer::test_the_real_ledger_is_not_touched_by_any_of_this` checks the
+    directory's name.
+  - `test_lint_gate::test_ruff_is_installed_not_merely_declared` finds no `.venv` in a
+    worktree.
+
+  The fail-first run is in `build/ctl-minrows/failfirst.log`.
+- `git diff --stat 142a67c 97bb3e2 -- crates/qd-prep` is empty, so `post_queue.sh:86`'s
+  `qd-prep-v5` pin holds.
+- The bundle's sha256 is `6e3843ba…5cc50`, with one head, 97bb3e2; the checksum was checked at
+  both ends. The `print-early` and `check` dry-runs at 97bb3e2 found 0 required inputs missing.
+
+**Attempt 3** [V, the launch and the clone]:
+- Command: `post_queue.sh early 97bb3e2… --attempt 3 --ctl-cap-s 18000 --nice 19 --cpus
+  0,2,4,…,50`.
+- Started 18:04:39Z. Log: `/home/ubuntu/logs/q-post-queue-early-3.log`; root:
+  `/home/ubuntu/post-queue/early-3/`.
+- The clone is at 97bb3e2, and no tracked file changed.
+- The session cap is 18,600 s, so the check ends by ~23:15Z at the latest.
+
+Fable revised two of its earlier settings on box_ab2's evidence (~17:57Z):
+- **CPUs: the 26 even CPUs, one per physical core, not 0-51.**
+  - On the box, hyperthread siblings are the pairs (2i, 2i+1) [V,
+    `/sys/.../thread_siblings_list`].
+  - Attempt 3 runs the old binary, and for it 52 threads was never better than 26 [V,
+    `q-linfit-ab2.log`]: defect 74.9 vs 76.4 ms/it, arc 6.9 vs 4.5, openjev 5.7 vs 3.2.
+- **Cap: 18,000 s, not 10,800.** The projection comes from attempt 2's 58 timestamped fits [V,
+  `build/post-queue/project_early.py`]:
+  - The control has 332 tasks, not 300.
+  - The 58 fitted took 5,925 s on 13 cores × 2 threads; 17 tasks of at least 60 s account for
+    5,077 s of that.
+  - Of the 274 left, 263 are `synth.general` at 2.5–7 s each, 10 are `typed.workflow` and 1 is
+    `vitaminc.nli` (700 val rows).
+  - The length arm then runs over every task. F's 7 length tasks converged in 70–1,527
+    iterations (`c89b89a1`) [V].
+  - Projected total: 7,800–12,700 s [inferred]. 10,800 s risked attempt 1's outcome.
+- **The bound on the cap:** run mode refuses while any control is alive (`post_queue.sh:194`).
+  - At 18:01Z the lanes' current runs (v5 s4, J5′ s0) had training ETAs of 22:05–22:15Z, with
+    scoring after [V].
+  - The queue's later jobs (J5′ s1, s2) are inferred, not verified.
+  - So attempt 3 should end before the lanes do. If no further job is queued and scoring takes
+    under an hour, the worst case overlaps the lanes' end by minutes.
+- **The length arm** has run through the native engine only on F's 7 tasks [V: `c89b89a1`, and
+  the Mac refit rows `d877d6bc`, `84510263` and `27a263d5` reproduce its margins]. It has never
+  run over 332 tasks or on tiny ones.
+  - The fix covers both arms (`fit_task`).
+  - A late failure there is a first run of that arm, not a regression of the fix.
+
+**The team's large-shape anomaly (lane v6-linfit-pool), narrowed** [V, `q-linfit-ab2.log`,
+`q-linfit-ab3.log`; `build/linfit-pool/notes.md`]:
+- box_ab2: nice 10 vs 19, and 26 vs 52 threads, made no difference. It is neither the nice
+  level nor oversubscription.
+- box_ab3, defect-k8: the copy variant against old was 0.95 at 1 thread and 1.15 at 4.
+  - `with_team(1)` runs inline: it starts `threads - 1` workers (`team.rs:9,266`).
+  - So the per-element code (the atomic cells) is not the cause; the team mechanism is.
+    **(Wrong; corrected at ~20:50Z, the section above.)**
+- Per Fable's decision rule, the `UnsafeCell` branch (`v6-linfit-pool-cell`) would not help and
+  stays on hold. **(The rule was withdrawn at ~20:37Z; see the section above.)**
+- The next diagnostics need the box's CPUs, which attempt 3 holds until ≤23:15Z.
+
+**Next:**
+- Watch attempt 3 with `build/post-queue/mon_early3.sh`, which counts each arm.
+- Check that the lanes' step rate holds near 1.81 s/step.
+- At the end, read the scratch row: `existing_controls.py` must exit 1.
+- The post-queue session itself still needs the human's yes.
+
+## ~17:45Z 2026-10-04: attempt 2 crashed on a 3-row task; the post-queue controls would too
+
+The human: "yes, launch attempt 2 at 15:50Z"; later "Follow fable's advice and work on it",
+"yes, run the box bench", and "yes, run the box A/B; don't ask me, ask fable for advice".
+
+**Attempt 2 of the early check** (`post_queue.sh early bbed808 --attempt 2 --ctl-cap-s 10800
+--nice 19 --cpus 0-25`, launched 15:50:11Z; CPUs 0-25 are 13 cores x 2 hyperthreads, half the
+box) [V, `/home/ubuntu/post-queue/early-2/`, its timestamped logs]:
+- The split rebuild ended 15:58:46Z. It fitted 58 tasks by 17:37:48Z. The first 14 (attempt 1's)
+  took 2,511 s of fits at 26 threads against attempt 1's 1,428 s at 52.
+- **Then it crashed on task 59, `synth.general/action_next`'s successor:**
+  `linear_control_native.fit` raised `ValueError: need at least 4 examples to fit and validate,
+  got 3`. The run recorder wrote row `2646e366` (`failed`). The guard counted 0 completed rows,
+  and the early check said FAILED: the fix of ~14:55Z did its job.
+- **The bug:** `fit_task` (`tools/ft_linear_control.py:439`) documents "Never raises for a weak
+  fit" and returns `not_run` for a single-class task, but not for one with fewer than 4 training
+  rows, which `LinearBaseline.fit` refuses. v5's 235 `synth.general` tasks include some that
+  small, so **every uncached v5 control at bbed808 dies at this task.** The post-queue session
+  is blocked until the fix is merged into main.
+- **What the fix changes in the gates** [inferred, from the code's docs]: the task becomes
+  `not_run` with its reason; the pooled `gates.paired_margin_vs_linear` is `not_run` whenever
+  any task is, as its docstring already says. v5's successor rule reads the code.defect_class
+  family margin (`MARGIN_KEY`, `crates/qd-runtime/src/bin/qd_post_f_rules.rs:1270`); the pooled
+  gate is read by the TierB outcome rule's clause 2 (`paired_ci`, `:4696`), which judges a TierB
+  control row. No threshold moves.
+- **Fable's rulings:** fix in `fit_task` before the single-class check (the reference's refusal
+  order), with a fail-first test, on its own branch, merged with fbd43f5's mechanics (local; the
+  human delegated the call to Fable). Attempt 3 (scratch ledger, CPU only, capped, ~$0) runs
+  under that delegation and is reported. Real-ledger writes still need the human's yes.
+- The length-only control runs over every task after the n-gram one; no attempt has reached it.
+
+**The control's per-iteration floor** (lane `v6-linfit-pool`, `HANDOFF/v6-linfit-pool-2026-10-04.md`
+on that branch): on the box a thread start costs ~32 us a thread a phase, ~3.4 ms an iteration
+at 52 threads. A team of threads per fit (bit for bit against the Python reference) cuts small
+shapes 2-2.3x at 52 threads, but loses 10-39% on a large shape. Not deployable yet; diagnosis
+continues.
+
 ## ~15:00Z 2026-10-04: v6-ctlcache merged (bbed808); v5 seeds 0 and 1 scored; the early control check hit its cap
 
 The human, ~13:40Z: "yes to both, merge and run the check; ask fable for more advice". Later:

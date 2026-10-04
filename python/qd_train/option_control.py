@@ -66,6 +66,7 @@ from .baseline import (
     CSR,
     DENSE_OPERAND_BUDGET_BYTES,
     DENSE_SECONDS_PER_CELL_CLASS,
+    MIN_FIT_EXAMPLES,
     SPARSE_SECONDS_PER_NONZERO_CLASS,
     CharNGramHasher,
     LinearBaseline,
@@ -314,8 +315,8 @@ class OptionScorer:
         row's options follow it, in shown order, keeping the permutation's row order.
         """
         n = len(sizes)
-        if n < 4:
-            raise ValueError(f"need at least 4 rows to fit and validate, got {n}")
+        if n < MIN_FIT_EXAMPLES:
+            raise ValueError(f"need at least {MIN_FIT_EXAMPLES} rows to fit and validate, got {n}")
         order = np.random.default_rng(self.seed).permutation(n)
         n_val = max(1, int(n * self.val_frac))
         val_rows, tr_rows = order[:n_val], order[n_val:]

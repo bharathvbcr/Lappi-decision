@@ -76,6 +76,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 from qd_train.baseline import (  # noqa: E402
     CSR,
+    MIN_FIT_EXAMPLES,
     BaselineFit,
     CharNGramHasher,
     LinearBaseline,
@@ -319,8 +320,10 @@ def fit(
     # LinearBaseline.fit's refusals, verbatim, in its order.
     if len(docs) != len(labels):
         raise ValueError(f"docs and labels differ in length: {len(docs)} vs {len(labels)}")
-    if len(docs) < 4:
-        raise ValueError(f"need at least 4 examples to fit and validate, got {len(docs)}")
+    if len(docs) < MIN_FIT_EXAMPLES:
+        raise ValueError(
+            f"need at least {MIN_FIT_EXAMPLES} examples to fit and validate, got {len(docs)}"
+        )
     classes = tuple(sorted(set(labels)))
     if len(classes) < 2:
         raise ValueError(f"need at least 2 classes, got {classes}")

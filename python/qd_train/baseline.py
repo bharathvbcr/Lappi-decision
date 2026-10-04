@@ -73,6 +73,12 @@ __all__ = [
 LR_CONSTANT_ITERS: Final[int] = 6_000
 LR_HALVING_PERIOD: Final[int] = 500
 
+#: The fewest training examples (rows, for the per-option scorer) a fit accepts: the L2 grid's
+#: validation slice is at least one of them and the fit needs the rest. ``LinearBaseline.fit``
+#: and ``OptionScorer.carve`` refuse fewer; the FT control records such a task ``not_run``
+#: rather than letting the refusal end every other task's control with it.
+MIN_FIT_EXAMPLES: Final[int] = 4
+
 
 def step_size(lr: float, it: int) -> float:
     """Adam's step at 1-based iteration ``it``: ``lr``, then halved every
@@ -697,8 +703,10 @@ class LinearBaseline:
         """
         if len(docs) != len(labels):
             raise ValueError(f"docs and labels differ in length: {len(docs)} vs {len(labels)}")
-        if len(docs) < 4:
-            raise ValueError(f"need at least 4 examples to fit and validate, got {len(docs)}")
+        if len(docs) < MIN_FIT_EXAMPLES:
+            raise ValueError(
+                f"need at least {MIN_FIT_EXAMPLES} examples to fit and validate, got {len(docs)}"
+            )
 
         classes = tuple(sorted(set(labels)))
         if len(classes) < 2:

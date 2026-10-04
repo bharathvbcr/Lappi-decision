@@ -128,6 +128,7 @@ from repo_git import require_full_sha  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.rows import DataRow  # noqa: E402
 from qd_train.baseline import (  # noqa: E402
+    MIN_FIT_EXAMPLES,
     CharNGramHasher,
     ContextLengthFeatures,
     Featurizer,
@@ -467,6 +468,13 @@ def fit_task(
         return TaskControl(task, {}, NotRun(reason=reason), NotRun(reason=reason), 0.0, False)
     train_labels = [control_label(d, space) for d in train]
     val_golds = [control_label(d, space) for d in val]
+    # LinearBaseline.fit's refusals, in its order: too few examples, then too few classes.
+    if len(train) < MIN_FIT_EXAMPLES:
+        reason = (
+            f"task {task}: the training split holds {len(train)} row(s); a control is fitted "
+            f"on at least {MIN_FIT_EXAMPLES} (an L2 validation slice and a fit on the rest)"
+        )
+        return TaskControl(task, {}, NotRun(reason=reason), NotRun(reason=reason), 0.0, False)
     classes = sorted(set(train_labels))
     if len(classes) < 2:
         reason = (
@@ -818,11 +826,11 @@ def fit_option_task(
             f"task {task}: none of its {len(val)} val row(s) shows options that can be read"
             f"{first}"
         )
-    if len(train_rows) < 4:
+    if len(train_rows) < MIN_FIT_EXAMPLES:
         first = f"; first unreadable: {train_bad[0][1]}" if train_bad else ""
         return not_run(
             f"task {task}: {len(train_rows)} readable training row(s) of {len(train)}; the "
-            f"carve needs at least 4{first}"
+            f"carve needs at least {MIN_FIT_EXAMPLES}{first}"
         )
     scorer = OptionScorer(seed=seed, max_iter=max_iter)
     refusal = fit_budget_refusal(scorer.projected_fit_seconds(train_rows), max_fit_minutes)

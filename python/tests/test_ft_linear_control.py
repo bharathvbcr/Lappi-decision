@@ -254,6 +254,36 @@ def test_a_task_whose_control_cannot_fit_makes_the_gate_not_run(qd_prep: Path) -
     assert "fewer than two classes" in result.gate.reason
 
 
+def test_a_task_with_too_few_training_rows_is_not_run_and_the_others_keep_their_margins(
+    qd_prep: Path,
+) -> None:
+    """v5's early control check, attempt 2 (H100 box, 2026-10-04, failed row 2646e366): after 58
+    tasks a synth.general task with 3 training rows reached ``LinearBaseline.fit``'s "need at
+    least 4 examples" refusal, which escaped ``fit_task`` and ended the whole control -- every
+    family's margin with it. Such a task is now ``not_run`` with the reason, in the reference's
+    refusal order (before the class count: these 3 rows hold two classes), for the n-gram and
+    the length control alike; the pooled gate is ``not_run``, as for any task that did not
+    run, and another family's margin is measured."""
+    defect, tiny = "code.defect_class/defect_class", "synth.general/action_next"
+    train = [_with_context(_doc(i, "yes" if i % 2 else "no", task=defect), i) for i in range(60)]
+    train += [_with_context(_doc(500 + i, "yes" if i % 2 else "no", task=tiny), i)
+              for i in range(3)]
+    val = [_with_context(_doc(1000 + i, "yes" if i % 2 else "no", task=defect), i)
+           for i in range(40)]
+    val += [_with_context(_doc(2000 + i, "yes", task=tiny), i) for i in range(2)]
+    verdicts = _verdicts_for(val, [i % 4 != 0 for i in range(42)])
+    result = ftc.score_against_control(train, val, verdicts, seed=0)
+
+    for arm in ("linear_control_convergence", "length_control_convergence"):
+        state = result.metrics[f"{arm}.{tiny}"]
+        assert isinstance(state, NotRun), (arm, state)
+        assert "holds 3 row(s)" in state.reason and "at least 4" in state.reason, state.reason
+    assert isinstance(result.gate, NotRun) and "holds 3 row(s)" in result.gate.reason
+    assert isinstance(result.metrics["paired_margin_vs_linear.choice.code.defect_class"], Ran)
+    not_run = result.metrics["paired_margin_vs_linear.choice.synth.general"]
+    assert isinstance(not_run, NotRun) and "holds 3 row(s)" in not_run.reason
+
+
 def _with_context(d: RequestDoc, i: int) -> RequestDoc:
     """A doc the length control can read: a context whose size varies by row."""
     return dataclasses.replace(d, context="x" * (10 + 3 * (i % 7)))
