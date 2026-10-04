@@ -33,15 +33,29 @@ pub enum TriState {
 
 impl TriState {
     pub fn pass(detail: impl Into<String>) -> Self {
-        TriState::Ran { passed: true, value: None, n: None, n_total: None, detail: detail.into() }
+        TriState::Ran {
+            passed: true,
+            value: None,
+            n: None,
+            n_total: None,
+            detail: detail.into(),
+        }
     }
 
     pub fn fail(detail: impl Into<String>) -> Self {
-        TriState::Ran { passed: false, value: None, n: None, n_total: None, detail: detail.into() }
+        TriState::Ran {
+            passed: false,
+            value: None,
+            n: None,
+            n_total: None,
+            detail: detail.into(),
+        }
     }
 
     pub fn not_run(reason: impl Into<String>) -> Self {
-        TriState::NotRun { reason: reason.into() }
+        TriState::NotRun {
+            reason: reason.into(),
+        }
     }
 
     pub fn with_value(mut self, v: serde_json::Value) -> Self {
@@ -64,10 +78,12 @@ impl TriState {
     }
 }
 
-/// Combine checks. The result is never more confident than its least-informed input.
+/// Combine checks. The result is never more confident than its least-informed input,
+/// and a check that ran and failed is never reported as "not run".
 ///
-/// - any `NotRun` -> `NotRun`, carrying every reason;
-/// - all `Ran`    -> `Ran { passed: all passed }`;
+/// - any failure -> `Ran { passed: false }`, even when a later input did not run;
+/// - otherwise any `NotRun` -> `NotRun`, carrying every reason;
+/// - all `Ran` and passing -> `Ran { passed: true }`;
 /// - **no inputs  -> `NotRun`**, because an aggregate over zero checks has verified
 ///   nothing. Rust's `Iterator::all` returns `true` on an empty iterator, the same
 ///   trap as Python's `all([])`.
@@ -86,6 +102,28 @@ pub fn aggregate(name: &str, parts: &[(&str, TriState)]) -> TriState {
         })
         .collect();
 
+    let failed: Vec<&str> = parts
+        .iter()
+        .filter_map(|(label, t)| match t {
+            TriState::Ran { passed: false, .. } => Some(*label),
+            _ => None,
+        })
+        .collect();
+
+    if !failed.is_empty() {
+        let mut detail = format!("{name}: failing inputs: {}", failed.join(", "));
+        if !not_run.is_empty() {
+            detail.push_str(&format!("; not run: {}", not_run.join("; ")));
+        }
+        return TriState::Ran {
+            passed: false,
+            value: None,
+            n: Some((parts.len() - not_run.len()) as u64),
+            n_total: Some(parts.len() as u64),
+            detail,
+        };
+    }
+
     if !not_run.is_empty() {
         return TriState::not_run(format!(
             "{name}: {} of {} inputs did not run -> {}",
@@ -95,22 +133,12 @@ pub fn aggregate(name: &str, parts: &[(&str, TriState)]) -> TriState {
         ));
     }
 
-    let failed: Vec<&str> = parts
-        .iter()
-        .filter(|(_, t)| !t.is_pass())
-        .map(|(label, _)| *label)
-        .collect();
-
     TriState::Ran {
-        passed: failed.is_empty(),
+        passed: true,
         value: None,
         n: Some(parts.len() as u64),
         n_total: Some(parts.len() as u64),
-        detail: if failed.is_empty() {
-            String::new()
-        } else {
-            format!("{name}: failing inputs: {}", failed.join(", "))
-        },
+        detail: String::new(),
     }
 }
 
@@ -122,7 +150,10 @@ mod tests {
     fn not_run_serializes_without_a_passed_field() {
         let json = serde_json::to_value(TriState::not_run("no CUDA")).unwrap();
         assert_eq!(json["state"], "not_run");
-        assert!(json.get("passed").is_none(), "NotRun must carry no passed field");
+        assert!(
+            json.get("passed").is_none(),
+            "NotRun must carry no passed field"
+        );
     }
 
     #[test]
@@ -163,7 +194,10 @@ mod tests {
 
     #[test]
     fn any_not_run_blocks_the_aggregate() {
-        let parts = [("a", TriState::pass("")), ("b", TriState::not_run("no device"))];
+        let parts = [
+            ("a", TriState::pass("")),
+            ("b", TriState::not_run("no device")),
+        ];
         let agg = aggregate("gate", &parts);
         assert!(!agg.did_run());
         match agg {
@@ -184,5 +218,37 @@ mod tests {
         let agg = aggregate("gate", &parts);
         assert!(agg.did_run());
         assert!(!agg.is_pass());
+    }
+
+    /// A later `NotRun` used to replace an earlier failure, so a check that ran
+    /// and failed was reported as "not run".
+    #[test]
+    fn a_failure_is_not_overridden_by_a_later_not_run() {
+        for parts in [
+            [
+                ("memory", TriState::fail("too small")),
+                ("cuda", TriState::not_run("no driver")),
+            ],
+            [
+                ("cuda", TriState::not_run("no driver")),
+                ("memory", TriState::fail("too small")),
+            ],
+        ] {
+            let agg = aggregate("preflight", &parts);
+            assert!(agg.did_run(), "a failed check became NotRun: {agg:?}");
+            assert!(
+                !agg.is_pass(),
+                "a failed check was reported as a pass: {agg:?}"
+            );
+            match agg {
+                TriState::Ran { detail, .. } => {
+                    assert!(detail.contains("memory"), "{detail}");
+                    assert!(detail.contains("no driver"), "{detail}");
+                }
+                TriState::NotRun { reason } => {
+                    panic!("failure was overridden by not-run: {reason}")
+                }
+            }
+        }
     }
 }
