@@ -6,6 +6,82 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~21:00Z 2026-10-05: "loosen some gates" -> a preview release of v5, gates unchanged; the average built, its scoring queued
+
+**The human, ~20:40Z:** "lappi is my first model, I am okay if it's not great, loosen some gates."
+
+**What was put to them.** The record `docs/promotion-decisions.json` is theirs to edit; agents never
+write it. Every row of the 5-seed family must pass every required gate (`ledger.py`
+`REQUIRED_GATES` :150, `promotion_verdict` :1278), so a kept gate must clear v5's worst seed:
+- ood_abstain: Wilson lower 0.784 on seed 2, against 0.9;
+- needle: 0.705 on seed 2, against 0.95.
+
+Fable ruled:
+- Re-thresholding to clear those is a cut chosen after the results were read, so it was not offered.
+- Retiring a gate with a release-note line, as `transfer_gate` was, is the clean form.
+- Two re-specifications are principled: paired_margin judged on code.defect_class, and
+  shuffled_label on 3 seeds.
+
+`qd-export` does not check promotion, so loosening changes the label, not what can be served.
+
+**The human's answers (AskUserQuestion, ~20:45Z):**
+- **Gates:** "Choose hte best". I chose a **preview release with the gates unchanged**: "Lappi v0.1
+  preview", not promoted, with release notes naming each failing gate and its numbers.
+- **The two principled re-specs** go to the human as a proposal to record before v6, because they
+  will block v6 too. They are not recorded now.
+- **Verdicts:** "Copy them (Recommended)". 18 files, SHA-256 equal, are in
+  `/Users/bharath/qd-campaign/verdicts-2026-10-05/{v5,v6x-noulw}/`. v6x seed 4's follow when it
+  ends.
+- **Preview:** "Yes, average and score (Recommended)": average v5 seeds 0-4 on the box CPU; score it
+  once on the first GPU free after ~02:00Z (1-hour cap).
+
+**Done** [V]:
+- **The average:** `/home/ubuntu/v5-avg/v5-avg-s0-4.safetensors`, sha256 0a19a1f6…, manifest
+  ddd87580…, built 20:47-20:50Z.
+  - `tools/ckpt_average.py --from masters` (the fp32 masters, plain mean, no norm-preserving) of
+    `epoch-seed{0-4}-cuda.json`, ft rows 9a00cfd0, b0d9454e, 8079c966, 1c8a0ab5, f2bd50e7.
+  - Main 4ebb790 in the post-queue clone. Peak RSS 28.06 GiB.
+  - Copied to the Mac, `/Users/bharath/qd-campaign/preview-2026-10-05/v5-avg/`, SHA-256 equal.
+- **Scoring dry run** (`score_avg.sh --dry`: no GPU, scratch ledger, 20:54-20:56Z):
+  - The split cache READ (61bd3425…, not rebuilt). qd-prep-v5's MinHash canaries were equal.
+  - It stopped only at "No CUDA GPUs are available" in the needle worker, "nothing recorded".
+  - The first dry run had found QD_PREP_BIN unset. Fixed: the script exports
+    `/home/ubuntu/bin/qd-prep-v5`, sha-checked against 900534f1….
+- **Scoring waiter queued 20:57:46Z:** `/home/ubuntu/v5-avg-scripts/score_avg.sh` (sha256
+  4ab426bf…), log `q-v5avg-score.log`, markers `v5avg-score.{queued,started,done}`.
+  - It takes the first free of gpu1.lock and gpu0.lock, and refuses a GPU holding more than 4 GiB.
+  - `--score-checkpoint` the average, `--seeds 0 1 2 3 4`, `--score-val --needle --ood`, into a
+    **new** ledger `h100x2-v5avg-2026-10-05.jsonl` (never v5's).
+  - Cap: `--wall-clock-cap-s 3300` under `timeout 3600`. Verdicts go to
+    `/home/ubuntu/v5-avg/{,suite-}verdicts-avg.jsonl`.
+- **qd-export refused v5's train manifest:** "270406786 bytes exceeds 268435456". The fix is on
+  branch **`preview-export-train-manifest-bound`, a766fcf** (worktree `build/preview-wt`), not
+  merged:
+  - `MAX_TRAIN_MANIFEST_BYTES` = 1 GiB for the export-time-only manifest; `read_small` keeps 256 MiB
+    for the files the runtime reads.
+  - Two tests failed before the fix (shown) and pass after it.
+  - All qd-export tests pass (63, 1 ignored as before); clippy `-D warnings` is clean.
+  - The merge is the human's.
+- **The trial export** of the average, without calibration, to
+  `/Users/bharath/qd-campaign/preview-2026-10-05/trial-export-nocal`: exit 0; 320 tower tensors
+  copied; weight_hash 6f7b9ba7…; trained_families recorded. A release without calibration is refused
+  at load, so this is a trial only.
+- **A practice calibration fit** on v5 seed 1's verdicts (`qd-calib-fit --population all`): 15
+  entries from 17,254 letter rows. The 7,238 span rows are not fitted
+  (GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS), so the preview serves choice slots, and span requests
+  refuse.
+
+**Next, after ~02:05Z:**
+1. Read the avg row in `h100x2-v5avg-2026-10-05.jsonl`.
+2. Copy its verdicts to the Mac.
+3. Fit the table both ways (`all`, and `two-fold`). Which ships is the human's call.
+4. Run `qd-export` with `--calibration`.
+5. Write the release notes: not promoted; the failing gates with numbers; the transfer-scope line the
+   record requires; span unserved.
+
+GAP-DEVMAP-DB-MALFORMED-2026-10-05 is recorded: DevMap's database is malformed, and the verdict code
+was read with rg.
+
 ## ~19:55Z 2026-10-05: the human's two answers carried out: J5' for v5 seed 3 on GPU 0; two checkpoints copied to the Mac
 
 The human, AskUserQuestion, ~19:50Z: "Run it (Recommended)" for the GPU 0 question, and "v5 s1 + v6x s3"
