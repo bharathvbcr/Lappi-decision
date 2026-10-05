@@ -6,6 +6,30 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~19:55Z 2026-10-05: the human's two answers carried out: J5' for v5 seed 3 on GPU 0; two checkpoints copied to the Mac
+
+The human, AskUserQuestion, ~19:50Z: "Run it (Recommended)" for the GPU 0 question, and "v5 s1 + v6x s3"
+for the weights.
+- **J5' (shuffled_label) for v5 seed 3**:
+  - Launcher `/home/ubuntu/v5-j5s3/box_q_v5j5s3.sh` (sha256 96f4cf65…, equal to the Mac's
+    `build/v5-h100/box_q_v5j5s3.sh`), log `/home/ubuntu/logs/q-v5j5-s3.log`, launched 19:43:40Z.
+  - It runs v5_common.sh's own `v5_job_j5 3`, unchanged, under gpu0.lock: target eval row e09b652a
+    (ft 1c8a0ab5); 57,146 of 71,435 code.defect_class golds moved, permutation 3e411554f49c4ccf.
+  - Cap 32,400 s ($37.71) under timeout +1,800 s; rows into v5's ledger. The human's words are
+    appended to `--approved-by`.
+  - First training step 19:53:39Z. J5' seeds 0-2 took 6h17-19m, so it should be done ~02:05Z.
+  - Markers `v5j5-s3.started`, then `.done`.
+  - A J5' for v5 seed 4 is not covered by this yes.
+- **Weights to the Mac**, `/Users/bharath/qd-campaign/weights-2026-10-05/` (19:44-19:49Z), each file's
+  SHA-256 equal on box and Mac:
+  - `v5-seed1/`: `epoch-seed1-cuda-step12176.259933b9cac3ad67.safetensors` (84edcc91…) and its `.json`
+    (56ee2391…).
+  - `v6x-noulw-seed3/`: `epoch-seed3-cuda-step12176.ce05f1665debd3a2.safetensors` (ec4da988…) and its
+    `.json` (7d03e5af…).
+  - Each tower holds layers 0-23, embed_tokens and norm, plus the span head (324 tensors). They are
+    training checkpoints: serving still needs a fitted calibration table
+    (GAP-RT-CALIBRATION-NOT-FITTED), and qd-export expects an averaged checkpoint.
+
 ## ~19:45Z 2026-10-05: v6x seeds 2 and 3 done (both above v5 on both targets); seed 4 training; J6(a) done, j6g running
 
 **v6x, per seed against v5's same seed** (informal: `read_v6x.py --per-seed`; the pre-registered
