@@ -26,6 +26,24 @@ All of this is from the GH200's `/home/ubuntu/queue` markers and logs [V].
   ~4.3 h, then scores. Its log is `/home/ubuntu/j6d-v4/train.log`.
 - **Behind J6(d)**, waiting on `gpu.lock` or on their markers: rung0, cudadev, rungd, j6ctl (CPU),
   fsucc, j5pp, j6a and j6g. The GH200's GPU has work for many hours.
+- **Could tierb2's failure recur in the waiters behind J6(d)?** Each was checked for its own
+  checkout and its inputs [V]:
+  - rung0 and cudadev run binaries from `/home/ubuntu/bin`; `ojas-qwen35-cuda-rung0` is present.
+  - rungd checks its overlay's pool against `qd-lane8`'s and refuses on a difference. A read-only
+    replay of that check (`build/post-queue/rungd_pool_dry.sh`) found 9 files, 0 that would
+    refuse. The backbone's config.json is present.
+  - j6a's `J6A_DATA` holds the train header, `data/pool/train-replay.json` and the replay
+    attestation. It has no `data/heldout`, as rule 3 requires.
+  - j6g's prelude record is present.
+  - j6ctl, fsucc and j5pp name no tree of their own.
+- **The tierb2 fix, for the human:** `qd-lane8/data/pool/` holds `commitpackft-pool-v2.jsonl`.
+  Copying it and its manifest into `perf/p3fused/data/pool/`, then re-queuing tierb2 at the
+  chain's tail, would let it run. Fable: don't re-queue now (it is filler); ask the human.
+- **The H100's noul-weight arm will not run** [V, `v5_common.sh`]. `v5nw.launch` reads `skip`,
+  written once with `v5nw.room` = `no_room`. `v5_job_input` (`v5nw-s[0-2]) v5_word_input
+  "$V5NW_LAUNCH" run`) makes the arm's jobs impossible. When J5′ s1 ends, lane 1's
+  `v5_next_job` therefore says `none`, the lane exits, and its EXIT trap writes `v5lane1.done`.
+  The ~06:00Z launch stands.
 
 ## ~23:00Z 2026-10-04: the post-queue session is armed to launch when both v5 lanes end
 
