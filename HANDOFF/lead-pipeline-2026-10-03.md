@@ -59,13 +59,25 @@ box as `/home/ubuntu/post-f/box_q_tierb3.sh`, sha256 `bb749194…` at both ends)
   of `*.queued` (only j6dv4's log loop reads one).
 - Cost: GPU stages ≤ 7,800 s at the script's $2.29/h, so ≤ $4.96. The 6 h cap is $13.74.
 
-**Left, and why:**
-- The repo's `tools/perf_tierb_outcome.sh --build` still clones without the ignored links.
-  Rebuilding p3fused would re-commit the patches and move it off the f6a0928 pin, so the box
-  clone was fixed in place instead.
-- `/home/ubuntu/perf/p3nomask` has the same gap. Its run is cancelled by its P2 gate (exit 5),
-  and the human asked about tierb only.
-- The `--build` fix (mirror the source's ignored links after the clone) waits on the human.
+**The build script, fixed in the repo** (the human: "yes, fix the build script too") [V]:
+- `tools/perf_tierb_outcome.sh` gained `link_ignored`. `--build` now calls it after the patches,
+  and a new `--link` action applies it to an existing clone without rebuilding it.
+- The rules are the box fix's: only ignored symlinks, absolute, resolving and not heldout. Every
+  entry is checked before any link is made, and a source with none refuses.
+- `TIERB_PERF` and `TIERB_SRC` re-root it for tests.
+- `python/tests/test_perf_tierb_build.py` has 9 tests.
+  - Against the script with the overrides only, all 9 failed. Both build tests failed on the
+    real bug, `pool-v2.jsonl` not being a symlink after `--build`.
+  - Against the fixed script, all 9 passed (run alone in main's checkout; no cargo).
+- `--print` is byte-identical before and after for both candidates.
+- shellcheck at warning level gives 13 findings before and 13 after, all SC2206 on unchanged
+  array lines.
+- **The box copy is unchanged**: `/home/ubuntu/perf/perf_tierb_outcome.sh`, sha256 `93e15505…`,
+  the repo's before this change. tierb3 will run it. Its `--run` path is the same as the
+  repo's, and p3fused already has its links.
+- `/home/ubuntu/perf/p3nomask` still lacks the links. `perf_tierb_outcome.sh nomask --link`
+  from this commit adds them; it is not run, because the nomask run is cancelled by its P2 gate
+  (exit 5).
 
 ## ~00:50Z 2026-10-05: the GH200 is back on Lappi's post-F chain; tierb2 did not run; J6(d) on v4 is training
 

@@ -19,11 +19,16 @@
 # (nomask.patch checked on a local 884b658 + trainstep + mirror reconstruction: it applies, and
 # the 6 backbone and 17 argv/recipe no-mask tests pass there.) No
 # Tier-B result enters a phase-5/6 run of this campaign (Fable); these are for F's successors.
-# Usage: perf_tierb_outcome.sh fused|nomask --build | --run | --print
+# Usage: perf_tierb_outcome.sh fused|nomask --build | --link | --run | --print
 #   --build CPU only; --run takes the GPU lock per stage; --print shows what --run would run.
+#   --link gives an existing clone the checkout's git-ignored data links (see link_ignored)
+#   without rebuilding it, since a rebuild re-commits the patches and moves the clone's commit.
 # Writes only under /home/ubuntu/perf.
 set -o pipefail
-PERF=/home/ubuntu/perf
+# TIERB_PERF and TIERB_SRC re-root the perf directory and the phase-3 checkout, for
+# python/tests/test_perf_tierb_build.py only.
+PERF=${TIERB_PERF:-/home/ubuntu/perf}
+SRC=${TIERB_SRC:-/home/ubuntu/qd-lane2}
 PY=/home/ubuntu/qd-venv/bin/python
 BACKBONE=/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c
 REV=be3073300cf4efb664f7065a32a44e4b9c12bd37
@@ -44,7 +49,7 @@ case "$CAND" in
     FLAG=(--train-attention-mask none)
     PATCHES=(trainstep.patch mirror.patch nomask.patch)
     LEDGER=$PERF/ledger-tierb-nomask.jsonl ;;
-  *) echo "usage: $0 fused|nomask --build | --run | --print"; exit 2 ;;
+  *) echo "usage: $0 fused|nomask --build | --link | --run | --print"; exit 2 ;;
 esac
 OUT=$PERF/tierb-$CAND
 CKPT=$PERF/ckpt-tierb-$CAND
@@ -59,6 +64,53 @@ RESCORE=(tools/real_ft_run.py "${SPLIT[@]}" --real-backbone $BACKBONE --devices 
          --usd-per-hour 2.29 --instance lambda-1xgh200 --wall-clock-cap-s 5400 --ledger $LEDGER
          --verdicts-out $OUT/verdicts-s0-allgates.jsonl)
 
+# A clone carries no git-ignored file, and the checkout's data is git-ignored symlinks
+# (data/pool/commitpackft-pool-v2.jsonl and eight more on the box). Without them, the fused run
+# died on its first read of the pool at 2026-10-05 00:41:19Z. This mirrors each ignored symlink
+# of $SRC into $CODE, to the same absolute target. Caches (__pycache__, .pytest_cache, target,
+# *.pyc) are skipped. Every entry is checked before any link is made, and the whole call refuses
+# (3) on any of these:
+#   - an ignored regular file or directory (only links are mirrored);
+#   - a relative or dangling link;
+#   - a path or target under a heldout directory (rule 3);
+#   - a destination that exists as anything but the identical link;
+#   - a source with no ignored link at all.
+link_ignored() {
+  local rel s t d n=0 todo="" listing entries
+  listing=$(cd "$SRC" && git status --ignored --porcelain=v1) \
+    || { echo "refusing: cannot list $SRC's ignored files"; return 3; }
+  # grep -v selects nothing when only caches are ignored; the count below refuses that case.
+  entries=$(printf '%s\n' "$listing" | sed -n 's/^!! //p' \
+    | grep -v -E '(^|/)(__pycache__|\.pytest_cache|target)(/|$)|\.pyc$') || true
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    case "$rel" in */) echo "refusing: $SRC/$rel is an ignored directory; only symlinks are mirrored"; return 3 ;; esac
+    s=$SRC/$rel
+    d=$CODE/$rel
+    [ -L "$s" ] || { echo "refusing: $s is ignored but not a symlink; only symlinks are mirrored"; return 3; }
+    t=$(readlink "$s")
+    case "$t" in /*) ;; *) echo "refusing: $s -> $t is not an absolute link"; return 3 ;; esac
+    case "/$rel/" in */heldout/*) echo "refusing: $rel is under a heldout directory (rule 3)"; return 3 ;; esac
+    case "$t/" in */heldout/*) echo "refusing: $s -> $t is under a heldout directory (rule 3)"; return 3 ;; esac
+    [ -e "$s" ] || { echo "refusing: $s -> $t dangles"; return 3; }
+    if [ -L "$d" ]; then
+      [ "$(readlink "$d")" = "$t" ] || { echo "refusing: $d is a link to $(readlink "$d"), not $t"; return 3; }
+    elif [ -e "$d" ]; then
+      echo "refusing: $d exists and is not a link"; return 3
+    else
+      [ -d "$(dirname "$d")" ] || { echo "refusing: $(dirname "$d") is not a directory in $CODE"; return 3; }
+      todo="$todo$rel"$'\n'
+    fi
+    n=$((n + 1))
+  done <<< "$entries"
+  [ "$n" -gt 0 ] || { echo "refusing: $SRC has no ignored data symlinks; the run would find no pool"; return 3; }
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    ln -s "$(readlink "$SRC/$rel")" "$CODE/$rel" || { echo "refusing: ln -s for $rel failed"; return 3; }
+  done <<< "$todo"
+  echo "$CODE has $SRC's $n ignored symlinks"
+}
+
 case "$ACTION" in
   --print)
     echo "candidate $CAND: code $CODE, patches ${PATCHES[*]}, ledger $LEDGER"
@@ -69,17 +121,26 @@ case "$ACTION" in
   --build)
     set -e
     rm -rf $CODE
-    git clone --quiet --local /home/ubuntu/qd-lane2 $CODE
+    git clone --quiet --local "$SRC" $CODE
     cd $CODE
     for P in "${PATCHES[@]}"; do
       git apply $PERF/$P
       git -c user.name="train-step perf lane" -c user.email=noreply@anthropic.com commit \
         --quiet -am "Tier-B $CAND build: $P on 884b658"
     done
+    link_ignored
     echo "$CODE at $(git rev-parse HEAD) on $(git rev-parse HEAD~${#PATCHES[@]}) dirty=[$(git status --porcelain)]"
     exit 0 ;;
+  --link)
+    top=$(cd "$CODE" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)
+    if [ -z "$top" ] || [ "$top" != "$(cd "$CODE" && pwd -P)" ]; then
+      echo "refusing: $CODE is not a git checkout; --build makes it"; exit 3
+    fi
+    link_ignored || exit 3
+    echo "$CODE at $(cd "$CODE" && git rev-parse HEAD) dirty=[$(cd "$CODE" && git status --porcelain)]"
+    exit 0 ;;
   --run) ;;
-  *) echo "usage: $0 fused|nomask --build | --run | --print"; exit 2 ;;
+  *) echo "usage: $0 fused|nomask --build | --link | --run | --print"; exit 2 ;;
 esac
 
 if [ "$CAND" = "nomask" ]; then
