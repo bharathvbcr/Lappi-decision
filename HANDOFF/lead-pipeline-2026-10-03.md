@@ -6,6 +6,73 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~05:55Z 2026-10-05: the post-queue session launched; J5′ s2 passed; v6x fills the idle H100s
+
+**The post-queue session launched at 05:45:30Z** [V, `q-post-queue-launcher.log`,
+`q-post-queue.log`, `build/post-queue/verify_pq_running.sh`]:
+- Lane 0 ended at 05:45:03Z after J5′ s2. The launcher saw both `.done` markers and ran `run` on
+  its first try.
+- The clone is at 4ebb790, and no tracked file changed.
+- `post-queue.started` was written at 05:45:30Z.
+- Phase A runs the OFF arm and v5-s0-letter, at nice 10 on the even CPUs.
+- Parity A runs on GPU 0, starting with its split rebuild (a cache miss).
+
+**J5′ s2** (control row 8a47dd8a, ft row 97560de9; v5 seed 2's eval row 2af3c80d) [V,
+`read_shuffled.py`]:
+- shuffled-label accuracy 0.2209 vs chance (majority) 0.2769, ceiling 0.3049 at z = 3,
+  n = 2,304. **Passed.**
+- All three J5′ seeds pass: s0 0.2370 (ba375781), s1 0.2296 (daf4ec89), s2 0.2209 (8a47dd8a).
+
+**v6x: the idle H100s run an exploratory noul-weight run.**
+- The human, ~05:40Z: "I am sleeping, so manage the GPUs by not making them sit idle."
+- The post-queue session is CPU-bound. It leaves GPU 1 idle throughout, and GPU 0 idle once its
+  two parity runs end.
+- Fable, under the delegation (~05:55Z):
+  - run the v5 noul-weight lever as a **new, separately pre-registered, report-only** run;
+  - **not** v5's `arm_noul_weight`. Its `v5nw.launch = skip` (written once, 2026-10-04 15:45Z)
+    stands: `v5_decide_room` says a yes written later does not start a skipped arm, and
+    `V5NW_HUMAN_YES` was not written.
+- **Pre-registration:** `campaign/v6x-noulw-explore-preregistered.json`, committed at 8096743
+  before any row existed.
+  - What runs: v5's recipe as its lanes ran it at 142a67c, plus `--noul-weight 4`, seeds 0-4.
+  - Its own ledger, `/home/ubuntu/ledger/h100x2-v6x-noulw-2026-10-05.jsonl`, and its own dirs,
+    `/home/ubuntu/v6x-noulw` and `/home/ubuntu/ckpt/v6x-noulw`.
+  - Targets: `gates.ood_abstain` and `ood_abstain.unseen-language` (v5 seed 0's shortfall: 41/60,
+    against prose 60/60 and scrambled 57/60). Guards: v5's envelope plus the F3 cost check.
+  - Words: signal / no_signal / refused. Nothing promotes.
+- Seeds 0-4 rather than Fable's 0-2: the pre-registration pairs each run seed with v5's same seed,
+  and five seeds keep both GPUs busy. That is the lead's call under the human's "not idle";
+  Fable was told afterwards.
+- **The launcher:** `build/post-queue/box_q_v6x.sh` (git-ignored; sha256 `26b745ff…` at both
+  ends; on the box at `/home/ubuntu/v6x-launch/`).
+  - Tests: `test/box_q_v6x_test.sh`, 33 passed, 0 failed.
+  - It waits for `post-queue.started`.
+  - GPU 0 also waits for "parity B done" or "parity B NOT RUN", or for the session to stop
+    running. Parity takes gpu0.lock with `flock -w 900`.
+  - Each seed holds `gpu<N>.lock`, sees only its GPU, runs on the odd CPUs, and is capped at
+    32,400 s under `timeout 34200`.
+  - No seed starts after 20:00Z, and each wait is bounded at 6 h.
+  - The needle control and trajectory waiter are not run, but towers are retained every 1,000
+    steps, so either can run later.
+- **Box preflight** (`build/post-queue/box_v6x_preflight.sh`), all passed:
+  - `flock -E`, `taskset`, `timeout` and `pgrep` are present, and the session pattern matches.
+  - Every flag is in 142a67c's `--help`, and every data input exists.
+  - The checkout is clean at 142a67c.
+- **Launched** [V, `build/post-queue/verify_v6x.sh`]:
+  - GPU 1 lane (seeds 0, 2, 4): seed 0 started at 05:51:45Z on the odd CPUs.
+  - GPU 0 lane (seeds 1, 3): waiting for parity B.
+  - Logs: `/home/ubuntu/logs/q-v6x-gpu{0,1}.log`. Monitor: `build/post-queue/mon_v6x.sh`.
+- **Cost:**
+  - Per seed: ≤ $37.71 at the cap, ~$26 expected (v5 seed 0 trained in 22,491 s).
+  - The box runs until the session ends (~21:30Z) regardless. The marginal cost is GPU 1's seed 4
+    past that, to ~01:15Z on 10-06: ~3.75 h, ~$31.
+  - The box's projection goes from ~$415 to ~$450, inside the session's ~$500 ceiling.
+- **Cancel:**
+  - `touch /home/ubuntu/v6x-noulw/CANCEL`, which takes effect at the next seed or wait;
+  - or kill a lane's process group (the lane scripts match `pgrep -f v6x-launch/box_q_v6x.sh`).
+- **Open:** the reader `build/v6x/read_v6x.py` must be written and tested on v5's rows before any
+  v6x row is read.
+
 ## ~05:05Z 2026-10-05: the GH200 goes back to MLresearch after J6(d); J5′ s1 passed
 
 **J5′ s1** (row daf4ec89, ft row 9da4c6b1) [V, `build/v5-h100/read_shuffled.py`]:
