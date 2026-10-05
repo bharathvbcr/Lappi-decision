@@ -6,6 +6,25 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~07:12Z 2026-10-05: j6ctl finished on the GH200 (CPU) during MLresearch's tenure
+
+j6ctl ran 06:28:42-07:06:41Z, CPU only and niced, while MLresearch holds the GPU (`mlr.holding`
+06:28:33Z) [V, `/home/ubuntu/logs/q-j6ctl.log`, queue markers]. Its rows are in
+`/home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl`:
+
+| Control | Eval row read | Row written | Exit |
+|---|---|---|---|
+| J6(d)-v4 letter | a97fb944 | 0679d141 | 3, with a row: the log's "F seed 0's c89b89a1 case" |
+| J6(d)-v4 option | a97fb944 | 60e64db4 | 0 |
+| J6(f)-v4 letter | cd2e4f82 | 79a2a924 | 3, with a row (the same case) |
+| J6(f)-v4 option | cd2e4f82 | 59e3da01 | 0 |
+
+- `j6ctl.done` was written at 07:06:41Z. fsucc waits on it, and also on the GH200 GPU, which
+  MLresearch holds.
+- J6(d) on v4 had finished at 06:28:33Z ("item 10 all done"), and its needle control row is
+  201f4f7b.
+- These rows are recorded, not read. The successor rule (fsucc) reads them.
+
 ## ~05:55Z 2026-10-05: the post-queue session launched; J5′ s2 passed; v6x fills the idle H100s
 
 **The post-queue session launched at 05:45:30Z** [V, `q-post-queue-launcher.log`,
