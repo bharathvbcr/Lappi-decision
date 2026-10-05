@@ -6,6 +6,54 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~17:35Z 2026-10-05: the post-queue session completed (every check equal); v5's promotion verdict computed: not promoted
+
+**The post-queue session ended at 17:15:40Z, launcher exit 0** [V, `q-post-queue.log`]:
+- **The control-side split cache:** seed 2's letter control, OFF (scratch caf8f1df) against HIT
+  (3c42b7ee), is "EQUAL but for the named differences, and the HIT arm hit".
+- **real_ft_run's split cache:**
+  - Parity A (MISS, main 4ebb790) is EQUAL to v5's per-snapshot rows at 142a67c: step 12176 is
+    6a03a51f vs 85214c33, step 1000 cd16542b vs db7ab8ec.
+  - Parity B (HIT) is EQUAL to A: 85214c33 vs cd4fc485, db7ab8ec vs 610ceb31.
+  - So OFF = MISS = HIT. v6 runs on main may use `--split-cache` and drop the 13-16 min CPU
+    startup per seed.
+- **The control rows, one per seed and kind:**
+
+  | Seed | Letter | Option |
+  |---|---|---|
+  | s0 | 0b0ac9a8 | b97e8dbf |
+  | s1 | ac472ec3 | 31e24d4f |
+  | s2 | 3c42b7ee | b8fddc39 |
+  | s3 | 7e7372a0 | 3334df56 |
+  | s4 | 6d9aae14 | 40f63940 |
+
+  The v5nw controls are "unreadable" (no verdicts; the arm never ran).
+- The H100 box now runs only v6x.
+
+**v5's promotion verdict** [V, `build/v5-h100/v5_verdict.py` and `v5_verdict_readings.py`]:
+- How it was computed: read-only, running the clone's own `Ledger.promotion_verdict` (main 4ebb790)
+  over `h100x2-v5-2026-10-03.jsonl` and the decisions record (e49fd446c660). No row was written.
+- The eval-row seed family, 408d7387…, is **not promoted**. Every unit refuses on:
+  - `paired_margin_vs_linear` did not run;
+  - `ood_abstain` FAIL under the record: 152, 156, 158, 162 and 155 of 180.
+- Some units refuse on more:
+  - `needle_hunk_recall` FAIL on s0 and s2;
+  - `shuffled_label` did not run on s3 and s4 (J5′ is s0-s2).
+- **Passing under the record** (the verdict's readings, as built → under the record):
+  - `permutation_consistency`: FAIL pooled → PASS on code.defect_class (0.99+).
+  - `ece`: not_run as built ("7 of 20 inputs did not run", small shapes) → PASS per shape over the
+    population [1/1].
+  - `degenerate_head`: FAIL → PASS (class share only).
+  - `privileged_hunk` and `transfer_gate` are retired.
+- **Correction:** the lead had told the human that ECE was a blocker; it is not.
+- **Serving** still needs a fitted calibration table: GAP-RT-CALIBRATION-NOT-FITTED, open. The
+  brief `HANDOFF/article-brief-2026-10-05.md` is corrected to match.
+- **A lead for v6, inferred and unmeasured.** ood_abstain's detail says "the calibrated-margin
+  half is not applied (no fitted calibration table): it can only add abstentions, so this OOD rate
+  is a lower bound". A fitted `noul_margin` might lift the suite half without retraining. Whether
+  it can, and what it costs the defect family, is unmeasured. Applying it is a design decision for
+  Fable and the human, not a re-read.
+
 ## ~13:35Z 2026-10-05: the GH200 chain: rungd done, fsucc refused (room only), J6(a) running; a third MLresearch hold queued at the tail
 
 **rungd** [V, `q-rungd.log`]: T-bf16 exit 0 (ft row db4c44e4, 12:24:57Z); T-fp32 exit 0 (ft row

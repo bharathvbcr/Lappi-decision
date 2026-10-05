@@ -61,15 +61,22 @@ v6x experiment's verdict lands ~19:30Z or ~02:00Z on 10-06, and its section ther
 
 ## What is NOT true yet: do not claim it
 
-- **It is not released or promoted.** Promotion needs every gate to have run and passed on three
-  seeds, and the decision is the human's alone. The blockers:
-  - **"I don't know" on unfamiliar input** (unseen programming languages above all): 152-162 of
-    180 against a bar of ~170. Even the best seed answers instead of abstaining about 1 time in 10.
-  - **Calibration (ECE) has not run.** No calibration table is fitted, and the serving loader
-    refuses a model without one.
-  - **The pooled baseline comparison cannot be computed** (synthetic tasks with no training
-    rows). A gate that did not run blocks; it does not pass.
-  - **The long-context test fails on 2 of 5 seeds.**
+- **It is not released or promoted.** The repo's own verdict (`Ledger.promotion_verdict`, run
+  ~17:30Z over the H100 ledger and `docs/promotion-decisions.json`) is **not promoted**.
+  Promotion needs every gate to have run and passed on three seeds, and the decision is the
+  human's alone. The blockers it names:
+  - **"I don't know" on unfamiliar input** (unseen programming languages above all): FAIL on all
+    5 seeds, 152-162 of 180 against a bar of ~170. Even the best seed answers instead of
+    abstaining about 1 time in 10.
+  - **The pooled baseline comparison did not run** on all 5 seeds (synthetic tasks with no
+    training rows). A gate that did not run blocks; it does not pass.
+  - **The long-context test fails** on seeds 0 and 2.
+  - **The shuffled-label control was run on seeds 0-2 only**, so seeds 3 and 4 lack it.
+- **What passes under the human's recorded rules:** option-order consistency (99.2-99.5% on code
+  defects), calibration error (ECE, per slot shape) and the degenerate-head check. Two gates are
+  retired for v5: privileged hunk and transfer.
+- **Serving still needs a fitted calibration table.** The loader refuses a model without one, and
+  none has been fitted for v5. That is a separate thing from the ECE gate.
 - **No comparison with any other model** (GPT, Claude, Llama or the like) was run. Do not imply one.
 - **v6x is an exploratory, report-only experiment** (`campaign/v6x-noulw-explore-preregistered.json`):
   it weights "I don't know" examples 4× in training. Nothing promotes on it.
