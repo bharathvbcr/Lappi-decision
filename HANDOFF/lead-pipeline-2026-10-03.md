@@ -43,9 +43,9 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 - Seeds 0-4 rather than Fable's 0-2: the pre-registration pairs each run seed with v5's same seed,
   and five seeds keep both GPUs busy. That is the lead's call under the human's "not idle";
   Fable was told afterwards.
-- **The launcher:** `build/post-queue/box_q_v6x.sh` (git-ignored; sha256 `26b745ff…` at both
-  ends; on the box at `/home/ubuntu/v6x-launch/`).
-  - Tests: `test/box_q_v6x_test.sh`, 33 passed, 0 failed.
+- **The launcher:** `build/post-queue/box_q_v6x.sh` (git-ignored; on the box at
+  `/home/ubuntu/v6x-launch/`).
+  - The first version (`26b745ff…`, 33 tests) failed at startup; the fix is below.
   - It waits for `post-queue.started`.
   - GPU 0 also waits for "parity B done" or "parity B NOT RUN", or for the session to stop
     running. Parity takes gpu0.lock with `flock -w 900`.
@@ -58,10 +58,34 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
   - `flock -E`, `taskset`, `timeout` and `pgrep` are present, and the session pattern matches.
   - Every flag is in 142a67c's `--help`, and every data input exists.
   - The checkout is clean at 142a67c.
-- **Launched** [V, `build/post-queue/verify_v6x.sh`]:
-  - GPU 1 lane (seeds 0, 2, 4): seed 0 started at 05:51:45Z on the odd CPUs.
-  - GPU 0 lane (seeds 1, 3): waiting for parity B.
+- **The first launch failed at startup, and the lead caused it** [V]:
+  - Seed 0 started at 05:51:45Z. It exited 1 after 145 s with "QD_PREP_BIN is unset": the
+    launcher copied v5's argv but not its environment.
+  - The lane went on to seed 2, which failed the same way after 186 s.
+  - `CANCEL` (05:54:35Z) stopped both lanes. Lane 0 never started a seed.
+  - **No ledger row, checkpoint or ledger file was written.** The files are archived in
+    `/home/ubuntu/v6x-noulw-failed-startup-2026-10-05/`, as v5's `failed-startup-2026-10-04`
+    was.
+- **The fix**, in the launcher (sha256 `7bdadf00…` at both ends):
+  - It sets v5's lane environment: `QD_PREP_BIN=/home/ubuntu/bin/qd-prep-v5`, whose sha256
+    `900534f1…` it checks before each seed, and `HF_HUB_OFFLINE=1`
+    (`v5_common.sh` `v5_verify`, `post_f_common.sh:53`).
+  - A lane now stops (exit 4) on any non-zero seed instead of starting the next one.
+  - Tests: 36 passed. The pre-fix launcher (the box's copy, `26b745ff…`) fails 5 of them: the
+    environment, qd-prep missing, qd-prep's sha256, a failed seed stopping the lane, and the lock.
+  - The test's fake session no longer leaves a `sleep 600` holding the output pipe.
+- **Relaunched** [V]:
+  - GPU 1 lane (seeds 0, 2, 4) at 06:07:34Z. Seed 0 reached step 1 at ~06:23Z, with loss
+    772.9400, v5 seed 0's own step-1 loss. Its startup took ~16 min under the controls' CPU load
+    (load ~46).
+  - GPU 0 lane (seeds 1, 3) was started at 06:24:14Z, once seed 0 was training. Parity B had
+    ended (05:55:24Z, exit 0).
   - Logs: `/home/ubuntu/logs/q-v6x-gpu{0,1}.log`. Monitor: `build/post-queue/mon_v6x.sh`.
+- **The reader:** `build/v6x/read_v6x.py`, with `test_read_v6x.py`.
+  - 22 tests pass on v5's real rows (`build/v6x/fixtures/v5rows.jsonl`, dumped by
+    `dump_rows.py`).
+  - The tests caught one bug before any v6x row existed: a not-run target crashed `show()`
+    instead of refusing.
 - **Cost:**
   - Per seed: ≤ $37.71 at the cap, ~$26 expected (v5 seed 0 trained in 22,491 s).
   - The box runs until the session ends (~21:30Z) regardless. The marginal cost is GPU 1's seed 4
@@ -70,8 +94,8 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 - **Cancel:**
   - `touch /home/ubuntu/v6x-noulw/CANCEL`, which takes effect at the next seed or wait;
   - or kill a lane's process group (the lane scripts match `pgrep -f v6x-launch/box_q_v6x.sh`).
-- **Open:** the reader `build/v6x/read_v6x.py` must be written and tested on v5's rows before any
-  v6x row is read.
+- **First command for reading v6x** once seeds are done:
+  `ssh <box> 'python3 - /home/ubuntu/ledger/h100x2-v5-2026-10-03.jsonl /home/ubuntu/ledger/h100x2-v6x-noulw-2026-10-05.jsonl' < build/v6x/read_v6x.py`.
 
 ## ~05:05Z 2026-10-05: the GH200 goes back to MLresearch after J6(d); J5′ s1 passed
 
