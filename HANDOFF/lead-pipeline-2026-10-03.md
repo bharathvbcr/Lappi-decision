@@ -83,8 +83,29 @@ commit, quick, snapshot, shard, plan digest, recipe diff = the lever only, eval 
 - Both should end ~19:25-19:45Z, so seed 4 should start before the 20:00Z cutoff [inferred].
 - Each seed's startup leaves its GPU idle ~13-16 min (CPU split and plan build at 142a67c).
 
+**Correction (~15:15Z): the paragraph below reads the pooled, as-built gates.**
+`docs/promotion-decisions.json` `promotion_population` (decided 2026-10-03) judges
+permutation_consistency and ood_abstain's in-distribution bound on code.defect_class only.
+GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03 is resolved: the verdict re-derives
+them. On that population every row passes both [V, the rows' family metrics]:
+
+| | permutation_consistency, code.defect_class | in-distribution abstain, code.defect_class |
+|---|---|---|
+| v5 s0-s4 | 2286-2293 / 2304 (99.2-99.5%) | 11-18 / 2304 (0.5-0.8%) |
+| v6x s0 | 2294 / 2304 | 11 / 2304 |
+| v6x s1 | 2291 / 2304 | 14 / 2304 |
+
+So the pooled link below is report-only for promotion. v5's promotion blockers are:
+- the OOD suite half: Wilson lower ≥ 0.9, i.e. ≥ 170/180. v5 reaches 152-162/180, v6x s1 168/180.
+- `ece` not_run: no fitted calibration table. A release without `calibration.json` is also
+  refused at load (`crates/qd-export/src/lib.rs` header).
+- the pooled `paired_margin_vs_linear` not_run (synth.general).
+- needle on s0 and s2.
+
+The lead told the human the pooled reading at ~07:00Z and ~13:05Z, and corrected it at ~15:15Z.
+
 **For the v6 design: the two failing gates look connected** [inferred from c26eb4aa's gate
-details, not measured].
+details, not measured; pooled reading, report-only for promotion].
 - `gates.ood_abstain` has two halves:
   - OOD abstain, Wilson lower bound ≥ 0.9. Seed 1: 0.887.
   - In-distribution abstain, Wilson upper bound ≤ 0.05. Seed 1: 6.4%, upper 0.067.
