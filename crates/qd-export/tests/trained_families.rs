@@ -136,6 +136,61 @@ fn the_release_records_the_families_its_train_manifest_holds() {
     Release::open(&fx.out).expect("the runtime's reader opens the release");
 }
 
+/// Write `doc` as JSON followed by JSON whitespace until the file is `len` bytes long: a train
+/// manifest of that size which parses to `doc`.
+fn write_padded_json(path: &Path, doc: &Value, len: u64) -> PathBuf {
+    use std::io::Write;
+    let body = serde_json::to_vec(doc).unwrap();
+    let mut left = len.checked_sub(body.len() as u64).expect("len holds the document");
+    let mut file = std::fs::File::create(path).unwrap();
+    file.write_all(&body).unwrap();
+    let chunk = vec![b' '; 1 << 20];
+    while left > 0 {
+        let n = left.min(chunk.len() as u64);
+        file.write_all(&chunk[..n as usize]).unwrap();
+        left -= n;
+    }
+    file.sync_all().unwrap();
+    assert_eq!(std::fs::metadata(path).unwrap().len(), len);
+    path.to_path_buf()
+}
+
+/// v5's train manifest (`phase4-v5r-2026-10-03/data/pool/train.json`, 270,406,786 bytes) is
+/// larger than the 256 MiB bound on the files the runtime reads. The train manifest is an
+/// export-time input only, so it has a bound of its own and a manifest past the small-file
+/// bound is read.
+#[test]
+fn a_train_manifest_past_the_small_file_bound_is_read() {
+    let fx = served_format_fixture();
+    let doc = manifest_json("train", &[("train", "code.defect_class")]);
+    let len = qd_runtime::release::MAX_SMALL_FILE_BYTES + 1;
+    let path = write_padded_json(&fx.dir.0.join("train.json"), &doc, len);
+    let done = run(&fx, Some(&path));
+    let stderr = String::from_utf8_lossy(&done.stderr);
+    assert_eq!(done.status.code(), Some(0), "{stderr}");
+    assert_eq!(release_manifest(&fx.out)["trained_families"], json!(["code.defect_class"]));
+    std::fs::remove_file(&path).unwrap();
+}
+
+/// The train manifest's own bound still holds: a file past it is refused from its length alone,
+/// before a byte is read (the file is sparse), and the refusal names that bound.
+#[test]
+fn a_train_manifest_past_its_own_bound_is_refused() {
+    let fx = common::standard();
+    let path = fx.dir.0.join("huge.json");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(qd_export::export::MAX_TRAIN_MANIFEST_BYTES + 1).unwrap();
+    drop(file);
+    let done = run(&fx, Some(&path));
+    let stderr = String::from_utf8_lossy(&done.stderr);
+    assert_eq!(done.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("qd-export: refused: TrainManifest"), "{stderr}");
+    let bound = qd_export::export::MAX_TRAIN_MANIFEST_BYTES.to_string();
+    assert!(stderr.contains(&bound), "{bound} not in {stderr}");
+    assert!(!fx.out.exists(), "a refused export left {} behind", fx.out.display());
+    std::fs::remove_file(&path).unwrap();
+}
+
 #[test]
 fn an_export_that_cannot_say_what_was_trained_is_refused() {
     let fx = common::standard();

@@ -103,14 +103,26 @@ pub(crate) fn refuse(kind: RefusalKind, msg: impl Into<String>) -> Refusal {
     Refusal::new(kind, msg)
 }
 
-/// Read a small file whole, bounded.
+/// The bound on `--train-manifest`, which is read whole and parsed once at export time and never
+/// by the runtime, so [`MAX_SMALL_FILE_BYTES`] (the bound on the files the runtime reads) is not
+/// its bound. The v4 train manifest is 152,784,427 bytes; v5's
+/// (`phase4-v5r-2026-10-03/data/pool/train.json`, the box's `v5-data-2026-10-03`) is 270,406,786,
+/// past 256 MiB. 1 GiB keeps the read bounded with room for a corpus about four times v5's.
+pub const MAX_TRAIN_MANIFEST_BYTES: u64 = 1 << 30;
+
+/// Read a small file whole, within [`MAX_SMALL_FILE_BYTES`].
 pub(crate) fn read_small(path: &Path, kind: RefusalKind) -> Result<Vec<u8>> {
+    read_bounded(path, kind, MAX_SMALL_FILE_BYTES)
+}
+
+/// Read a file whole, refused from its length alone, before a byte is read, when past `limit`.
+fn read_bounded(path: &Path, kind: RefusalKind, limit: u64) -> Result<Vec<u8>> {
     let meta = std::fs::metadata(path).map_err(|e| refuse(kind, format!("{}: {e}", path.display())))?;
     if !meta.is_file() {
         return Err(refuse(kind, format!("{} is not a file", path.display())));
     }
-    if meta.len() > MAX_SMALL_FILE_BYTES {
-        return Err(refuse(kind, format!("{}: {} bytes exceeds {MAX_SMALL_FILE_BYTES}", path.display(), meta.len())));
+    if meta.len() > limit {
+        return Err(refuse(kind, format!("{}: {} bytes exceeds {limit}", path.display(), meta.len())));
     }
     std::fs::read(path).map_err(|e| refuse(kind, format!("{}: {e}", path.display())))
 }
@@ -258,13 +270,12 @@ impl TrainManifest {
 /// rule 3: a train manifest naming one is not a manifest anything was trained from). The family
 /// set must also be one the runtime's reader accepts ([`validate_trained_families`]).
 ///
-/// The file is read whole within [`MAX_SMALL_FILE_BYTES`] and parsed as one JSON document. The
-/// v4 train manifest is 152,784,427 bytes (`data/pool/train.json`), which fits; the export runs
-/// on the box, where its parse is not the memory that matters.
+/// The file is read whole within [`MAX_TRAIN_MANIFEST_BYTES`] and parsed as one JSON document
+/// (v5's is 270,406,786 bytes; the export's parse of it is not the memory that matters).
 fn read_train_manifest(path: &Path) -> Result<TrainManifest> {
     let k = RefusalKind::TrainManifest;
     let bad = |detail: String| refuse(k, format!("{}: {detail}", path.display()));
-    let bytes = read_small(path, k)?;
+    let bytes = read_bounded(path, k, MAX_TRAIN_MANIFEST_BYTES)?;
     let doc: Value = serde_json::from_slice(&bytes).map_err(|e| bad(format!("not JSON: {e}")))?;
     let obj = doc
         .as_object()
