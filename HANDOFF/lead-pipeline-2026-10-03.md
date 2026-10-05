@@ -53,6 +53,16 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
   is a lower bound". A fitted `noul_margin` might lift the suite half without retraining. Whether
   it can, and what it costs the defect family, is unmeasured. Applying it is a design decision for
   Fable and the human, not a re-read.
+  - **Feasible on CPU** [V]: v5's `suite-verdicts-s*.jsonl` carry `row_logits_1` and
+    `row_logits_2` per OOD case, which is what `qd-margin-probe` reads.
+  - **Probably closed already** [V, `HANDOFF/gh200-phase4-2026-10-01.md`]. The 09-30 probe answered
+    "Can a fitted `noul_margin` rescue `ood_abstain`? **No**" on an older model:
+    - minimum margin was scrambled 0.972 and unseen-language 0.995;
+    - the fitted margin, 0.0174, abstained on nothing extra;
+    - the model was confidently wrong on OOD (rows edc99143, 19d28ec3).
+  - Fable (~17:40Z): a v5 re-probe would be report-only, two-fold, and pre-registered first.
+    `noul_margin`'s degeneracy on accurate entries goes in as an "unstable" word.
+  - Not run. It stays a v6-design item.
 
 ## ~13:35Z 2026-10-05: the GH200 chain: rungd done, fsucc refused (room only), J6(a) running; a third MLresearch hold queued at the tail
 
