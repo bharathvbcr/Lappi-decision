@@ -6,6 +6,49 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~19:45Z 2026-10-05: v6x seeds 2 and 3 done (both above v5 on both targets); seed 4 training; J6(a) done, j6g running
+
+**v6x, per seed against v5's same seed** (informal: `read_v6x.py --per-seed`; the pre-registered
+`read()` waits for seed 4) [V, `h100x2-v6x-noulw-2026-10-05.jsonl` on 68.209.74.244]:
+
+| Seed | v6x eval (ft) | v5 eval | OOD abstain | unseen-language | span | choice | perm. consistency | needle worst | code-defect in-dist. abstain |
+|---|---|---|---|---|---|---|---|---|---|
+| 2 | 702d1d19 (4cff0ffa) | 2af3c80d | 159/180 vs 152 | 43/60 vs 36 | 6648 vs 6606 | 14581 vs 14470 | 16326 vs 16271 | 1.000 vs 0.705 | 13/2304 vs 18 |
+| 3 | fe538296 (977d7260) | e09b652a | 172/180 vs 156 | 53/60 vs 40 | 6576 vs 6570 | 14562 vs 14616 | 16256 vs 16379 | 0.966 vs 0.967 | 22/2304 vs 11 |
+
+- Seeds 1, 2 and 3 are above v5 on both targets; seed 0 is not (158/180 and 41/60, equal). With 5
+  seeds the rule needs 4 of 5, so `signal` needs seed 4 strictly above v5 seed 4 (a51c5bf4):
+  **155/180 and 39/60**.
+- **Guards, through seeds 0-3, by the reader's own rule** (run min vs v5's min over all five seeds;
+  in-distribution: max vs max): all hold. The closest is permutation consistency: run min 16256
+  (seed 3) vs v5 min 16025 (seed 4). F3 (50n <= n_total) holds: the worst is seed 3's 22/2304.
+- **Seed 3's row gate reads FAIL**, although 172/180 clears the OOD floor (Wilson lower 0.915 vs 0.9):
+  the pooled in-distribution abstain is 1072/16905 (6.3%, Wilson upper 0.067 vs the 0.05 cap). The
+  decisions record judges that bound on code.defect_class (22/2304 here), but `promotion_verdict` has
+  not been run on the v6x family; v6x is report-only regardless (rule: nothing promotes on it).
+- Seed 3's costs, inside the guards: choice -54, permutation consistency -123, code-defect false
+  abstains 11 -> 22.
+- Seed 2 done 19:21:02Z (23,679 s); seed 3 done 19:34:26Z (23,559 s); lane 0 ended. **Seed 4 started
+  on GPU 1 at 19:21Z, first training step 19:32:29Z**; done ~02:00Z on 10-06. GPU 0 has been idle
+  since 19:34Z.
+
+**GH200** [V, `q-j6a.log`, `q-j6g.log` on 192.222.51.246]:
+- J6(a) train+score done 19:08:33Z (exit 0): ft ecd70f3e, score b3a133cd. OOD abstain 57/180;
+  permutation consistency 9994/10985 (91.0%, FAIL); needle 1.000; degenerate_head FAIL. Needle
+  control e9767b21: 1.000 at 1024, 2048 and 4096. The replay report is NOT MET:
+  GAP-J6A-REPLAY-LOG-NOT-EMITTED-AT-A502670-2026-10-02.
+- j6g started 19:15:44Z; at 100% GPU by 19:33Z. Then tierb3, then MLresearch's third hold.
+- Report-only observation: every GH200 J6 run ends with ~10 min at ~22% GPU while one Python process
+  is at 100% CPU, then ~5 min idle before its needle control (J6(d): 06:11-06:27Z; J6(a): 18:58Z
+  on). It is a v6 Rust-port candidate; nothing running was touched.
+
+**Open for the human:**
+- Whether GPU 0 runs J5' (shuffled_label) for v5 seed 3: `v5_job_j5 3` in
+  `/home/ubuntu/post-f/v5_common.sh`. J5' seeds 0-2 ran 6h17-19m each. It is outside v5's approved 11
+  runs, so it needs a human yes. It fills one of v5's two missing shuffled_label controls and cannot
+  change v5's verdict (ood_abstain fails on every seed).
+- Copying v5's final weights off the H100 box before it is shut down.
+
 ## ~17:35Z 2026-10-05: the post-queue session completed (every check equal); v5's promotion verdict computed: not promoted
 
 **The post-queue session ended at 17:15:40Z, launcher exit 0** [V, `q-post-queue.log`]:
