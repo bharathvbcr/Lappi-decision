@@ -6,6 +6,67 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~01:05Z 2026-10-05: tierb fixed and re-queued at the GH200 chain's tail (tierb3)
+
+The human: "yes, fix tierb2 and queue it at the tail".
+
+**The cause** [V]: `perf_tierb_outcome.sh --build` makes `/home/ubuntu/perf/p3fused` with
+`git clone --local /home/ubuntu/qd-lane2`. A clone carries no git-ignored file, and qd-lane2's
+data is nine ignored symlinks into `/home/ubuntu/qwen-decision/data/pool/`:
+- the three corpus `examples.jsonl` files;
+- `commitpackft-pool{,-v2}.jsonl`;
+- `commitpackft/{go,python,rust,typescript}.jsonl`, the licence download root.
+
+**The fix** [V]: `build/post-queue/tierb_fix_links.sh` (16 tests,
+`test/tierb_fix_links_test.sh`) is on the box as `/home/ubuntu/perf/tierb_fix_links.sh`. It
+mirrors each ignored symlink of the source into the clone, to the same absolute target. It
+refuses the whole run on any of these:
+- a heldout path or target;
+- a dangling link;
+- an ignored regular file or directory;
+- an existing destination that differs;
+- a dirty clone, or one off f6a0928.
+
+It verifies afterwards. Its `--apply` made the 9 links:
+- the corpus examples sha256 `9ad8f17f…` and the pool `2cb31231…` both equal the manifest's;
+- p3fused is clean at f6a0928.
+
+**CPU preflights** [V]: `build/post-queue/tierb_preflight.py`, throwaway Python, ran the clone's
+own `real_ft_run.py` `main()` with CUDA hidden and scratch outputs. It stopped by exception after
+`_batch_inventory`, before the backbone loads.
+- **The train stage's argv** (log `/home/ubuntu/perf/preflight-tierb-20261005.log`):
+  - val set: 4,385 sequences in 1,391 batches;
+  - permutation second pass: 2,332 rows;
+  - batch inventory: 1,505 batches.
+- **The re-score stage's argv** (log `…-rescore-20261005.log`):
+  - needle suite: 300 cases, 7,577..8,821 tokens;
+  - OOD suite: 180 cases;
+  - batch inventory: 16,943 batches.
+- Both exited 0. The model, the GPU, the checkpoint and the ft-row lookup are not preflighted.
+  The clone was still clean after both.
+
+**tierb3** (`build/post-queue/box_q_tierb3.sh`, 11 tests in `test/box_q_tierb3_test.sh`; on the
+box as `/home/ubuntu/post-f/box_q_tierb3.sh`, sha256 `bb749194…` at both ends) was **launched at
+01:02:39Z** (pid 1805546, log `/home/ubuntu/logs/q-tierb3.log`).
+- It waits for j5pp, j6a and j6g. Each is waited on only while queued without a .done; all
+  three are queued, and their EXIT traps write .done. The wait is bounded at 72 h, past which it
+  exits 6, NOT RUN.
+- It then checks that the clone is at f6a0928, that the pool link resolves, and that
+  `tierb-fused.done` is absent.
+- It runs `perf_tierb_fused.sh --run`, unchanged, under a 21,600 s cap. That cap also bounds the
+  run's uncapped CPU linear control; the run itself takes gpu.lock per GPU stage.
+- Its EXIT trap writes `tierb3.done`. No other waiter references tierb3, and none waits on a glob
+  of `*.queued` (only j6dv4's log loop reads one).
+- Cost: GPU stages ≤ 7,800 s at the script's $2.29/h, so ≤ $4.96. The 6 h cap is $13.74.
+
+**Left, and why:**
+- The repo's `tools/perf_tierb_outcome.sh --build` still clones without the ignored links.
+  Rebuilding p3fused would re-commit the patches and move it off the f6a0928 pin, so the box
+  clone was fixed in place instead.
+- `/home/ubuntu/perf/p3nomask` has the same gap. Its run is cancelled by its P2 gate (exit 5),
+  and the human asked about tierb only.
+- The `--build` fix (mirror the source's ignored links after the clone) waits on the human.
+
 ## ~00:50Z 2026-10-05: the GH200 is back on Lappi's post-F chain; tierb2 did not run; J6(d) on v4 is training
 
 All of this is from the GH200's `/home/ubuntu/queue` markers and logs [V].
