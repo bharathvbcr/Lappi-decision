@@ -6,6 +6,60 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~12:21Z 2026-10-05: the human keeps v6x seed 4; the GH200 is back on Lappi's chain
+
+**Seed 4 stays, as pre-registered.** The human, ~12:20Z: "keep seed 4".
+- The decision came before any v6x result was visible. At 12:20:55Z the run ledger
+  `/home/ubuntu/ledger/h100x2-v6x-noulw-2026-10-05.jsonl` did not exist, and
+  `/home/ubuntu/v6x-noulw` held only the lane markers and two training logs [V].
+- So the read stays the pre-registered one:
+  - with 5 seeds, at least 4 of 5 above v5's same seed;
+  - if seed 4 misses its 20:00Z start cutoff, all of the completed seeds.
+- Earlier, the lead had recommended skipping seed 4 (cost ~$59 past the box's other work) and
+  framed all-of-4 as "stricter". Fable corrected the framing:
+  - all-of-4 is stricter against chance (6% vs 19% under a coin flip per seed);
+  - but it has much less power. Illustratively, at 80% per seed, 41% vs 74% "signal".
+  - Seed 4 is cheap insurance against dropping a lever that works.
+- Nothing was cancelled and `CANCEL` was never touched. One `CANCEL` file stops both lanes
+  (`box_q_v6x.sh:43,116,133`), so it was never safe before seeds 2 and 3 started.
+
+**The GH200 came back** [V, queue markers, `q-rung0.log`, `q-cudadev.log`, `q-rungd.log`]:
+- MLresearch's session released it at 12:11:01Z (`mlr.release`). The holder wrote `mlr.released`
+  at 12:11:39Z and exited; the hold lasted 5 h 43 min.
+- rung0 took gpu.lock at 12:11:39Z: 174/174 checks pass in 1.7 s (exit 0).
+- cudadev ran 12:11:44-12:12:11Z: runga and all 11 device-test binaries exit 0.
+- rungd started at 12:12:45Z: T-bf16 (cap 3,600 s), then T-fp32 (cap 10,800 s).
+  - Its CPU-side startup left the GPU at 0% for ~5 min; the monitor's idle alert fired at 12:17Z.
+  - Step 1 of 200 came at ~12:18:30Z, with the GPU at 100%.
+- The four `mlr.*` markers are left in place: no Lappi script reads them, but `mlr_hold.sh`
+  refuses to start while any exists.
+
+**The post-queue controls, so far** (`h100x2-v5-2026-10-03.jsonl` unless noted):
+
+| Control | Row | Finished |
+|---|---|---|
+| v5-s2-letter-OFF | caf8f1df (scratch ledger) | 08:13Z |
+| v5-s0-letter | 0b0ac9a8 | 08:17Z |
+| v5-s0-option | b97e8dbf | 08:51Z |
+| v5-s1-letter | ac472ec3 | 10:22Z |
+| v5-s1-option | 31e24d4f | 10:58Z |
+
+- Every control exits 3: the pooled `gates.paired_margin_vs_linear` is `not_run` ("234 of 332
+  inputs did not run"; synth.general), as the 19:36Z section predicted.
+- The v5nw controls are NOT RUN, since the arm has no verdicts.
+- Seed 0's letter control, 0b0ac9a8, `paired_margin_vs_linear.choice.*`:
+  - 20 of 22 families ran and passed, with margins +0.083 to +0.858 (code.defect_class +0.390);
+  - intent.in_scope is −0.0172, failed;
+  - synth.general is `not_run`.
+- Timing:
+  - letter controls run alone in ~91 min, option controls in ~35 min;
+  - phase A's pair took ~2.5 h each, sharing the even CPUs;
+  - the session should end ~17:15Z [inferred].
+
+**The v6x reader** has a `--per-seed` mode. It is information only: it runs the same identity
+checks, prints each seed beside v5's same seed, and never prints a word. A missing run ledger
+reads as no rows. 27 tests pass.
+
 ## ~07:12Z 2026-10-05: j6ctl finished on the GH200 (CPU) during MLresearch's tenure
 
 j6ctl ran 06:28:42-07:06:41Z, CPU only and niced, while MLresearch holds the GPU (`mlr.holding`
