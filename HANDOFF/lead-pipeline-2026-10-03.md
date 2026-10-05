@@ -6,6 +6,53 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~13:15Z 2026-10-05: v6x seeds 0 and 1 scored (information, not the reading); seeds 2 and 3 training
+
+**These are per-seed lines from `read_v6x.py --per-seed`, not the pre-registered reading.** The
+reading needs ≥ 3 seeds and comes from `read()`. The identity checks passed for both seeds:
+commit, quick, snapshot, shard, plan digest, recipe diff = the lever only, eval suite.
+
+| | seed 0: 6520e15a (ft 30a17004) vs v5 166f7ebd | seed 1: c26eb4aa (ft 91552d34) vs v5 e1bafd6f |
+|---|---|---|
+| gates.ood_abstain | 158/180 vs 158/180 (same) | **168/180 vs 162/180 (up)** |
+| ood_abstain.unseen-language | 41/60 vs 41/60 (same) | **50/60 vs 47/60 (up)** |
+| val_top1.span | 6622 vs 6593 /7238 (up) | 6625 vs 6626 (down 1) |
+| val_top1.choice | 14590 vs 14498 /17254 (up) | 14509 vs 14591 (down) |
+| permutation_consistency | 16357 vs 16319 /17254 (up) | 16312 vs 16301 (up) |
+| needle worst bucket | **1.000 vs 0.918** (gate now passes) | 1.000 vs 1.000 |
+| ood scrambled / prose | 57 / 60, same | 58 vs 55 / 60, same |
+| in_distribution abstain | 1017 vs 1018 /16905 | 1076 vs 1065 (up) |
+| F3 code.defect_class | 11 vs 16 /2304 | 14 vs 12 |
+
+- **Under the rule:** seed 0 is not above on either target. So `signal` now needs seeds 1-4 all
+  above on both, and seed 4 has to complete. Seed 1 is above on both.
+- **Timing:** both ft runs are steps_exhausted.
+  - Seed 0 ran 23,929 s end to end, seed 1 23,853 s. Training took ~22,640 s.
+  - Scoring took ~3 min, not the 20-30 min the lead had allowed.
+- **The lever was live:** seed 1's log says "noul weight: 10216 letter position(s) weighted 4 in this
+  process; the plan counts 10216 over 1 pass(es)". That is ~2.7% of 381,550 supervised tokens.
+- Seed 2 started 12:46:23Z on GPU 1, step 1 at ~12:59Z: loss 272.6108 vs v5's 272.4580.
+- Seed 3 started 13:01:47Z on GPU 0, step 1 at ~13:14Z: loss 634.3309.
+- Both should end ~19:25-19:45Z, so seed 4 should start before the 20:00Z cutoff [inferred].
+- Each seed's startup leaves its GPU idle ~13-16 min (CPU split and plan build at 142a67c).
+
+**For the v6 design: the two failing gates look connected** [inferred from c26eb4aa's gate
+details, not measured].
+- `gates.ood_abstain` has two halves:
+  - OOD abstain, Wilson lower bound ≥ 0.9. Seed 1: 0.887.
+  - In-distribution abstain, Wilson upper bound ≤ 0.05. Seed 1: 6.4%, upper 0.067.
+- Its rule counts an abstention when "either pass answers noul, or the permuted second pass names
+  another option". `permutation_consistency` disagrees on 942 of 17,254 rows (5.5%), so most of
+  the 6.4% in-distribution abstention is plausibly permutation disagreement.
+- If so, fixing permutation consistency would also fix the in-distribution half of ood_abstain.
+- Nothing here moves a threshold (rule 2).
+- The startup idle is what real_ft_run's `--split-cache` (main, parity A/B this session) removes.
+  v6 runs should use it once the session's compare-A/B checks pass.
+
+**The GH200:**
+- rungd T-bf16 ended 12:24:57Z, exit 0, ft row db4c44e4.
+- T-fp32 is training: step-200 checkpoint written, GPU at 100%.
+
 ## ~12:21Z 2026-10-05: the human keeps v6x seed 4; the GH200 is back on Lappi's chain
 
 **Seed 4 stays, as pre-registered.** The human, ~12:20Z: "keep seed 4".
