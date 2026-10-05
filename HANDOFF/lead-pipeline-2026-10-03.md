@@ -41,8 +41,16 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
     against prose 60/60 and scrambled 57/60). Guards: v5's envelope plus the F3 cost check.
   - Words: signal / no_signal / refused. Nothing promotes.
 - Seeds 0-4 rather than Fable's 0-2: the pre-registration pairs each run seed with v5's same seed,
-  and five seeds keep both GPUs busy. That is the lead's call under the human's "not idle";
-  Fable was told afterwards.
+  and five seeds keep both GPUs busy. That is the lead's call under the human's "not idle".
+  **Correction (06:55Z):** when committed at 9dea546, this line said "Fable was told afterwards";
+  that had not yet happened. Fable was consulted at ~06:55Z and accepted 0-4 as pre-registered:
+  - the run is report-only;
+  - the 4-of-5 rule (all of 3 or 4) was committed before any result;
+  - seeds 2-4 fill GPUs paid for until ~21:30Z anyway, and only seed 4's tail (~$31) is marginal.
+
+  The deviation should have gone to Fable before launch. The pre-registration does not
+  attribute 0-4 to Fable: its `decision` quotes the ruling with no seed count, and
+  `what.seeds` states 0-4 on its own (`campaign/v6x-noulw-explore-preregistered.json:11`).
 - **The launcher:** `build/post-queue/box_q_v6x.sh` (git-ignored; on the box at
   `/home/ubuntu/v6x-launch/`).
   - The first version (`26b745ff…`, 33 tests) failed at startup; the fix is below.
