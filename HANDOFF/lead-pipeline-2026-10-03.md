@@ -6,6 +6,27 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~00:50Z 2026-10-05: the GH200 is back on Lappi's post-F chain; tierb2 did not run; J6(d) on v4 is training
+
+All of this is from the GH200's `/home/ubuntu/queue` markers and logs [V].
+- **00:40Z:** the MLresearch session wrote `mlr.release`. At 00:41:16Z `mlr-hold.log` reads
+  "released: mlr.release", and `mlr.released` exists. The GH200's GPU is Lappi's again, as the
+  handover planned.
+- **tierb2** (post-F item 7, the fused-AdamW Tier-B outcome run in `/home/ubuntu/perf/p3fused`
+  at f6a0928) **did not run.** Its log is `q-tierb2.log`:
+  - `real_ft_run.py` died in `load_defect_rows` at 00:41:19Z on `FileNotFoundError:
+    /home/ubuntu/perf/p3fused/data/pool/commitpackft-pool-v2.jsonl`. The clone has no data pool.
+  - Scoring then found no ledger, `/home/ubuntu/perf/ledger-tierb-fused-2026-10-01.jsonl`.
+  - The log ends "Tier-B fused run done (exit 4)", with no ft row and no checkpoint. No GPU time
+    was used.
+  - Its header says nothing in it enters a phase-5/6 run, so no decision waits on it. Re-queuing
+    it would need the pool in the clone and a box launch; that is open.
+- **J6(d) on v4** (post-F item 10, a502670, `box_q_j6dv4.sh`) started at 00:41:20Z. Its first
+  training step came at 00:48:23Z: 9,683 steps, cap 34,200 s. At F's 1.6 s/step it finishes in
+  ~4.3 h, then scores. Its log is `/home/ubuntu/j6d-v4/train.log`.
+- **Behind J6(d)**, waiting on `gpu.lock` or on their markers: rung0, cudadev, rungd, j6ctl (CPU),
+  fsucc, j5pp, j6a and j6g. The GH200's GPU has work for many hours.
+
 ## ~23:00Z 2026-10-04: the post-queue session is armed to launch when both v5 lanes end
 
 The human, in reply to the post-queue session's yes/no: "ask fable for advice". Fable's ruling
