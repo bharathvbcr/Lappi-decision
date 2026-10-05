@@ -6,6 +6,34 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~05:05Z 2026-10-05: the GH200 goes back to MLresearch after J6(d); J5′ s1 passed
+
+**J5′ s1** (row daf4ec89, ft row 9da4c6b1) [V, `build/v5-h100/read_shuffled.py`]:
+- shuffled-label accuracy 0.2296 vs chance (majority) 0.2769, ceiling 0.3049 at z = 3,
+  n = 2,304. **Passed**, like s0's 0.2370 (ba375781).
+- Lane 1 ended at 04:25:10Z ("no job is left that this lane could take"), and `v5lane1.done`
+  exists. GPU 1 is idle until the post-queue session starts, as Fable accepted.
+
+**The GH200 is handed back to MLresearch.** The human: "if you don't need gh200; there are other
+mlresearch tasks". Fable: Lappi doesn't need it after J6(d), because v5 runs on the H100 and the
+GH200's chain is v4/F filler plus the ojas CUDA probes and tierb3. Hand it over and don't kill
+J6(d).
+- The first cycle's markers (`mlr.{queued,holding,release,released}`) were moved to
+  `/home/ubuntu/mlr-hold/archive-2026-10-04/`. `mlr_hold.sh` refuses to start while any exists,
+  and no Lappi script reads them (grep of post-f, perf and box_q_f).
+- `mlr_hold.sh` was relaunched at 05:03:32Z (pgid 1812175, log
+  `/home/ubuntu/logs/mlr-hold-2.log`). It waits for gpu.lock behind J6(d) on v4, whose script
+  holds the lock through its needle control (≤ 5,400 s after training ends ~05:15Z).
+- Every Lappi waiter queues behind the holder unchanged: rung0, cudadev, rungd, fsucc, j5pp,
+  j6a, j6g and tierb3. tierb3's 72 h bound covers the holder's 30 h cap.
+- j6ctl is CPU only and niced. It starts on `j6dv4.done` regardless and runs during
+  MLresearch's tenure.
+- **The holder self-releases after 90 min with no compute process on the GPU.** MLresearch work
+  must be on the GPU within 90 min of `mlr.holding`, or Lappi's chain takes it back.
+- `build/post-queue/wait_gh200_handover.sh` reports who took the lock when J6(d) ends (holder or
+  rung0).
+- Cancel: `kill -TERM -- -1812175`, which writes `mlr.released`, and the chain resumes.
+
 ## ~01:05Z 2026-10-05: tierb fixed and re-queued at the GH200 chain's tail (tierb3)
 
 The human: "yes, fix tierb2 and queue it at the tail".
