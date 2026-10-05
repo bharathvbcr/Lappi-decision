@@ -6,6 +6,53 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~13:35Z 2026-10-05: the GH200 chain: rungd done, fsucc refused (room only), J6(a) running; a third MLresearch hold queued at the tail
+
+**rungd** [V, `q-rungd.log`]: T-bf16 exit 0 (ft row db4c44e4, 12:24:57Z); T-fp32 exit 0 (ft row
+1170ff52, 13:13:08Z); "rungd all done".
+
+**fsucc refused, room only** [V, `q-fsucc.log`; decision JSON
+`/home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261005T131347020999211.json`]:
+- At 13:13:47Z its word is `refused`: "(c) j6f target needle_8k_worst_bucket cannot clear: F's
+  envelope leaves it no room (R9_room)". The envelope is max 59/59, min 40/61, U = 1.
+- So no F′ ran, and j5pp wrote `.done` without running (13:13:48Z).
+- The log says "the human decides (a refusal is never quiet)". The human's advance yes covers
+  this exact case. `j6a-on-room-refusal-yes` holds the 2026-10-02 ~14:05Z answer "Yes, run J6(a)
+  then (Recommended)", recorded in `AUDIT/post-f-2026-10-02/human-answers-post-f.md`.
+- So **j6a started at 13:14:07Z**:
+  - a CPU prelude (cap 1,800 s);
+  - J6(a) seed 0 (cap 32,400 s, expected ~$11-14);
+  - its needle control (cap 5,400 s).
+  It holds gpu.lock through all three.
+- Still queued after it: j6g (cap 32,400 s) and tierb3 (the tail).
+
+**A third MLresearch hold, at the tail.**
+- MLresearch's session (peer, "Run MLSystemsLab experiments 1-10 on the GH200") asked for
+  6.5-9.5 h of GPU work. A peer's request is not a yes.
+- The human, AskUserQuestion ~13:20Z: **"After all of Lappi's GH200 queue"**.
+- `mlr_hold.sh` takes the lock at the next release. So it gained
+  `--after MARKER... [--after-max-s S]` (default 72 h):
+  - it queues on gpu.lock only once every named marker exists;
+  - at the bound it exits without the lock, and `mlr.released` names the missing markers.
+- Tests in `build/gh200-mlr/mlr_hold_test.sh`, cases H-J, run on the box:
+  - **0 failed**;
+  - the old script (`63a267e7…`) fails 9;
+  - the J case is bounded by `timeout 10`, and no stray holder is left.
+- One stray test holder from the first, unbounded test run (scratch queue `test/i`) was stopped
+  with TERM. The real queue was untouched.
+- The new script's sha256 is `8f1d011c…` at both ends.
+- The cycle-2 markers went to `/home/ubuntu/mlr-hold/archive-2026-10-05-cycle2/` at 13:32:06Z
+  (`build/gh200-mlr/archive_cycle2.sh`).
+- **The holder was launched at 13:32:10Z** with `--after tierb3.done`: pid and pgid 1794936, log
+  `/home/ubuntu/logs/mlr-hold-3.log`. It is waiting for the marker and holds no lock.
+- Expected `mlr.holding`: ~05:00-10:00Z on 10-06 [inferred: J6(a) + needle control, then j6g,
+  then tierb3].
+- MLresearch was told:
+  - start GPU work only once `mlr.holding` exists;
+  - put work on the GPU within 90 min of it;
+  - close with `mlr.release`.
+- Cancel: `kill -TERM -- -1794936`.
+
 ## ~13:15Z 2026-10-05: v6x seeds 0 and 1 scored (information, not the reading); seeds 2 and 3 training
 
 **These are per-seed lines from `read_v6x.py --per-seed`, not the pre-registered reading.** The
