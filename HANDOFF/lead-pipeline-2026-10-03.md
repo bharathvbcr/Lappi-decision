@@ -6,6 +6,35 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~21:25Z 2026-10-05: the human answered both late-night questions in advance; the H100 ledgers are on the Mac
+
+Fable (lead lane, ~21:20Z) advised two things.
+- Ask now, not at ~02:15Z. If the human is asleep when the jobs end, the preview stalls while the box idles at $8.38/h.
+- None of the H100 ledgers were on the Mac. Shutting the box down would delete the evidence that every reported number cites.
+
+**The human's answers (AskUserQuestion, ~21:23Z):**
+- **Calibration: "All rows + 2-fold check".** The preview ships the `qd-calib-fit --population all` table, fitted on the averaged model's scoring verdicts. The release notes quote the `--population two-fold` held-out calibration error as the honest estimate.
+- **Keep before shutdown: the ledgers and v6x seed 4's verdicts.** Not chosen: v6x seed 4's weights and the other v5 seeds' weights. Nothing more is copied.
+
+**Done [V]:**
+- `/home/ubuntu/ledger/` was snapshotted with `build/v5-h100/copy_off_box.sh` to `/Users/bharath/qd-campaign/ledgers-h100-2026-10-05/`.
+- Exit 0, every SHA-256 equal:
+  - `h100x2-v5-2026-10-03.jsonl` 200e2965…
+  - `h100x2-v5-probe-2026-10-03.jsonl` 72aab54c…
+  - `h100x2-v6x-noulw-2026-10-05.jsonl` 129baa58…
+  - the 10 files of `v5-decisions-2026-10-03/`
+- After the last of J5′ s3, v6x s4 and the average's scoring lands (~02:15Z), re-copy:
+  - the same two globs;
+  - the new `h100x2-v5avg-2026-10-05.jsonl`;
+  - v6x seed 4's verdicts, to `/Users/bharath/qd-campaign/verdicts-2026-10-05/v6x-noulw`.
+
+  Then tell the human what is kept and what shutdown deletes: v5's and v6x's checkpoints, 354 G and 294 G.
+
+**Fable's other rulings:**
+- The release notes take their failing-gate list from `promotion_verdict` (`python/qd_train/ledger.py`) run on the v5 family after J5′ s3 lands. It is not hand-assembled, and every number cites a row id.
+- No new job fills a GPU after the three jobs end. A J5′ for v5 seed 4 is not covered by any yes and cannot make v5 promote: ood_abstain fails on every seed. Idle after ~02:15Z is the human's shutdown decision.
+- The seed-4 report leads with `read_v6x.py`'s official reading.
+
 ## ~21:00Z 2026-10-05: "loosen some gates" -> a preview release of v5, gates unchanged; the average built, its scoring queued
 
 **The human, ~20:40Z:** "lappi is my first model, I am okay if it's not great, loosen some gates."
