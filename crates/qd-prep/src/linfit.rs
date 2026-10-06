@@ -429,6 +429,9 @@ fn train_once(
         let w: &[f64] = &w_guard;
         let mut z = vec![0f64; k];
         let mut e = vec![0f64; k];
+        // `r` also indexes `rows`, `y`, `log_terms` and `diff` (as `r * k + c`): an iterator over
+        // one of them, as the lint suggests, would hide the shared index.
+        #[allow(clippy::needless_range_loop)]
         for r in row_bounds[item]..row_bounds[item + 1] {
             let (cols, vals) = rows.row(r);
             logits_row(
@@ -450,6 +453,8 @@ fn train_once(
             }
             let s = pairwise_sum(k, &|c| e[c]);
             let label = y[r] as usize;
+            // `c` is compared with `label` and indexes `log_terms` and `diff` as `r * k + c`.
+            #[allow(clippy::needless_range_loop)]
             for c in 0..k {
                 let p = e[c] / s;
                 let yc = if c == label { 1.0 } else { 0.0 };

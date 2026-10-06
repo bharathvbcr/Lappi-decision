@@ -18,6 +18,13 @@
 //! - `qd-prep decisions --config C --fetch-record R --decider-dir D --target NAME=FILE ...
 //!   --out-dir DIR [--survey]`: the v5 general-decision pool (see `qd_prep::decisions`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, or `texts.jsonl` with `--survey`.
+//! - `qd-prep own-repos --code-root ROOT --out FILE`: the human's own repositories, admitted
+//!   and split by the v6 holdout rule (see `qd_prep::own_repos`), written before any commit is
+//!   read.
+//! - `qd-prep natural-bugs --manifest M --cutoff YYYY-MM-DD --cutoff-basis TEXT --v5-files F
+//!   --out-dir DIR`: single-statement fix commits from the manifest's held-out repositories
+//!   (see `qd_prep::natural_bugs`) -> `DIR/{natural-bugs.jsonl, report.json}`; `DIR` must carry
+//!   a held-out path marker.
 //! - `qd-prep spancheck --input IN --output OUT`: a `QDPSCIN1` request (see
 //!   `qd_prep::spancheck`) -> `QDPSCOK1`, each span sequence's line-start candidates, gold
 //!   positions or the refusal, as `qd_train.shards._span_token_positions` finds them before it
@@ -29,6 +36,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use qd_prep::{containment, decisions, linwire, lsh, spancheck, wire};
+use qd_prep::{natural_bugs, own_repos};
 
 /// Threads are bounded whatever the host reports.
 const MAX_THREADS: usize = 256;
@@ -77,6 +85,12 @@ enum Command {
     /// The decision pool's cap refresh between two surveys: every all-admitted stratum's cap
     /// becomes its new train availability, the rest are kept (`decisions::refresh_train_caps`).
     DecisionCaps(DecisionCapsIo),
+    /// The human's own repositories under a code root, admitted and split by the v6 holdout
+    /// rule; the manifest every own-repo family reads before it reads a commit.
+    OwnRepos(OwnReposIo),
+    /// Single-statement bug-fix commits from an own-repos manifest's held-out repositories:
+    /// a held-out evaluation set, never training data.
+    NaturalBugs(NaturalBugsIo),
     /// Span sequences' line starts and gold projected onto token positions, as
     /// qd_train.shards._span_token_positions does before its decode check.
     Spancheck(Io),
@@ -124,6 +138,50 @@ fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     bytes.push(b'\n');
     std::fs::write(&io.output, bytes).map_err(|e| format!("{}: {e}", io.output.display()))?;
     Ok(format!("{} cap(s) moved -> {}", moved.len(), io.output.display()))
+}
+
+/// `qd-prep own-repos`' inputs.
+#[derive(clap::Args, Debug)]
+struct OwnReposIo {
+    /// The directory the human's repositories live under (absolute).
+    #[arg(long)]
+    code_root: PathBuf,
+    /// Where to write the manifest; refused if it exists.
+    #[arg(long)]
+    out: PathBuf,
+}
+
+/// `qd-prep natural-bugs`' inputs. Every one is required; none has a default.
+#[derive(clap::Args, Debug)]
+struct NaturalBugsIo {
+    /// A `qd-prep own-repos` manifest.
+    #[arg(long)]
+    manifest: PathBuf,
+    /// YYYY-MM-DD: commits authored before 00:00:00Z of this date are not emitted. No default:
+    /// the base model's data cutoff is unknown, and a default would be a guess.
+    #[arg(long)]
+    cutoff: String,
+    /// Where the --cutoff date comes from, copied into the report (for example, "yield probe:
+    /// the base model's release month, not its cutoff").
+    #[arg(long)]
+    cutoff_basis: String,
+    /// own-prose-v1's files.jsonl: any commit touching a file it lists is excluded.
+    #[arg(long)]
+    v5_files: PathBuf,
+    /// The directory to create; it must carry a held-out path marker, and it (or DIR.partial)
+    /// must not exist.
+    #[arg(long)]
+    out_dir: PathBuf,
+}
+
+fn run_natural_bugs(io: &NaturalBugsIo) -> Result<String, String> {
+    natural_bugs::run(&natural_bugs::Args {
+        manifest: &io.manifest,
+        cutoff: &io.cutoff,
+        cutoff_basis: &io.cutoff_basis,
+        v5_files: &io.v5_files,
+        out_dir: &io.out_dir,
+    })
 }
 
 /// `qd-prep decisions`' inputs: the policy (config) and the pinned data it names.
@@ -305,6 +363,8 @@ fn main() -> ExitCode {
         Command::Containment(io) => run_containment(io),
         Command::Decisions(io) => run_decisions(io),
         Command::DecisionCaps(io) => run_decision_caps(io),
+        Command::OwnRepos(io) => own_repos::run(&io.code_root, &io.out),
+        Command::NaturalBugs(io) => run_natural_bugs(io),
         Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),
     };
     match result {

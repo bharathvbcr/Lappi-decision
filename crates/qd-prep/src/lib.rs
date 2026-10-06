@@ -19,6 +19,10 @@
 //!   complete pair list, the v5 decontamination scan (the Python gold-side scan of 2026-10-02
 //!   peaked at 17.4 GB). [`pyunicode`] is Python's `\w` and `str.lower()`, from tables read
 //!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
+//! - [`own_repos`] and [`natural_bugs`]: the human's own repositories admitted and split once
+//!   (the canonical v6 own-repo enumerator), and the natural-bug held-out set mined from the
+//!   held-out ones through the git CLI ([`gitcli`]). Not a port: no Python reference exists, so
+//!   their tests pin the rules and run against git repositories built in a temp directory.
 //! - [`team`]: threads started once and reused for every phase of the fit's loop, which
 //!   started them twice an iteration (~3.4 ms an iteration at 52 threads on the H100 box).
 //! - [`spancheck`]: `qd_train.shards._span_token_positions` up to its decode check -- a span
@@ -29,11 +33,14 @@
 pub mod blake2b;
 pub mod containment;
 pub mod decisions;
+pub mod gitcli;
 pub mod linfit;
 pub mod linwire;
 pub mod lsh;
 pub mod minhash;
+pub mod natural_bugs;
 pub mod ngram;
+pub mod own_repos;
 pub mod pairwise;
 pub mod pyunicode;
 #[rustfmt::skip]
