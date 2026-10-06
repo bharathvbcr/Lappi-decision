@@ -79,9 +79,25 @@ the `ledger.py` code and tests on a branch; the merge is the human's.
 
 ### The shipped artifact
 
-[Written after the 5-seed average's row is read against the pre-registered bar,
-`HANDOFF/lead-pipeline-2026-10-03.md` ~01:59Z.] If the average clears the bar on every line, v6
-pre-registers its own 5-seed average as the release candidate.
+v5's 5-seed average was scored at row 6af73bef, 02:23Z [V]. Against v5's seeds it was:
+- **Better on every tower metric:**
+  - choice 0.857 vs 0.828-0.847;
+  - permutation_consistency 0.957, the first to pass the 0.95 gate;
+  - in-distribution abstention 4.6%, the first under the 5% cap;
+  - needle 1.000.
+- **Worse on two:**
+  - span 0.773 vs 0.907-0.915;
+  - OOD 149/180 vs 152-162.
+
+The span head collapse is GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06: the seeds' span
+heads are near-orthogonal (norm and cosine ≈ 1/√5).
+
+**v6 pre-registers:**
+- the tower averaged over seeds, with **one seed's span head** (named before scoring), or a span head initialised identically on every seed;
+- the averaged artifact as the release candidate.
+
+[I] Averaging may also be a lever on the in-distribution cap: it took 8.2% to 4.6% here. Arm B's
+reading should include an averaged row.
 
 ### Rust targets (the goal's "minimize python bottlenecks with rust")
 

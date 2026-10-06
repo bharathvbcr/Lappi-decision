@@ -6,6 +6,52 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~02:30Z 2026-10-06: Lappi v0.1 preview released (the human's choice past a 2-of-6 bar miss); the H100 box can be shut down
+
+**The average's row** is 6af73bef (`h100x2-v5avg-2026-10-05.jsonl`, scored 01:52:58-02:23:25Z on
+GPU 1). Against the pre-registered bar (96838a1) [V]:
+
+| Line | The average | Bar | Result |
+|---|---|---|---|
+| choice | 0.857 | ≥ 0.8278 | pass |
+| permutation_consistency | 0.957 | ≥ 0.9288 | pass |
+| in-distribution | 0.046 | ≤ 0.0819 | pass |
+| needle | 1.000 | ≥ 0.7049 | pass |
+| **span** | **0.773** | ≥ 0.9066 | **miss** |
+| **OOD** | **149/180** | ≥ 152 | **miss** |
+
+The rule routed the misses to the human. AskUserQuestion ~02:25Z: **"Ship the average (Recommended)"**.
+The alternatives were seed 1 alone later (new export code) or no release.
+
+**Released [V]:** `/Users/bharath/qd-campaign/preview-2026-10-05/release-lappi-v0.1-preview/`
+- Built by `build/v5-h100/preview_release.sh 0.80`.
+- weight_hash 6f7b9ba7… is equal to the trial's, so the a766fcf rebuild is confirmed.
+- calibration_hash 7e56b34e…, target 0.80.
+- Two-fold, honest: 91.9% of choice questions answered at 87.0% precision; 16-option questions refused 51%.
+- Not load-tested.
+- Notes:
+  - `HANDOFF/lappi-v0.1-preview-release-notes-2026-10-06.md`;
+  - a copy beside the release at `RELEASE_NOTES-lappi-v0.1-preview.md`.
+
+**The span head:**
+- GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06: projection norms 0.447× seed 1's, cosine 0.448 ≈ 1/√5.
+- The seeds' heads are near-orthogonal [inferred from the measured ratio].
+- v6 averages the tower and takes one seed's span head.
+
+**Copied to the Mac, SHA-256 OK, 02:24Z:**
+- The average's verdicts: verdicts-avg 4ea2539f…, suite 08bbe7c1….
+- Every ledger, into `/Users/bharath/qd-campaign/ledgers-h100-2026-10-05/`:
+  - h100x2-v5 8e651fae…
+  - v5avg 2248a388…
+  - v6x 0b5b49fa…
+  - probe 72aab54c…
+  - v5-decisions/
+
+**The H100 box (68.209.74.244) has been idle since 02:23Z** at $8.38/h, ~$458 at 02:24Z.
+- Nothing on it is needed any more.
+- Shutdown deletes v5's (354 G) and v6x's (294 G) checkpoints. The human chose not to keep them beyond v5 s1 and v6x s3, which are on the Mac with the average.
+- Only the human can terminate it.
+
 ## ~02:25Z 2026-10-06: J5′ s3 passes; v5's verdict re-run; the margin probe; the human's serving and budget answers
 
 **J5′ for v5 seed 3: ran and passed.** [V] Row deaf6717 (shuffled ft 264c7d5b, at 142a67c), in `h100x2-v5-2026-10-03.jsonl`:
