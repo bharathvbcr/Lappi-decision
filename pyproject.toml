@@ -77,3 +77,21 @@ select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "PTH"]
 "AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py" = ["E501", "I001"]
 "AUDIT/prep2-2026-10-02/clinc_oracle.py" = ["E702", "B007"]
 "AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py" = ["E501"]
+# The v5 finalize records (2026-10-03): the scripts that applied the v5 freeze and its two
+# amendments, the dedupe probe, the H100 smoke and the pre-drop checks, kept as they ran. The
+# same ruling, applied to new records on GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-
+# COMMITTED-FILES-2026-10-06: rule by rule, only what each already breaks (ruff 0.16.8).
+"AUDIT/finalize-2026-10-03/apply_v5_containment_scope_amendment.py" = ["E501"]
+"AUDIT/finalize-2026-10-03/apply_v5_freeze.py" = ["E501", "E741", "B905", "UP031"]
+"AUDIT/finalize-2026-10-03/apply_v5_launch_amendment.py" = ["E501"]
+"AUDIT/finalize-2026-10-03/test_apply_v5_freeze.py" = ["E501", "B905", "RUF059", "UP031"]
+"AUDIT/finalize-2026-10-03/dedupe-probe/candidates_by_family.py" = ["PTH123", "RUF100"]
+"AUDIT/finalize-2026-10-03/dedupe-probe/pairs_look.py" = ["E501", "PTH123", "RUF100"]
+"AUDIT/finalize-2026-10-03/dedupe-probe/probe.py" = ["E501", "PTH123", "RUF100"]
+"AUDIT/finalize-2026-10-03/dedupe-probe/residual.py" = ["E501", "I001"]
+"AUDIT/finalize-2026-10-03/dedupe-probe/residual_measure.py" = ["E501", "I001", "RUF100"]
+"AUDIT/finalize-2026-10-03/h100-smoke/kernel_smoke.py" = ["E501", "B007"]
+"AUDIT/finalize-2026-10-03/predrops/a7_missing_where.py" = ["E501", "I001"]
+"AUDIT/finalize-2026-10-03/predrops/a7_pool_refusals.py" = ["I001"]
+"AUDIT/finalize-2026-10-03/predrops/dryrun_drops.py" = ["I001"]
+"AUDIT/finalize-2026-10-03/predrops/knockers.py" = ["I001"]
