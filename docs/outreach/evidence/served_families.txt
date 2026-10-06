@@ -1,0 +1,29 @@
+families with choice rows: 22; unscored two-fold rows skipped: 3
+all choice rows (the release notes' figure): choice top-1 14779/17254 = 0.8566
+served families only (excluding code.defect_class): choice top-1 12580/14950 = 0.8415
+all choice rows (the release notes' figure): two-fold at the 0.80 target, answered 15855/17251 (91.9%), precision on answered 13795/15855 (87.0%)
+served families only (excluding code.defect_class): two-fold at the 0.80 target, answered 13551/14947 (90.7%), precision on answered 11596/13551 (85.6%)
+
+family                             rows  top-1
+arc.science                         145  0.903
+boolq.reading                       288  0.882
+code.defect_class                  2304  0.954  (not served)
+commonsense.multiple_choice        1197  0.784
+decider.commands                    188  0.936
+decider.routing                     411  0.973
+intent.classification              1572  0.945
+intent.domain                      1572  0.868
+intent.in_scope                    1572  0.964
+intent.within_domain               1571  0.740
+knowledge.multiple_choice          1485  0.632
+openjev.evidence                    588  0.952
+openjev.game                         31  0.710
+openjev.nli                         701  0.715
+openjev.policy                      701  0.862
+openjev.routing                     292  0.938
+openjev.rubric                      219  0.982
+pairwise.helpfulness                372  0.473
+procedural.decisions                700  0.956
+synth.general                       512  0.914
+typed.workflow                      133  0.902
+vitaminc.nli                        700  0.863

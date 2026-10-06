@@ -1,0 +1,405 @@
+<title>Lappi v0.1 Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Literata:opsz,wght@7..72,400;7..72,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~68ch) on a cold snowfield ground; figures and tables sit in the same
+   column as quiet panels; every number set in mono so the measured values read as data. */
+:root {
+  --ground: #F2F5F8;
+  --ink: #15202A;
+  --muted: #566775;
+  --rule: #D3DCE4;
+  --panel: #E7EDF2;
+  --fjord: #23508C;
+  --fjord-tint: #D6E2F3;
+  --pass: #2C7A57;
+  --miss: #A8261E;
+  --f-display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Literata", Georgia, "Times New Roman", serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0E151D; --ink: #E3E9EF; --muted: #93A3B1; --rule: #25313C; --panel: #16212B;
+    --fjord: #8EB3EE; --fjord-tint: #1B3150; --pass: #5BC497; --miss: #F08077;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0E151D; --ink: #E3E9EF; --muted: #93A3B1; --rule: #25313C; --panel: #16212B;
+  --fjord: #8EB3EE; --fjord-tint: #1B3150; --pass: #5BC497; --miss: #F08077;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 1.0625rem;
+  line-height: 1.62;
+}
+.page {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding-inline: 1.25rem;
+  padding-block: 3rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3.25rem;
+}
+section { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 6vw, 2.9rem); line-height: 1.08; font-weight: 700; }
+h2 { font-size: 1.45rem; line-height: 1.2; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--fjord); text-underline-offset: 0.18em; }
+a:focus-visible { outline: 2px solid var(--fjord); outline-offset: 2px; border-radius: 2px; }
+.mono, code, td.num, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+code { font-size: 0.9em; background: var(--panel); padding: 0.05em 0.3em; border-radius: 3px; }
+.eyebrow {
+  font-family: var(--f-mono); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.lead { font-size: 1.15rem; color: var(--ink); }
+.muted { color: var(--muted); }
+.small { font-size: 0.9rem; }
+
+.status {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-family: var(--f-mono); font-size: 0.82rem;
+  border: 1px solid var(--miss); color: var(--miss);
+  padding: 0.3rem 0.65rem; border-radius: 999px;
+}
+.status::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--miss); }
+
+/* The 17-row slice */
+.decision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 15rem); gap: 1.5rem; align-items: start; }
+.request { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.request dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 0.9rem; }
+.request dt { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding-top: 0.2rem; }
+.request dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.slice { font-family: var(--f-mono); font-size: 0.82rem; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.slice-head { padding: 0.45rem 0.7rem; background: var(--panel); color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; }
+.row { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) auto; gap: 0.5rem; padding: 0.16rem 0.7rem; border-top: 1px solid var(--rule); align-items: baseline; }
+.row .l { color: var(--muted); }
+.row .o { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.empty .o { color: var(--muted); opacity: 0.55; }
+.row.pick { background: var(--fjord-tint); }
+.row.pick .l, .row.pick .o, .row.pick .s { color: var(--fjord); font-weight: 600; }
+.row.noul { border-top: 2px solid var(--muted); }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 0.5rem 0.75rem; border-top: 1px solid var(--rule); vertical-align: baseline; }
+thead th { border-top: none; background: var(--panel); font-family: var(--f-display); font-weight: 600; font-size: 0.86rem; white-space: nowrap; }
+td.num { white-space: nowrap; }
+.pass { color: var(--pass); font-weight: 600; }
+.miss { color: var(--miss); font-weight: 600; }
+tr.us td { background: var(--fjord-tint); }
+
+/* Two lists side by side */
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
+.split > div { min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+ul { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: 0.45rem; }
+.figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.figure { display: flex; flex-direction: column; gap: 0.2rem; border-top: 2px solid var(--fjord); padding-top: 0.5rem; min-width: 0; }
+.figure .v { font-family: var(--f-mono); font-size: 1.35rem; font-weight: 600; }
+.figure .k { font-size: 0.86rem; color: var(--muted); line-height: 1.4; }
+
+/* Chart */
+figure { margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.chart .tick { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+.chart .val { fill: var(--ink); font-family: var(--f-mono); font-size: 11px; font-weight: 600; }
+.chart .bar { fill: var(--fjord); }
+.chart .gap { fill: var(--panel); }
+.chart .gaplabel { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+figcaption { font-size: 0.88rem; color: var(--muted); }
+
+ol.causes { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.note { border-left: 3px solid var(--rule); padding-left: 0.9rem; color: var(--muted); font-size: 0.93rem; }
+footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: 0.86rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.4rem; }
+
+@media (max-width: 640px) {
+  .decision, .split { grid-template-columns: minmax(0, 1fr); }
+  .figures { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .row.pick { transition: background-color 0.2s ease; }
+}
+</style>
+
+<main class="page">
+
+<header style="display:flex;flex-direction:column;gap:1rem">
+  <span class="eyebrow">Lappi · v0.1 preview · 6 October 2026</span>
+  <h1>A 2B model that picks an option, or says it should not answer.</h1>
+  <p class="lead">Lappi is a typed decision model fine-tuned from Qwen3.5-2B-Base. It never writes a
+  sentence: each answer is one token read from 17 rows of its output layer. This page tells the
+  story of its first 17 days, with the numbers it was held to.</p>
+  <span class="status">Preview, not promoted: it missed 2 of 6 pre-registered lines</span>
+</header>
+
+<section aria-labelledby="one">
+  <h2 id="one">One decision, read off 17 rows</h2>
+  <div class="decision">
+    <div class="request">
+      <p>A real request from the load test, served on an Apple M5 Pro through the project's Rust
+      runtime:</p>
+      <dl>
+        <dt>Task</dt><dd><code>decider.routing</code></dd>
+        <dt>Context</dt><dd>What is the main reason for your message?<br><em>how do i export my report as pdf?</em></dd>
+        <dt>Question</dt><dd>Which option fits the message, as the question above asks?</dd>
+        <dt>Answer</dt><dd><strong>inquiry</strong>, score <span class="num">0.986</span>, not an abstention</dd>
+      </dl>
+      <p>Options fill the letters from A down. The abstain row, <code>Z. noul</code>, is always the
+      last row: it competes for probability like an option but is never one. That is a design
+      choice, not a measured advantage: on its own it did not make out-of-distribution abstention
+      pass. Each question is asked twice, the second time with the options in a different order, and
+      if the two answers differ Lappi abstains.</p>
+    </div>
+    <div class="slice" role="img" aria-label="The 17-row letter slice for this request: options A to F filled, D (inquiry) chosen, G to P unused, Z the abstain row">
+      <div class="slice-head">17-row slice</div>
+      <div class="row"><span class="l">A</span><span class="o">account_login</span><span class="s"></span></div>
+      <div class="row"><span class="l">B</span><span class="o">billing_issue</span><span class="s"></span></div>
+      <div class="row"><span class="l">C</span><span class="o">feature_request</span><span class="s"></span></div>
+      <div class="row pick"><span class="l">D</span><span class="o">inquiry</span><span class="s">0.986</span></div>
+      <div class="row"><span class="l">E</span><span class="o">misc</span><span class="s"></span></div>
+      <div class="row"><span class="l">F</span><span class="o">technical_bug</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">G</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">H</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">I</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">J</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">K</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">L</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">M</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">N</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">O</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row empty"><span class="l">P</span><span class="o">unused</span><span class="s"></span></div>
+      <div class="row noul"><span class="l">Z</span><span class="o">noul (abstain)</span><span class="s"></span></div>
+    </div>
+  </div>
+  <p class="muted small">A full decision takes about 72 ms at a 124-token prompt and 2.3 s at 8,185
+  tokens on the M5 Pro. That is what the base model costs too: only the weights differ.</p>
+</section>
+
+<section aria-labelledby="bar">
+  <h2 id="bar">The bar it was held to</h2>
+  <p>The released weights are the plain mean of five training seeds. Before the average was scored,
+  a bar was written down: it had to be no worse than the weakest seed on six lines. It passed four.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Line (validation)</th><th>v0.1 preview</th><th>Weakest seed</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Choice top-1</td><td class="num">0.857</td><td class="num">0.828</td><td class="pass">pass</td></tr>
+        <tr><td>Same answer when options are reordered</td><td class="num">0.957</td><td class="num">0.929</td><td class="pass">pass</td></tr>
+        <tr><td>Abstains on normal questions (lower is better)</td><td class="num">4.6%</td><td class="num">8.2%</td><td class="pass">pass</td></tr>
+        <tr><td>Finds the changed hunk in long context</td><td class="num">1.000</td><td class="num">0.705</td><td class="pass">pass</td></tr>
+        <tr><td>Points at the evidence line (span)</td><td class="num">0.773</td><td class="num">0.907</td><td class="miss">miss</td></tr>
+        <tr><td>Abstains on inputs it was never trained for</td><td class="num">149 / 180</td><td class="num">152 / 180</td><td class="miss">miss</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The out-of-distribution line also fails its absolute bar of 90%. Prose got 60 of 60
+  abstentions, scrambled text 49 of 60, and unseen programming languages only 40 of 60. The span
+  line fell because averaging blended five span heads that point in nearly unrelated directions, so
+  this release does not serve span answers. The span line pools reading-comprehension answers and
+  code-change evidence lines, and on the code rows it is a weak test: the diff's <code>+</code>
+  markers show the changed lines (on an earlier run a pointer to a random added line scored 90.8%
+  where the head scored 92.3%). The author released it as a preview anyway.</p>
+</section>
+
+<section aria-labelledby="serves">
+  <h2 id="serves">What the preview serves</h2>
+  <div class="figures">
+    <div class="figure"><span class="v">21</span><span class="k">task families with choice questions served; 15 of them load-tested end to end</span></div>
+    <div class="figure"><span class="v">0.842</span><span class="k">choice top-1 on those 21 families (recomputed from the score row)</span></div>
+    <div class="figure"><span class="v">~91% / ~86%</span><span class="k">answered / precision at the 80% precision target, two-fold (recomputed)</span></div>
+  </div>
+  <div class="split">
+    <div>
+      <h3>Serves</h3>
+      <ul>
+        <li>Choice questions with 2 to 16 options: routing, policy, evidence, NLI, reading, science, intent and multiple choice.</li>
+        <li>A calibrated score per answer, fitted per question width.</li>
+        <li>A typed refusal for any task it was not trained on.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Does not serve</h3>
+      <ul>
+        <li><strong>Code-defect classification</strong>, the task it was built around: its trained request needs a span answer.</li>
+        <li>Span answers, and ordinal score slots.</li>
+        <li>Reliable 16-option answers: about half are refused, and calibration error there is 0.079, over its 0.05 limit.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="days">
+  <h2 id="days">Seventeen days</h2>
+  <p>The first commit was on 19 September and the preview shipped on 6 October. The log holds 1,087
+  commits; 1,060 were co-written with AI coding agents working in parallel under written rules. The
+  top rule: an agent may report that a gate failed, never move a threshold to make it pass.</p>
+  <figure>
+    <svg class="chart" viewBox="0 0 720 214" role="img" aria-label="Commits per day from 19 September to 6 October 2026: a first burst of 8, 22, 125 and 79, no commits from 23 to 27 September, then 2, 26, 83, a peak of 351 on 1 October, and 175, 132, 49, 30 and 5.">
+      <rect x="191.6" y="26" width="184.4" height="160" class="gap"/>
+      <text x="283.8" y="174" class="gaplabel" text-anchor="middle">no commits</text>
+      <line x1="44" x2="708" y1="186.0" y2="186.0" class="grid"/><text x="36" y="190.0" class="tick" text-anchor="end">0</text>
+      <line x1="44" x2="708" y1="146.0" y2="146.0" class="grid"/><text x="36" y="150.0" class="tick" text-anchor="end">100</text>
+      <line x1="44" x2="708" y1="106.0" y2="106.0" class="grid"/><text x="36" y="110.0" class="tick" text-anchor="end">200</text>
+      <line x1="44" x2="708" y1="66.0" y2="66.0" class="grid"/><text x="36" y="70.0" class="tick" text-anchor="end">300</text>
+      <line x1="44" x2="708" y1="26.0" y2="26.0" class="grid"/><text x="36" y="30.0" class="tick" text-anchor="end">400</text>
+      <rect x="51.4" y="182.8" width="22" height="3.2" class="bar"><title>09-19: 8 commits</title></rect>
+      <rect x="88.3" y="177.2" width="22" height="8.8" class="bar"><title>09-20: 22 commits</title></rect>
+      <rect x="125.2" y="136.0" width="22" height="50.0" class="bar"><title>09-21: 125 commits</title></rect>
+      <text x="136.2" y="130.0" class="val" text-anchor="middle">125</text>
+      <rect x="162.1" y="154.4" width="22" height="31.6" class="bar"><title>09-22: 79 commits</title></rect>
+      <text x="173.1" y="148.4" class="val" text-anchor="middle">79</text>
+      <rect x="383.4" y="185.2" width="22" height="0.8" class="bar"><title>09-28: 2 commits</title></rect>
+      <rect x="420.3" y="175.6" width="22" height="10.4" class="bar"><title>09-29: 26 commits</title></rect>
+      <rect x="457.2" y="152.8" width="22" height="33.2" class="bar"><title>09-30: 83 commits</title></rect>
+      <text x="468.2" y="146.8" class="val" text-anchor="middle">83</text>
+      <rect x="494.1" y="45.6" width="22" height="140.4" class="bar"><title>10-01: 351 commits</title></rect>
+      <text x="505.1" y="39.6" class="val" text-anchor="middle">351</text>
+      <rect x="531.0" y="116.0" width="22" height="70.0" class="bar"><title>10-02: 175 commits</title></rect>
+      <text x="542.0" y="110.0" class="val" text-anchor="middle">175</text>
+      <rect x="567.9" y="133.2" width="22" height="52.8" class="bar"><title>10-03: 132 commits</title></rect>
+      <text x="578.9" y="127.2" class="val" text-anchor="middle">132</text>
+      <rect x="604.8" y="166.4" width="22" height="19.6" class="bar"><title>10-04: 49 commits</title></rect>
+      <text x="615.8" y="160.4" class="val" text-anchor="middle">49</text>
+      <rect x="641.7" y="174.0" width="22" height="12.0" class="bar"><title>10-05: 30 commits</title></rect>
+      <rect x="678.6" y="184.0" width="22" height="2.0" class="bar"><title>10-06: 5 commits</title></rect>
+      <text x="62.4" y="204" class="tick" text-anchor="middle">09-19</text>
+      <text x="173.1" y="204" class="tick" text-anchor="middle">09-22</text>
+      <text x="283.8" y="204" class="tick" text-anchor="middle">09-25</text>
+      <text x="394.4" y="204" class="tick" text-anchor="middle">09-28</text>
+      <text x="505.1" y="204" class="tick" text-anchor="middle">10-01</text>
+      <text x="615.8" y="204" class="tick" text-anchor="middle">10-04</text>
+      <text x="689.6" y="204" class="tick" text-anchor="middle">10-06</text>
+    </svg>
+    <figcaption>Commits per day, 19 September to 6 October 2026, from the repository's log.</figcaption>
+  </figure>
+  <ol class="causes">
+    <li><strong>Cheapest model first.</strong> A 606K-parameter byte model trained from scratch set
+    the floor. A linear classifier beat it in 17 of 18 comparisons (best 80.97% against 88.5%), which
+    is what justified training the 2B.</li>
+    <li><strong>The 2B would not train on the Mac.</strong> A full run peaked at 80.8 GB on a 64 GB
+    machine. Training moved to a rented GH200, then to two H100s; that last box billed about $463.</li>
+    <li><strong>Five versions of the corpus.</strong> The project's own checks found 215 validation
+    questions overlapping MMLU and CommonsenseQA training rows. Abstain examples were rebuilt several
+    times, because refusing one kind of strange input did not carry over to another.</li>
+    <li><strong>Gates that would not move.</strong> The run before the final one failed four. The
+    final run failed out-of-distribution abstention on all five seeds. Definitions changed only by
+    the author's recorded decisions, never by an agent.</li>
+    <li><strong>One heavy job at a time.</strong> The Mac kernel-panicked twice on 2 October; heavy
+    jobs were serialised after that.</li>
+  </ol>
+</section>
+
+<section aria-labelledby="training">
+  <h2 id="training">How the training differs</h2>
+  <ul>
+    <li><strong>Labels by construction.</strong> Code-change rows come from a Rust mutation engine
+    that edits real open-source files with tree-sitter, so each label and evidence line is a fact
+    about the edit, not a model's guess.</li>
+    <li><strong>Pre-registration.</strong> Every run's bar was committed before its result was read.</li>
+    <li><strong>Controls.</strong> Shuffled-label training scored at chance on the four seeds where it
+    ran. A per-family linear baseline is the bar to beat; the pooled version of that check could
+    not run, one reason the preview is not promoted.</li>
+    <li><strong>Held-out families.</strong> Two task families are never read in training: the
+    trainer refuses their paths.</li>
+    <li><strong>Plain recipe.</strong> Supervised fine-tuning only, no RL: one epoch of 12,176 steps
+    per seed in PyTorch on two H100s, five seeds averaged.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="judges">
+  <h2 id="judges">Against other judges</h2>
+  <p><a href="https://github.com/chenmingtang830/jevarena">JevArena</a> asks a judge which of two
+  answers is better, over 849 pairs from JudgeBench, RM-Bench and RewardBench 2, each asked in both
+  orders. Local models only. It is not what Lappi was trained for.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Judge</th><th>Size</th><th>Domain macro</th><th>All pairs</th><th>Order consistency</th></tr></thead>
+      <tbody>
+        <tr class="us"><td>Lappi v0.1 preview</td><td class="num">2B</td><td class="num">0.534</td><td class="num">0.610</td><td class="num">0.716</td></tr>
+        <tr><td>Qwen3.5-2B, chat judge</td><td class="num">2B</td><td class="num">0.522</td><td class="num">0.646</td><td class="num">0.523</td></tr>
+        <tr><td>Qwen3.5-2B-Base, chat judge</td><td class="num">2B</td><td class="num">0.468</td><td class="num">0.569</td><td class="num">0.531</td></tr>
+        <tr><td>Gemma 4 E4B, no reasoning</td><td class="num">8.0B</td><td class="num">0.632</td><td class="num">0.812</td><td class="num">0.801</td></tr>
+        <tr><td>decider-2b v11, same base model, on CPU</td><td class="num">2B</td><td class="num">0.612</td><td class="num">0.719</td><td class="num">0.749</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>Against Qwen3.5-2B it ties: the difference is +0.035 in Qwen's favour, interval [−0.039, +0.094].</li>
+    <li>Gemma 4 E4B, about four times larger, is clearly better: +0.200 [+0.133, +0.257].</li>
+    <li>decider-2b, the same size on the same base model, is better too: +0.110 [+0.071, +0.157],
+    every pair answered in both orders. Judging which of two answers is better is one of its trained
+    tasks, and the harness asks it in its own request format with its own calibration; for Lappi it
+    is neither. It ran on the CPU in float32 because its Mac GPU path returned NaN, so its speed is
+    not compared. Only differences against Lappi were computed: decider-2b and Gemma are not ranked
+    against each other.</li>
+    <li>Outside RewardBench 2's Ties domain, Lappi is near chance.</li>
+    <li><strong>On RM-Bench's code pairs it scores 0.111.</strong> Of 108 calls it said "tie" on 53,
+    chose the broken program on 43 and the correct one on 12. Those pairs reach it as a "which answer
+    is better" question, through its weakest family (pairwise helpfulness, 2% of training), not the
+    code-defect question it was trained on.</li>
+  </ul>
+  <h3>Its own code question, on the same kind of programs</h3>
+  <p>A diagnostic probe asked Lappi its trained code-defect question about each program, rendered as
+  a whole-file diff. A pair counts as separated when the correct program gets the higher probability
+  of <code>clean</code>.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Pairs</th><th>Count</th><th>Separated [95%]</th></tr></thead>
+      <tbody>
+        <tr><td>A commit's real file vs the same file with a planted mutation</td><td class="num">85</td><td class="num">0.906 [0.835, 0.965]</td></tr>
+        <tr><td>RM-Bench: correct vs broken program (Go, Python, Rust)</td><td class="num">125</td><td class="num">0.536 [0.448, 0.624]</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>It recognises the logic and stub mutations it was trained on (not cosmetic ones), but it does
+  not tell RM-Bench's correct programs from the broken ones: it calls most of both
+  <code>clean</code>. Before reading either arm, the probe checked that it reads the model correctly:
+  0.956 top-1 on all 2,304 validation rows of the code task, where the ledger has 0.950-0.958.</p>
+  <h3>Gemma 4 E4B with reasoning on</h3>
+  <p>On a 191-pair subset with no tie answers, scored against the other judges on the same pairs:
+  Gemma 4 E4B reaches 0.816 with reasoning and 0.721 without, against 0.571 for Lappi (with
+  reasoning minus Lappi: +0.245 [+0.122, +0.347]). With reasoning it takes about 14 s per verdict
+  in the harness; Lappi takes about 0.24 s. decider-2b scores 0.707 on the same pairs (minus Lappi:
+  +0.136 [+0.048, +0.226]).</p>
+  <p><a href="https://claude.ai/artifact/Hdq9CDPFQrqN6DJLnkKNEd">The full JevArena results</a></p>
+  <p class="note">Other small typed-decision models appeared the week this started: TypeSafe's Jev,
+  Bespoke's Nimble, and decider-2b on the same base model. Only decider-2b was run head to head,
+  above. Jev's and Nimble's published numbers use other tasks and metrics, so they are not ranked
+  against Lappi.</p>
+</section>
+
+<section aria-labelledby="next">
+  <h2 id="next">What comes next</h2>
+  <ul>
+    <li>Serve the code-defect task: a release whose span calibration exists, or a trained
+    choice-only request.</li>
+    <li>Rebuild the span head so it survives averaging: refit it on the averaged weights, keep one
+    seed's head, or start every seed from one shared head. A refit, compared with one seed's head,
+    is being set up first.</li>
+    <li>Fix abstention on unseen languages, and make the code-defect skill reach bugs it did not
+    plant itself.</li>
+    <li>Publish the weights, model card and source. Each waits on the author's decision.</li>
+  </ul>
+</section>
+
+<footer>
+  <span>Figures come from the project's release notes, benchmark handoff and results files,
+  pre-registration and ledger. The served-family figures (21, 0.842, ~91% / ~86%) were recomputed
+  from the same score row's per-question verdicts.</span>
+  <span>Drafted 6 October 2026.</span>
+</footer>
+
+</main>
