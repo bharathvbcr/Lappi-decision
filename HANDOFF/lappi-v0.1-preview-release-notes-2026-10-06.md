@@ -16,7 +16,7 @@ mutation-labelled distribution only. Transfer to naturally occurring defects is 
 | | |
 |---|---|
 | Release directory | `/Users/bharath/qd-campaign/preview-2026-10-05/release-lappi-v0.1-preview/` |
-| Built by | `qd-export` at a766fcf (branch `preview-export-train-manifest-bound`, not merged) |
+| Built by | `qd-export` at a766fcf (branch `preview-export-train-manifest-bound`; merged into main 2026-10-06 as f23c890) |
 | weight_hash | `6f7b9ba73bca3a0b2e4ec9b2c0fc2aa6e7459f7e3286b26386633a222667dfcb`: 320 tower tensors, equal to the 10-05 trial export's |
 | tokenizer_hash | `fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927` (Qwen3.5-2B-Base, snapshot b1485b2f) |
 | calibration_hash | `7e56b34e378907adccc7cfc0a086507d81c762ed6627694a0a59c3c977aeb677`: `qd-calib-fit --population all --target-precision 0.80` |
