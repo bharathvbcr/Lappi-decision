@@ -35,10 +35,11 @@
 //! option of each validation row ([`Selection::BestOption`]) rather than per example.
 
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::ngram::Csr;
 use crate::pairwise::pairwise_sum;
+use crate::team::{Job, SharedF64s, with_team};
 
 /// `_train_once`'s Adam constants, fixed there and here.
 const BETA1: f64 = 0.9;
@@ -225,6 +226,8 @@ fn parallel<T: Send, R>(
     meanwhile: impl FnOnce() -> R,
 ) -> R {
     let workers = threads.clamp(1, items.len().max(1));
+    #[cfg(test)]
+    crate::team::STARTED.with(|s| s.set(s.get() + workers));
     let queue = Mutex::new(items.into_iter());
     std::thread::scope(|scope| {
         for _ in 0..workers {
@@ -243,19 +246,26 @@ fn parallel<T: Send, R>(
 }
 
 /// `X @ W + b` for one row into `z` (`k` values): the products in the row's column order,
-/// summed from zero, then the bias added -- `CSR.matmul(W) + b`.
+/// summed from zero, then the bias added -- `CSR.matmul(W) + b`. `w_row(at)` yields `W`'s `k`
+/// values from flat index `at` and `b(c)` the bias, so the fit's shared cells and a scoring
+/// pass's plain slices take the same arithmetic.
 #[inline(always)]
-fn logits_row(cols: &[u32], vals: &[f64], w: &[f64], b: &[f64], z: &mut [f64]) {
+fn logits_row<R: IntoIterator<Item = f64>>(
+    cols: &[u32],
+    vals: &[f64],
+    w_row: impl Fn(usize) -> R,
+    b: impl Fn(usize) -> f64,
+    z: &mut [f64],
+) {
     let k = z.len();
     z.fill(0.0);
     for (&c, &v) in cols.iter().zip(vals) {
-        let wr = &w[c as usize * k..c as usize * k + k];
-        for (zc, wc) in z.iter_mut().zip(wr) {
+        for (zc, wc) in z.iter_mut().zip(w_row(c as usize * k)) {
             *zc += v * wc;
         }
     }
-    for (zc, bc) in z.iter_mut().zip(b) {
-        *zc += bc;
+    for (j, zc) in z.iter_mut().enumerate() {
+        *zc += b(j);
     }
 }
 
@@ -349,7 +359,7 @@ fn logits(rows: Rows<'_>, w: &[f64], b: &[f64], threads: usize) -> Vec<f64> {
         |(start, chunk): (usize, &mut [f64])| {
             for (j, z) in chunk.chunks_exact_mut(k).enumerate() {
                 let (cols, vals) = rows.row(start + j);
-                logits_row(cols, vals, w, b, z);
+                logits_row(cols, vals, |at| w[at..at + k].iter().copied(), |c| b[c], z);
             }
         },
         || (),
@@ -357,23 +367,21 @@ fn logits(rows: Rows<'_>, w: &[f64], b: &[f64], threads: usize) -> Vec<f64> {
     out
 }
 
-/// Phase A's unit of work: rows `start..`, and their slices of `diff` and the loss terms.
-struct RowRun<'s> {
-    start: usize,
-    diff: &'s mut [f64],
-    log_terms: &'s mut [f64],
-}
-
-/// Phase B's unit of work: columns `start..`, their gradient rows and their next `W`, `m`, `v`.
-struct ColumnRun<'s> {
-    start: usize,
-    grad: &'s mut [f64],
-    w: &'s mut [f64],
-    m: &'s mut [f64],
-    v: &'s mut [f64],
-}
-
 /// `_train_once(X, y, n_classes, l2)` with `W` initialised to `w0`.
+///
+/// Each iteration is two phases on one [`crate::team`] team, started once per call: phase A
+/// over runs of rows, phase B over runs of columns, with the leader's reductions between and
+/// beside them. Every element is still written by exactly one item in a fixed order, so the
+/// result does not depend on the thread count or on which thread runs which item.
+///
+/// The two loops over the nonzeros read plain slices, so the compiler can vectorize their
+/// `k`-wide multiply-add as the threads-per-phase loop did: phase A reads `W` from `w_now`,
+/// phase B reads `diff` from `diff_now`, each a snapshot the leader copies between phases
+/// (`d * k` and `n * k` values an iteration). Everything else the phases share is
+/// [`SharedF64s`] cells. Phase B writes the Adam step's `W` into `w_next`, and the leader copies
+/// it into `w_now` only when the gradient missed the tolerance, so a converged fit returns the
+/// `W` whose gradient was measured, as the reference's `break` does; `m` and `v` are updated in
+/// place, since a converged fit discards them.
 fn train_once(
     rows: Rows<'_>,
     n_cols: usize,
@@ -389,17 +397,18 @@ fn train_once(
     let csc = transpose(rows, n_cols);
     let dk = n_cols * k;
 
-    let mut w = w0.to_vec();
-    let mut b = vec![0f64; k];
-    let (mut mw, mut vw) = (vec![0f64; dk], vec![0f64; dk]);
+    let w_now = RwLock::new(w0.to_vec());
+    let w_next = SharedF64s::zeros(dk);
+    let mw = SharedF64s::zeros(dk);
+    let vw = SharedF64s::zeros(dk);
+    let b = SharedF64s::zeros(k);
+    let gw = SharedF64s::zeros(dk);
+    let diff = SharedF64s::zeros(n * k);
+    let diff_now = RwLock::new(vec![0f64; n * k]);
+    let log_terms = SharedF64s::zeros(n * k);
+    // This iteration's step and bias corrections, written by the leader before phase B.
+    let step = SharedF64s::zeros(3);
     let (mut mb, mut vb) = (vec![0f64; k], vec![0f64; k]);
-    // Phase B writes the gradient and, speculatively, the Adam step's next W, m and v; they
-    // are swapped in only when the gradient did not meet the tolerance, so a converged fit
-    // returns the W whose gradient was measured, as the reference's `break` does.
-    let mut gw = vec![0f64; dk];
-    let (mut w_next, mut mw_next, mut vw_next) = (vec![0f64; dk], vec![0f64; dk], vec![0f64; dk]);
-    let mut diff = vec![0f64; n * k];
-    let mut log_terms = vec![0f64; n * k];
     let mut history = Vec::new();
     let (mut converged, mut grad_norm, mut it) = (false, f64::INFINITY, 0u32);
 
@@ -410,163 +419,149 @@ fn train_once(
     let two_l2 = 2.0 * l2;
     let (one_minus_b1, one_minus_b2) = (1.0 - BETA1, 1.0 - BETA2);
 
-    for step in 1..=hyper.max_iter {
-        it = step;
-        // Phase A, one thread per row: P = softmax(X @ W + b), the loss's Y * log(clip(P)),
-        // and diff = (P - Y) / n. Meanwhile: the loss's sum(W * W).
-        let sum_ww = {
-            let (w, b) = (&w, &b);
-            let items: Vec<RowRun<'_>> = row_bounds
-                .iter()
-                .copied()
-                .zip(cut(&mut diff, &row_bounds, k))
-                .zip(cut(&mut log_terms, &row_bounds, k))
-                .map(|((start, diff), log_terms)| RowRun {
-                    start,
-                    diff,
-                    log_terms,
-                })
-                .collect();
-            parallel(
-                items,
-                threads,
-                |run: RowRun<'_>| {
-                    let mut z = vec![0f64; k];
-                    let mut e = vec![0f64; k];
-                    for (j, (d_row, l_row)) in run
-                        .diff
-                        .chunks_exact_mut(k)
-                        .zip(run.log_terms.chunks_exact_mut(k))
-                        .enumerate()
-                    {
-                        let r = run.start + j;
-                        let (cols, vals) = rows.row(r);
-                        logits_row(cols, vals, w, b, &mut z);
-                        // _softmax: z - z.max(axis=1), exp, / its pairwise row sum.
-                        let mut m = z[0];
-                        for v in &z[1..] {
-                            if *v > m {
-                                m = *v;
-                            }
-                        }
-                        for (ec, zc) in e.iter_mut().zip(&z) {
-                            *ec = (zc - m).exp();
-                        }
-                        let s = pairwise_sum(k, &|c| e[c]);
-                        let label = y[r] as usize;
-                        for c in 0..k {
-                            let p = e[c] / s;
-                            let yc = if c == label { 1.0 } else { 0.0 };
-                            let clipped = if p < P_FLOOR { P_FLOOR } else { p };
-                            l_row[c] = yc * clipped.ln();
-                            d_row[c] = (p - yc) / n_f;
-                        }
-                    }
-                },
-                || pairwise_sum(dk, &|i| w[i] * w[i]),
-            )
-        };
-
-        // Phase B, one thread per column: gW = X.T @ diff + (2*l2)*W, and the Adam step
-        // computed ahead. Meanwhile: the loss, and gb = diff.sum(axis=0) down each column.
-        let bias_correction1 = 1.0 - BETA1.powf(f64::from(step));
-        let bias_correction2 = 1.0 - BETA2.powf(f64::from(step));
-        let lr = step_size(hyper.lr, step);
-        let (loss, gb) = {
-            let (w_ref, mw_ref, vw_ref, diff_ref) = (&w, &mw, &vw, &diff);
-            let csc = &csc;
-            let items: Vec<ColumnRun<'_>> = col_bounds
-                .iter()
-                .copied()
-                .zip(cut(&mut gw, &col_bounds, k))
-                .zip(cut(&mut w_next, &col_bounds, k))
-                .zip(cut(&mut mw_next, &col_bounds, k))
-                .zip(cut(&mut vw_next, &col_bounds, k))
-                .map(|((((start, grad), w), m), v)| ColumnRun {
-                    start,
-                    grad,
-                    w,
-                    m,
-                    v,
-                })
-                .collect();
-            parallel(
-                items,
-                threads,
-                |run: ColumnRun<'_>| {
-                    let mut g = vec![0f64; k];
-                    for (j, (((g_row, w_row), m_row), v_row)) in run
-                        .grad
-                        .chunks_exact_mut(k)
-                        .zip(run.w.chunks_exact_mut(k))
-                        .zip(run.m.chunks_exact_mut(k))
-                        .zip(run.v.chunks_exact_mut(k))
-                        .enumerate()
-                    {
-                        let col = run.start + j;
-                        g.fill(0.0);
-                        for e in csc.col_ptr[col]..csc.col_ptr[col + 1] {
-                            let r = csc.rows[e] as usize;
-                            let v = csc.vals[e];
-                            for (gc, dc) in g.iter_mut().zip(&diff_ref[r * k..r * k + k]) {
-                                *gc += v * dc;
-                            }
-                        }
-                        for c in 0..k {
-                            let i = col * k + c;
-                            let grad = g[c] + two_l2 * w_ref[i];
-                            g_row[c] = grad;
-                            let m1 = mw_ref[i] * BETA1 + one_minus_b1 * grad;
-                            let v1 = vw_ref[i] * BETA2 + one_minus_b2 * (grad * grad);
-                            let mhat = m1 / bias_correction1;
-                            let vhat = v1 / bias_correction2;
-                            m_row[c] = m1;
-                            v_row[c] = v1;
-                            w_row[c] = w_ref[i] - (lr * mhat) / (vhat.sqrt() + EPS);
-                        }
-                    }
-                },
-                || {
-                    let sum_log = pairwise_sum(n * k, &|i| log_terms[i]);
-                    let loss = (-sum_log) / n_f + l2 * sum_ww;
-                    let mut gb = vec![0f64; k];
-                    for row in diff.chunks_exact(k) {
-                        for (s, d) in gb.iter_mut().zip(row) {
-                            *s += d;
-                        }
-                    }
-                    (loss, gb)
-                },
-            )
-        };
-        history.push(loss);
-
-        grad_norm =
-            (pairwise_sum(dk, &|i| gw[i] * gw[i]) + pairwise_sum(k, &|c| gb[c] * gb[c])).sqrt();
-        if grad_norm < hyper.tol {
-            converged = true;
-            break;
+    // Phase A, one item per run of rows: P = softmax(X @ W + b), the loss's
+    // Y * log(clip(P)), and diff = (P - Y) / n.
+    let phase_a = |item: usize| {
+        let w_guard = read(&w_now);
+        // A plain slice, bound once per item: indexed through the guard, the hot loop reloads
+        // the Vec's pointer and length for every nonzero (its stores to `z` may alias them, as
+        // far as the compiler can tell), ~10% of phase A on the H100 box (box_ab8, box_ab9).
+        let w: &[f64] = &w_guard;
+        let mut z = vec![0f64; k];
+        let mut e = vec![0f64; k];
+        for r in row_bounds[item]..row_bounds[item + 1] {
+            let (cols, vals) = rows.row(r);
+            logits_row(
+                cols,
+                vals,
+                |at| w[at..at + k].iter().copied(),
+                |c| b.get(c),
+                &mut z,
+            );
+            // _softmax: z - z.max(axis=1), exp, / its pairwise row sum.
+            let mut m = z[0];
+            for v in &z[1..] {
+                if *v > m {
+                    m = *v;
+                }
+            }
+            for (ec, zc) in e.iter_mut().zip(&z) {
+                *ec = (zc - m).exp();
+            }
+            let s = pairwise_sum(k, &|c| e[c]);
+            let label = y[r] as usize;
+            for c in 0..k {
+                let p = e[c] / s;
+                let yc = if c == label { 1.0 } else { 0.0 };
+                let clipped = if p < P_FLOOR { P_FLOOR } else { p };
+                log_terms.set(r * k + c, yc * clipped.ln());
+                diff.set(r * k + c, (p - yc) / n_f);
+            }
         }
-        std::mem::swap(&mut w, &mut w_next);
-        std::mem::swap(&mut mw, &mut mw_next);
-        std::mem::swap(&mut vw, &mut vw_next);
-        for c in 0..k {
-            let grad = gb[c];
-            mb[c] = mb[c] * BETA1 + one_minus_b1 * grad;
-            vb[c] = vb[c] * BETA2 + one_minus_b2 * (grad * grad);
-            let mhat = mb[c] / bias_correction1;
-            let vhat = vb[c] / bias_correction2;
-            b[c] -= (lr * mhat) / (vhat.sqrt() + EPS);
+    };
+    // Phase B, one item per run of columns: gW = X.T @ diff + (2*l2)*W, and the Adam step.
+    let phase_b = |item: usize| {
+        let (w_guard, d_guard) = (read(&w_now), read(&diff_now));
+        // Plain slices, bound once per item, as in phase A.
+        let (w, d): (&[f64], &[f64]) = (&w_guard, &d_guard);
+        let (lr, bias_correction1, bias_correction2) = (step.get(0), step.get(1), step.get(2));
+        let mut g = vec![0f64; k];
+        for col in col_bounds[item]..col_bounds[item + 1] {
+            g.fill(0.0);
+            for e in csc.col_ptr[col]..csc.col_ptr[col + 1] {
+                let r = csc.rows[e] as usize;
+                let v = csc.vals[e];
+                for (gc, dc) in g.iter_mut().zip(&d[r * k..r * k + k]) {
+                    *gc += v * dc;
+                }
+            }
+            for (c, &gc) in g.iter().enumerate() {
+                let i = col * k + c;
+                let grad = gc + two_l2 * w[i];
+                gw.set(i, grad);
+                let m1 = mw.get(i) * BETA1 + one_minus_b1 * grad;
+                let v1 = vw.get(i) * BETA2 + one_minus_b2 * (grad * grad);
+                let mhat = m1 / bias_correction1;
+                let vhat = v1 / bias_correction2;
+                mw.set(i, m1);
+                vw.set(i, v1);
+                w_next.set(i, w[i] - (lr * mhat) / (vhat.sqrt() + EPS));
+            }
         }
-    }
+    };
+    let jobs: [Job<'_>; 2] = [&phase_a, &phase_b];
+    let (row_items, col_items) = (row_bounds.len() - 1, col_bounds.len() - 1);
+
+    with_team(threads, &jobs, |team| {
+        for t in 1..=hyper.max_iter {
+            it = t;
+            // Meanwhile: the loss's sum(W * W).
+            let sum_ww = team.run(0, row_items, || {
+                let w = read(&w_now);
+                pairwise_sum(dk, &|i| w[i] * w[i])
+            });
+
+            diff.copy_to(&mut write(&diff_now));
+            let bias_correction1 = 1.0 - BETA1.powf(f64::from(t));
+            let bias_correction2 = 1.0 - BETA2.powf(f64::from(t));
+            let lr = step_size(hyper.lr, t);
+            step.set(0, lr);
+            step.set(1, bias_correction1);
+            step.set(2, bias_correction2);
+            // Meanwhile: the loss, and gb = diff.sum(axis=0) down each column.
+            let (loss, gb) = team.run(1, col_items, || {
+                let sum_log = pairwise_sum(n * k, &|i| log_terms.get(i));
+                let loss = (-sum_log) / n_f + l2 * sum_ww;
+                let d = read(&diff_now);
+                let mut gb = vec![0f64; k];
+                for row in d.chunks_exact(k) {
+                    for (s, dc) in gb.iter_mut().zip(row) {
+                        *s += dc;
+                    }
+                }
+                (loss, gb)
+            });
+            history.push(loss);
+
+            grad_norm = (pairwise_sum(dk, &|i| {
+                let g = gw.get(i);
+                g * g
+            }) + pairwise_sum(k, &|c| gb[c] * gb[c]))
+            .sqrt();
+            if grad_norm < hyper.tol {
+                converged = true;
+                break;
+            }
+            w_next.copy_to(&mut write(&w_now));
+            for c in 0..k {
+                let grad = gb[c];
+                mb[c] = mb[c] * BETA1 + one_minus_b1 * grad;
+                vb[c] = vb[c] * BETA2 + one_minus_b2 * (grad * grad);
+                let mhat = mb[c] / bias_correction1;
+                let vhat = vb[c] / bias_correction2;
+                b.set(c, b.get(c) - (lr * mhat) / (vhat.sqrt() + EPS));
+            }
+        }
+    });
     Trained {
-        w,
-        b,
+        w: w_now.into_inner().unwrap_or_else(PoisonError::into_inner),
+        b: b.to_vec(),
         converged,
         iterations: it,
         grad_norm,
         history,
     }
+}
+
+/// A read guard on a snapshot no writer holds during a phase (poisoning is not a state here:
+/// a panic anywhere in the fit panics the fit).
+fn read(lock: &RwLock<Vec<f64>>) -> RwLockReadGuard<'_, Vec<f64>> {
+    lock.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The leader's write guard on a snapshot, taken only between phases.
+fn write(lock: &RwLock<Vec<f64>>) -> RwLockWriteGuard<'_, Vec<f64>> {
+    lock.write().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// `LinearBaseline.fit(docs, labels)` on `x` (every training row, in input order) and the
@@ -792,6 +787,29 @@ mod tests {
                 assert_eq!(many, one, "k={k}, {threads} threads");
             }
         }
+    }
+
+    /// The threads a fit starts must not grow with its iterations: on the H100 box each thread
+    /// start cost ~32 us, and starting them for each of an iteration's two phases was ~3.4 ms an
+    /// iteration at 52 threads (2026-10-04, `examples/linfit_bench.rs`).
+    #[test]
+    fn a_fit_starts_its_threads_per_training_run_not_per_iteration() {
+        let (x, y, w0) = problem(97, 64, 3);
+        let ord = order(97);
+        let started = |max_iter: u32| {
+            let mut h = hyper(3, max_iter);
+            // Never met, so every training run takes exactly max_iter iterations.
+            h.tol = 0.0;
+            let before = crate::team::STARTED.with(std::cell::Cell::get);
+            let got = fit(&x, &y, &ord, 19, &w0, &x, &h, TOP1, 4).expect("fits");
+            assert_eq!(got.refit.iterations, max_iter);
+            crate::team::STARTED.with(std::cell::Cell::get) - before
+        };
+        let (short, long) = (started(10), started(40));
+        assert_eq!(
+            long, short,
+            "40 iterations started {long} threads, 10 started {short}"
+        );
     }
 
     #[test]

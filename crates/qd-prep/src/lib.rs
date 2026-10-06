@@ -19,6 +19,8 @@
 //!   complete pair list, the v5 decontamination scan (the Python gold-side scan of 2026-10-02
 //!   peaked at 17.4 GB). [`pyunicode`] is Python's `\w` and `str.lower()`, from tables read
 //!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
+//! - [`team`]: threads started once and reused for every phase of the fit's loop, which
+//!   started them twice an iteration (~3.4 ms an iteration at 52 threads on the H100 box).
 
 pub mod blake2b;
 pub mod containment;
@@ -33,4 +35,5 @@ pub mod pyunicode;
 #[rustfmt::skip]
 mod pyunicode_tables;
 pub mod sha256;
+pub mod team;
 pub mod wire;
