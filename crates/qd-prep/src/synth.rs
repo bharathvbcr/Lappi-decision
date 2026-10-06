@@ -707,6 +707,7 @@ pub fn build(
         "selected": ex.selected,
         "noul_gold_selected": ex.noul,
         "gold_position": ex.gold_position,
+        "val_without_train": ex.val_without_train,
         "assembly": assembled.report,
         "generator": generator_report,
         "decontamination": scanned.report,

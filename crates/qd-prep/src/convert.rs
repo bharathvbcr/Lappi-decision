@@ -713,6 +713,7 @@ pub fn build(
         "selected": ex.selected,
         "noul_gold_selected": ex.noul,
         "gold_position": ex.gold_position,
+        "val_without_train": ex.val_without_train,
         "gold_class": gold_class_counts(clean),
         "yes_share": yes_share,
         "notes": facts.notes,

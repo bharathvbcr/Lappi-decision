@@ -133,6 +133,10 @@ pub struct Examples {
     /// Per family: rows by the gold option's position, or `noul`. A source whose gold sits in
     /// one position is visible here (the PriDe lever).
     pub gold_position: Value,
+    /// Strata and families with val rows and no train rows
+    /// ([`decisions::val_strata_without_train`]): a val row there measures something the model
+    /// never trained on. Report only; nothing is dropped (rule 2).
+    pub val_without_train: Value,
 }
 
 /// Serialise `rows` in the `qd-decisions/v1` row format (`decisions::example_json`).
@@ -164,7 +168,12 @@ pub fn examples(rows: &[&Candidate]) -> Result<Examples, String> {
             .entry(pos)
             .or_default() += 1;
     }
+    let avail: BTreeMap<String, decisions::Avail> = selected
+        .iter()
+        .map(|(k, (t, v))| ((*k).to_owned(), decisions::Avail { train: *t, val: *v }))
+        .collect();
     Ok(Examples {
+        val_without_train: decisions::val_without_train_json(&avail),
         sha256: sha256_hex(&bytes),
         bytes,
         rows: rows.len(),
@@ -249,6 +258,26 @@ mod tests {
         assert_eq!(e.gold_position["t.family"]["noul"], 1);
         assert_eq!(e.bytes.iter().filter(|b| **b == b'\n').count(), 2);
         assert_eq!(e.sha256, sha256_hex(&e.bytes));
+    }
+
+    /// A stratum with val rows and no train row is reported at the seam, so every producer
+    /// (synth and convert, not only decisions) names it; nothing is dropped.
+    #[test]
+    fn a_val_only_stratum_is_reported_and_kept() {
+        let mut only_val = cand("c", "z", Gold::Option(0), "val");
+        only_val.stratum = "t.family/val-only".to_owned();
+        let rows = [
+            cand("a", "x", Gold::Option(1), "train"),
+            cand("b", "y", Gold::Option(0), "val"),
+            only_val,
+        ];
+        let refs: Vec<&Candidate> = rows.iter().collect();
+        let e = examples(&refs).unwrap();
+        assert_eq!(e.rows, 3);
+        assert_eq!(
+            e.val_without_train,
+            json!({"strata": {"t.family/val-only": 1}, "families": {}})
+        );
     }
 
     #[test]

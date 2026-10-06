@@ -1767,7 +1767,7 @@ pub fn val_families_without_train(by_stratum: &BTreeMap<String, Avail>) -> BTree
 }
 
 /// The manifest's `val_without_train` block over one availability table.
-fn val_without_train_json(by_stratum: &BTreeMap<String, Avail>) -> Value {
+pub(crate) fn val_without_train_json(by_stratum: &BTreeMap<String, Avail>) -> Value {
     json!({"strata": val_strata_without_train(by_stratum),
            "families": val_families_without_train(by_stratum)})
 }

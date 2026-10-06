@@ -1746,7 +1746,10 @@ def general_rows(record: Path, *, max_rows_per_file: int = DEFAULT_GENERAL_MAX_R
                     f"{path.parent}/intent_names.json holds {len(names)} names but the fetch "
                     f"record says {entry['n_intent_names']}"
                 )
-            parsed = [parse_clinc(r, index=i, label_names=names) for i, r in enumerate(rows)]
+            parsed = [
+                parse_clinc(r, index=i, label_names=names, split_name=split_name)
+                for i, r in enumerate(rows)
+            ]
         else:
             parsed = [parse_squad(r, index=i) for i, r in enumerate(rows)]
         out.setdefault(dataset, []).extend(parsed)

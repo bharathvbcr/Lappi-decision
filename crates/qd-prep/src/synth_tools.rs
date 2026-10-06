@@ -51,14 +51,9 @@ use crate::synth::{Config, Draft, Generated, Scope};
 pub const FAMILY: &str = "apps.tool_select";
 pub const CATALOG_SCHEMA: &str = "qd-tool-catalog/v1";
 pub const PHRASINGS_SCHEMA: &str = "qd-tool-phrasings/v1";
-/// Lane 4's three actions and question, verbatim (`convert_tools.rs` ASK, UNABLE, DIRECT,
-/// QUESTION). Converge on one owner when the lanes merge.
-pub const ASK: &str = "Ask the user a clarifying question";
-pub const UNABLE: &str = "Say it cannot help with the available tools";
-pub const DIRECT: &str = "Answer directly without calling a tool";
-pub const QUESTION: &str = "What should the assistant do next: call one of the listed tools (by \
-     name), ask the user a clarifying question, say it cannot help with the available tools, or \
-     answer directly?";
+/// The three actions and the question have one owner, the converted tool families'
+/// (`convert_tools`), so a synthetic row and a converted row are one task by construction.
+pub use crate::convert_tools::{ASK, DIRECT, QUESTION, UNABLE};
 /// Tools offered per row: plus the three actions, `decisions::MAX_OPTIONS` (16).
 pub const MAX_OFFERED: usize = decisions::MAX_OPTIONS - 3;
 const MIN_OFFERED: usize = 4;
