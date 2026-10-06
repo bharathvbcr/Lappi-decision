@@ -107,6 +107,11 @@ change. No speedup is claimed before the benchmark exists.
 - **The GH200 post-training tail:** ~10 min of single-thread Python, then ~5 min idle before the needle control, on each J6 run [V, the 10-05 J6 logs].
 - **`tools/ft_linear_control.py`'s CPU phase:** the GH200's GPU idled 01:26:26-01:38:24Z during tierb3's control [V, `q-tierb3.log` launcher lines]. It runs on ~50 cores, so it is parallel, but not on the GPU.
 
+**Correction (read-only analysis, ~03:20Z 10-06; grep-based, because DevMap's DB was malformed). Neither window is a Rust-port target:**
+- **The linear control's Rust port already exists on main** (`qd-prep linfit`, 8f08c52). tierb3 ran a pre-port clone (884b658, inferred), and its 50-core phase is numpy GEMM. The fix is to run it from current main.
+- **The J6 tail is per-row GPU-to-host syncs in `_decode`, plus `--needle-control`'s startup** (a full split rebuild and a model reload). The fix is batching, and folding or caching that startup.
+- The GitPulse cards `lappi-rust-ft-linear-control` and `lappi-rust-gh200-post-train-tail` were rewritten to say so.
+
 ### Pre-registration
 
 `campaign/v6-<date>.md`, before any run. It carries:
