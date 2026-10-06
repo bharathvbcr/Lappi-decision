@@ -1953,6 +1953,8 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
             "available": val_without_train_json(&avail),
             "selected": val_without_train_json(&selected),
         },
+        "allocation": crate::pool::allocation(true, "the pinned config's train_caps, val cap \
+                 total and val floors chose `selected` from `available`"),
     });
     let mut balance_line = String::new();
     if let Some((band, report)) = &balance {

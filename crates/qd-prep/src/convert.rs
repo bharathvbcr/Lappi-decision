@@ -707,6 +707,9 @@ pub fn build(
         "licence_pending_registration": convert_licence::PENDING.iter()
             .map(|(id, n)| ((*id).to_owned(), json!(n))).collect::<serde_json::Map<_, _>>(),
         "caps": facts.caps,
+        "allocation": pool::allocation(false, "candidates: `caps` bounds what this pool converts \
+                 per source, not what a mixture draws; the v6 allocation over every pool decides \
+                 that, and the loader refuses this pool until then"),
         "dedupe": dedupe_report,
         "decontamination": decon,
         "id_checks": facts.id_checks,

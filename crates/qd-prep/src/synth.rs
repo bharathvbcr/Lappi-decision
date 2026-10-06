@@ -712,8 +712,9 @@ pub fn build(
         "generator": generator_report,
         "decontamination": scanned.report,
         "leak_probe": probes,
-        "caps": "none applied: these are candidates; the mixture's cap table and the defect-share \
-                 bound decide what is drawn",
+        "allocation": pool::allocation(false, "candidates: no cap table has drawn from these \
+                 rows; the v6 allocation over every pool (its cap table and the defect-share \
+                 bound) decides what enters a mixture, and the loader refuses this pool until then"),
         "examples": ex.rows, "examples_sha256": ex.sha256,
     });
     if !over_bound.is_empty() {

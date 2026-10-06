@@ -139,6 +139,26 @@ pub struct Examples {
     pub val_without_train: Value,
 }
 
+/// The manifest's `allocation.state` when a cap table chose the rows (`qd-prep decisions`).
+pub const ALLOCATION_APPLIED: &str = "applied";
+/// The manifest's `allocation.state` for a candidate pool no cap table has drawn from yet
+/// (`qd-prep synth`, `qd-prep convert`).
+pub const ALLOCATION_NOT_APPLIED: &str = "not_applied";
+
+/// The manifest's `allocation` block. `qd_data.decisions.load_decision_pool` admits only
+/// [`ALLOCATION_APPLIED`], so a candidate pool cannot enter a mixture until an allocation over
+/// every pool has drawn from it: otherwise families would be weighted by how many rows a
+/// generator or source happens to yield
+/// (GAP-V6-THREE-POOL-PRODUCERS-CAPS-APPLIED-IN-DECISIONS-ONLY-2026-10-06).
+pub fn allocation(applied: bool, detail: &str) -> Value {
+    let state = if applied {
+        ALLOCATION_APPLIED
+    } else {
+        ALLOCATION_NOT_APPLIED
+    };
+    json!({"state": state, "detail": detail})
+}
+
 /// Serialise `rows` in the `qd-decisions/v1` row format (`decisions::example_json`).
 pub fn examples(rows: &[&Candidate]) -> Result<Examples, String> {
     let mut bytes = Vec::new();

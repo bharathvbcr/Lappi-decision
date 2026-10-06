@@ -297,6 +297,15 @@ def test_the_loader_reads_a_pool_whole_grouped_by_source(tmp_path: Path) -> None
         ({"mode": "survey"}, "build pool is required"),
         ({"schema": "qd-decisions/v0"}, "build pool is required"),
         ({"examples": 2}, "the manifest records 2"),
+        # GAP-V6-THREE-POOL-PRODUCERS-CAPS-APPLIED-IN-DECISIONS-ONLY-2026-10-06: a candidate
+        # pool (qd-prep synth or convert) no cap table has drawn from cannot enter a mixture.
+        ({"allocation": {"state": "not_applied", "detail": "candidates"}}, "allocation"),
+        ({"allocation": {"detail": "no state"}}, "allocation"),
+        ({"allocation": "applied"}, "allocation"),
+        ({"allocation": {"state": "Applied"}}, "allocation"),
+        # A candidate pool written before producers stated an allocation names its tool.
+        ({"tool": "qd-prep convert"}, "allocation"),
+        ({"tool": "qd-prep synth"}, "allocation"),
     ],
 )
 def test_the_loader_refuses_a_pool_its_manifest_does_not_describe(
@@ -304,6 +313,20 @@ def test_the_loader_refuses_a_pool_its_manifest_does_not_describe(
 ) -> None:
     with pytest.raises(DecisionPoolError, match=match):
         load_decision_pool(_write_pool(tmp_path / "pool", [_line()], **manifest))
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        {"allocation": {"state": "applied", "detail": "the pinned config's caps"}},
+        # A pool written before v6 named no allocation; only `qd-prep decisions`, which applies
+        # its cap table, wrote pools then, and v5's pins re-read those pools unchanged.
+        {},
+    ],
+)
+def test_an_allocated_or_pre_v6_pool_loads(tmp_path: Path, manifest: dict[str, object]) -> None:
+    pool = load_decision_pool(_write_pool(tmp_path / "pool", [_line()], **manifest))
+    assert [r.example_id for r in pool.raw[OPEN_JEV]] == ["openjev:g/0/choice"]
 
 
 def test_the_loader_refuses_a_family_of_another_source(tmp_path: Path) -> None:
