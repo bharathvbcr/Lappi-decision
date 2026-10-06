@@ -1,0 +1,124 @@
+The UnsafeCell variant of crates/qd-prep/src/team.rs: kept, NOT applied (2026-10-06).
+
+Source: the uncommitted working copy in build/v6-linfit-pool-cell-wt (branch v6-linfit-pool-cell
+at 7c7b410), last edited 2026-10-04 12:37 local. HANDOFF/v6-linfit-pool-2026-10-04.md, "The
+residual, open": it would replace the leader's snapshot copies and the atomic cells with plain
+slices under the phase discipline. It is the qd-prep crate's first `unsafe`, a policy choice
+reserved for the human, so the 2026-10-06 merge ("commit and merge all branches") keeps it here as
+a file rather than activating it.
+
+State: written, never built or tested as a whole fit. `git apply --check` passes against the
+merged team.rs (team.rs is unchanged from 7c7b410 to v6-linfit-pool's tip). Whether linfit.rs
+needs matching changes is unverified.
+
+To try it: git apply HANDOFF/v6-linfit-pool-unsafecell-variant-2026-10-04.patch, then
+bash build/linfit-pool/test.sh check --lib, the Python parity set, and an interleaved
+min-of-N A/B against the merged code before any claim.
+
+diff --git a/crates/qd-prep/src/team.rs b/crates/qd-prep/src/team.rs
+index 0f35f8d..6275c9e 100644
+--- a/crates/qd-prep/src/team.rs
++++ b/crates/qd-prep/src/team.rs
+@@ -24,6 +24,8 @@
+ //! multiply-add matters reads a plain snapshot instead, which the leader fills between phases
+ //! with [`SharedF64s::copy_to`] (the fit's `W` and `diff`).
+ 
++use std::cell::UnsafeCell;
++use std::ops::Range;
+ use std::panic::{AssertUnwindSafe, catch_unwind};
+ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+ use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+@@ -40,36 +42,31 @@ const SPIN: Duration = Duration::from_micros(50);
+ /// whole iteration took ~0.25 s on the box.
+ const PHASE_LIMIT: Duration = Duration::from_secs(3600);
+ 
+-/// `f64` cells that the threads of a team read and write between phases.
+-pub struct SharedF64s(Box<[AtomicU64]>);
++/// `f64`s that a team's phases read and write as plain slices, so a loop over them vectorizes
++/// as a loop over a `Vec` does.
++///
++/// Sound only under the team's phase discipline, which is why the accessors are `unsafe`:
++/// - a phase's items run only between [`Team::run`]'s publish (a release store of the phase
++///   ticket, acquired by every claim) and its return (after acquiring the completion count that
++///   every item released), so what the leader wrote before a phase is visible to its items, what
++///   they wrote is visible to the leader after it, and no item's slice outlives its phase;
++/// - within a phase, a cell that any item writes is written by that item alone, and read by no
++///   other item and not by the leader's `meanwhile`.
++///
++/// Every call site says which cells its phase writes and which it only reads.
++pub struct SharedF64s(Box<[UnsafeCell<f64>]>);
++
++// SAFETY: the cells are reached only through `slice` and `slice_mut`, whose callers guarantee
++// that no write to a cell overlaps any other access to it (the phase discipline above).
++unsafe impl Sync for SharedF64s {}
+ 
+ impl SharedF64s {
+     pub fn zeros(n: usize) -> Self {
+-        Self((0..n).map(|_| AtomicU64::new(0f64.to_bits())).collect())
++        Self((0..n).map(|_| UnsafeCell::new(0.0)).collect())
+     }
+ 
+     pub fn from_slice(values: &[f64]) -> Self {
+-        Self(values.iter().map(|v| AtomicU64::new(v.to_bits())).collect())
+-    }
+-
+-    #[inline(always)]
+-    pub fn get(&self, i: usize) -> f64 {
+-        f64::from_bits(self.0[i].load(Ordering::Relaxed))
+-    }
+-
+-    #[inline(always)]
+-    pub fn set(&self, i: usize, value: f64) {
+-        self.0[i].store(value.to_bits(), Ordering::Relaxed);
+-    }
+-
+-    /// Every cell's value into `out`, in index order: the leader's copy of shared cells into a
+-    /// plain snapshot between phases, for a loop whose `k`-wide multiply-add the compiler
+-    /// vectorizes over a plain slice and not over atomic loads.
+-    pub fn copy_to(&self, out: &mut [f64]) {
+-        assert_eq!(out.len(), self.len(), "a snapshot of {} cells", self.len());
+-        for (o, cell) in out.iter_mut().zip(self.0.iter()) {
+-            *o = f64::from_bits(cell.load(Ordering::Relaxed));
+-        }
++        Self(values.iter().map(|&v| UnsafeCell::new(v)).collect())
+     }
+ 
+     pub fn len(&self) -> usize {
+@@ -80,8 +77,35 @@ impl SharedF64s {
+         self.0.is_empty()
+     }
+ 
+-    pub fn to_vec(&self) -> Vec<f64> {
+-        (0..self.len()).map(|i| self.get(i)).collect()
++    /// Every cell, to read.
++    ///
++    /// # Safety
++    /// No thread writes any of these cells while the returned slice is alive.
++    #[inline(always)]
++    pub unsafe fn slice(&self) -> &[f64] {
++        // SAFETY: `UnsafeCell<f64>` has `f64`'s layout, and the caller excludes every writer.
++        unsafe { std::slice::from_raw_parts(self.0.as_ptr().cast::<f64>(), self.0.len()) }
++    }
++
++    /// Cells `range`, to write.
++    ///
++    /// # Safety
++    /// No other thread reads or writes any cell in `range` while the returned slice is alive, and
++    /// this thread holds no other slice over them.
++    #[inline(always)]
++    #[allow(clippy::mut_from_ref)] // the cells are interior-mutable; the caller makes this exclusive
++    pub unsafe fn slice_mut(&self, range: Range<usize>) -> &mut [f64] {
++        let cells = &self.0[range];
++        // SAFETY: as for `slice`; the caller makes this the only access to these cells.
++        unsafe { std::slice::from_raw_parts_mut(UnsafeCell::raw_get(cells.as_ptr()), cells.len()) }
++    }
++
++    pub fn into_vec(self) -> Vec<f64> {
++        self.0
++            .into_vec()
++            .into_iter()
++            .map(UnsafeCell::into_inner)
++            .collect()
+     }
+ }
+ 

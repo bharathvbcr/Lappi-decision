@@ -130,6 +130,11 @@ No rebuilt `qd-prep` reaches a v5 control without Fable's ruling and the human's
   `build/v6-linfit-pool-cell-wt`, uncommitted, `team.rs` only) would remove both the copies and
   the atomics. It is the crate's first `unsafe`, a policy choice for the human. On hold until
   the human decides.
+  - **2026-10-06:** the branch was merged and deleted with the others. The uncommitted `team.rs`
+    (last edited 2026-10-04 12:37 local) is kept, not applied, as
+    `HANDOFF/v6-linfit-pool-unsafecell-variant-2026-10-04.patch`. `git apply --check` passes on
+    the merged `team.rs`. It was never built or tested as a whole fit; whether `linfit.rs` needs
+    changes to match is unverified.
 
 The f405be7 record below stands as the first measurement.
 
