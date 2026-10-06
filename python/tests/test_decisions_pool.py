@@ -500,9 +500,11 @@ def test_a7_reading_c_counts_a_pool_val_row_deduplicated_against_another_val_row
     assert report["passed"], [r for r in report["families"] if not r["passed"]]
     row = next(r for r in report["families"]
                if r["split"] == "val" and r["family"] == "openjev.policy")
-    assert (row["missing"], row["deduplicated_within_val"], row["deduplicated_within_val_keys"]) == (
-        0, 1, [[lost, kept]]
-    )
+    assert (
+        row["missing"],
+        row["deduplicated_within_val"],
+        row["deduplicated_within_val_keys"],
+    ) == (0, 1, [[lost, kept]])
     assert report["dedupe_report_sha256"] == hashlib.sha256(evidence.read_bytes()).hexdigest()
 
 
