@@ -6,6 +6,38 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~01:59Z 2026-10-06: the preview's acceptance bar, written before the average's row exists
+
+Fable (lead lane, ~01:57Z) ruled that the bar is written down now, before any number is read. At
+01:58:15Z `/home/ubuntu/ledger/h100x2-v5avg-2026-10-05.jsonl` did not exist [V, ls]. The human
+approved shipping a "not great" model, not a degraded soup.
+
+**Bar 1, the average against v5's five seeds.** Every comparison is against v5's worst seed, from
+`read_v6x.py`'s v5 mins and maxes, read 01:52Z. The average's own eval row must have:
+
+| Metric | Bar | v5's worst seed |
+|---|---|---|
+| `metrics.val_top1.choice` | ≥ | 0.8278 |
+| `metrics.val_top1.span` | ≥ | 0.9066 |
+| `gates.ood_abstain` | ≥ | 152/180 |
+| `needle_worst_bucket` | ≥ | 0.7049 |
+| `gates.permutation_consistency` value | ≥ | 0.9288 |
+| `metrics.ood_abstain.in_distribution` | ≤ | 0.0819 |
+
+- **Inside on every line:** package. Better than v5's best seed is reported, not refused.
+- **Outside on any line:** do not package; ask the human, with the numbers.
+- **A missing or not_run metric:** do not package; ask.
+
+**Bar 2, J5′ for v5 seed 3.** Its shuffled_label row must be ran and passed, at chance like seeds 0-2 (0.2370, 0.2296, 0.2209 against the 0.3049 ceiling).
+- **Failed or above the ceiling:** a leakage signal on the family being shipped. Stop the release and ask.
+- **Not run:** the release notes say so, and it does not block. v5 is not promoted either way.
+
+**The notes describe the artifact.**
+- The numbers in the release notes come from the average's own row in `h100x2-v5avg-2026-10-05.jsonl`.
+- `promotion_verdict` over the seed family explains "why not promoted" in a separate section. Both cite row ids, and the two are not blended.
+
+**"Ready" means loaded, or it says it isn't.** `build/preview-wt/target/release/` has no `qd` binary [V, ls], so the release is reported as "exported and hash-verified; not load-tested". A qd-runtime build is offered as the next step, not started.
+
 ## ~01:55Z 2026-10-06: v6x reads no_signal (targets clear, two guards lose); J6(g) done; the average's scoring started
 
 **v6x (noul-weight 4, report-only) is complete. The pre-registered reading is `no_signal`** [V].
