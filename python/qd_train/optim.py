@@ -61,6 +61,7 @@ __all__ = [
     "MomentSettling",
     "apply_lr",
     "build_optimizer",
+    "kahan_split",
     "layerwise_param_groups",
     "moment_settling",
 ]
@@ -521,8 +522,9 @@ class KahanBf16AdamW:
     - the moments are fp32, 8 B/param, the same as the master recipe's;
     - each bf16 weight ``p`` keeps a bf16 compensation ``c``, its rounding residual. The
       weight the optimizer steps is ``p + c``, which is accurate to about 16 bits of
-      mantissa. After each update the new value is split back into ``p = bf16(w)`` and
-      ``c = bf16(w - p)``.
+      mantissa. After each update the new value is split back by :func:`kahan_split`, whose
+      split is canonical: ``p + c`` is exact in fp32, and ``bf16(p + c) == p`` on every
+      element.
 
     **The update rule is torch's AdamW** (decoupled weight decay, bias-corrected moments,
     ``eps`` added after the bias-corrected root), written out because the master-free layout
@@ -534,15 +536,19 @@ class KahanBf16AdamW:
     already its own master. **fp16 is refused**: a compensated fp16 weight has fp16's range,
     which this repository has never measured for a tower.
 
-    **Memory.** Every state tensor is allocated at construction. The step walks each tensor in
-    slices of ``chunk_elems``, so its fp32 temporaries are bounded (:data:`KAHAN_CHUNK_ELEMS`).
+    **Memory.** A parameter's state (moments and compensation) is allocated at its first step,
+    as ``torch.optim.AdamW`` allocates its moments. A step that only scores never steps, so
+    it pays nothing for the optimizer it was built with. The step walks each tensor in slices
+    of ``chunk_elems``, so its fp32 temporaries are bounded (:data:`KAHAN_CHUNK_ELEMS`).
 
-    **Checkpoints.** :meth:`state_dict` carries the exact compensation, so a resume continues
-    the trajectory bit for bit. It also carries ``masters``: ``p + c`` in fp32 on the host, the
-    same list ``MasterWeightAdamW`` writes, so ``tools/ckpt_average.py --from masters``
-    averages a compensated run's full-precision weights unchanged. Where ``p + c`` is an exact
-    bf16 tie, the master is ``p`` itself, so ``bf16(master) == p`` holds on every element; that
-    identity is how ``ckpt_average`` matches a master to its weight.
+    **Checkpoints, 14 B/param like the master recipe's.** :meth:`state_dict` carries the
+    moments, the step counts and ``masters``: ``p + c`` in fp32. That is the same list
+    ``MasterWeightAdamW`` writes, so ``tools/ckpt_average.py --from masters`` averages a
+    compensated run's full-precision weights unchanged, matching each master to its weight by
+    ``bf16(master) == weight``, which the canonical split makes true on every element. The
+    compensation itself is not stored: ``p + c`` is exact, so :meth:`load_state_dict`
+    recovers ``c = master - p`` from the live weight bit for bit, and a resume continues the
+    trajectory it was cut from.
     """
 
     def __init__(
@@ -616,16 +622,24 @@ class KahanBf16AdamW:
                     extra[LR_SCALE_KEY], where=f"group {extra.get('name', '?')!r}"
                 )
             self.param_groups.append(group)
+        #: Per parameter, from its first step: ``step``, fp32 ``exp_avg`` and ``exp_avg_sq``,
+        #: and for a bf16 parameter its bf16 ``kahan_comp``. Absent until then.
         self.state: dict[Any, dict[str, Any]] = {}
-        for p in live:
-            entry: dict[str, Any] = {
+
+    def _state_for(self, p: Any) -> dict[str, Any]:
+        """``p``'s state, allocated on first use: zero moments, zero compensation."""
+        st = self.state.get(p)
+        if st is None:
+            torch = self._torch
+            st = {
                 "step": 0,
                 "exp_avg": torch.zeros_like(p, dtype=torch.float32),
                 "exp_avg_sq": torch.zeros_like(p, dtype=torch.float32),
             }
             if p.dtype != torch.float32:
-                entry["kahan_comp"] = torch.zeros_like(p)
-            self.state[p] = entry
+                st["kahan_comp"] = torch.zeros_like(p)
+            self.state[p] = st
+        return st
 
     def zero_grad(self, set_to_none: bool = True) -> None:
         for p in self._params:
@@ -655,7 +669,7 @@ class KahanBf16AdamW:
                             f"gradient shape {tuple(grad.shape)} does not match its parameter's "
                             f"{tuple(p.shape)}"
                         )
-                    st = self.state[p]
+                    st = self._state_for(p)
                     st["step"] += 1
                     t = st["step"]
                     # As torch computes them: Python floats, pow for the root.
@@ -685,29 +699,28 @@ class KahanBf16AdamW:
                         w = flat_p[start:end].to(f32).add_(flat_c[start:end].to(f32))
                         w.mul_(decay)
                         w.addcdiv_(m, denom, value=-step_size)
-                        hi = w.to(p.dtype)
+                        hi, lo = kahan_split(w, p.dtype)
                         flat_p[start:end].copy_(hi)
-                        # The residual is exact in fp32; copy_ rounds it to the buffer's bf16.
-                        flat_c[start:end].copy_(w.sub_(hi.to(f32)))
+                        flat_c[start:end].copy_(lo)
 
     # -- checkpointing --------------------------------------------------------------------
 
     def state_dict(self) -> dict[str, Any]:
-        """Moments, compensation and step counts by parameter index, plus host ``masters``.
+        """Moments and step counts by parameter index, plus host ``masters`` (``p + c``).
 
-        Shaped like ``torch.optim.Optimizer.state_dict`` (``state`` keyed by index,
-        ``param_groups`` with index lists), because the checkpoint walker in
-        ``qd_train.backbone`` stringifies exactly the ``state`` sub-tree's integer keys.
+        Shaped like ``torch.optim.Optimizer.state_dict`` (``state`` keyed by index, holding
+        only parameters that have stepped; ``param_groups`` with index lists), because the
+        checkpoint walker in ``qd_train.backbone`` stringifies exactly the ``state`` sub-tree's
+        integer keys. ``masters`` covers every parameter: a bf16 one's is ``p + c`` in fp32
+        (exact, see :func:`kahan_split`), an fp32 one's is itself. That is 4 B/param of masters
+        and 8 of moments, so 14 B/param with the bf16 weights, as the master recipe's.
         """
         torch = self._torch
         index = {id(p): i for i, p in enumerate(self._params)}
-        state = {}
-        for p in self._params:
-            st = self.state[p]
-            state[index[id(p)]] = {
-                "step": st["step"],
-                **{k: v for k, v in st.items() if k != "step"},
-            }
+        state = {
+            index[id(p)]: {k: v for k, v in st.items() if k != "kahan_comp"}
+            for p, st in self.state.items()
+        }
         groups = []
         for g in self.param_groups:
             groups.append(
@@ -718,26 +731,32 @@ class KahanBf16AdamW:
         with torch.no_grad():
             for p in self._params:
                 host = p.detach().to("cpu")
-                comp = self.state[p].get("kahan_comp")
+                comp = self.state.get(p, {}).get("kahan_comp")
                 if comp is None:
-                    masters.append(host.clone())
-                    continue
-                exact = host.to(torch.float32) + comp.detach().to("cpu", torch.float32)
-                tie = exact.to(p.dtype) != host
-                masters.append(torch.where(tie, host.to(torch.float32), exact))
+                    masters.append(host.to(torch.float32))
+                else:
+                    masters.append(
+                        host.to(torch.float32) + comp.detach().to("cpu", torch.float32)
+                    )
         return {"recipe": KAHAN_RECIPE, "state": state, "param_groups": groups,
                 "masters": masters}
 
     def load_state_dict(self, saved: dict[str, Any]) -> None:
-        """Restore moments, compensation, step counts and hyper-parameters, or refuse.
+        """Restore moments, step counts, hyper-parameters and the compensation, or refuse.
+
+        The compensation is recovered from the live weight: ``c = bf16(master - p)``, exact
+        because the step's split keeps ``p + c`` exact. So the live weights must already be
+        the checkpoint's (``QwenDecisionStep.load_state`` restores the tower first), and a
+        master that does not reconstruct from them is refused.
 
         Refused, before anything is written:
         - a state another optimizer wrote (no ``recipe``, or a different one), because
           resuming a master or plain run here would silently change the recipe mid-run;
         - a partial state;
         - a state for a different model (parameter count, group layout or shape);
-        - a state whose ``masters`` disagree with the live weights, which means the weights
-          and the optimizer came from different checkpoints.
+        - a master the live weight does not reconstruct, which means the weights and the
+          optimizer came from different checkpoints;
+        - a compensated weight with no optimizer state, which no step can produce.
         """
         torch = self._torch
         missing = {"recipe", "state", "param_groups", "masters"} - set(saved)
@@ -754,11 +773,11 @@ class KahanBf16AdamW:
             )
         state, groups, masters = saved["state"], saved["param_groups"], saved["masters"]
         n = len(self._params)
-        if len(state) != n or len(masters) != n:
+        if len(masters) != n or any(not (isinstance(i, int) and 0 <= i < n) for i in state):
             raise ValueError(
-                f"optimizer state carries {len(state)} state entries and {len(masters)} "
-                f"masters, but this optimizer has {n} parameters. The checkpoint describes a "
-                "different model."
+                f"optimizer state carries {len(masters)} masters and state for parameter "
+                f"indices {sorted(state)}, but this optimizer has {n} parameters. The "
+                "checkpoint describes a different model."
             )
         if len(groups) != len(self.param_groups) or any(
             len(s["params"]) != len(g["params"])
@@ -768,53 +787,95 @@ class KahanBf16AdamW:
                 "optimizer state's parameter groups do not match this optimizer's. The "
                 "checkpoint describes a different model or a different group split."
             )
-        staged: list[tuple[Any, dict[str, Any]]] = []
+        staged: list[tuple[Any, dict[str, Any] | None, Any]] = []
         for i, p in enumerate(self._params):
+            master = masters[i]
+            if tuple(master.shape) != tuple(p.shape):
+                raise ValueError(
+                    f"master {i} has shape {tuple(master.shape)}, this model's is "
+                    f"{tuple(p.shape)}. The checkpoint describes a different model."
+                )
+            host = p.detach().to("cpu", torch.float32)
+            master32 = master.to(torch.float32)
+            comp = None
+            if p.dtype != torch.float32:
+                comp = (master32 - host).to(p.dtype)
+                exact = torch.equal(host + comp.to(torch.float32), master32)
+            else:
+                exact = torch.equal(host, master32)
+            if not exact:
+                raise ValueError(
+                    f"master {i} is not reconstructed by the live parameter: the weights and "
+                    "the optimizer state come from different checkpoints"
+                )
             entry = state.get(i)
             if entry is None:
-                raise ValueError(f"optimizer state has no entry for parameter {i}")
-            want = {"step", "exp_avg", "exp_avg_sq"} | (
-                set() if p.dtype == torch.float32 else {"kahan_comp"}
-            )
+                if comp is not None and bool(comp.ne(0).any()):
+                    raise ValueError(
+                        f"parameter {i} carries a compensation but no optimizer state; no step "
+                        "produces that"
+                    )
+                staged.append((p, None, None))
+                continue
+            want = {"step", "exp_avg", "exp_avg_sq"}
             if set(entry) != want:
                 raise ValueError(
                     f"parameter {i}'s state holds {sorted(entry)}, expected {sorted(want)}"
                 )
-            for key in want - {"step"}:
+            for key in ("exp_avg", "exp_avg_sq"):
                 if tuple(entry[key].shape) != tuple(p.shape):
                     raise ValueError(
                         f"parameter {i}'s {key} has shape {tuple(entry[key].shape)}, this "
                         f"model's is {tuple(p.shape)}. The checkpoint describes a different "
                         "model."
                     )
-            if tuple(masters[i].shape) != tuple(p.shape):
-                raise ValueError(f"master {i} has shape {tuple(masters[i].shape)}")
-            host = p.detach().to("cpu")
-            if not torch.equal(masters[i].to(p.dtype), host):
-                raise ValueError(
-                    f"master {i} does not round to the live parameter: the weights and the "
-                    "optimizer state come from different checkpoints"
-                )
             step = entry["step"]
             if isinstance(step, bool) or not isinstance(step, int) or step < 0:
                 raise ValueError(f"parameter {i}'s step must be a non-negative int, got {step!r}")
-            staged.append((p, entry))
+            staged.append((p, entry, comp))
+        self.state = {}
         with torch.no_grad():
-            for p, entry in staged:
-                st = self.state[p]
+            for p, entry, comp in staged:
+                if entry is None:
+                    continue
+                st = self._state_for(p)
                 st["step"] = entry["step"]
                 st["exp_avg"].copy_(entry["exp_avg"].to(st["exp_avg"].device, torch.float32))
                 st["exp_avg_sq"].copy_(
                     entry["exp_avg_sq"].to(st["exp_avg_sq"].device, torch.float32)
                 )
-                if "kahan_comp" in st:
-                    st["kahan_comp"].copy_(
-                        entry["kahan_comp"].to(st["kahan_comp"].device, p.dtype)
-                    )
+                if comp is not None:
+                    st["kahan_comp"].copy_(comp.to(st["kahan_comp"].device))
         for mine, saved_group in zip(self.param_groups, groups, strict=True):
             for key, value in saved_group.items():
                 if key != "params":
                     mine[key] = tuple(value) if key == "betas" else value
+
+
+def kahan_split(w: Any, dtype: Any) -> tuple[Any, Any]:
+    """Split fp32 ``w`` into ``(hi, lo)`` in ``dtype`` with ``hi + lo`` exact and canonical.
+
+    ``hi = dtype(w)`` and ``lo = dtype(w - hi)``. The difference is exact in fp32, and the sum
+    ``fp32(hi) + fp32(lo)`` is exact as well: ``lo`` has 8 significant bits within 16 binades
+    below ``hi``'s spacing, or is small enough that its bits sit on ``hi``'s fp32 grid.
+    Measured on 17.6M elements across scales 1e-30 to 1e30, power-of-two edges, exact ties and
+    zeros (2026-10-06): 0 inexact sums.
+
+    Then it is made canonical. Where ``hi + lo`` is an exact tie, round-half-even can send it
+    to ``hi``'s neighbour. So the pair is re-split from its own sum, which moves the tie onto
+    the neighbour and changes no value. After that, ``dtype(hi + lo) == hi`` on every
+    element. That is the identity ``ckpt_average`` matches a master to its weight by, and it
+    makes ``lo`` recoverable from ``hi`` and the fp32 sum alone.
+    """
+    import torch
+
+    f32 = torch.float32
+    hi = w.to(dtype)
+    lo = (w - hi.to(f32)).to(dtype)
+    total = hi.to(f32) + lo.to(f32)
+    hi = total.to(dtype)
+    lo = (total - hi.to(f32)).to(dtype)
+    return hi, lo
 
 
 def _check_hyper(

@@ -84,6 +84,10 @@ def test_the_gpu_footprint_probe_measures_the_same_specs_it_budgets() -> None:
     assert gh200_footprint.described_state_bytes(gh200_footprint.RECIPES["master"]) == 8
     p = torch.nn.Parameter(torch.zeros(64, dtype=torch.bfloat16))
     opt = build_optimizer([p], spec=gh200_footprint.RECIPES["kahan"], lr=1e-4, total_steps=10)
+    # State is allocated at the first step, as torch's AdamW allocates its moments; the
+    # probe reads it after its steps (gh200_footprint measures the second step's peak).
+    p.grad = torch.ones_like(p)
+    opt.step()
     held = sum(
         v.numel() * v.element_size()
         for s in opt.state.values()

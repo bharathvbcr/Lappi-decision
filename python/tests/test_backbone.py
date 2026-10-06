@@ -1397,11 +1397,11 @@ def test_the_master_recipe_resumes_too_including_its_fp32_masters(tmp_path):
 
 def test_the_kahan_recipe_resumes_through_a_real_checkpoint_file(tmp_path):
     """The 16-bit recipe's state is a third shape, ``{"recipe", "state", "param_groups",
-    "masters"}``, holding the bf16 compensation that a resume must not rebuild from the
-    weights. Driven through the real step, the real checkpoint writer and a file on disk.
+    "masters"}``. Driven through the real step, the real checkpoint writer and a file on disk.
 
-    Its ``masters`` are fp32 ``p + c`` (the list ``ckpt_average --from masters`` reads), and
-    the compensation goes through as bf16.
+    Its ``masters`` are fp32 ``p + c`` (the list ``ckpt_average --from masters`` reads). The
+    compensation is not stored: the resume recovers it from the restored tower, so this test
+    is also the proof that the tower is restored before the optimizer.
     """
     from qd_train.memory import ADAMW_KAHAN
     from qd_train.optim import KAHAN_RECIPE, KahanBf16AdamW
@@ -1425,8 +1425,8 @@ def test_the_kahan_recipe_resumes_through_a_real_checkpoint_file(tmp_path):
     body = first_step.state()["optimizer"]
     assert body["recipe"] == KAHAN_RECIPE
     assert {m.dtype for m in body["masters"]} == {"float32"}
-    comps = [e["kahan_comp"] for e in body["state"].values() if "kahan_comp" in e]
-    assert comps and all(isinstance(c, TensorRef) and c.dtype == "bfloat16" for c in comps)
+    assert all(isinstance(m, TensorRef) for m in body["masters"])
+    assert body["state"] and all("kahan_comp" not in e for e in body["state"].values())
 
     path = first.checkpoint.write(tmp_path / "ckpt" / "run.json")
     _, resumed = leg(tmp_path / "split", 8, Checkpoint.read(path))

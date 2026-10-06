@@ -722,7 +722,8 @@ def _quadratic_run(kind: str, *, steps: int, lr: float = REAL_LR, n: int = 4096,
         if kind == "master":
             return opt._masters[0].detach().clone()
         if kind == "kahan":
-            return p.detach().float() + opt.state[p]["kahan_comp"].float()
+            st = opt.state.get(p)  # allocated at the first step
+            return p.detach().float() + (st["kahan_comp"].float() if st else 0.0)
         return p.detach().float()
 
     for _ in range(steps):
@@ -858,18 +859,87 @@ def test_kahan_resume_continues_the_trajectory_bit_for_bit() -> None:
     assert torch.equal(so.state[second]["kahan_comp"], wo.state[whole]["kahan_comp"])
 
 
-def test_kahan_masters_round_to_the_live_weight_even_on_a_tie() -> None:
-    """``ckpt_average --from masters`` matches a master to its weight by bf16(master) == weight.
-    p = 1.0078125 has an odd bf16 mantissa; c = +half a spacing makes p + c an exact tie,
-    which round-half-even sends to the NEXT value. The master must be p there, not p + c."""
-    p = torch.nn.Parameter(torch.tensor([1.0078125, 0.5], dtype=torch.bfloat16))
-    opt = KahanBf16AdamW([p], lr=1e-4)
-    opt.state[p]["kahan_comp"].copy_(torch.tensor([2.0**-8, 2.0**-12]))
-    exact = p.detach().float() + opt.state[p]["kahan_comp"].float()
-    assert exact[0].to(torch.bfloat16) != p[0], "the fixture is not a tie that rounds away"
+def _split_cases() -> list[torch.Tensor]:
+    """Values the split must hold on: every scale bf16 reaches, values a small fraction of a
+    spacing off the bf16 grid (exact ties included), power-of-two edges, and signed zeros."""
+    gen = torch.Generator().manual_seed(3)
+    cases = [torch.randn(200_000, generator=gen) * s for s in (1e-30, 1e-4, 0.02, 1.0, 1e30)]
+    grid = torch.randn(50_000, generator=gen).to(torch.bfloat16).to(torch.float32)
+    spacing = grid.abs() * 2.0**-7
+    for frac in (0.5, -0.5, 0.4999, 2.0**-17, 2.0**-23, 2.0**-30):
+        cases.append(grid + frac * spacing)
+    p2 = torch.tensor([2.0**k for k in range(-120, 120)])
+    for d in (1e-7, -1e-7, 2.0**-9, -(2.0**-9)):
+        cases += [p2 * (1 + d), -p2 * (1 + d)]
+    cases.append(torch.tensor([0.0, -0.0]))
+    return [c[torch.isfinite(c)] for c in cases]
+
+
+def test_the_kahan_split_is_exact_canonical_and_recoverable() -> None:
+    """The three properties the checkpoint format rests on.
+    1. fp32(hi) + fp32(lo) is exact, so masters lose nothing.
+    2. bf16(hi + lo) == hi everywhere, ties included, which is the identity ckpt_average
+       matches a master to its weight by.
+    3. lo == bf16(master - hi), so a resume recovers the compensation from the live weight.
+    Without the canonical re-split, property 2 fails on exact ties (the 0.5 rows)."""
+    from qd_train.optim import kahan_split
+
+    ties_moved = 0
+    for w in _split_cases():
+        hi, lo = kahan_split(w, torch.bfloat16)
+        total = hi.float() + lo.float()
+        assert torch.equal(total - hi.float(), lo.float()), "the sum was not exact"
+        assert torch.equal(total.to(torch.bfloat16), hi), "a master would not round to its weight"
+        assert torch.equal((total - hi.float()).to(torch.bfloat16), lo)
+        naive = w.to(torch.bfloat16)
+        ties_moved += int((naive != hi).sum())
+    assert ties_moved > 0, "no case exercised the tie the canonical re-split exists for"
+
+
+def test_kahan_masters_reconstruct_and_round_to_their_weights_after_training() -> None:
+    _, _, opt, p = _quadratic_run("kahan", steps=300)
     master = opt.state_dict()["masters"][0]
+    assert master.dtype == torch.float32
     assert torch.equal(master.to(torch.bfloat16), p.detach())
-    assert float(master[1]) == float(exact[1]), "a non-tie master must keep its compensation"
+    assert torch.equal(p.detach().float() + opt.state[p]["kahan_comp"].float(), master)
+
+
+def test_kahan_allocates_nothing_until_it_steps() -> None:
+    """A scoring step builds the training step and never steps it. Under this recipe it must
+    pay nothing for that: no moments, no compensation."""
+    a, b = _bf16_param(n=64), torch.nn.Parameter(torch.zeros(8))
+    opt = KahanBf16AdamW([a, b], lr=1e-4)
+    assert opt.state == {}
+    saved = opt.state_dict()
+    assert saved["state"] == {}
+    assert [m.dtype for m in saved["masters"]] == [torch.float32, torch.float32]
+    a.grad = torch.ones_like(a)
+    opt.step()
+    assert set(opt.state) == {a}, "only the parameter that had a gradient got state"
+
+
+def test_a_kahan_checkpoint_is_as_large_as_a_master_checkpoint() -> None:
+    """14 B/param with the bf16 tower: masters 4 + moments 8 in the optimizer state, the
+    compensation recovered rather than stored. The first version stored both and was 16."""
+    p = _bf16_param(n=4096)
+    opt = KahanBf16AdamW([p], lr=1e-4)
+    _drive(opt, p, grad=1.0, steps=3)
+    saved = opt.state_dict()
+    held = sum(m.numel() * m.element_size() for m in saved["masters"]) + sum(
+        v.numel() * v.element_size()
+        for e in saved["state"].values() for v in e.values() if torch.is_tensor(v)
+    )
+    assert held / p.numel() == 12.0
+    assert all("kahan_comp" not in e for e in saved["state"].values())
+
+
+def test_a_compensated_weight_without_optimizer_state_is_refused() -> None:
+    p = _bf16_param(n=4)
+    opt = KahanBf16AdamW([p], lr=1e-4)
+    forged = {**opt.state_dict()}
+    forged["masters"] = [p.detach().float() + 2.0**-12]
+    with pytest.raises(ValueError, match="no optimizer state"):
+        KahanBf16AdamW([p], lr=1e-4).load_state_dict(forged)
 
 
 def test_kahan_refuses_a_state_it_did_not_write_or_that_does_not_match() -> None:
@@ -951,8 +1021,9 @@ def test_kahan_skips_parameters_without_a_gradient_and_empty_ones() -> None:
     empty.grad = torch.zeros_like(empty)
     before_b = b.detach().clone()
     opt.step()
-    assert torch.equal(b.detach(), before_b) and opt.state[b]["step"] == 0
+    assert torch.equal(b.detach(), before_b) and b not in opt.state
     assert opt.state[a]["step"] == 1 and not torch.equal(a.detach(), before_b)
+    assert opt.state[empty]["step"] == 1
 
 
 def test_the_builder_builds_the_kahan_recipe_from_its_spec_and_refuses_a_wrong_one() -> None:
