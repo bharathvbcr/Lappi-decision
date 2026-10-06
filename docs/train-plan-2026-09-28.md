@@ -22,8 +22,11 @@ builders are ordinary `qd_data` families.
 
 ---
 
-> **Update 2026-10-02.** This plan's GH200 campaign has run phases 0–4. Where it stands, what failed
-> and what is queued is in the README ("Where the 2B stands") and `HANDOFF/gh200-phase4-2026-10-01.md`;
+> **Update 2026-10-04.** This plan's campaign ran phases 0–4 on GH200 (run F on corpus v4),
+> decontaminated the validation sets, and launched the v5 campaign on 2× H100 (Lambda) across 5 seeds + arm
+> with prompt format 2 and long composed examples. V6 startup optimizations (opt-in `--split-cache DIR`,
+> `--score-plan trajectory`) and Rust-side batched decodes (`decode_slots`) have landed. Where it stands,
+> what failed, and what is running is in the README ("Where the 2B stands") and `HANDOFF/lead-pipeline-2026-10-03.md`;
 > the facts in the table below are the 2026-09-28 baseline and are not refreshed.
 
 ## Where things stand (verified 2026-09-28)

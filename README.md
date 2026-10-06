@@ -30,21 +30,21 @@ context), and `noul` (abstain, present in every option set).
   abstains on margin *and* a permuted second pass, a registered `choice` on margin only, and a
   registered `span` is refused outright. Faster, and narrower.
 
-## Status — 2026-10-02
+## Status — 2026-10-04
 
 No model has shipped. Rung 0 is trained and evaluated, the first 2B fine-tunes have run, and the
-**full-vocabulary GH200 campaign has produced its first gate-complete 2B run (F, on corpus v4)**.
-It fails the gates below, and the gates are read-only — so the linear baseline remains the shipping
+**full-vocabulary campaign completed phase 4 (F, on corpus v4) and launched v5 on 2× H100 (Lambda)**.
+F failed the gates below, and the gates are read-only — so the linear baseline remains the shipping
 candidate until a 2B run clears them. Data lives under `data/pool/` (including the mutation corpus
 manifests) and the base model `Qwen/Qwen3.5-2B-Base` is cached on disk.
 
 Suites, measured rather than remembered — **re-run them instead of quoting a count**, because the
 last counts written here went stale inside a day. The most recent recorded totals are in the
-newest `HANDOFF/` files (for example `HANDOFF/gh200-phase4-2026-10-01.md`):
+newest `HANDOFF/` files (for example `HANDOFF/lead-pipeline-2026-10-03.md` and `HANDOFF/v6-startup-2026-10-04.md`):
 
 ```
 cargo test --workspace
-.venv/bin/python -m pytest python/tests -o 'addopts='
+uv run --no-project --python /Users/bharath/.venvs/ml/bin/python --with pytest --with hypothesis --with datasketch python -m pytest -p no:cacheprovider -q
 ```
 
 On 2026-09-18/19 four public System-1 decision models appeared, one of them on this exact base model.
@@ -56,7 +56,7 @@ That did not change the destination, but it changed the order of the work — La
 | 0 | byte-level, from scratch, 606,336 params | **Trained & evaluated.** 80.97% best vs 88.5% control; 144 margins measured across 18 arms (`ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`), trailing control in 17/18 arms and justifying higher rungs |
 | 1 | frozen base, option logits | Planned as Step 1 in `docs/train-plan-2026-09-28.md` |
 | 2 | LoRA r=16 | Planned as Step 6 control arm |
-| 3 | 2B Supervised FT / CPT | **Campaign running; no run clears the gates yet.** The 2k-row pilot (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`) learned the score slot on 2/3 seeds. The full-vocabulary campaign then ran phases 0–4 on one GH200 (corpus v1 → v4, noul-row reforms, multi-hunk diffs, composed long-context rows); see "Where the 2B stands" below |
+| 3 | 2B Supervised FT / CPT | **Campaign running; no run clears the gates yet.** The 2k-row pilot (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`) learned the score slot on 2/3 seeds. The full-vocabulary campaign ran phases 0–4 on GH200 (corpus v1 → v4). Phase 4 run F failed gates; corpus v5 decontaminated against all validation sets and launched on 2× H100 (Lambda) across 5 seeds + arm |
 
 ### Where the 2B stands
 
@@ -69,7 +69,7 @@ before its result is read. The latest gate-complete run, **F** (corpus v4, seed 
 | Pooled choice top-1 | 83.1% | defect-class slots near 99%; MMLU 0.61 and CSQA 0.76 are base-model-bound for a 2B |
 | Permutation consistency | 93.2% | **fails** the 95% floor |
 | In-distribution abstention | 7.7% | **fails** the 5% cap; equals permutation disagreement, so on MMLU the two gates cannot both pass under the pooled population (a human decision, `promotion_population`) |
-| Needle-hunk recall | 1K / 2K / 4K buckets 1.000; 8K bucket fails | the 8K suite averages ~8,473 real tokens against an 8,192 target; the human decided to resize it for v5 |
+| Needle-hunk recall | 1K / 2K / 4K buckets 1.000; 8K bucket fails | the 8K suite averages ~8,473 real tokens against an 8,192 target; resized for v5 |
 | OOD abstention | prose 54/60, scrambled 58/60, unseen-language 20/60 | unseen-language needs more *distinct* languages in training (G6) |
 | ECE | domain k10 0.081, within-domain k15 0.190 | overconfident on 10/15-way slots |
 
@@ -80,16 +80,22 @@ re-score that holds out the 215 validation rows (183 MMLU, 32 CSQA) found to ove
 (`ledger/mac-rescore-excluded-2026-10-02.jsonl`, rows `e663248b` for seed 0 and `9e521e77` for seed 1;
 seed 2 follows) moved no failing gate to passing on seed 0.
 
-What is queued, and under whose yes:
+What is running, landed, and queued:
 
-- **Idle queue on the GH200:** J6(a) and then **J6(g)** (F plus shuffled answer options during
-  training, one seed, quick, ~$11) — approved 2026-10-02 (`AUDIT/fable-optimize-2026-10-02/human-decisions.md`).
-- **v5:** decontaminated data (train rows excluded against every val row), CLINC out-of-scope
-  re-keyed across splits, longer composed examples, recipe fixes. **Planned only; it launches on a
-  later explicit yes** with the final cost (about $70 for three seeds plus controls).
+- **v5 on 2× H100 (Lambda):** approved 2026-10-03 ("Go with 2× H100 (Lambda)"). Fully decontaminated data
+  (training rows excluded against every validation row), CLINC out-of-scope re-keyed across splits, prompt
+  format 2 (`<|qd_prompt_format|>2`, `<|qd_question|>` after context) bound end-to-end to enable prefill prefix
+  caching, longer composed examples, recipe fixes. Running across 5 seeds (0–4) plus control arm (seeds 0–2),
+  24,000 steps per seed, on a 2-GPU queue.
+- **v6 startup & pipeline optimizations (landed):**
+  - `--split-cache DIR`: opt-in split rebuild cache for `real_ft_run.py` and `ft_linear_control.py` cutting CPU
+    split rebuild from ~221 s to ~10 s and memory from ~27 GiB to ~3.8 GiB without altering `recipe_hash`.
+  - `--score-plan trajectory`: multi-snapshot trajectory scoring within a single process.
+  - Rust-side batched decodes: `DecisionBackend::decode_slots` and `readonly_decodes` in `qd-runtime` allow
+    backends like `qd-metal` to pack both equal-length choice passes into a single forward pass on Metal GPU.
 - **Training without PyTorch:** a Rust trainer (`crates/qd-train`) over tessl's Qwen3.5 Metal step
   on the Mac, with a CUDA provider started in ojas (`HANDOFF/ojas-training-2026-10-01.md`). Until it
-  moves into ojas, results read "a Rust trainer over tessl". The GH200 campaign stays on PyTorch.
+  moves into ojas, results read "a Rust trainer over tessl". The 2× H100 campaign stays on PyTorch.
 
 Repository is hosted on GitHub: [bharathvbcr/Lappi-decision](https://github.com/bharathvbcr/Lappi-decision).
 
@@ -126,11 +132,11 @@ shrink a held-out set, or reclassify a run as `quick` to pass it.
 
 ```
 crates/qd-mutate/     Rust + tree-sitter. Labels by construction, with exact span labels
-crates/qd-runtime/    Rust. Graph, schema API, `qd serve` (socket) and `qd oneshot` (sidecar), calibration
-                      serving, N-tower ensemble serving, gate reports
+crates/qd-runtime/    Rust. Graph, schema API, batched decoding (decode_slots / readonly_decodes),
+                      `qd serve` (socket) and `qd oneshot` (sidecar), calibration serving, N-tower ensemble
 crates/qd-prep/       Rust. MinHash/LSH dedupe and splits, linear controls (the CPU prelude)
 crates/qd-train/      Rust. Trainer over a model-generic step provider (tessl first, ojas later)
-crates/qd-metal/      Rust. Mac decision backend on tessl's Qwen3.5 Metal kernels
+crates/qd-metal/      Rust. Mac decision backend on tessl's Qwen3.5 Metal kernels, batched choice decodes
 crates/qd-export/     Rust. Release exporter to qd-metal's loader layout
 crates/qd-lang/       Rust. Language admission checks
 crates/qd-preflight/  Rust. Tri-state preflight checks ("not run" never reads as "passed")

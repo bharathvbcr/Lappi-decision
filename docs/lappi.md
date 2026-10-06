@@ -36,7 +36,7 @@ cost of each and they disagree by three orders of magnitude.
 | **0** | byte-level, from scratch, ~600K params | `cua-s1-forms`: 706K params, near-ceiling on a *narrow* task | **Trained & evaluated.** 80.97% best vs 88.5% control (`AUDIT/capacity-and-learning-rate.md`). Measured all 144 margins across 18 arms (`ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`); model trails control in 17/18 arms, establishing floor |
 | **1** | frozen base, option logits, no training | SemIf: 0.813 balanced accuracy on a frozen 4B | Planned as Step 1 in `docs/train-plan-2026-09-28.md` |
 | **2** | LoRA r=16, one epoch | Nimble: 90.12% raw agreement, 2,676 examples, two days | Planned as Step 6 control arm |
-| **3** | 2B Supervised FT / CPT | `decider-2b`: 0.805 in-task / 0.755 held-out | **Campaign running; no run clears the gates yet.** The 2k-row pilot (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`) learned the score slot on 2/3 seeds. The full-vocabulary GH200 campaign (`docs/train-plan-2026-09-28.md`) has since run through corpus v4; its latest run, F, fails permutation consistency, the in-distribution abstention cap, the 8K needle bucket and unseen-language abstention (README, "Where the 2B stands") |
+| **3** | 2B Supervised FT / CPT | `decider-2b`: 0.805 in-task / 0.755 held-out | **Campaign running; no run clears the gates yet.** The 2k-row pilot (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`) learned the score slot on 2/3 seeds. The full-vocabulary campaign ran phases 0–4 on GH200 (corpus v1 → v4; run F failed gates on permutation consistency, abstention cap, 8K needle, and OOD). Corpus v5 decontaminated against all validation sets and launched on 2× H100 (Lambda) across 5 seeds + arm (README, "Where the 2B stands") |
 
 The ordering is deliberate and was a decision, not a default: **the cheap rungs run first**
 so the expensive one is justified by measurement rather than by plan. Rung 3 is the only one
@@ -87,9 +87,9 @@ which still tokenizes.
 That is the clearest argument for the ladder: rung 0 is not only cheaper, it avoids a problem
 rung 3 has to solve.
 
-## What the 2B campaign has taught (2026-10-02)
+## What the 2B campaign has taught (2026-10-04)
 
-Rung 3 has been run as a sequence of single-GPU phases, each pre-registered. What the measured rows
+Rung 3 has been run as a sequence of single- and multi-GPU phases, each pre-registered. What the measured rows
 say, without a model having shipped:
 
 - **The slots are learnable; calibration and long context are the hard part.** Defect-class choice
@@ -108,12 +108,18 @@ say, without a model having shipped:
 - **Contamination was found by the project's own gates.** 215 validation rows overlapped MMLU/CSQA
   training rows; F's rows stand as measured, the re-score is report-only, and v5 excludes training
   rows against every validation row.
+- **Prompt format 2 unlocks context prefix reuse.** Placing the question *after* the context
+  (`<|qd_prompt_format|>2`) lets multiple questions or slot queries share the prefilled context prefix
+  identically, without redundant KV prefill computation.
+- **Pre-run split rebuilds can be cached safely without invalidating provenance.** Caching the split
+  result (`--split-cache DIR`) drops rebuild time from ~221 s to ~10 s and RAM from ~27 GiB to ~3.8 GiB
+  keyed strictly by input manifests and shard hashes, without altering the training `recipe_hash`.
 - **Span grounding survives BPE only with care.** Two blank context lines can merge into one Qwen
-  token, which collapses a line start; v4's train shards refuse a slot only when a *gold* line start
+  token, which collapses a line start; v4/v5 train shards refuse a slot only when a *gold* line start
   collides, while validation keeps the strict rule so no gate population moves.
-
-The line-mapping gap that rung 0 dissolved therefore returned at rung 3 exactly as predicted, and is
-handled by an explicit policy rather than by luck.
+- **Choice slots can be batched on device.** The two passes of a choice slot (first pass and permuted pass)
+  are known in advance, allowing backends like `qd-metal` to run both equal-length suffixes in a single
+  batched forward pass on Apple Silicon GPU.
 
 ## What is honestly not claimed
 

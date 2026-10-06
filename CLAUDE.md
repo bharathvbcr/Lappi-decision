@@ -96,10 +96,10 @@ These rules override default behaviour. They are copied into every lane prompt.
 | Path | Holds |
 | --- | --- |
 | `crates/qd-mutate/` | Rust + tree-sitter mutation engine; labels by construction, with span labels |
-| `crates/qd-runtime/` | Rust: graph, schema API, `qd serve` / `qd oneshot` |
+| `crates/qd-runtime/` | Rust: graph, schema API, batched decoding (`decode_slots`), `qd serve` / `qd oneshot` |
 | `crates/qd-prep/` | Rust: MinHash/LSH dedupe and splits, linear controls (`QD_PREP_BIN` is needed by any tool that rebuilds a split) |
 | `crates/qd-train/`, `crates/qd-train-metal/` | Rust: trainer over a model-generic step provider (tessl first, ojas later) |
-| `crates/qd-metal/` | Rust: Mac decision backend on tessl's Qwen3.5 Metal kernels |
+| `crates/qd-metal/` | Rust: Mac decision backend on tessl's Qwen3.5 Metal kernels, batched choice decodes |
 | `crates/qd-export/`, `crates/qd-lang/`, `crates/qd-preflight/` | Rust: release export, language admission, tri-state preflight |
 | `campaign/` | pre-registrations, written before a run's result is read |
 | `python/qd_data/` | pool filters, prompt format, splits, dedupe |

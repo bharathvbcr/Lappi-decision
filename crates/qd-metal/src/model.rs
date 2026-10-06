@@ -12,7 +12,8 @@
 //!         o = gdn_chunk_forward | gdn_recurrent (qkv, gates(proj), GDN state)
 //!         y = gated_rms_norm(o, z(proj), w) -> bf16;  resid += y @ W_out
 //!   attn: proj = xb @ W_in
-//!         prefill:       attn_qk_norm_rope -> q, K/V cache;   o = flash_attn_rows
+//!         prefill:       attn_qk_norm_rope -> q, K/V cache;
+//!                        o = attn_prefill_by_length (attn_prefill at every length)
 //!         continuation:  attn_qk_norm_rope_suffix -> q, suffix K/V;
 //!                        o = attn_prefix_rows(q, shared prefix K/V, suffix K/V)
 //!         y = o * sigmoid(gate) -> bf16;  resid += y @ W_o
@@ -390,7 +391,7 @@ struct Acts {
     a_q: GpuBuffer,
     a_o: GpuBuffer,
     a_y: Tensor,
-    /// `[seq]`: the live K/V length. A prefill has no prefix, so it is `flash_attn_rows`' `tkv`;
+    /// `[seq]`: the live K/V length. A prefill has no prefix, so it is `attn_prefill`'s `tkv`;
     /// a continuation's is its suffix length, as `attn_prefix_rows` takes it.
     kv_len: GpuBuffer,
     q_pos: GpuBuffer,
@@ -809,11 +810,14 @@ impl Model {
                                 rt, &shape, pc, &w.q_norm, &w.k_norm, &targets, 0, cfg.rope_theta, eps,
                             )
                             .gpu("attn_qk_norm_rope")?;
-                            nn::flash_attn_rows(
+                            // `qwen35::prefill_attn_kernel` is `attn_prefill` at every
+                            // length. Same buffers, causal mask and f32 accumulate.
+                            // Head dim is the h256 kernel (`config` refuses any other).
+                            qwen35::attn_prefill_by_length(
                                 rt, &a.a_q, &kc, &vc, &a.a_o, &a.kv_len, &a.q_pos, &a.kv_pos, dims,
-                                cfg.head_dim, false,
+                                false,
                             )
-                            .gpu("flash_attn_rows")?;
+                            .gpu("attn_prefill_by_length")?;
                         }
                         Some(s) => {
                             qwen35::attn_qk_norm_rope_suffix(

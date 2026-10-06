@@ -22,17 +22,17 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use qd_runtime::answer::{abstain_rule, span_rows, AbstainRule};
+use qd_runtime::answer::{AbstainRule, abstain_rule, span_rows};
 use qd_runtime::backend::{
     BackendIdentity, DecisionBackend, DecodeMode, Logits, PrefillHandle, QueryKind, SlotQuery,
-    StateSnapshot,
+    StateBuffer, StateSnapshot,
 };
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::context::Context;
-use qd_runtime::reference::{ReferenceBackend, REFERENCE_FEATURE_DIM};
+use qd_runtime::reference::{REFERENCE_FEATURE_DIM, ReferenceBackend};
 use qd_runtime::refusal::BackendError;
 use qd_runtime::registry::{HeadMatrix, HeadRegistry, RegisteredHead};
-use qd_runtime::render::{second_pass_permutation, RenderCaps};
+use qd_runtime::render::{RenderCaps, second_pass_permutation};
 use qd_runtime::runtime::Runtime;
 use qd_runtime::schema::{ConformalSet, Response, Route, SlotAnswer, SlotKind, SlotValue};
 use serde_json::json;
@@ -213,7 +213,10 @@ fn a_content_addressed_answer_survives_the_permuted_pass() {
     );
     // "clean" sorts first of the four.
     assert_eq!(answer.value, Some(SlotValue::Choice("clean".to_string())));
-    assert!(answer.score > 0.0, "the score is a margin, and it is positive here");
+    assert!(
+        answer.score > 0.0,
+        "the score is a margin, and it is positive here"
+    );
 }
 
 /// The property `letter_position_bias_becomes_an_abstention` depends on, stated directly.
@@ -287,7 +290,10 @@ fn a_score_slot_is_answered_without_a_second_pass() {
         json!([{"name": "severity", "type": "score", "bins": 5}]),
     );
     let answer = answer_of(&runtime, &value, "severity");
-    assert!(!answer.noul, "a score slot has no permuted pass: {answer:?}");
+    assert!(
+        !answer.noul,
+        "a score slot has no permuted pass: {answer:?}"
+    );
     assert_eq!(
         answer.value,
         Some(SlotValue::Score(1)),
@@ -552,6 +558,152 @@ fn a_span_slot_takes_exactly_two_pointer_decodes_from_one_snapshot() {
         "both ends are read from the same rendered suffix and the same snapshot; a differing \
          suffix would mean the two ends saw different prompts"
     );
+}
+
+#[test]
+fn a_choice_slot_is_one_batched_decode_covering_both_passes() {
+    let backend = Arc::new(BatchProbe::new());
+    let runtime = Runtime::with_backend(
+        backend.clone(),
+        CalibrationTable::reference(),
+        HeadRegistry::new(),
+        RenderCaps::DEFAULT,
+    )
+    .expect("assembles");
+    let request = common::validated(&choice_request(&["stub", "logic", "cosmetic", "clean"]));
+    let Response::Ok(_) = runtime.answer(&request, None) else {
+        panic!("a choice slot must be answerable");
+    };
+    assert_eq!(
+        backend.batched.load(Ordering::SeqCst),
+        1,
+        "both passes are one decode_slots call"
+    );
+    assert_eq!(
+        backend.single.load(Ordering::SeqCst),
+        0,
+        "the batch path must not also call decode_slot"
+    );
+    let seen = backend
+        .seen
+        .lock()
+        .expect("batch probe")
+        .clone()
+        .expect("decode_slots ran");
+    assert_eq!(
+        seen.mode,
+        DecodeMode::ReadOnly,
+        "write-back must not be the batched call"
+    );
+    assert_eq!(seen.kinds, vec![QueryKind::Letters, QueryKind::Letters]);
+    assert_eq!(seen.rows.len(), 2);
+    assert_eq!(
+        seen.rows[0], seen.rows[1],
+        "the two passes share one row count"
+    );
+    assert_eq!(seen.rows[0], 5, "four options plus the reserved noul row");
+    assert_ne!(
+        seen.suffixes[0], seen.suffixes[1],
+        "the second pass must be a different suffix, or the batch is the first pass twice"
+    );
+}
+
+#[test]
+fn decode_slots_refuses_an_empty_query_list() {
+    let backend = ReferenceBackend::new(true);
+    let mut snapshot = StateSnapshot {
+        backend: "reference".to_string(),
+        prompt_digest: [0; 32],
+        token_count: 0,
+        state: StateBuffer::from_bytes(vec![1]),
+    };
+    let err = backend
+        .decode_slots(&mut snapshot, &[], DecodeMode::ReadOnly)
+        .expect_err("no queries");
+    let BackendError::DecodeFailed { detail } = err else {
+        panic!("expected DecodeFailed, got {err:?}");
+    };
+    assert!(detail.contains("no queries"), "{detail}");
+}
+
+#[derive(Clone)]
+struct SeenBatch {
+    mode: DecodeMode,
+    kinds: Vec<QueryKind>,
+    rows: Vec<usize>,
+    suffixes: Vec<String>,
+}
+
+struct BatchProbe {
+    identity: BackendIdentity,
+    inner: ReferenceBackend,
+    batched: AtomicUsize,
+    single: AtomicUsize,
+    seen: Mutex<Option<SeenBatch>>,
+}
+
+impl BatchProbe {
+    fn new() -> Self {
+        let inner = ReferenceBackend::new(true);
+        let mut identity = inner.identity().clone();
+        identity.name = "test-batch-probe".to_string();
+        identity.is_model = true;
+        Self {
+            identity,
+            inner,
+            batched: AtomicUsize::new(0),
+            single: AtomicUsize::new(0),
+            seen: Mutex::new(None),
+        }
+    }
+}
+
+impl DecisionBackend for BatchProbe {
+    fn identity(&self) -> &BackendIdentity {
+        &self.identity
+    }
+
+    fn prefill(&self, prefix: &str) -> Result<PrefillHandle, BackendError> {
+        self.inner.prefill(prefix)
+    }
+
+    fn snapshot(&self, handle: &PrefillHandle) -> Result<StateSnapshot, BackendError> {
+        self.inner.snapshot(handle)
+    }
+
+    fn decode_slot(
+        &self,
+        snapshot: &mut StateSnapshot,
+        query: &SlotQuery<'_>,
+        mode: DecodeMode,
+    ) -> Result<Logits, BackendError> {
+        self.single.fetch_add(1, Ordering::SeqCst);
+        self.inner.decode_slot(snapshot, query, mode)
+    }
+
+    fn decode_slots(
+        &self,
+        snapshot: &mut StateSnapshot,
+        queries: &[SlotQuery<'_>],
+        mode: DecodeMode,
+    ) -> Result<Vec<Logits>, BackendError> {
+        self.batched.fetch_add(1, Ordering::SeqCst);
+        *self.seen.lock().expect("batch probe") = Some(SeenBatch {
+            mode,
+            kinds: queries.iter().map(|q| q.kind).collect(),
+            rows: queries.iter().map(|q| q.rows).collect(),
+            suffixes: queries.iter().map(|q| q.suffix.to_string()).collect(),
+        });
+        let mut out = Vec::with_capacity(queries.len());
+        for query in queries {
+            out.push(self.inner.decode_slot(snapshot, query, mode)?);
+        }
+        Ok(out)
+    }
+
+    fn pooled_features(&self, snapshot: &StateSnapshot) -> Result<Vec<f32>, BackendError> {
+        self.inner.pooled_features(snapshot)
+    }
 }
 
 #[test]

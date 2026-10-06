@@ -50,7 +50,9 @@ htmlcov/
 .env
 .env.*
 *.pem
+*.key
 *-service-account*.json
+credentials.json
 
 # Container build logs. The lockfile and Containerfile are tracked; their output is not.
 # AUDIT/ holds the *analysis* — the .md files and clones.json are the evidence record, and
@@ -71,6 +73,20 @@ AUDIT/*.log
 
 # Agent and assistant local runtime directories
 .claude/
+.claude*
+.gemini/
+.antigravity/
+.cursor/
+.agents/
+.agent/
+.codex/
+.aider*
+.openhands/
+.opencode/
+opencode.json
+.conductor/
+.warp/
+.grok/
 
 # IDE and editor files
 .idea/

@@ -118,6 +118,10 @@ an aggregate hides exactly the failure it is meant to catch:
   - `qd-gate-report` recomputes them.
 - `degenerate_head.choice.{shape}.top_class_share`: the share of the most predicted class.
   The verdict reads it under a share-only `degenerate_head_floor`.
+- `split_cache` (and `linear_option_control.split_cache` on option controls): records whether the
+  split rebuild was served from `--split-cache DIR` (`state: "ran"`, `value: "hit" | "miss" | "corrupt"`,
+  with the cache key recorded in `detail`). Present only when `--split-cache` is passed; it is not a
+  recipe key, so rows with and without split caching remain comparable under the same `recipe_hash`.
 
 A key that was not computed is present with `state: "not_run"` and a reason, or absent entirely.
 It is **never** present with a zero value.

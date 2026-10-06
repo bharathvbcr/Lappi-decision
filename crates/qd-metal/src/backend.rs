@@ -116,6 +116,57 @@ impl StateRecord {
     }
 }
 
+struct OwnedQuery {
+    suffix: String,
+    slot: String,
+    rows: usize,
+    kind: QueryKind,
+}
+
+/// The fields [`batchable`] looks at. Suffix text is not one of them: token length is decided
+/// after `continuation_ids`, by [`equal_length_batch`].
+struct QueryHead {
+    rows: usize,
+    kind: QueryKind,
+}
+
+impl QueryHead {
+    fn from_slot(q: &SlotQuery<'_>) -> Self {
+        Self {
+            rows: q.rows,
+            kind: q.kind,
+        }
+    }
+
+    fn from_owned(q: &OwnedQuery) -> Self {
+        Self {
+            rows: q.rows,
+            kind: q.kind,
+        }
+    }
+}
+
+/// Whether these queries may share one batch-2 forward.
+///
+/// The only admitted shape is exactly two [`DecodeMode::ReadOnly`] letter queries with the same
+/// row count. Write-back is excluded because `Model::run`'s `keep_state` is batch 1. A pointer
+/// head is excluded because the base weights have no such head and a batch would score letter
+/// rows for it. One query has nothing to batch. Three or more stay one decode each. Different
+/// row counts would score both passes with the first query's answer ids.
+fn batchable(mode: DecodeMode, queries: &[QueryHead]) -> bool {
+    match queries {
+        [a, b]
+            if mode == DecodeMode::ReadOnly
+                && a.kind == QueryKind::Letters
+                && b.kind == QueryKind::Letters
+                && a.rows == b.rows =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
 enum Job {
     Prefill {
         prefix: String,
@@ -133,6 +184,12 @@ enum Job {
         kind: QueryKind,
         mode: DecodeMode,
         reply: SyncSender<std::result::Result<(Logits, StateSnapshot), BackendError>>,
+    },
+    DecodeBatch {
+        snapshot: StateSnapshot,
+        queries: Vec<OwnedQuery>,
+        mode: DecodeMode,
+        reply: SyncSender<std::result::Result<(Vec<Logits>, StateSnapshot), BackendError>>,
     },
 }
 
@@ -275,6 +332,47 @@ impl DecisionBackend for MetalBackend {
         Ok(logits)
     }
 
+    fn decode_slots(
+        &self,
+        snapshot: &mut StateSnapshot,
+        queries: &[SlotQuery<'_>],
+        mode: DecodeMode,
+    ) -> std::result::Result<Vec<Logits>, BackendError> {
+        if queries.is_empty() {
+            return Err(BackendError::DecodeFailed {
+                detail: "decode_slots was given no queries".into(),
+            });
+        }
+        let heads: Vec<QueryHead> = queries.iter().map(QueryHead::from_slot).collect();
+        // Write-back, a pointer head, one query, three or more, or two letter queries with
+        // different row counts stay on `decode_slot`. keep_state is batch 1.
+        if !batchable(mode, &heads) {
+            let mut out = Vec::with_capacity(queries.len());
+            for query in queries {
+                out.push(self.decode_slot(snapshot, query, mode)?);
+            }
+            return Ok(out);
+        }
+        let job_snapshot = snapshot.clone();
+        let owned: Vec<OwnedQuery> = queries
+            .iter()
+            .map(|q| OwnedQuery {
+                suffix: q.suffix.to_string(),
+                slot: q.slot_name.to_string(),
+                rows: q.rows,
+                kind: q.kind,
+            })
+            .collect();
+        let (logits, updated) = self.submit(|reply| Job::DecodeBatch {
+            snapshot: job_snapshot,
+            queries: owned,
+            mode,
+            reply,
+        })?;
+        *snapshot = updated;
+        Ok(logits)
+    }
+
     fn pooled_features(
         &self,
         _snapshot: &StateSnapshot,
@@ -398,6 +496,17 @@ impl Worker {
                     let r = self
                         .guard()
                         .and_then(|()| self.decode(snapshot, &suffix, &slot, rows, kind, mode));
+                    let _gone = reply.send(r);
+                }
+                Job::DecodeBatch {
+                    snapshot,
+                    queries,
+                    mode,
+                    reply,
+                } => {
+                    let r = self
+                        .guard()
+                        .and_then(|()| self.decode_batch(snapshot, &queries, mode));
                     let _gone = reply.send(r);
                 }
             }
@@ -586,13 +695,7 @@ impl Worker {
         kind: QueryKind,
         mode: DecodeMode,
     ) -> std::result::Result<(Logits, StateSnapshot), BackendError> {
-        if kind != QueryKind::Letters {
-            return Err(decode_failed(format!(
-                "slot `{slot}` asks for the {} head; the base weights have no pointer head, only \
-                 the tied LM head's letter rows",
-                kind.as_str()
-            )));
-        }
+        refuse_non_letter(kind, slot)?;
         let id = self
             .lookup(&snapshot.backend, &snapshot.state, &snapshot.prompt_digest)
             .map_err(decode_failed)?;
@@ -603,12 +706,7 @@ impl Worker {
                 .entries
                 .get_mut(&id)
                 .ok_or_else(|| decode_failed("snapshot entry vanished"))?;
-            if e.is_prefill {
-                return Err(decode_failed(
-                    "decode was handed a prefill handle's state, not a snapshot's; the cached \
-                     prefill is shared by later requests and is never decoded from directly",
-                ));
-            }
+            refuse_prefill_handle(e.is_prefill)?;
             e.last_used = now;
             (
                 Rc::clone(&e.state),
@@ -616,42 +714,16 @@ impl Worker {
                 Rc::clone(&e.prefix_ids),
             )
         };
-        // The continuation's tokens are those of prefix + suffix after the prefix's: the model
-        // must see exactly what one pass over the whole prompt would. A tokenization that merges
-        // across the boundary is refused, not approximated.
-        let mut whole = String::with_capacity(prefix.len() + suffix.len());
-        whole.push_str(&prefix);
-        whole.push_str(suffix);
-        let all = self.tok.encode_untrusted(&whole).map_err(decode_failed)?;
-        if all.len() <= prefix_ids.len() || all[..prefix_ids.len()] != prefix_ids[..] {
-            return Err(decode_failed(format!(
-                "slot `{slot}`: prefix + suffix does not tokenize as the prefix's tokens followed \
-                 by the suffix's ({} vs {} prefix tokens); the continuation would not be the prompt",
-                all.len(),
-                prefix_ids.len()
-            )));
-        }
-        // `prefix` is the text the state covers (a write-back extends it), so this holds always.
-        if state.tokens() as usize != prefix_ids.len() {
-            return Err(decode_failed(format!(
-                "entry {id}: state holds {} tokens but its text is {}",
-                state.tokens(),
-                prefix_ids.len()
-            )));
-        }
-        let cont: Vec<u32> = all[prefix_ids.len()..].to_vec();
-        if cont.is_empty() {
-            return Err(decode_failed(format!(
-                "slot `{slot}`: the suffix adds no tokens"
-            )));
-        }
-        if state.tokens() as usize + cont.len() > self.max_tokens {
-            return Err(decode_failed(format!(
-                "prefix + suffix is {} tokens; this backend serves at most {}",
-                state.tokens() as usize + cont.len(),
-                self.max_tokens
-            )));
-        }
+        let (cont, all, whole) = continuation_ids(
+            &self.tok,
+            id,
+            state.tokens(),
+            &prefix,
+            &prefix_ids,
+            suffix,
+            slot,
+            self.max_tokens,
+        )?;
         let seq = u32::try_from(cont.len()).map_err(decode_failed)?;
         let keep = mode == DecodeMode::WriteBack;
         let result = (|| -> Result<(Vec<f32>, Option<PrefixState>, [u8; 32])> {
@@ -692,6 +764,239 @@ impl Worker {
         snapshot.state = StateBuffer::from_bytes(rec.to_bytes());
         Ok((Logits { kind, values }, snapshot))
     }
+
+    /// Two read-only letter queries. Equal suffix lengths are one forward; anything else is two
+    /// single decodes. A length mismatch is not padded: padding would attend.
+    fn decode_batch(
+        &mut self,
+        snapshot: StateSnapshot,
+        queries: &[OwnedQuery],
+        mode: DecodeMode,
+    ) -> std::result::Result<(Vec<Logits>, StateSnapshot), BackendError> {
+        let heads: Vec<QueryHead> = queries.iter().map(QueryHead::from_owned).collect();
+        // Same predicate as `decode_slots`. A write-back, a pointer head, one query, three
+        // queries, or two letter queries with different row counts never reach `model.run` here.
+        if !batchable(mode, &heads) {
+            return self.decode_each(snapshot, queries, mode);
+        }
+        let id = self
+            .lookup(&snapshot.backend, &snapshot.state, &snapshot.prompt_digest)
+            .map_err(decode_failed)?;
+        let answers = self
+            .tok
+            .answer_ids(queries[0].rows)
+            .map_err(decode_failed)?;
+        let now = self.tick();
+        let (state, prefix, prefix_ids) = {
+            let e = self
+                .entries
+                .get_mut(&id)
+                .ok_or_else(|| decode_failed("snapshot entry vanished"))?;
+            refuse_prefill_handle(e.is_prefill)?;
+            e.last_used = now;
+            (
+                Rc::clone(&e.state),
+                Rc::clone(&e.prefix),
+                Rc::clone(&e.prefix_ids),
+            )
+        };
+        // Both suffixes take the same continuation checks as `decode` (boundary merge, empty
+        // suffix, token-count mismatch, max tokens) before any forward.
+        let (c0, _, _) = continuation_ids(
+            &self.tok,
+            id,
+            state.tokens(),
+            &prefix,
+            &prefix_ids,
+            &queries[0].suffix,
+            &queries[0].slot,
+            self.max_tokens,
+        )?;
+        let (c1, _, _) = continuation_ids(
+            &self.tok,
+            id,
+            state.tokens(),
+            &prefix,
+            &prefix_ids,
+            &queries[1].suffix,
+            &queries[1].slot,
+            self.max_tokens,
+        )?;
+        // Unequal lengths are two decodes. Nothing is padded: a pad token would attend.
+        // `continuation_ids` has already refused an empty suffix, so this is not that check.
+        let Some((ids, seq)) = equal_length_batch(&c0, &c1) else {
+            return self.decode_each(snapshot, queries, mode);
+        };
+        let Some(score_at) = batch_score_rows(seq) else {
+            return Err(decode_failed(format!(
+                "batched continuation of {seq} tokens has no in-range score row"
+            )));
+        };
+        let result = (|| -> Result<(Vec<f32>, [u8; 32])> {
+            // Read-only: keep_state is batch 1, and `batchable` has already refused write-back.
+            let out = self.model.run(&ids, 2, seq, Some(&state), false, None)?;
+            let scores = self.model.score(&out, &score_at, &answers)?;
+            if scores.logits.len() != answers.len() * 2 {
+                return Err(MetalError::Gpu(format!(
+                    "batched decode returned {} logits, want {}",
+                    scores.logits.len(),
+                    answers.len() * 2
+                )));
+            }
+            let digest = state.digest()?;
+            Ok((scores.logits, digest))
+        })();
+        let (values, digest) = match result {
+            Ok(v) => v,
+            Err(e) => {
+                self.note(&e);
+                return Err(decode_failed(e));
+            }
+        };
+        let mut snapshot = snapshot;
+        let e = self
+            .entries
+            .get_mut(&id)
+            .ok_or_else(|| decode_failed("snapshot entry vanished during the decode"))?;
+        e.digest = digest;
+        let rec = StateRecord {
+            entry: id,
+            tokens: u64::from(e.state.tokens()),
+            digest,
+        };
+        snapshot.token_count = e.state.tokens() as usize;
+        snapshot.state = StateBuffer::from_bytes(rec.to_bytes());
+        let n = answers.len();
+        let logits = vec![
+            Logits {
+                kind: queries[0].kind,
+                values: values[..n].to_vec(),
+            },
+            Logits {
+                kind: queries[1].kind,
+                values: values[n..].to_vec(),
+            },
+        ];
+        Ok((logits, snapshot))
+    }
+
+    fn decode_each(
+        &mut self,
+        snapshot: StateSnapshot,
+        queries: &[OwnedQuery],
+        mode: DecodeMode,
+    ) -> std::result::Result<(Vec<Logits>, StateSnapshot), BackendError> {
+        let mut snapshot = snapshot;
+        let mut logits = Vec::with_capacity(queries.len());
+        for q in queries {
+            let (row, next) = self.decode(snapshot, &q.suffix, &q.slot, q.rows, q.kind, mode)?;
+            snapshot = next;
+            logits.push(row);
+        }
+        Ok((logits, snapshot))
+    }
+}
+
+fn refuse_non_letter(kind: QueryKind, slot: &str) -> std::result::Result<(), BackendError> {
+    if kind == QueryKind::Letters {
+        return Ok(());
+    }
+    Err(decode_failed(format!(
+        "slot `{slot}` asks for the {} head; the base weights have no pointer head, only \
+         the tied LM head's letter rows",
+        kind.as_str()
+    )))
+}
+
+fn refuse_prefill_handle(is_prefill: bool) -> std::result::Result<(), BackendError> {
+    if is_prefill {
+        Err(decode_failed(
+            "decode was handed a prefill handle's state, not a snapshot's; the cached \
+             prefill is shared by later requests and is never decoded from directly",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Row-major ids for one batch-2 continuation, when both passes have the same non-zero length.
+///
+/// A shorter row is not padded: padding would attend, and the score would land on the pad
+/// instead of the suffix's last token. Empty rows are not a forward (`Model::run` rejects
+/// `seq == 0`). A length that does not fit in `u32` is `None`, so the caller takes two decodes
+/// and each one still refuses before `model.run`.
+pub(crate) fn equal_length_batch(a: &[u32], b: &[u32]) -> Option<(Vec<u32>, u32)> {
+    let seq = shared_seq_len(a.len(), b.len())?;
+    let mut ids = Vec::with_capacity(a.len() * 2);
+    ids.extend_from_slice(a);
+    ids.extend_from_slice(b);
+    Some((ids, seq))
+}
+
+fn shared_seq_len(a: usize, b: usize) -> Option<u32> {
+    if a == 0 || a != b {
+        return None;
+    }
+    u32::try_from(a).ok()
+}
+
+/// Last-token rows of a batch-2 forward, row-major: `seq - 1` and `2 * seq - 1`.
+///
+/// `None` when `seq` is 0 or `2 * seq` does not fit in `u32`. A wrapping multiply would score
+/// the wrong row. `decode_batch` and `decision::run_decision` both refuse on `None` before
+/// `model.run`. The slow path never multiplies.
+pub(crate) fn batch_score_rows(seq: u32) -> Option<[u32; 2]> {
+    let first = seq.checked_sub(1)?;
+    let second = seq.checked_mul(2)?.checked_sub(1)?;
+    Some([first, second])
+}
+
+fn continuation_ids(
+    tok: &QwenTokenizer,
+    id: u64,
+    state_tokens: u32,
+    prefix: &str,
+    prefix_ids: &[u32],
+    suffix: &str,
+    slot: &str,
+    max_tokens: usize,
+) -> std::result::Result<(Vec<u32>, Vec<u32>, String), BackendError> {
+    // The continuation's tokens are those of prefix + suffix after the prefix's: the model
+    // must see exactly what one pass over the whole prompt would. A tokenization that merges
+    // across the boundary is refused, not approximated.
+    let mut whole = String::with_capacity(prefix.len() + suffix.len());
+    whole.push_str(prefix);
+    whole.push_str(suffix);
+    let all = tok.encode_untrusted(&whole).map_err(decode_failed)?;
+    if all.len() <= prefix_ids.len() || all[..prefix_ids.len()] != prefix_ids[..] {
+        return Err(decode_failed(format!(
+            "slot `{slot}`: prefix + suffix does not tokenize as the prefix's tokens followed \
+             by the suffix's ({} vs {} prefix tokens); the continuation would not be the prompt",
+            all.len(),
+            prefix_ids.len()
+        )));
+    }
+    if state_tokens as usize != prefix_ids.len() {
+        return Err(decode_failed(format!(
+            "entry {id}: state holds {} tokens but its text is {}",
+            state_tokens,
+            prefix_ids.len()
+        )));
+    }
+    let cont = all[prefix_ids.len()..].to_vec();
+    if cont.is_empty() {
+        return Err(decode_failed(format!(
+            "slot `{slot}`: the suffix adds no tokens"
+        )));
+    }
+    if state_tokens as usize + cont.len() > max_tokens {
+        return Err(decode_failed(format!(
+            "prefix + suffix is {} tokens; this backend serves at most {}",
+            state_tokens as usize + cont.len(),
+            max_tokens
+        )));
+    }
+    Ok((cont, all, whole))
 }
 
 #[cfg(test)]
@@ -737,5 +1042,392 @@ mod tests {
     fn the_backend_handle_is_send_and_sync() {
         fn require<T: Send + Sync>() {}
         require::<MetalBackend>();
+    }
+
+    /// Attacks the continuation boundary: a suffix whose tokens merge into the prefix must be
+    /// refused, an empty suffix must be refused, and a suffix that really continues must come
+    /// back as exactly the tail of the joint encoding. No GPU.
+    #[test]
+    #[ignore = "needs the model snapshot's tokenizer"]
+    fn continuation_ids_refuses_a_merged_boundary_and_an_empty_suffix() {
+        let snap = crate::config::resolve_snapshot(None).expect("snapshot");
+        let tok = QwenTokenizer::load(&snap.join("tokenizer.json")).expect("tokenizer");
+        let texts = [
+            "hello",
+            "unhappy",
+            "foo bar",
+            "a b",
+            "prefix suffix",
+            "12345",
+            "The cat",
+            "in the",
+        ];
+        let mut merges = 0usize;
+        let mut kept = 0usize;
+        for text in texts {
+            let joint = tok.encode_untrusted(text).unwrap();
+            for split in 1..text.len() {
+                if !text.is_char_boundary(split) {
+                    continue;
+                }
+                let (prefix, suffix) = text.split_at(split);
+                if suffix.is_empty() {
+                    continue;
+                }
+                let prefix_ids = tok.encode_untrusted(prefix).unwrap();
+                let result = continuation_ids(
+                    &tok,
+                    1,
+                    u32::try_from(prefix_ids.len()).unwrap(),
+                    prefix,
+                    &prefix_ids,
+                    suffix,
+                    "probe",
+                    10_000,
+                );
+                let aligns =
+                    joint.len() > prefix_ids.len() && joint[..prefix_ids.len()] == prefix_ids[..];
+                if aligns {
+                    let (cont, all, whole) = result.expect("a real continuation was refused");
+                    assert_eq!(all, joint, "{prefix:?}|{suffix:?}");
+                    assert_eq!(cont, joint[prefix_ids.len()..], "{prefix:?}|{suffix:?}");
+                    assert_eq!(whole, format!("{prefix}{suffix}"));
+                    kept += 1;
+                    let tight = continuation_ids(
+                        &tok,
+                        1,
+                        u32::try_from(prefix_ids.len()).unwrap(),
+                        prefix,
+                        &prefix_ids,
+                        suffix,
+                        "probe",
+                        prefix_ids.len() + cont.len(),
+                    );
+                    assert!(tight.is_ok(), "exact max_tokens must fit");
+                    let over = continuation_ids(
+                        &tok,
+                        1,
+                        u32::try_from(prefix_ids.len()).unwrap(),
+                        prefix,
+                        &prefix_ids,
+                        suffix,
+                        "probe",
+                        prefix_ids.len() + cont.len() - 1,
+                    );
+                    assert!(over.is_err(), "one token over max_tokens must be refused");
+                } else {
+                    assert!(
+                        result.is_err(),
+                        "accepted a boundary that does not continue: {prefix:?}|{suffix:?}"
+                    );
+                    merges += 1;
+                }
+            }
+        }
+        assert!(
+            kept > 0,
+            "no continuation aligned; the probes never exercised the success path"
+        );
+        assert!(
+            merges > 0,
+            "no boundary merge in the probes; the refusal path was not exercised"
+        );
+
+        let prefix_ids = tok.encode_untrusted("hello").unwrap();
+        let empty = continuation_ids(
+            &tok,
+            1,
+            u32::try_from(prefix_ids.len()).unwrap(),
+            "hello",
+            &prefix_ids,
+            "",
+            "empty",
+            10_000,
+        );
+        assert!(empty.is_err(), "an empty suffix must not decode");
+
+        let mismatch = continuation_ids(
+            &tok,
+            7,
+            u32::try_from(prefix_ids.len()).unwrap() + 3,
+            "hello",
+            &prefix_ids,
+            " there",
+            "mismatch",
+            10_000,
+        );
+        assert!(
+            mismatch.is_err(),
+            "a state whose token count disagrees with its text must be refused"
+        );
+    }
+
+    fn letters(rows: usize) -> QueryHead {
+        QueryHead {
+            rows,
+            kind: QueryKind::Letters,
+        }
+    }
+
+    fn head(rows: usize, kind: QueryKind) -> QueryHead {
+        QueryHead { rows, kind }
+    }
+
+    /// Removing any one arm of `batchable` admits a forward `Model::run` cannot score correctly:
+    /// write-back needs `keep_state`, which is batch 1; a pointer head would be scored as letters;
+    /// a different row count would score both passes with one answer-id list.
+    #[test]
+    fn the_batch_path_is_only_two_readonly_letter_queries_of_equal_rows() {
+        let pair = [letters(5), letters(5)];
+        assert!(
+            batchable(DecodeMode::ReadOnly, &pair),
+            "the product choice path is this shape"
+        );
+        assert!(
+            !batchable(DecodeMode::WriteBack, &pair),
+            "write-back must not take the batch-2 path"
+        );
+        assert!(
+            !batchable(DecodeMode::ReadOnly, &[letters(5)]),
+            "a single query must not"
+        );
+        assert!(!batchable(DecodeMode::ReadOnly, &[]), "no queries must not");
+        assert!(
+            !batchable(DecodeMode::ReadOnly, &[letters(5), letters(5), letters(5)]),
+            "three queries must not"
+        );
+        assert!(
+            !batchable(DecodeMode::ReadOnly, &[letters(5), letters(6)]),
+            "different row counts must not"
+        );
+        assert!(
+            !batchable(DecodeMode::ReadOnly, &[letters(6), letters(5)]),
+            "different row counts must not, either order"
+        );
+        let pointers = [
+            head(5, QueryKind::PointerStart),
+            head(5, QueryKind::PointerEnd),
+        ];
+        assert!(
+            !batchable(DecodeMode::ReadOnly, &pointers),
+            "pointer heads must not"
+        );
+        assert!(
+            !batchable(
+                DecodeMode::ReadOnly,
+                &[letters(5), head(5, QueryKind::PointerStart)]
+            ),
+            "a mixed letter and pointer pair must not"
+        );
+        assert!(
+            !batchable(
+                DecodeMode::ReadOnly,
+                &[head(5, QueryKind::PointerEnd), letters(5)]
+            ),
+            "a pointer first must not"
+        );
+        assert!(
+            !batchable(DecodeMode::WriteBack, &pointers),
+            "write-back of pointer heads must not"
+        );
+    }
+
+    #[test]
+    fn unequal_or_empty_continuations_are_not_packed_and_the_score_row_does_not_wrap() {
+        let (ids, seq) = equal_length_batch(&[1, 2, 3], &[4, 5, 6]).unwrap();
+        assert_eq!(seq, 3);
+        assert_eq!(ids, vec![1, 2, 3, 4, 5, 6], "row-major, no pad token");
+        assert_eq!(ids.len(), 6, "a padded pack would be longer than both rows");
+        assert!(equal_length_batch(&[1, 2], &[3, 4, 5]).is_none());
+        assert!(equal_length_batch(&[3, 4, 5], &[1, 2]).is_none());
+        assert!(equal_length_batch(&[], &[]).is_none());
+        assert!(equal_length_batch(&[7], &[]).is_none());
+        assert!(equal_length_batch(&[], &[7]).is_none());
+
+        assert_eq!(shared_seq_len(4, 4), Some(4));
+        assert_eq!(shared_seq_len(0, 0), None);
+        assert_eq!(shared_seq_len(2, 3), None);
+        let past_u32 = (u32::MAX as usize).saturating_add(1);
+        if past_u32 > u32::MAX as usize {
+            assert_eq!(shared_seq_len(past_u32, past_u32), None);
+        }
+
+        assert_eq!(batch_score_rows(1), Some([0, 1]));
+        assert_eq!(batch_score_rows(3), Some([2, 5]));
+        assert_eq!(
+            batch_score_rows(0),
+            None,
+            "seq 0 would underflow the score index"
+        );
+        assert_eq!(batch_score_rows(u32::MAX), None);
+        assert_eq!(batch_score_rows(1 << 31), None, "2 * seq must not wrap");
+        let half = u32::MAX / 2;
+        let second = u32::try_from(u64::from(half) * 2 - 1).unwrap();
+        assert_eq!(batch_score_rows(half), Some([half - 1, second]));
+    }
+
+    #[test]
+    fn a_pointer_head_and_a_prefill_handle_are_refused_before_any_forward() {
+        for kind in [QueryKind::PointerStart, QueryKind::PointerEnd] {
+            let err = refuse_non_letter(kind, "evidence").expect_err("pointer head");
+            let BackendError::DecodeFailed { detail } = err else {
+                panic!("expected DecodeFailed, got {err:?}");
+            };
+            assert!(
+                detail.contains("pointer"),
+                "the slow path's refusal must name the head: {detail}"
+            );
+        }
+        assert!(refuse_non_letter(QueryKind::Letters, "verdict").is_ok());
+
+        let err = refuse_prefill_handle(true).expect_err("prefill handle");
+        let BackendError::DecodeFailed { detail } = err else {
+            panic!("expected DecodeFailed, got {err:?}");
+        };
+        assert!(
+            detail.contains("prefill handle"),
+            "decode must refuse a shared prefill: {detail}"
+        );
+        assert!(refuse_prefill_handle(false).is_ok());
+    }
+
+    /// The same refusals `decode` makes, on a WordLevel fixture so `cargo test` does not load
+    /// the 2B snapshot. `decode_batch` calls this function for both suffixes before `model.run`.
+    #[test]
+    fn continuation_ids_refuses_empty_overflow_mismatch_and_a_non_continuation() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/mini_letter_tokenizer.json");
+        let tok = QwenTokenizer::load(&path).expect("mini letter tokenizer");
+        let prefix = "hello";
+        let prefix_ids = tok.encode_untrusted(prefix).expect("prefix");
+        assert_eq!(
+            prefix_ids.len(),
+            1,
+            "fixture prefix should be one token: {prefix_ids:?}"
+        );
+        let state_tokens = u32::try_from(prefix_ids.len()).unwrap();
+
+        let empty = continuation_ids(
+            &tok,
+            1,
+            state_tokens,
+            prefix,
+            &prefix_ids,
+            "",
+            "empty",
+            10_000,
+        );
+        assert!(empty.is_err(), "an empty suffix must not decode");
+
+        let blank = continuation_ids(
+            &tok,
+            1,
+            state_tokens,
+            prefix,
+            &prefix_ids,
+            "   ",
+            "blank",
+            10_000,
+        );
+        assert!(
+            blank.is_err(),
+            "whitespace that adds no token must not decode"
+        );
+
+        let broken = continuation_ids(
+            &tok,
+            1,
+            state_tokens,
+            prefix,
+            &prefix_ids,
+            "world",
+            "broken",
+            10_000,
+        );
+        assert!(
+            broken.is_err(),
+            "a suffix that does not continue the prefix's tokens must not decode"
+        );
+
+        let (cont, all, whole) = continuation_ids(
+            &tok,
+            1,
+            state_tokens,
+            prefix,
+            &prefix_ids,
+            " world",
+            "ok",
+            10_000,
+        )
+        .expect("a real continuation");
+        assert_eq!(whole, "hello world");
+        assert_eq!(cont, all[prefix_ids.len()..]);
+        assert!(!cont.is_empty());
+        let world = tok.encode_untrusted("world").unwrap();
+        assert_eq!(cont, world);
+
+        let fit = prefix_ids.len() + cont.len();
+        assert!(
+            continuation_ids(
+                &tok,
+                1,
+                state_tokens,
+                prefix,
+                &prefix_ids,
+                " world",
+                "fit",
+                fit
+            )
+            .is_ok(),
+            "exact max_tokens must fit"
+        );
+        let over = continuation_ids(
+            &tok,
+            1,
+            state_tokens,
+            prefix,
+            &prefix_ids,
+            " world",
+            "over",
+            fit - 1,
+        );
+        assert!(over.is_err(), "one token over max_tokens must be refused");
+
+        let mismatch = continuation_ids(
+            &tok,
+            7,
+            state_tokens + 3,
+            prefix,
+            &prefix_ids,
+            " world",
+            "mismatch",
+            10_000,
+        );
+        assert!(
+            mismatch.is_err(),
+            "a state whose token count disagrees with its text must be refused"
+        );
+
+        let (longer, _, _) = continuation_ids(
+            &tok,
+            1,
+            state_tokens,
+            prefix,
+            &prefix_ids,
+            " world there",
+            "long",
+            10_000,
+        )
+        .expect("two-token continuation");
+        assert_ne!(cont.len(), longer.len());
+        assert!(
+            equal_length_batch(&cont, &longer).is_none(),
+            "unequal continuations must not become one padded forward"
+        );
+        let (packed, seq) = equal_length_batch(&cont, &cont).unwrap();
+        assert_eq!(seq as usize, cont.len());
+        assert_eq!(packed.len(), cont.len() * 2);
+        assert_eq!(&packed[..cont.len()], cont.as_slice());
+        assert_eq!(&packed[cont.len()..], cont.as_slice());
     }
 }

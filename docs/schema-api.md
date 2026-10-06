@@ -438,13 +438,27 @@ literally true for a two-ended answer, so the count is stated here and **measure
 
 | Slot kind | Decodes | Rows per decode | Query kinds |
 | --- | --- | --- | --- |
-| `choice` | **2** — the pass and step 4's permuted pass, different suffixes, same snapshot | `k + 1` | `letters` |
+| `choice` | **2** — the pass and step 4's permuted pass, different suffixes, same snapshot (batched into **1 forward** when supported) | `k + 1` | `letters` |
 | `score` | **1** — ordinal bins are never permuted | `bins + 1` | `letters` |
 | `span` | **2** — one per end, *same* suffix, same snapshot | `line_count + 1` | `pointer_start`, then `pointer_end` |
 
 `GAP-RT-SPEC-SPAN-DECODE`. Two decodes is the reading that keeps every decode a 1-token query; a
 one-decode reading, with both ends read from a single distribution, is a different head, and the
 kernel (K2) and training lanes must build the one written here.
+
+#### Batched choice decodes (`decode_slots`)
+
+For a `choice` slot, step 4's permuted pass suffix is known before either forward is executed: the
+permutation depends on the request digest, not on the first pass's answer. Both queries are read-only
+and share the same row count. The runtime issues `readonly_decodes(backend, snapshot, &[query, second_query], slot_index)`
+which delegates to `DecisionBackend::decode_slots`.
+
+- Backends that support batched evaluation (such as `qd-metal` on Apple Silicon Metal GPU) pack both
+  equal-length passes into **one forward pass**, halving kernel dispatch and GPU synchronization overhead.
+- For backends that do not implement batching, `DecisionBackend::decode_slots` defaults to calling
+  `decode_slot` sequentially for each query in the batch.
+- The snapshot state hash is checked once across the whole batched call, verifying slot isolation for
+  all queries together.
 
 ### The `span` slot, completely
 

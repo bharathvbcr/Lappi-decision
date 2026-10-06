@@ -229,6 +229,30 @@ pub trait DecisionBackend: Send + Sync {
         mode: DecodeMode,
     ) -> Result<Logits, BackendError>;
 
+    /// Answer several queries from one snapshot.
+    ///
+    /// The default runs [`decode_slot`](DecisionBackend::decode_slot) once per query, so a backend
+    /// that has not overridden this keeps today's two-pass behaviour. A backend that can run the
+    /// queries as one forward (same length, read-only) overrides it. The runtime hashes the
+    /// snapshot once around the whole call, and that one comparison covers every query in it.
+    fn decode_slots(
+        &self,
+        snapshot: &mut StateSnapshot,
+        queries: &[SlotQuery<'_>],
+        mode: DecodeMode,
+    ) -> Result<Vec<Logits>, BackendError> {
+        if queries.is_empty() {
+            return Err(BackendError::DecodeFailed {
+                detail: "decode_slots was given no queries".into(),
+            });
+        }
+        let mut out = Vec::with_capacity(queries.len());
+        for query in queries {
+            out.push(self.decode_slot(snapshot, query, mode)?);
+        }
+        Ok(out)
+    }
+
     /// Pooled features for the registered route's single GEMV. Same prefill, same snapshot.
     fn pooled_features(&self, snapshot: &StateSnapshot) -> Result<Vec<f32>, BackendError>;
 }

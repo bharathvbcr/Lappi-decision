@@ -100,6 +100,69 @@ fn gpu_continuations_read_the_snapshot_and_never_write_it() {
     assert_eq!(state.digest().unwrap(), d0, "a batched read-only continuation changed the snapshot");
 }
 
+/// Two equal-length read-only suffixes from one snapshot, timed as two batch-1
+/// runs and as one batch-2 run. The batch must match each row's own batch-1
+/// logprobs. The times are the measurement; a later decision-path arm is what
+/// would put this on the product.
+#[test]
+#[ignore = "GPU + model snapshot"]
+fn gpu_two_suffixes_as_one_batch_match_batch_one() {
+    let (model, tok) = setup();
+    let letters = tok.letter_ids().to_vec();
+    let prefix = tok.encode(PREFIX).unwrap();
+    let full = tok.encode(&format!("{PREFIX}{SUFFIX}")).unwrap();
+    let suffix = &full[prefix.len()..];
+    let n = 61.min(suffix.len().saturating_sub(1));
+    assert!(n > RECURRENT_MAX_SEQ as usize, "the timed suffix must take the chunked path");
+    let a = &suffix[..n];
+    let b = &suffix[suffix.len() - n..];
+    let (_, state) = model.prefill(&prefix).unwrap();
+    let d0 = state.digest().unwrap();
+
+    let time_seq = |model: &Model| {
+        let t = Instant::now();
+        let (la, _) = continue_logprobs(model, &state, a, &letters, false);
+        let (lb, _) = continue_logprobs(model, &state, b, &letters, false);
+        (t.elapsed().as_secs_f64() * 1e3, la, lb)
+    };
+    let time_bat = |model: &Model| {
+        let s = n as u32;
+        let mut ids = Vec::with_capacity(2 * n);
+        ids.extend_from_slice(a);
+        ids.extend_from_slice(b);
+        let t = Instant::now();
+        let out = model.run(&ids, 2, s, Some(&state), false, None).unwrap();
+        let sc = model.score(&out, &[s - 1, 2 * s - 1], &letters).unwrap();
+        let ms = t.elapsed().as_secs_f64() * 1e3;
+        let row = letters.len();
+        (ms, sc.logprobs[..row].to_vec(), sc.logprobs[row..].to_vec())
+    };
+    for _ in 0..2 {
+        time_seq(&model);
+        time_bat(&model);
+    }
+    let mut seq_ms = Vec::new();
+    let mut bat_ms = Vec::new();
+    for _ in 0..5 {
+        let (seq_elapsed, la, lb) = time_seq(&model);
+        seq_ms.push(seq_elapsed);
+        let (bat_elapsed, ba, bb) = time_bat(&model);
+        bat_ms.push(bat_elapsed);
+        let da = max_abs(&ba, &la);
+        let db = max_abs(&bb, &lb);
+        println!("batch vs batch-1: max |d logprob| {da:.2e} {db:.2e}");
+        assert!(da <= 1e-4 && db <= 1e-4, "batched suffixes differ from batch-1 by {da} {db}");
+    }
+    seq_ms.sort_by(f64::total_cmp);
+    bat_ms.sort_by(f64::total_cmp);
+    println!(
+        "two {n}-token suffixes: sequential median {:.2} ms, batched median {:.2} ms",
+        seq_ms[seq_ms.len() / 2],
+        bat_ms[bat_ms.len() / 2]
+    );
+    assert_eq!(state.digest().unwrap(), d0, "the timed batch wrote the snapshot");
+}
+
 #[test]
 #[ignore = "GPU + model snapshot"]
 fn gpu_write_back_moves_only_the_new_state() {

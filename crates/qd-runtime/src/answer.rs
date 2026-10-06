@@ -297,12 +297,9 @@ fn answer_generic(
                 rows: plan.rows,
                 kind: QueryKind::Letters,
             };
-            let (first, check_a) =
-                readonly_decode(ctx.backend, snapshot, &query, slot_index)?;
-            let cal = calibrate(name, &first.values, &plan.entry)?;
-            let noul_row = plan.rows - RESERVED_NOUL_ROWS;
-
-            // Step 4: the second pass, with the options permuted.
+            // Step 4's permuted pass is known before either forward: the permutation is the
+            // request digest, not the first pass's answer. One read-only call covers both, so a
+            // backend can run them as one batch. The isolation check is that one comparison.
             let digest = request.digest();
             let perm = second_pass_permutation(&digest, name, options.len());
             let permuted = permuted_slot_suffix(plan.spec, ctx.caps, &perm, slot_index)?;
@@ -312,10 +309,17 @@ fn answer_generic(
                 rows: plan.rows,
                 kind: QueryKind::Letters,
             };
-            let (second, check_b) =
-                readonly_decode(ctx.backend, snapshot, &second_query, slot_index)?;
+            let (pair, check) = readonly_decodes(
+                ctx.backend,
+                snapshot,
+                &[query, second_query],
+                slot_index,
+            )?;
+            let (first, second) = (&pair[0], &pair[1]);
+            let cal = calibrate(name, &first.values, &plan.entry)?;
+            let noul_row = plan.rows - RESERVED_NOUL_ROWS;
             let cal2 = calibrate(name, &second.values, &plan.entry)?;
-            let checks = vec![check_a, check_b];
+            let checks = vec![check];
 
             if cal.top == noul_row || cal2.top == noul_row {
                 return Ok((SlotAnswer::abstained(cal.margin, false), checks));
@@ -594,6 +598,78 @@ pub fn readonly_decode(
     };
 
     validate_logits(&logits, query)?;
+    Ok((logits, check))
+}
+
+/// Both passes of one slot, with one isolation comparison around the whole call.
+///
+/// [`readonly_decode`] remains the single-query check. This is what a choice uses, because the
+/// two suffixes are both read-only and known up front. A backend's `decode_slots` may run them
+/// as one forward; the default runs them one at a time. Either way the hash is compared once,
+/// and that comparison covers every query handed over.
+pub fn readonly_decodes(
+    backend: &dyn DecisionBackend,
+    snapshot: &mut StateSnapshot,
+    queries: &[SlotQuery<'_>],
+    slot_index: usize,
+) -> Result<(Vec<Logits>, SlotIsolationCheck), BackendError> {
+    if queries.is_empty() {
+        return Err(BackendError::DecodeFailed {
+            detail: "readonly_decodes was given no queries".into(),
+        });
+    }
+    let host_visible = backend.identity().state_host_visible;
+    let before = if host_visible && !snapshot.state.is_empty() {
+        Some(snapshot.state_digest())
+    } else {
+        None
+    };
+
+    let logits = backend.decode_slots(snapshot, queries, DecodeMode::ReadOnly)?;
+    if logits.len() != queries.len() {
+        return Err(BackendError::DecodeFailed {
+            detail: format!(
+                "decode_slots returned {} results for {} queries",
+                logits.len(),
+                queries.len()
+            ),
+        });
+    }
+
+    let check = match before {
+        Some(before) => {
+            let after = snapshot.state_digest();
+            if after != before {
+                return Err(BackendError::ReadonlyViolated {
+                    slot_index,
+                    before: crate::hex(&before),
+                    after: crate::hex(&after),
+                });
+            }
+            SlotIsolationCheck::Ran {
+                state_hash: crate::hex(&before),
+            }
+        }
+        None if host_visible => SlotIsolationCheck::NotRun {
+            reason: format!(
+                "backend `{}` reports state_host_visible = true but its snapshot carries no state \
+                 bytes, so there was nothing to hash either side of the decode; slot isolation is \
+                 unverified for this answer",
+                backend.identity().name
+            ),
+        },
+        None => SlotIsolationCheck::NotRun {
+            reason: format!(
+                "backend `{}` reports state_host_visible = false, so the state buffer could not be \
+                 hashed either side of the decode; slot isolation is unverified for this answer",
+                backend.identity().name
+            ),
+        },
+    };
+
+    for (query, row) in queries.iter().zip(&logits) {
+        validate_logits(row, query)?;
+    }
     Ok((logits, check))
 }
 

@@ -46,11 +46,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use qd_runtime::render::{permuted_slot_suffix, render, second_pass_permutation, RenderCaps};
-use qd_runtime::wire::{parse_line, Incoming};
+use qd_runtime::render::{RenderCaps, permuted_slot_suffix, render, second_pass_permutation};
+use qd_runtime::wire::{Incoming, parse_line};
 use qd_train::ledger::{Environment, Protocol, Row, Status, WallClockSource};
 use qd_train::tristate::TriState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::error::{MetalError, Result};
 use crate::ledger::{self, Provenance, TreeState};
@@ -66,8 +66,7 @@ pub const DEFAULT_WARMUP: usize = 2;
 /// neutral labels up to the contract's 16.
 const OPTIONS: [&str; 16] = [
     "stub", "logic", "cosmetic", "clean", "option e", "option f", "option g", "option h",
-    "option i", "option j", "option k", "option l", "option m", "option n", "option o",
-    "option p",
+    "option i", "option j", "option k", "option l", "option m", "option n", "option o", "option p",
 ];
 const TASK: &str = "code.defect_class";
 const QUESTION: &str = "What kind of change is this diff?";
@@ -202,12 +201,16 @@ fn parse_list(v: &str, what: &str) -> Result<Vec<usize>> {
         })
         .collect::<Result<_>>()?;
     if out.is_empty() || out.contains(&0) {
-        return Err(MetalError::Input(format!("{what} must be positive counts, got {v:?}")));
+        return Err(MetalError::Input(format!(
+            "{what} must be positive counts, got {v:?}"
+        )));
     }
     // A repeated T would run twice and write the same `decision.t<T>.*` keys, the second run
     // silently replacing the first while `t_coverage` still matched the recipe.
     if let Some((i, x)) = out.iter().enumerate().find(|&(i, x)| out[..i].contains(x)) {
-        return Err(MetalError::Input(format!("{what}: {x} is given twice (position {i}) in {v:?}")));
+        return Err(MetalError::Input(format!(
+            "{what}: {x} is given twice (position {i}) in {v:?}"
+        )));
     }
     Ok(out)
 }
@@ -215,7 +218,9 @@ fn parse_list(v: &str, what: &str) -> Result<Vec<usize>> {
 fn parse_one(v: &str, what: &str) -> Result<usize> {
     match parse_list(v, what)?.as_slice() {
         [one] => Ok(*one),
-        _ => Err(MetalError::Input(format!("{what} takes one count, got {v:?}"))),
+        _ => Err(MetalError::Input(format!(
+            "{what} takes one count, got {v:?}"
+        ))),
     }
 }
 
@@ -251,9 +256,9 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
                 "--iters" => iters = parse_one(&value("--iters")?, "--iters")?,
                 "--warmup" => {
                     let v = value("--warmup")?;
-                    warmup = v
-                        .parse()
-                        .map_err(|_| MetalError::Input(format!("--warmup: {v:?} is not a count")))?;
+                    warmup = v.parse().map_err(|_| {
+                        MetalError::Input(format!("--warmup: {v:?} is not a count"))
+                    })?;
                 }
                 "--arms" => {
                     arms = value("--arms")?
@@ -281,13 +286,19 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
     }
     for (i, a) in arms.iter().enumerate() {
         if arms[..i].contains(a) {
-            return Err(MetalError::Input(format!("arm {} is given twice", a.name())));
+            return Err(MetalError::Input(format!(
+                "arm {} is given twice",
+                a.name()
+            )));
         }
     }
     // An A/B varies one flag: two arms naming different flags each differ from the product in a
     // different flag, so their delta is neither flag's. (Unreachable while `product` is the only arm;
     // it holds the rule for the next flag.)
-    if let Some(a) = arms.iter().find(|a| std::mem::discriminant(*a) != std::mem::discriminant(&arms[0])) {
+    if let Some(a) = arms
+        .iter()
+        .find(|a| std::mem::discriminant(*a) != std::mem::discriminant(&arms[0]))
+    {
         return Err(MetalError::Input(format!(
             "arms {} and {} vary different flags; an A/B varies one",
             arms[0].name(),
@@ -301,7 +312,9 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
         }
         (None, true) => RowTarget::None,
         (Some(_), true) => {
-            return Err(MetalError::Input("--ledger and --no-ledger contradict each other".into()));
+            return Err(MetalError::Input(
+                "--ledger and --no-ledger contradict each other".into(),
+            ));
         }
         (None, false) => {
             return Err(MetalError::Input(
@@ -379,9 +392,15 @@ fn rendered(lines: usize, k: usize) -> Result<(String, [String; 2])> {
         .map_err(|e| MetalError::Input(format!("request: {e}")))?;
     let request = match parse_line(&line) {
         Ok(Incoming::Request(r)) => r,
-        Ok(_) => return Err(MetalError::Input("the bench request parsed as a control op".into())),
+        Ok(_) => {
+            return Err(MetalError::Input(
+                "the bench request parsed as a control op".into(),
+            ));
+        }
         Err(refusal) => {
-            return Err(MetalError::Input(format!("the bench request was refused: {refusal:?}")));
+            return Err(MetalError::Input(format!(
+                "the bench request was refused: {refusal:?}"
+            )));
         }
     };
     let caps = RenderCaps::DEFAULT;
@@ -401,7 +420,12 @@ fn rendered(lines: usize, k: usize) -> Result<(String, [String; 2])> {
 
 /// The continuation tokens of `suffix` after `prefix_ids`, refused if `prefix + suffix` does not
 /// tokenize as the prefix's tokens followed by more (the check `backend.rs` makes).
-fn continuation(tok: &QwenTokenizer, prefix: &str, prefix_ids: &[u32], suffix: &str) -> Result<Vec<u32>> {
+fn continuation(
+    tok: &QwenTokenizer,
+    prefix: &str,
+    prefix_ids: &[u32],
+    suffix: &str,
+) -> Result<Vec<u32>> {
     let all = tok.encode(&format!("{prefix}{suffix}"))?;
     if all.len() <= prefix_ids.len() || all[..prefix_ids.len()] != prefix_ids[..] {
         return Err(MetalError::Input(format!(
@@ -414,7 +438,8 @@ fn continuation(tok: &QwenTokenizer, prefix: &str, prefix_ids: &[u32], suffix: &
 
 /// The largest context (in whole source lines) whose rendered prefix is at most `target` tokens.
 pub fn build_prompt(tok: &QwenTokenizer, target: usize, k: usize) -> Result<DecisionPrompt> {
-    let tokens_at = |lines: usize| -> Result<usize> { Ok(tok.encode(&rendered(lines, k)?.0)?.len()) };
+    let tokens_at =
+        |lines: usize| -> Result<usize> { Ok(tok.encode(&rendered(lines, k)?.0)?.len()) };
     if tokens_at(1)? > target {
         return Err(MetalError::Input(format!(
             "T = {target}: the request's fixed text alone is longer than that"
@@ -422,9 +447,14 @@ pub fn build_prompt(tok: &QwenTokenizer, target: usize, k: usize) -> Result<Deci
     }
     // Every line adds at least one token (a newline), so `target` lines is an upper bound; so is
     // the runtime's context cap, which `render` would refuse past.
-    let (mut lo, mut hi) = (1usize, target.min(max_context_lines(RenderCaps::DEFAULT.max_context_bytes)));
+    let (mut lo, mut hi) = (
+        1usize,
+        target.min(max_context_lines(RenderCaps::DEFAULT.max_context_bytes)),
+    );
     if hi < 1 {
-        return Err(MetalError::Input("not one source line fits the runtime's context cap".into()));
+        return Err(MetalError::Input(
+            "not one source line fits the runtime's context cap".into(),
+        ));
     }
     while lo < hi {
         let mid = lo + (hi - lo).div_ceil(2);
@@ -511,26 +541,69 @@ pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32]) -> Resul
     let mut digest_ms = [ms(td), 0.0, 0.0];
     let mut decode_ms = [0.0; 2];
     let mut logits = Vec::with_capacity(2 * answers.len());
-    for (i, cont) in p.passes.iter().enumerate() {
-        let s = u32::try_from(cont.len()).map_err(|_| MetalError::Input("suffix too long".into()))?;
+    if let Some((ids, seq)) = crate::backend::equal_length_batch(&p.passes[0], &p.passes[1]) {
+        // Both suffixes share one 128-row GEMM tile. Measured on the 2B weights:
+        // two 60-token runs 49.7 ms, one batch 28.1 ms, logprobs bit-identical.
+        // The second row is `2 * seq - 1`. Refuse before the forward when it does not fit:
+        // the same check `decode_batch` makes. A wrapping multiply would score the wrong row.
+        let Some(score_at) = crate::backend::batch_score_rows(seq) else {
+            return Err(MetalError::Input(format!(
+                "batched continuation of {seq} tokens has no in-range score row"
+            )));
+        };
         let tp = Instant::now();
-        let out = model.run(cont, 1, s, Some(&state), false, None)?;
-        let scores = model.score(&out, &[s - 1], answers)?;
-        decode_ms[i] = ms(tp);
+        let out = model.run(&ids, 2, seq, Some(&state), false, None)?;
+        let scores = model.score(&out, &score_at, answers)?;
+        let elapsed = ms(tp);
+        decode_ms = [elapsed, 0.0];
         if let Some(bad) = scores.logits.iter().find(|x| !x.is_finite()) {
-            return Err(MetalError::Gpu(format!("pass {i}: non-finite answer logit {bad}")));
+            return Err(MetalError::Gpu(format!(
+                "batched passes: non-finite answer logit {bad}"
+            )));
+        }
+        if scores.logits.len() != 2 * answers.len() {
+            return Err(MetalError::Gpu(format!(
+                "batched passes returned {} logits, want {}",
+                scores.logits.len(),
+                2 * answers.len()
+            )));
         }
         logits.extend_from_slice(&scores.logits);
         let td = Instant::now();
         let d = state.digest()?;
-        digest_ms[i + 1] = ms(td);
+        digest_ms[1] = ms(td);
         if d != d0 {
             return Err(MetalError::State(format!(
-                "pass {i} changed the prefix state it read: digest {} -> {}; a read-only \
-                 continuation wrote the snapshot",
+                "batched passes changed the prefix state they read: digest {} -> {}",
                 qd_runtime::hex(&d0),
                 qd_runtime::hex(&d)
             )));
+        }
+    } else {
+        for (i, cont) in p.passes.iter().enumerate() {
+            let s = u32::try_from(cont.len())
+                .map_err(|_| MetalError::Input("suffix too long".into()))?;
+            let tp = Instant::now();
+            let out = model.run(cont, 1, s, Some(&state), false, None)?;
+            let scores = model.score(&out, &[s - 1], answers)?;
+            decode_ms[i] = ms(tp);
+            if let Some(bad) = scores.logits.iter().find(|x| !x.is_finite()) {
+                return Err(MetalError::Gpu(format!(
+                    "pass {i}: non-finite answer logit {bad}"
+                )));
+            }
+            logits.extend_from_slice(&scores.logits);
+            let td = Instant::now();
+            let d = state.digest()?;
+            digest_ms[i + 1] = ms(td);
+            if d != d0 {
+                return Err(MetalError::State(format!(
+                    "pass {i} changed the prefix state it read: digest {} -> {}; a read-only \
+                     continuation wrote the snapshot",
+                    qd_runtime::hex(&d0),
+                    qd_runtime::hex(&d)
+                )));
+            }
         }
     }
     let total_ms = ms(t0);
@@ -587,7 +660,14 @@ pub fn arm_order(n_arms: usize, i: usize) -> Vec<usize> {
 /// Warm up every arm, then `iters` interleaved rounds. Every sample of every arm must give the
 /// same prefix-state digest and the same logits bits as the first arm's first sample when the
 /// arms are expected to agree bitwise; that is checked by the caller from the samples.
-pub fn run_t(model: &Model, prompt: &DecisionPrompt, answers: &[u32], arms: &[Arm], warmup: usize, iters: usize) -> Result<TResult> {
+pub fn run_t(
+    model: &Model,
+    prompt: &DecisionPrompt,
+    answers: &[u32],
+    arms: &[Arm],
+    warmup: usize,
+    iters: usize,
+) -> Result<TResult> {
     for _ in arms {
         for _ in 0..warmup {
             run_decision(model, prompt, answers)?;
@@ -602,7 +682,9 @@ pub fn run_t(model: &Model, prompt: &DecisionPrompt, answers: &[u32], arms: &[Ar
         .collect();
     for i in 0..iters {
         for j in arm_order(arms.len(), i) {
-            results[j].samples.push(run_decision(model, prompt, answers)?);
+            results[j]
+                .samples
+                .push(run_decision(model, prompt, answers)?);
         }
     }
     Ok(TResult {
@@ -623,7 +705,10 @@ pub fn bit_identical(t: &TResult) -> (bool, usize, usize) {
     for s in t.arms.iter().flat_map(|a| &a.samples) {
         n += 1;
         let logits_same = s.logits.len() == first.logits.len()
-            && s.logits.iter().zip(&first.logits).all(|(a, b)| a.to_bits() == b.to_bits());
+            && s.logits
+                .iter()
+                .zip(&first.logits)
+                .all(|(a, b)| a.to_bits() == b.to_bits());
         if logits_same && s.state_digest == first.state_digest {
             same += 1;
         }
@@ -693,12 +778,26 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
             format!("after the last decision: {}", ctx.tessl_after.describe()),
         ),
     );
-    m.insert("load_s".into(), tri(true, ledger::float(ctx.load_s)?, "Model::load wall clock"));
+    m.insert(
+        "load_s".into(),
+        tri(true, ledger::float(ctx.load_s)?, "Model::load wall clock"),
+    );
     m.insert(
         "weight_hash".into(),
-        tri(true, Value::from(ctx.weight_hash.as_str()), "the loader's hash over every tensor it read"),
+        tri(
+            true,
+            Value::from(ctx.weight_hash.as_str()),
+            "the loader's hash over every tensor it read",
+        ),
     );
-    m.insert("device".into(), tri(true, Value::from(ctx.device.as_str()), "tessl GpuRuntime device"));
+    m.insert(
+        "device".into(),
+        tri(
+            true,
+            Value::from(ctx.device.as_str()),
+            "tessl GpuRuntime device",
+        ),
+    );
     for t in results {
         let p = &t.prompt;
         let tk = format!("decision.t{}", p.target);
@@ -728,7 +827,8 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         );
         for a in &t.arms {
             let ak = format!("{tk}.{}", a.arm.key());
-            let col = |f: &dyn Fn(&Sample) -> f64| -> Vec<f64> { a.samples.iter().map(f).collect() };
+            let col =
+                |f: &dyn Fn(&Sample) -> f64| -> Vec<f64> { a.samples.iter().map(f).collect() };
             let total = col(&|s: &Sample| s.total_ms);
             let n = a.samples.len() as u64;
             let stats = |name: &str, v: &[f64], what: &str| -> Result<(String, TriState)> {
@@ -743,10 +843,26 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
                 ))
             };
             for (k, v) in [
-                stats("total_ms", &total, "one decision end to end: prefill, 3 digests, 2 passes with readback")?,
-                stats("prefill_ms", &col(&|s: &Sample| s.prefill_ms), "prefill incl. embedding gather, to GPU completion")?,
-                stats("decode_ms", &col(&|s: &Sample| s.decode_ms[0] + s.decode_ms[1]), "both passes: run + score readback")?,
-                stats("digest_ms", &col(&|s: &Sample| s.digest_ms.iter().sum()), "the 3 host SHA-256 state digests")?,
+                stats(
+                    "total_ms",
+                    &total,
+                    "one decision end to end: prefill, 3 digests, 2 passes with readback",
+                )?,
+                stats(
+                    "prefill_ms",
+                    &col(&|s: &Sample| s.prefill_ms),
+                    "prefill incl. embedding gather, to GPU completion",
+                )?,
+                stats(
+                    "decode_ms",
+                    &col(&|s: &Sample| s.decode_ms[0] + s.decode_ms[1]),
+                    "both passes: run + score readback",
+                )?,
+                stats(
+                    "digest_ms",
+                    &col(&|s: &Sample| s.digest_ms.iter().sum()),
+                    "the 3 host SHA-256 state digests",
+                )?,
             ] {
                 m.insert(k, v);
             }
@@ -772,7 +888,11 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
             if let Some(s) = a.samples.first() {
                 m.insert(
                     format!("{ak}.state_mb"),
-                    tri(true, ledger::float(s.state_bytes as f64 / 1e6)?, "PrefixState device bytes"),
+                    tri(
+                        true,
+                        ledger::float(s.state_bytes as f64 / 1e6)?,
+                        "PrefixState device bytes",
+                    ),
                 );
             }
         }
@@ -787,18 +907,26 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         tri(
             all_ts,
             json!(ran_ts),
-            format!("the Ts that ran, against the recipe's t_targets {:?}", args.ts),
+            format!(
+                "the Ts that ran, against the recipe's t_targets {:?}",
+                args.ts
+            ),
         )
         .with_coverage(ran_ts.len() as u64, args.ts.len() as u64),
     );
-    let status = if tessl_held && all_ts && all_same { Status::Completed } else { Status::Failed };
+    let status = if tessl_held && all_ts && all_same {
+        Status::Completed
+    } else {
+        Status::Failed
+    };
     Ok(Row {
         run_kind: "throughput".into(),
         protocol,
         status,
-        quick_reason: "a latency benchmark: one process, base weights, a fixed synthetic request per T, \
+        quick_reason:
+            "a latency benchmark: one process, base weights, a fixed synthetic request per T, \
                        interleaved samples; rule 8: quick, excluded from every decision"
-            .into(),
+                .into(),
         code_commit: ctx.provenance.code_commit.clone(),
         env: Environment {
             torch: "n/a: Rust binary, no torch in the process".into(),
@@ -830,7 +958,11 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
                     args.ts
                 )
             },
-            if all_same { "" } else { " Samples disagreed bit for bit: status failed." },
+            if all_same {
+                ""
+            } else {
+                " Samples disagreed bit for bit: status failed."
+            },
         ),
         recipe,
     })
@@ -1095,18 +1227,60 @@ pub fn build_product_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::equal_length_batch;
 
     fn strs(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
     }
 
     #[test]
+    fn equal_length_passes_pack_as_one_batch_and_unequal_ones_do_not() {
+        let (ids, seq) = equal_length_batch(&[1, 2, 3], &[4, 5, 6]).unwrap();
+        assert_eq!(seq, 3);
+        assert_eq!(ids, vec![1, 2, 3, 4, 5, 6]);
+        // Neither side is padded out to the other. A pad would attend.
+        assert!(equal_length_batch(&[1, 2], &[3]).is_none());
+        assert!(equal_length_batch(&[3], &[1, 2]).is_none());
+        assert!(equal_length_batch(&[], &[]).is_none());
+        assert!(equal_length_batch(&[1], &[]).is_none());
+        assert!(equal_length_batch(&[], &[1]).is_none());
+    }
+
+    /// `run_decision` scores a packed pair with `batch_score_rows` before `model.run`.
+    /// `2 * seq - 1` wraps in `u32` for `seq >= 2^31`; that must be `None`, not a row index.
+    #[test]
+    fn the_bench_score_row_does_not_wrap() {
+        use crate::backend::batch_score_rows;
+
+        assert_eq!(batch_score_rows(1), Some([0, 1]));
+        assert_eq!(batch_score_rows(3), Some([2, 5]));
+        assert_eq!(batch_score_rows(0), None, "seq 0 would underflow the score index");
+        assert_eq!(batch_score_rows(1 << 31), None, "2 * seq must not wrap");
+        assert_eq!(batch_score_rows(u32::MAX), None);
+        let half = u32::MAX / 2;
+        let second = u32::try_from(u64::from(half) * 2 - 1).unwrap();
+        assert_eq!(batch_score_rows(half), Some([half - 1, second]));
+    }
+
+    #[test]
     fn the_ruling_spelling_parses_and_defaults_are_the_rulings() {
-        let a = parse_args(&strs(&["T=512,2048,8192", "k=4", "--ledger", "/r/ledger/mac-qd-metal-2026-10-02.jsonl"])).unwrap();
+        let a = parse_args(&strs(&[
+            "T=512,2048,8192",
+            "k=4",
+            "--ledger",
+            "/r/ledger/mac-qd-metal-2026-10-02.jsonl",
+        ]))
+        .unwrap();
         assert_eq!(a.ts, vec![512, 2048, 8192]);
         assert_eq!((a.k, a.iters, a.warmup), (4, 7, 2));
-        assert_eq!(a.arms.iter().map(Arm::name).collect::<Vec<_>>(), ["product"]);
-        assert_eq!(a.row, RowTarget::Ledger(PathBuf::from("/r/ledger/mac-qd-metal-2026-10-02.jsonl")));
+        assert_eq!(
+            a.arms.iter().map(Arm::name).collect::<Vec<_>>(),
+            ["product"]
+        );
+        assert_eq!(
+            a.row,
+            RowTarget::Ledger(PathBuf::from("/r/ledger/mac-qd-metal-2026-10-02.jsonl"))
+        );
         let b = parse_args(&strs(&["--no-ledger"])).unwrap();
         assert_eq!(b.ts, DEFAULT_T.to_vec());
         assert_eq!(b.row, RowTarget::None);
@@ -1116,7 +1290,14 @@ mod tests {
     fn a_run_must_say_where_its_row_goes() {
         let e = parse_args(&strs(&["T=512"])).unwrap_err().to_string();
         assert!(e.contains("--ledger"), "{e}");
-        assert!(parse_args(&strs(&["--no-ledger", "--ledger", "/r/ledger/mac-qd-metal-x.jsonl"])).is_err());
+        assert!(
+            parse_args(&strs(&[
+                "--no-ledger",
+                "--ledger",
+                "/r/ledger/mac-qd-metal-x.jsonl"
+            ]))
+            .is_err()
+        );
         // Never a campaign ledger or the trainer's.
         assert!(parse_args(&strs(&["--ledger", "/r/ledger/runs.jsonl"])).is_err());
         assert!(parse_args(&strs(&["--ledger", "/r/ledger/mac-ojas-x.jsonl"])).is_err());
@@ -1140,7 +1321,16 @@ mod tests {
         ] {
             assert!(parse_args(&strs(bad)).is_err(), "{bad:?} was accepted");
         }
-        let a = parse_args(&strs(&["--iters", "3", "--warmup", "0", "--arms", "product", "--no-ledger"])).unwrap();
+        let a = parse_args(&strs(&[
+            "--iters",
+            "3",
+            "--warmup",
+            "0",
+            "--arms",
+            "product",
+            "--no-ledger",
+        ]))
+        .unwrap();
         assert_eq!((a.iters, a.warmup), (3, 0));
         assert_eq!(a.arms, vec![Arm::Product]);
     }
@@ -1149,11 +1339,19 @@ mod tests {
     /// `decision.t<T>.*` keys, the second run replacing the first under a passing `t_coverage`.
     #[test]
     fn a_repeated_t_is_refused() {
-        for bad in [&["T=512,512", "--no-ledger"][..], &["T=131,409,131", "--no-ledger"]] {
-            let e = parse_args(&strs(bad)).expect_err(&format!("{bad:?} was accepted")).to_string();
+        for bad in [
+            &["T=512,512", "--no-ledger"][..],
+            &["T=131,409,131", "--no-ledger"],
+        ] {
+            let e = parse_args(&strs(bad))
+                .expect_err(&format!("{bad:?} was accepted"))
+                .to_string();
             assert!(e.contains("given twice"), "{e}");
         }
-        assert_eq!(parse_args(&strs(&["T=131,409", "--no-ledger"])).unwrap().ts, vec![131, 409]);
+        assert_eq!(
+            parse_args(&strs(&["T=131,409", "--no-ledger"])).unwrap().ts,
+            vec![131, 409]
+        );
     }
 
     /// The one-thread digest and the device embedding gather are gone, and with them the
@@ -1182,7 +1380,8 @@ mod tests {
         assert_eq!(arm_order(2, 0), [0, 1]);
         assert_eq!(arm_order(2, 1), [1, 0]);
         assert_eq!(arm_order(3, 2), [2, 0, 1]);
-        let firsts: std::collections::BTreeSet<usize> = (0..7).map(|i| arm_order(2, i)[0]).collect();
+        let firsts: std::collections::BTreeSet<usize> =
+            (0..7).map(|i| arm_order(2, i)[0]).collect();
         assert_eq!(firsts.len(), 2);
     }
 
