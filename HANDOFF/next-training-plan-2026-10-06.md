@@ -37,10 +37,12 @@ This file adds four things: precision (16-bit), sizing for a larger base, the co
   - 14 B/param on disk, as the master recipe's; the compensation is recovered exactly on load.
   - State is allocated at the first step, so a scoring step pays nothing for it.
   - The split is canonical: it is exact and round-trips on 17.6M adversarial elements.
-- **The audit-fix commit (section 10):** the DevMap audit's blocking findings, fixed with tests.
+- **Commit `a60cd8c` (local): the audit fixes (section 10)**, the DevMap audit's blocking findings, fixed with tests.
   - A larger base is now budgeted as itself, and an untied head is refused instead of silently replaced.
   - A checkpoint the sidecar bound would refuse is refused before step 0.
   - `gh200_rows` can measure P2's shape.
+  - It also carries this plan, the sizing, the first-box draft, `gaps.jsonl` whole (agreed with [764787] and [32beaa]) and [764787]'s ojas/tessl audit, byte for byte, with their agreement.
+- **Commit `c04eadf` (local): the conftest fix (section 13).** Every cargo-built test binary can be named by env var, and on the Mac none is built outside `tools/mac_heavy.sh`'s lock. `conftest.py` +75/-80: five copies of a build call became one helper. It closes the data lane's GAP-PYTEST-QD-PREP-FIXTURE-BUILDS-OUTSIDE-THE-MAC-LOCK-2026-10-06, which [764787] handed over.
 - **`AUDIT/next-train-2026-10-06/sizing.py` and `sizing.txt`:** text-tower sizes and memory for 2B/4B/9B (section 4).
   - Re-run after the value-head fix; the 4B/9B rows moved.
 - **`gaps.jsonl`:** the records in section 8, appended through `qd_train.gaps.append_gap`.
@@ -312,11 +314,21 @@ The training-side DevMap audit's findings are in section 10.
 - **`replay_texts_from_prompts`** has two dead signals: DevMap at 0.9, and `rg -uu`. It is off the training path and not deleted. Its commit's intent has not been checked (Chesterton's fence).
 - The other clone rows (`train_cpt`/`train_ft`, the TriState pair, the toy steps) are low-confidence and were not acted on.
 
-**Lines.** The audit-fix commit's `git diff --stat` is in section 13.
+**Lines.** `a60cd8c` changes 23 files, +2,285/-183.
+- The 17 files that existed before it account for +1,357/-183: code and tests, plus `gaps.jsonl`'s +96 appended records.
+- The six new files are this plan, the sizing pair, the first-box draft, `test_gh200_rows.py` and [764787]'s audit.
+- Removed in the same change:
+  - `memory_budget.py`'s unbounded header reader and its own spec builder: +6/-55, now a call;
+  - backbone's private header reader and shard walker (backbone is +78/-61, the additions being the tie and full-spec checks);
+  - `test_real_ft_device_budget.py`'s copy of `test_memory`'s snapshot helper, which never reached HEAD.
 
 ## 11. Decisions
 
 - **Fable (taken here):** 2B v6 stays on `master`; `kahan` is gated by P1; the box guard ships with the v6 queue; 9B is a trainer project.
+- **Fable (open):** the red lint gate (GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-COMMITTED-FILES-2026-10-06).
+  - Whether the 2026-10-02 ruling extends to the 14 `AUDIT/finalize-2026-10-03` records and the two training-side generators, whose sha256 committed fixtures record. That ruling is per-file ignores, rule by rule.
+  - A per-file ignore loosens a gate, so this lane did not add one.
+  - The two test files, `test_perf_tierb_build.py` and `test_decisions_pool.py`, go to their lanes.
 - **The human: cost, downloads, dependencies, gates:**
   - the first box session (≈ $8-10) and any later box;
   - the 4B weights download (~8.4 GB);
@@ -364,4 +376,28 @@ The Python suite runs single-process under `tools/mac_heavy.sh` (`build/next-tra
 - **Skipped here and run in run 2:** `test_defect_noul` (17 tests: no qd-noul-rows without cargo) and `test_margin_probe_row` (3: no probe). Both files were in run 2, whose only failure was the fixture above.
 - **Skipped here, and in no run of this lane:** `test_margin_probe_parity` (2, same cause) and `test_cargo_workspace_exclude` (1, `cargo metadata`). The rest are skips any host without the opt-in data or benchmarks takes. One of them is `test_qd_train_oracle_trainer`: its fixture was written under python 3.14.7, and this interpreter is 3.14.8.
 
-**Pre-commit run** (the bytes committed): `test_real_ft_pieces` and `test_real_ft_device_budget` (ruff reordered their imports after run 3 collected them), `test_gaps_ledger`, `test_gaps_writer` and `test_wire_gap_pins` on the final `gaps.jsonl`, and `test_minhash` and `test_declared_dependencies` under the Makefile's launcher. Its result is recorded below.
+**Pre-commit run** (the bytes committed): `test_real_ft_pieces` and `test_real_ft_device_budget` (ruff reordered their imports after run 3 collected them), `test_gaps_ledger`, `test_gaps_writer` and `test_wire_gap_pins` on the final `gaps.jsonl`, and `test_minhash` and `test_declared_dependencies` under the Makefile's launcher.
+- 21:28:56-21:29:22Z, `build/next-train-2026-10-06/py-precommit.log`. `--with datasketch` and `--offline`, so nothing was downloaded.
+- **134 passed, 0 skipped, 0 failed.** `gaps.jsonl` hashed `5b57a5cc…` both when tested and when committed. Then committed as `a60cd8c`.
+
+**The conftest fix**, found by run 3. To keep cargo out of main's checkout, run 3 had to take cargo off PATH and skip 22 tests. `probe` and `noul_rows_bin` could not be handed a binary.
+- `conftest.cargo_binary` is now the only place cargo runs, and all five binary fixtures go through it:
+  - `$QD_<BINARY>_BIN` names a prebuilt binary (new: `QD_MARGIN_PROBE_BIN`, `QD_NOUL_ROWS_BIN`), and a name that is not an executable fails the run;
+  - no cargo is a skip that names the env var;
+  - on darwin, a build outside `tools/mac_heavy.sh` is a skip.
+- `mac_heavy.sh` exports `MAC_HEAVY_LABEL`. It was swapped in by rename, because bash reads a running script from its file and jobs were running it.
+- `test_conftest_binaries.py`: 11 tests.
+  - On the old conftest the module fails at import.
+  - On the old `mac_heavy.sh` the job sees the outer label (`build/next-train-2026-10-06/prefix-conftest/`).
+  - On the new files, 11 of 11 pass, and `test_mac_heavy_lock.py` passes 9 of 9 on the new script.
+
+**Run 4**: the whole suite on `a60cd8c` plus the conftest fix, under the Makefile's launcher. It runs with no cargo and all five binaries named, so the 22 tests run 3 skipped run here.
+- 21:31:08-21:50:50Z, 181 files; `build/next-train-2026-10-06/py_run4.sh`, `py-run4.log`.
+- The new `mac_heavy.sh` handed the job `MAC_HEAVY_LABEL=next-train-py-run4`, and the log's first line records it.
+- **4,549 passed, 39 skipped, 1 deselected (network), 1 failed**, in 19 min 39 s.
+- Against run 3: +63 passed, which is the 22 binary-fixture tests, `test_minhash`'s 29, the 11 new conftest tests and `test_declared_dependencies`. The skips fall 62 → 39.
+- No skip names cargo or a missing binary, except `test_cargo_workspace_exclude` (it runs `cargo metadata` itself) and `test_export_oracle` (`QD_EXPORT_BIN`, outside conftest).
+- **The one failure is the lint gate:** the same 154 findings in the same 18 untouched files, none in a file of either commit (GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-COMMITTED-FILES-2026-10-06). Turning it green needs either a ruling on per-file ignores or the owning lanes' fixes. It is not this lane's to move (rule 2).
+- `gaps.jsonl` changed during the run: two data-lane records were appended. So the three gaps-ledger tests and `test_conftest_binaries` were re-run on the exact bytes before `c04eadf`: **54 passed**. The committed blob hashes to the same `e1c96550…`.
+
+**Not run by this lane:** any GPU path, the Rust suites (no cargo), `test_cargo_workspace_exclude`, `test_export_oracle` (no `QD_EXPORT_BIN`), the opt-in benchmarks and real-data checks, and the `network` test.
