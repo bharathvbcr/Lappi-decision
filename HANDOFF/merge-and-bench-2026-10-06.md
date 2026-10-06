@@ -268,9 +268,10 @@ run).**
   - RM-Bench code (108 calls): correct 59, rejected 29, TIE 20; Lappi 12 / 43 / 53.
   - On the 191-pair pilot: 0.707 [0.590, 0.796], paired +0.136 [+0.048, +0.226].
 - **Reading:** a decision model of the same base and size beats Lappi clearly on this benchmark.
-  - Its model card lists RewardBench (v1) and Arena preferences as held out of its training, and
-    HelpSteer2 as trained (as it is for Lappi).
-  - Whether RewardBench 2, RM-Bench or JudgeBench overlap its training is [unverified].
+  - Its model card lists "RewardBench" (no version given) and Arena preferences as held out of
+    its training, and HelpSteer2 as trained (as it is for Lappi).
+  - Whether RewardBench 2, RM-Bench or JudgeBench overlap its training is [unverified]. The card
+    does not mention RM-Bench or JudgeBench.
   - Its latency here is CPU-only and not comparable; the card cites 4 ms per request with CUDA
     graphs.
 
@@ -380,6 +381,12 @@ pairs. Not a gate.
   - It adds decider-2b, the Gemma reasoning pilot and the probe, and corrects the RM-Bench code
     framing.
   - Rebuild it with `python3 build/jevarena-artifact/build_page.py` after `compare_all.sh`.
+- Worktrees:
+  - `build/merge-int-wt` was removed at the lane's end (clean, at 1feae5a;
+    `build/merge-2026-10-06/remove_merge_int_wt.sh`).
+  - `~/qd-campaign/lappi-bench-2026-10-06/main-wt` (1feae5a, clean) is kept: the `jevarena-lappi`
+    bench crate's path dependencies point into it. If it is removed, recreate it before building
+    that crate: `git worktree add --detach ~/qd-campaign/lappi-bench-2026-10-06/main-wt 1feae5a`.
 - GAP-16-OPTION-CALIBRATION-FAILS-AND-HAS-NO-ID-2026-10-06,
   GAP-NEEDLE-VERDICT-STRING-NAMES-A-CAUSE-THE-BUCKET-CONTRADICTS-2026-10-06 and
   GAP-DEVMAP-INDEX-MALFORMED-2026-10-06 (appended this lane).
