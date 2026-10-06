@@ -85,11 +85,17 @@ def test_a_checkpoint_skip_that_would_determine_nothing_is_refused(skip, backbon
         rft._check_piece_flags(ns)
 
 
-def test_a_cuda_run_whose_linear_attention_fell_back_to_torch_is_refused(monkeypatch):
+def test_a_cuda_run_whose_linear_attention_fell_back_to_torch_is_refused(monkeypatch, tmp_path):
     """transformers falls back to its torch reference for chunk_gated_delta_rule with only a
     log line, and puts that path at >10x slower; on cuda that is a run that hits its cap
-    having trained a fraction of its plan. Refused before the step is built."""
+    having trained a fraction of its plan. Refused before the step is built.
+
+    The backbone is a header-only snapshot: ``_real_step`` reads the base's config and
+    headers to budget it before the (stubbed) load, so a path that names nothing is refused
+    there, ahead of the check this test is about."""
     from types import SimpleNamespace
+
+    from test_memory import _snapshot
 
     import qd_train.backbone as backbone
 
@@ -103,7 +109,7 @@ def test_a_cuda_run_whose_linear_attention_fell_back_to_torch_is_refused(monkeyp
     plan = [SimpleNamespace(tokens=np.zeros((2, 8), dtype=np.int32))]
     with pytest.raises(SystemExit, match="torch reference on cuda"):
         rft._real_step(
-            backbone=Path("snapshot"), reader=None, plan=plan, device="cuda", dtype="bf16",
+            backbone=_snapshot(tmp_path), reader=None, plan=plan, device="cuda", dtype="bf16",
             spec=rft.ADAMW_BF16, attn_implementation="sdpa", seed=0, lr=1e-5, total_steps=1,
             span_weight=1.0, width=8,
         )

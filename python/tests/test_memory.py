@@ -588,3 +588,258 @@ def test_more_retained_layers_than_the_model_has_is_refused():
     acts = ActivationModel(recompute="full", retained_full_layers=m.n_full_attention_layers + 1)
     with pytest.raises(ValueError, match="exceed"):
         acts.elements_per_token(m)
+
+
+# --- a spec measured from a checkpoint, and the 4B/9B shapes ---------------------------------
+#
+# The defects pinned here (DevMap audit, 2026-10-06): the spec had one linear-attention head
+# count, so a 4B's 32 value heads were budgeted as 16; the only builder of a spec from a
+# checkpoint lived in a CLI tool, read headers unbounded, and defaulted the tie and the gate
+# when config.json did not state them; and a spec could say "untied" while the remapped
+# budget cut one [V, H] matrix where an untied head has two.
+
+#: Qwen3.5-4B-Base's text_config, the fields spec_from_checkpoint reads, as fetched from
+#: huggingface.co on 2026-10-06 (AUDIT/next-train-2026-10-06/sizing.py). 32 layers, every
+#: fourth full attention.
+FOUR_B_TEXT = {
+    "hidden_size": 2560,
+    "intermediate_size": 9216,
+    "num_attention_heads": 16,
+    "num_key_value_heads": 4,
+    "head_dim": 256,
+    "attn_output_gate": True,
+    "linear_num_key_heads": 16,
+    "linear_key_head_dim": 128,
+    "linear_num_value_heads": 32,
+    "linear_value_head_dim": 128,
+    "vocab_size": 248_320,
+    "mamba_ssm_dtype": "float32",
+    "layer_types": ["linear_attention"] * 3 * 8 + ["full_attention"] * 8,
+}
+
+
+def _write_header_only(path: Path, tensors: dict[str, list[int]]) -> None:
+    """A safetensors file whose header names ``tensors`` and carries no data: the reader
+    under test never reads past the header."""
+    header = {n: {"dtype": "BF16", "shape": s, "data_offsets": [0, 0]} for n, s in tensors.items()}
+    raw = json.dumps(header).encode()
+    path.write_bytes(struct.pack("<Q", len(raw)) + raw)
+
+
+def _snapshot(
+    tmp_path: Path,
+    *,
+    text: dict[str, object] | None = None,
+    top_tie: object = True,
+    extra: dict[str, list[int]] | None = None,
+) -> Path:
+    """A 4B-shaped snapshot in the HF cache layout: config.json plus one header-only shard."""
+    text = dict(FOUR_B_TEXT if text is None else text)
+    snap = tmp_path / "models--Qwen--Qwen3.5-4B-Base" / "snapshots" / "f00d"
+    snap.mkdir(parents=True)
+    config: dict[str, object] = {"text_config": text}
+    if top_tie is not None:
+        config["tie_word_embeddings"] = top_tie
+    (snap / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    tensors = {
+        "model.language_model.embed_tokens.weight": [248_320, 2560],
+        "model.language_model.layers.0.linear_attn.in_proj_qkv.weight": [8192, 2560],
+        "model.visual.blocks.0.attn.qkv.weight": [3456, 1152],
+        "mtp.fc.weight": [2560, 5120],
+        **(extra or {}),
+    }
+    _write_header_only(snap / "model.safetensors", tensors)
+    return snap
+
+
+def test_the_2b_snapshot_reproduces_the_2b_constant_field_for_field():
+    from qd_train.memory import spec_from_checkpoint
+
+    snap = _local_snapshot()
+    if snap is None:  # pragma: no cover - depends on the host's cache
+        pytest.skip("no local Qwen3.5-2B-Base snapshot to check the builder against")
+    assert spec_from_checkpoint(snap) == QWEN3_5_2B_TEXT
+
+
+def test_a_4b_checkpoint_is_budgeted_with_its_value_heads(tmp_path):
+    """The 4B's GDN layer has 16 key heads and 32 value heads. q and k are key-heads wide;
+    v, z, the norm, out_proj's input and the recurrent state are value-heads wide."""
+    from qd_train.memory import spec_from_checkpoint
+
+    spec = spec_from_checkpoint(_snapshot(tmp_path))
+    assert spec.name == "Qwen/Qwen3.5-4B-Base (text tower)"
+    assert (spec.linear_heads, spec.linear_value_heads) == (16, 32)
+    assert spec.tied_embedding is True
+    # Only the text tower counts; the vision and MTP tensors are dropped on load.
+    assert spec.params_total == 248_320 * 2560 + 8192 * 2560
+    # 2560*2 (residual, norm) + 8192*2 (qkv, conv) + 4096*3 (norm, z, out_proj input)
+    # + 2560 (post norm) + 3*9216 (MLP). The one-head-count spec said 54,784: 14% short.
+    assert ActivationModel(recompute="none").linear_layer_elements(spec) == 64_000
+    f = estimate_step(
+        spec, rows=1, width=1, activations=ActivationModel(recompute="full"),
+        optimizer=ADAMW_BF16, **BF16,
+    )
+    # One live layer: [rows, value_heads, key_dim, value_dim] in fp32. It was 16x128x128.
+    assert f.recurrent_state_bytes == 32 * 128 * 128 * 4
+
+
+def test_the_2b_figures_are_unchanged_by_the_value_head_fields():
+    """On the 2B the value heads equal the key heads and value_dim equals hidden_size, so
+    the split changes no 2B number: v5's device_budget reproduction still holds."""
+    acts = ActivationModel(recompute="none")
+    assert acts.linear_layer_elements(M) == (
+        2 * M.hidden_size + 2 * 3 * 16 * 128 + 16 * 128 + 2 * M.hidden_size + M.hidden_size
+        + 3 * M.intermediate_size
+    )
+
+
+def test_value_heads_that_are_not_a_whole_multiple_of_key_heads_are_refused():
+    with pytest.raises(ValueError, match="multiple"):
+        _with(M, linear_value_heads=24)
+
+
+def test_an_untied_head_is_counted_and_its_remap_is_refused(tmp_path):
+    from qd_train.memory import spec_from_checkpoint
+
+    snap = _snapshot(tmp_path, top_tie=False, extra={"lm_head.weight": [248_320, 2560]})
+    spec = spec_from_checkpoint(snap)
+    assert spec.tied_embedding is False
+    assert spec.params_total == 2 * 248_320 * 2560 + 8192 * 2560
+    assert spec.trainable_params() == spec.params_total
+    with pytest.raises(ValueError, match="untied"):
+        spec.trainable_params(vocab_size=REMAP_VOCAB)
+
+
+@pytest.mark.parametrize(
+    ("top_tie", "text_tie", "head_stored", "why"),
+    [
+        (True, None, True, "contradictory"),  # says tied, stores a head
+        (False, None, False, "contradictory"),  # says untied, stores none
+        (True, False, False, "contradictory"),  # the two flags disagree
+        (None, True, False, "no top-level"),  # transformers would default it to false
+        ("true", None, False, "not a bool"),
+    ],
+)
+def test_a_head_whose_tie_would_be_a_guess_is_refused(
+    tmp_path, top_tie, text_tie, head_stored, why
+):
+    from qd_train.memory import CheckpointRefused, spec_from_checkpoint
+
+    text = dict(FOUR_B_TEXT)
+    if text_tie is not None:
+        text["tie_word_embeddings"] = text_tie
+    extra = {"lm_head.weight": [248_320, 2560]} if head_stored else None
+    snap = _snapshot(tmp_path, text=text, top_tie=top_tie, extra=extra)
+    with pytest.raises(CheckpointRefused, match=why):
+        spec_from_checkpoint(snap)
+
+
+def test_head_is_tied_over_every_combination_of_flags_and_storage():
+    """The whole truth table, not samples: a top-level flag, a text_config flag (each true,
+    false, absent or not a bool) and the storage (a head tensor or none) -- 32 cases. Tied
+    is answered only when every stated flag is true and nothing is stored; untied only when
+    every stated flag is false and a head is stored; everything else is refused."""
+    from qd_train.memory import CheckpointRefused, head_is_tied
+
+    values = (True, False, None, "true")
+    seen = {"tied": 0, "untied": 0, "refused": 0}
+    for top in values:
+        for text in values:
+            for stored in (False, True):
+                config: dict[str, object] = {"text_config": {}}
+                if top is not None:
+                    config["tie_word_embeddings"] = top
+                if text is not None:
+                    config["text_config"] = {"tie_word_embeddings": text}
+                names = ["model.language_model.embed_tokens.weight"]
+                if stored:
+                    names.append("lm_head.weight")
+                stated = [v for v in (top, text) if v is not None]
+                if top is True and text in (True, None) and not stored:
+                    want = True
+                elif top is False and text in (False, None) and stored:
+                    want = False
+                else:
+                    want = None
+                case = (top, text, stored)
+                if want is None:
+                    with pytest.raises(CheckpointRefused):
+                        head_is_tied(config, names, where="case")
+                    seen["refused"] += 1
+                else:
+                    assert head_is_tied(config, names, where="case") is want, case
+                    assert all(isinstance(v, bool) for v in stated), case
+                    seen["tied" if want else "untied"] += 1
+    assert seen == {"tied": 2, "untied": 2, "refused": 28}
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ({"linear_num_value_heads": None}, "linear_num_value_heads"),
+        ({"attn_output_gate": None}, "attn_output_gate"),
+        ({"mamba_ssm_dtype": None}, "mamba_ssm_dtype"),
+        ({"mamba_ssm_dtype": "float8"}, "float8"),
+        ({"vocab_size": True}, "vocab_size"),
+        ({"hidden_size": 2048}, "embed_tokens"),
+        ({"layer_types": ["linear_attention", "sliding_attention"]}, "layer kind"),
+    ],
+)
+def test_spec_from_checkpoint_refuses_what_it_would_have_to_guess(tmp_path, change, why):
+    from qd_train.memory import CheckpointRefused, spec_from_checkpoint
+
+    text = {k: v for k, v in {**FOUR_B_TEXT, **change}.items() if v is not None}
+    with pytest.raises(CheckpointRefused, match=why):
+        spec_from_checkpoint(_snapshot(tmp_path, text=text))
+
+
+def test_a_tensor_under_an_unknown_prefix_is_refused_not_counted(tmp_path):
+    from qd_train.memory import CheckpointRefused, spec_from_checkpoint
+
+    snap = _snapshot(tmp_path, extra={"model.audio.proj.weight": [8, 8]})
+    with pytest.raises(CheckpointRefused, match="prefix"):
+        spec_from_checkpoint(snap)
+
+
+def test_a_tensor_in_two_shards_and_a_snapshot_with_no_shards_are_refused(tmp_path):
+    from qd_train.memory import CheckpointRefused, checkpoint_tensor_index
+
+    snap = _snapshot(tmp_path)
+    _write_header_only(snap / "model-2.safetensors", {"mtp.fc.weight": [2560, 5120]})
+    with pytest.raises(CheckpointRefused, match="two shards"):
+        checkpoint_tensor_index(snap)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(CheckpointRefused, match=r"no \.safetensors"):
+        checkpoint_tensor_index(empty)
+
+
+@pytest.mark.parametrize(
+    ("raw", "why"),
+    [
+        (b"\x01\x02", "truncated"),
+        (struct.pack("<Q", 0), "outside"),
+        (struct.pack("<Q", 64 * 1024 * 1024 + 1), "outside"),
+        (struct.pack("<Q", 100) + b"{}", "holds 2"),
+        (struct.pack("<Q", 2) + b"[]", "not an object"),
+        (struct.pack("<Q", 3) + b"{x}", "not JSON"),
+    ],
+)
+def test_a_safetensors_header_is_read_within_its_bounds_or_refused(tmp_path, raw, why):
+    from qd_train.memory import CheckpointRefused, safetensors_header
+
+    path = tmp_path / "bad.safetensors"
+    path.write_bytes(raw)
+    with pytest.raises(CheckpointRefused, match=why):
+        safetensors_header(path)
+
+
+def test_a_shape_that_is_not_a_list_of_dimensions_is_refused(tmp_path):
+    from qd_train.memory import CheckpointRefused, checkpoint_tensor_index
+
+    snap = tmp_path / "s"
+    snap.mkdir()
+    raw = json.dumps({"x": {"dtype": "BF16", "shape": [2, -1], "data_offsets": [0, 0]}}).encode()
+    (snap / "m.safetensors").write_bytes(struct.pack("<Q", len(raw)) + raw)
+    with pytest.raises(CheckpointRefused, match="valid shape"):
+        checkpoint_tensor_index(snap)

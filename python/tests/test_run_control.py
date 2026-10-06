@@ -1078,16 +1078,29 @@ def test_the_sidecar_bound_is_derived_from_the_model_it_has_to_hold(monkeypatch,
     answer in this repository rather than a guess, and this pins the arithmetic so the two
     cannot drift apart in silence.
     """
-    from qd_train.memory import ADAMW_FP32, QWEN3_5_2B_TEXT
-
-    widest = QWEN3_5_2B_TEXT.trainable_params() * (
-        4 + ADAMW_FP32.states_per_param * ADAMW_FP32.state_bytes
+    from qd_train.memory import (
+        ADAMW_BF16,
+        ADAMW_FP32,
+        ADAMW_KAHAN,
+        ADAMW_MASTER,
+        BYTES_PER_ELEMENT,
+        QWEN3_5_2B_TEXT,
     )
-    assert widest == 22_581_901_056, "the derivation in the docstring is this number"
+
+    # Every layout build_optimizer builds (tests/test_memory_budget.py pins that set), with
+    # the dtype of the weights it trains. This was fp32 weights + two fp32 moments alone, 12
+    # B/param -- the widest until the master recipe (bf16 weights + fp32 masters + moments,
+    # 14) arrived, after which the docstring's "widest" was false and nothing failed.
+    layouts = [(ADAMW_FP32, "fp32"), (ADAMW_BF16, "bf16"), (ADAMW_MASTER, "bf16"),
+               (ADAMW_KAHAN, "bf16")]
+    widest = QWEN3_5_2B_TEXT.trainable_params() * max(
+        BYTES_PER_ELEMENT[dtype] + spec.checkpoint_bytes_per_param for spec, dtype in layouts
+    )
+    assert widest == 26_345_551_232, "the derivation in the docstring is this number"
     assert MAX_SIDECAR_BYTES == 32 << 30
     assert widest < MAX_SIDECAR_BYTES, (
-        "the bound must admit the largest checkpoint this repo can construct -- the full "
-        f"text tower with fp32 weights and two fp32 moments, {widest:,} bytes"
+        "the bound must admit the largest 2B checkpoint this repo can construct -- bf16 "
+        f"weights, fp32 masters and two fp32 moments, {widest:,} bytes"
     )
     assert 2 * widest > MAX_SIDECAR_BYTES, (
         "a bound with more than 2x headroom over the widest real checkpoint is not bounding "

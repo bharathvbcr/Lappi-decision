@@ -831,8 +831,8 @@ def test_kahan_slices_do_not_change_the_step() -> None:
 
 
 def test_kahan_resume_continues_the_trajectory_bit_for_bit() -> None:
-    """The compensation is saved exactly; a resume that rebuilt it from the bf16 weight would
-    throw away the bits the recipe exists for, silently."""
+    """The compensation is recovered exactly from the saved master; a resume that rebuilt it
+    from the bf16 weight alone would throw away the bits the recipe exists for, silently."""
     grads = [torch.full((64,), 0.3 * ((-1) ** i)) for i in range(40)]
 
     def drive(opt, p, gs):
@@ -1050,3 +1050,38 @@ def test_a_spec_cannot_hold_both_a_master_and_a_compensation() -> None:
         OptimizerSpec("both", 2, 4, keeps_fp32_master=True, compensation_bytes=2)
     with pytest.raises(ValueError, match="non-negative"):
         OptimizerSpec("negative", 2, 4, compensation_bytes=-2)
+
+
+@pytest.mark.parametrize(
+    ("spec", "dtype", "expected"),
+    [
+        (ADAMW_BF16, torch.bfloat16, 4),
+        (ADAMW_FP32, torch.float32, 8),
+        (ADAMW_MASTER, torch.bfloat16, 12),
+        (ADAMW_KAHAN, torch.bfloat16, 12),
+    ],
+)
+def test_each_recipe_checkpoints_the_bytes_its_spec_says(spec, dtype, expected) -> None:
+    """``OptimizerSpec.checkpoint_bytes_per_param`` is what tools/real_ft_run.py refuses an
+    oversized checkpoint by, before training. Measured off each built optimizer's real
+    ``state_dict``, every tensor the size of the parameter counted (the step counters are
+    scalars). A spec that disagreed with the optimizer would refuse a run that fits, or admit
+    one that fails at its first save."""
+    p = torch.nn.Parameter(torch.zeros(4096, dtype=dtype))
+    opt = build_optimizer([p], spec=spec, lr=1e-4, total_steps=10)
+    _drive(opt, p, grad=1.0, steps=2)
+
+    def tensors(value):
+        if torch.is_tensor(value):
+            yield value
+        elif isinstance(value, dict):
+            for item in value.values():
+                yield from tensors(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                yield from tensors(item)
+
+    held = sum(
+        t.numel() * t.element_size() for t in tensors(opt.state_dict()) if t.numel() == p.numel()
+    )
+    assert held / p.numel() == expected == spec.checkpoint_bytes_per_param, spec.name

@@ -228,7 +228,15 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
-from qd_train.memory import ADAMW_BF16, ADAMW_FP32, ADAMW_KAHAN, ADAMW_MASTER, OptimizerSpec
+from qd_train.memory import (
+    ADAMW_BF16,
+    ADAMW_FP32,
+    ADAMW_KAHAN,
+    ADAMW_MASTER,
+    CheckpointRefused,
+    OptimizerSpec,
+    spec_from_checkpoint,
+)
 from qd_train.needle import (
     NEEDLE_CASES_PER_DEPTH,
     NEEDLE_HIT_RULE,
@@ -258,6 +266,7 @@ from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_atte
 # span-head-init generator does: one formula for the manifest, the Rust trainer and this tool.
 from qd_train.run_control import (
     MAX_CAP_S,
+    MAX_SIDECAR_BYTES,
     CostEstimate,
     LRSchedule,
     RunControl,
@@ -1904,7 +1913,9 @@ class CheckpointSink:
     completion and saved nothing: the rows and val scores exist, the weights do not.
     ``final`` writes the finished state unless the last interval already wrote that step.
     Timed and sized, because the interval is a cost decision and nothing here could price
-    it: this model's checkpoint is ~8.5 GB -- weights plus both AdamW moments.
+    it: the 2B's full checkpoint under the master or kahan recipe is 14 B/param, 24.5 GiB
+    unremapped -- bf16 weights, fp32 masters and both fp32 moments
+    ([`checkpoint_sidecar_bytes`] computes it for the run, before step 0).
     """
 
     def __init__(self, target: Path) -> None:
@@ -2592,6 +2603,40 @@ def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
     return ADAMW_BF16
 
 
+def checkpoint_sidecar_bytes(step: Any, spec: OptimizerSpec) -> int:
+    """The tensor bytes this step's full checkpoint writes, and a refusal now, before step 0,
+    if ``Checkpoint.write`` would refuse them at the first save.
+
+    ``MAX_SIDECAR_BYTES`` (32 GiB) was derived for the 2B and is a gate (rule 2): this does
+    not move it. A 4B under the master or kahan recipe checkpoints 14 B/param, about 55 GiB,
+    and before this check such a run trained to its first checkpoint interval -- or to its
+    end -- and was then refused, the GPU time spent and the weights unsaved. The weights are
+    read off the built modules; the optimizer's share is ``spec.checkpoint_bytes_per_param``
+    per optimized parameter, because torch allocates optimizer state at the first step and
+    there is none to measure before it (``tests/test_optim.py`` measures that figure off each
+    built optimizer).
+    """
+    weights = sum(
+        t.numel() * t.element_size()
+        for module in (step.tower.model, step.span_head)
+        for t in module.state_dict().values()
+    )
+    optimized = sum(p.numel() for group in step.optimizer.param_groups for p in group["params"])
+    predicted = weights + optimized * spec.checkpoint_bytes_per_param
+    if predicted > MAX_SIDECAR_BYTES:
+        raise SystemExit(
+            f"this run's full checkpoint would hold {predicted:,} bytes of tensors "
+            f"({predicted / 1024**3:.1f} GiB): {weights:,} of weights + {optimized:,} "
+            f"optimized parameters x {spec.checkpoint_bytes_per_param} B under {spec.name}. "
+            f"Checkpoint.write refuses more than MAX_SIDECAR_BYTES ({MAX_SIDECAR_BYTES:,}), "
+            "so the run would train and then fail at its first save. The bound is a gate "
+            "(rule 2); raising it for a larger base is the human's decision "
+            "(GAP-SIDECAR-BOUND-REFUSES-4B-CHECKPOINTS-AFTER-TRAINING-2026-10-06). Refusing "
+            "before step 0."
+        )
+    return predicted
+
+
 def fp32_adamw_problems(optimizer: object, *, beta2: float) -> list[str]:
     """Why ``optimizer`` is not the fp32 arm's optimizer, read off its own groups. Empty if it is.
 
@@ -2828,6 +2873,13 @@ def _real_step(
         remap_text_tower,
     )
 
+    # The budget is about the tower on disk, measured from its own headers: the default spec
+    # is the 2B's, which load_text_tower refuses over any other base. On the 2B the measured
+    # spec equals QWEN3_5_2B_TEXT field for field (tests/test_memory.py checks it).
+    try:
+        model_spec = spec_from_checkpoint(Path(backbone))
+    except CheckpointRefused as exc:
+        raise SystemExit(f"--backbone {backbone}: {exc}") from exc
     tower = load_text_tower(
         backbone,
         gradient_checkpointing=True,
@@ -2838,6 +2890,7 @@ def _real_step(
         # A real batch's shape; the budget below takes the worst of all of them.
         rows=int(plan[0].tokens.shape[0]),
         width=int(plan[0].tokens.shape[1]),
+        spec=model_spec,
         checkpoint_skip_layers=checkpoint_skip_layers,
     )
     # On CUDA the linear-attention layers must be on fla's kernels. transformers falls back
@@ -2858,7 +2911,8 @@ def _real_step(
     if reader.remap is None:
         raise ValueError(
             f"{reader.header.shard_hash()}: this shard set carries no remap table, but "
-            "the real tower's embedding is 248,320 rows and the set's ids are post-remap. "
+            f"the real tower's embedding is {tower.vocab_size:,} rows and the set's ids are "
+            "post-remap. "
             "Training would index the wrong row for every token. Refusing."
         )
     tower = remap_text_tower(tower, reader.remap)
@@ -3194,6 +3248,10 @@ def _train(
                     "--train-dtype fp32: the optimizer is not the master path's AdamW on fp32 "
                     "parameters -- " + "; ".join(problems)
                 )
+        if checkpoint_every and checkpoint_dir is not None:
+            # The sinks below write full checkpoints (weights + optimizer); a retain-only
+            # run writes towers, which are a fraction of this.
+            checkpoint_sidecar_bytes(step, spec)
         if span_head_init is not None:
             load_span_head_init(step, span_head_init)
         train_path.update(

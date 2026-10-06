@@ -163,9 +163,19 @@ def append_gap(record: Mapping[str, Any], *, path: Path | None = None) -> str:
     """
     target = DEFAULT_GAPS_PATH if path is None else path
     line = validate_gap(record, known_ids={rec["id"] for rec in read_gaps(target)})
+    data = (line + "\n").encode("utf-8")
     fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
     try:
-        os.write(fd, (line + "\n").encode("utf-8"))
+        written = os.write(fd, data)
+        if written != len(data):
+            # Not retried: a second O_APPEND write for the remainder can land after another
+            # lane's record and split this one around it. The torn line is now the ledger's
+            # last, and saying so is the only honest outcome.
+            raise OSError(
+                f"{target}: wrote {written} of {len(data)} bytes of {record.get('id')!r}; the "
+                "ledger now ends in a torn line, which read_gaps will refuse until it is "
+                "repaired by hand"
+            )
         os.fsync(fd)
     finally:
         os.close(fd)

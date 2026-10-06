@@ -102,6 +102,27 @@ def test_a_valid_record_appends_exactly_one_line(tmp_path: Path) -> None:
     ]
 
 
+def test_a_short_write_is_reported_not_swallowed(tmp_path: Path, monkeypatch) -> None:
+    """``os.write`` may write fewer bytes than asked; its return value was discarded, so a
+    torn record reported success (DevMap audit #13, 2026-10-06). It is now an error naming
+    the record, and the writer does not try to finish the line, because a second append can
+    land after another lane's record."""
+    import qd_train.gaps as gaps
+
+    real_write = gaps.os.write
+    calls: list[int] = []
+
+    def short_write(fd: int, data: bytes) -> int:
+        calls.append(len(data))
+        return real_write(fd, data[: len(data) // 2])
+
+    monkeypatch.setattr(gaps.os, "write", short_write)
+    with pytest.raises(OSError, match="torn line") as caught:
+        append_gap(GOOD, path=_ledger(tmp_path))
+    assert GOOD["id"] in str(caught.value)
+    assert len(calls) == 1, "the writer retried the remainder"
+
+
 def test_superseding_a_record_that_exists_is_allowed(tmp_path: Path) -> None:
     """The convention this file uses for revisions: a fresh line under the same id, or a
     new id naming the old one. Both must survive the writer, or the writer is the thing

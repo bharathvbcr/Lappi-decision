@@ -1,0 +1,26 @@
+2B formula 1,881,825,088 vs header 1,881,825,088
+
+| Model | Text-tower params | Recipe | B/param | Static GiB | Step at v5's batch, GiB (predicted / ÷0.84) |
+|---|---|---|---|---|---|
+| Qwen3.5-2B-Base | 1,881,825,088 | master (v5: fp32 master + fp32 moments) | 20 | 35.1 | 63.5 / 75.6 |
+| Qwen3.5-2B-Base | 1,881,825,088 | kahan (bf16 + bf16 compensation + fp32 moments) | 14 | 24.5 | 53.0 / 63.1 |
+| Qwen3.5-2B-Base | 1,881,825,088 | bf16 (torch AdamW over bf16; moments stall) | 8 | 14.0 | 42.5 / 50.6 |
+| Qwen3.5-4B-Base | 4,205,751,296 | master (v5: fp32 master + fp32 moments) | 20 | 78.3 | 121.9 / 145.2 |
+| Qwen3.5-4B-Base | 4,205,751,296 | kahan (bf16 + bf16 compensation + fp32 moments) | 14 | 54.8 | 98.4 / 117.2 |
+| Qwen3.5-4B-Base | 4,205,751,296 | bf16 (torch AdamW over bf16; moments stall) | 8 | 31.3 | 74.9 / 89.2 |
+| Qwen3.5-9B-Base | 8,953,803,264 | master (v5: fp32 master + fp32 moments) | 20 | 166.8 | 225.8 / 268.8 |
+| Qwen3.5-9B-Base | 8,953,803,264 | kahan (bf16 + bf16 compensation + fp32 moments) | 14 | 116.7 | 175.7 / 209.2 |
+| Qwen3.5-9B-Base | 8,953,803,264 | bf16 (torch AdamW over bf16; moments stall) | 8 | 66.7 | 125.7 / 149.6 |
+
+Tokens per batch that fit at width 9,638, every layer checkpointed, budget 0.84 x usable (v5 trained 35,403):
+| Model | Recipe | H100 80GB | GH200 96GB | H200 141GB | B200 180GB |
+|---|---|---|---|---|---|
+| Qwen3.5-2B-Base | master | 86,742 | 154,208 | 269,864 | 395,158 |
+| Qwen3.5-2B-Base | kahan | 134,932 | 192,760 | 318,054 | 433,710 |
+| Qwen3.5-2B-Base | bf16 | 173,484 | 240,950 | 356,606 | 481,900 |
+| Qwen3.5-4B-Base | master | none | none | 57,828 | 125,294 |
+| Qwen3.5-4B-Base | kahan | none | 38,552 | 115,656 | 192,760 |
+| Qwen3.5-4B-Base | bf16 | 57,828 | 106,018 | 183,122 | 250,588 |
+| Qwen3.5-9B-Base | master | none | none | none | none |
+| Qwen3.5-9B-Base | kahan | none | none | none | 9,638 |
+| Qwen3.5-9B-Base | bf16 | none | none | 57,828 | 106,018 |

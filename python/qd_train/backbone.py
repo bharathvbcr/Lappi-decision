@@ -35,6 +35,9 @@ initialised layers and a loss curve that looks merely disappointing.
 
 ``Qwen3_5TextModel.get_output_embeddings()`` returns ``None``: a base tower has no LM head,
 and the checkpoint has no ``lm_head`` key either, because ``tie_word_embeddings`` is true.
+[`load_text_tower`] checks both rather than assuming them, and refuses a checkpoint whose
+head is untied (Qwen3.5-9B-Base's is): its ``lm_head`` would otherwise be dropped on load
+and the embedding trained in its place.
 So the output head **is** ``embed_tokens.weight``, ``[V, H]`` -- which is exactly the
 ``weight`` argument [`qd_train.fused_ce.fused_linear_cross_entropy`] takes, untransposed.
 This module therefore never constructs an ``nn.Linear`` head. Constructing one would double
@@ -92,7 +95,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
-import struct
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -107,11 +109,15 @@ from .heads import SpanPointerHead, plan_span_batch
 from .memory import (
     BYTES_PER_ELEMENT,
     QWEN3_5_2B_TEXT,
+    TEXT_PREFIX,
     ActivationModel,
+    CheckpointRefused,
     ModelSpec,
     OptimizerSpec,
     StepFootprint,
+    checkpoint_tensor_index,
     estimate_step,
+    head_is_tied,
 )
 from .optim import DEFAULT_BETA2, apply_lr, build_optimizer, layerwise_param_groups
 from .remap import RemapApplication, apply_remap_to_model
@@ -137,19 +143,10 @@ __all__ = [
     "text_tensor_index",
 ]
 
-#: The prefix that separates the text tower from the vision tower and the MTP block in
-#: ``model.safetensors-*.safetensors``. Measured from the checkpoint header, not assumed:
-#: the three prefixes partition all 632 tensors with nothing left over.
-TEXT_PREFIX: Final[str] = "model.language_model."
-
 #: A bound on the header scan. The real checkpoint has 320 text tensors; anything an order
 #: of magnitude past that is a different model, and an unbounded loop over a header this
 #: code did not write is the fan-out ``CLAUDE.md`` asks to bound.
 MAX_TEXT_TENSORS: Final[int] = 4096
-
-#: Safetensors headers are JSON prefixed by a little-endian u64 length. A header larger than
-#: this is refused rather than read into memory.
-_MAX_HEADER_BYTES: Final[int] = 64 * 1024 * 1024
 
 
 class BackboneContractViolation(Exception):
@@ -167,29 +164,12 @@ class GradientCheckpointingDisabled(UserWarning):
 # --- reading the checkpoint's own header ---------------------------------------------------
 
 
-def _safetensors_shards(snapshot: Path) -> list[Path]:
-    shards = sorted(snapshot.glob("*.safetensors"))
-    if not shards:
-        raise BackboneContractViolation(
-            f"{snapshot}: no .safetensors file. A text tower cannot be built from a snapshot "
-            "that carries no weights, and an empty load would produce a randomly initialised "
-            "model whose loss curve merely looks disappointing."
-        )
-    return shards
-
-
-def _header_of(path: Path) -> dict[str, Any]:
-    with path.open("rb") as handle:
-        raw_len = handle.read(8)
-        if len(raw_len) != 8:
-            raise BackboneContractViolation(f"{path}: truncated safetensors header length")
-        n = struct.unpack("<Q", raw_len)[0]
-        if n <= 0 or n > _MAX_HEADER_BYTES:
-            raise BackboneContractViolation(
-                f"{path}: safetensors header claims {n} bytes, outside "
-                f"(0, {_MAX_HEADER_BYTES}]. Refusing to read a header this size."
-            )
-        return json.loads(handle.read(n))
+def _checkpoint_index(snapshot: Path) -> dict[str, tuple[Path, tuple[int, ...]]]:
+    """``qd_train.memory.checkpoint_tensor_index``, refused in this module's terms."""
+    try:
+        return checkpoint_tensor_index(snapshot)
+    except CheckpointRefused as exc:
+        raise BackboneContractViolation(str(exc)) from exc
 
 
 def text_tensor_index(snapshot: Path) -> dict[str, tuple[Path, tuple[int, ...]]]:
@@ -203,25 +183,22 @@ def text_tensor_index(snapshot: Path) -> dict[str, tuple[Path, tuple[int, ...]]]
     downstream restate the prefix, and a restated constant is one that can drift.
     """
     snapshot = Path(snapshot)
+    return _text_tensors(_checkpoint_index(snapshot), snapshot)
+
+
+def _text_tensors(
+    full: Mapping[str, tuple[Path, tuple[int, ...]]], snapshot: Path
+) -> dict[str, tuple[Path, tuple[int, ...]]]:
     index: dict[str, tuple[Path, tuple[int, ...]]] = {}
-    for shard in _safetensors_shards(snapshot):
-        header = _header_of(shard)
-        for name, entry in header.items():
-            if name == "__metadata__" or not name.startswith(TEXT_PREFIX):
-                continue
-            if len(index) >= MAX_TEXT_TENSORS:
-                raise BackboneContractViolation(
-                    f"{snapshot}: more than {MAX_TEXT_TENSORS} tensors under {TEXT_PREFIX!r}. "
-                    "The real checkpoint has 320; this is a different model."
-                )
-            short = name[len(TEXT_PREFIX) :]
-            if short in index:
-                raise BackboneContractViolation(
-                    f"{snapshot}: tensor {short!r} appears in two shards "
-                    f"({index[short][0].name} and {shard.name}); which one is the weight is "
-                    "not a question this module will guess at."
-                )
-            index[short] = (shard, tuple(entry["shape"]))
+    for name, (shard, shape) in full.items():
+        if not name.startswith(TEXT_PREFIX):
+            continue
+        if len(index) >= MAX_TEXT_TENSORS:
+            raise BackboneContractViolation(
+                f"{snapshot}: more than {MAX_TEXT_TENSORS} tensors under {TEXT_PREFIX!r}. "
+                "The real checkpoint has 320; this is a different model."
+            )
+        index[name[len(TEXT_PREFIX) :]] = (shard, shape)
     if not index:
         raise BackboneContractViolation(
             f"{snapshot}: no tensor is named {TEXT_PREFIX!r}*. Either this is not a "
@@ -394,7 +371,7 @@ def _verify_checkpointing_took(
         )
 
 
-def _verify_spec_describes(spec: ModelSpec, *, model: Any, config: Any) -> None:
+def _verify_spec_describes(spec: ModelSpec, *, model: Any, config: Any, tied: bool) -> None:
     """Refuse a memory spec that describes a different model than the one just loaded.
 
     ``spec`` defaults to [`qd_train.memory.QWEN3_5_2B_TEXT`], which is right for the real
@@ -402,20 +379,43 @@ def _verify_spec_describes(spec: ModelSpec, *, model: Any, config: Any) -> None:
     tower would receive a ``StepFootprint`` describing the 2B model -- a budget that reads
     exactly like a checked one and refers to a model nobody loaded.
 
-    The four numbers compared are the ones the arithmetic is actually built on: hidden size
-    and layer counts drive the activation term, and the vocabulary drives the tied
-    embedding. ``params_total`` is not re-derived here -- ``ModelSpec`` documents it as
-    measured from the checkpoint, and recomputing it would be the second opinion that
-    module deliberately refuses to hold.
+    Every architecture number the arithmetic is built on is compared: hidden and MLP sizes,
+    layer counts, attention and linear-attention heads (key *and* value, which differ on the
+    4B and 9B), whether the query carries a gate (read off ``q_proj``'s shape, because
+    transformers 5.12.1's config does not carry the flag), the vocabulary, and whether the
+    head is the embedding (``tied``, decided from the config and the storage by
+    [`qd_train.memory.head_is_tied`]). The comparison used to be four numbers, so a
+    2B-shaped head count on a 4B tower passed. ``params_total`` is not re-derived here --
+    ``ModelSpec`` documents it as measured from the checkpoint, and recomputing it would be
+    the second opinion that module deliberately refuses to hold.
     """
     layer_types = list(getattr(config, "layer_types", []) or [])
     n_full = sum(1 for t in layer_types if t == "full_attention")
     n_linear = sum(1 for t in layer_types if t == "linear_attention")
-    observed = {
+    q_heads, head_dim = int(config.num_attention_heads), int(config.head_dim)
+    observed: dict[str, object] = {
         "hidden_size": int(config.hidden_size),
+        "intermediate_size": int(config.intermediate_size),
         "vocab_size": int(config.vocab_size),
         "n_full_attention_layers": n_full,
         "n_linear_attention_layers": n_linear,
+        "q_heads": q_heads,
+        "kv_heads": int(config.num_key_value_heads),
+        "head_dim": head_dim,
+        "linear_heads": int(config.linear_num_key_heads),
+        "linear_head_dim": int(config.linear_key_head_dim),
+        "linear_value_heads": int(config.linear_num_value_heads),
+        "linear_value_head_dim": int(config.linear_value_head_dim),
+        "tied_embedding": tied,
+    }
+    if n_full:
+        first_full = layer_types.index("full_attention")
+        q_rows = int(model.layers[first_full].self_attn.q_proj.weight.shape[0])
+        observed["attn_output_gate"] = q_rows == 2 * q_heads * head_dim
+    disagreements = {
+        field: (getattr(spec, field), value)
+        for field, value in observed.items()
+        if getattr(spec, field) != value
     }
     disagreements = {
         field: (getattr(spec, field), value)
@@ -565,7 +565,24 @@ def load_text_tower(
     # validates the name here and raises on one it does not implement.
     text_config._attn_implementation = attn_implementation
 
-    index = text_tensor_index(snapshot)
+    full_index = _checkpoint_index(snapshot)
+    index = _text_tensors(full_index, snapshot)
+    # The head is the embedding (``lm_head_weight``); this module never builds a second one.
+    # A checkpoint whose head is a tensor of its own -- Qwen3.5-9B-Base's -- would otherwise
+    # load with that tensor dropped (it is outside TEXT_PREFIX) and train with the embedding
+    # in its place: a different model, with nothing reporting it. Read off the raw config,
+    # where an absent flag is distinguishable from a false one, and off the storage.
+    try:
+        raw_config = json.loads((snapshot / "config.json").read_text(encoding="utf-8"))
+        tied = head_is_tied(raw_config, full_index, where=str(snapshot))
+    except (OSError, json.JSONDecodeError, CheckpointRefused) as exc:
+        raise BackboneContractViolation(str(exc)) from exc
+    if not tied:
+        raise BackboneContractViolation(
+            f"{snapshot}: the output head is untied from the embedding (config and storage "
+            "agree). This module trains the embedding as the head and has no untied head to "
+            "load the checkpoint's into; loading it would silently replace that head."
+        )
     with torch.device("meta"):
         skeleton = Qwen3_5TextModel(text_config)
     wanted = {name: tuple(t.shape) for name, t in skeleton.state_dict().items()}
@@ -615,7 +632,7 @@ def load_text_tower(
         model.gradient_checkpointing_disable()
         warnings.warn(
             "gradient checkpointing is OFF for this text tower: every layer's activations "
-            "are retained. Measured with qd_train.memory at the 13,787-token remapped "
+            "are retained. Computed by qd_train.memory for the 2B at a 13,787-token remapped "
             "vocabulary, one row of the 34,522-token bucket needs 108.15 GB without it and "
             "25.85 GB with it; a 96 GB GH200 therefore admits 0 rows of that bucket off and "
             "8 rows on (87.33 GB). Off is what a caller gets by accident, so it is a "
@@ -638,7 +655,7 @@ def load_text_tower(
     )
 
     embedding = model.get_input_embeddings().weight
-    _verify_spec_describes(spec, model=model, config=text_config)
+    _verify_spec_describes(spec, model=model, config=text_config, tied=tied)
     layer_types = list(text_config.layer_types)
     footprint = estimate_step(
         spec,

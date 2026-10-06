@@ -18,7 +18,9 @@ allocates nothing and still compares every key and every shape.
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import math
 import sys
 import warnings
 from pathlib import Path
@@ -99,6 +101,11 @@ def _tiny_text_config(vocab: int = TINY_VOCAB, hidden: int = TINY_HIDDEN):
         linear_value_head_dim=16,
         linear_conv_kernel_dim=4,
         tie_word_embeddings=True,
+        # The real config.json states both; transformers 5.12.1's config class does not
+        # declare them, so they ride as extra keys into the saved config.json, where
+        # qd_train.memory.spec_from_checkpoint requires them rather than defaulting.
+        attn_output_gate=True,
+        mamba_ssm_dtype="float32",
     )
 
 
@@ -123,6 +130,8 @@ def _tiny_spec(vocab: int = TINY_VOCAB, hidden: int = TINY_HIDDEN) -> ModelSpec:
         attn_output_gate=True,
         linear_heads=2,
         linear_head_dim=16,
+        linear_value_heads=2,
+        linear_value_head_dim=16,
         vocab_size=vocab,
         params_total=4_000_000,
         params_embedding=vocab * hidden,
@@ -142,7 +151,10 @@ def _write_tiny_snapshot(
     torch.manual_seed(seed)
     model = Qwen3_5TextModel(text)
     dirpath.mkdir(parents=True, exist_ok=True)
-    Qwen3_5Config(text_config=text.to_dict()).save_pretrained(dirpath)
+    # The composite config's own flag defaults to false whatever text_config says, and it is
+    # the one transformers ties the head by; load_text_tower refuses a tied-by-storage tower
+    # whose config says untied, as tools/qd_train_oracle_tiny.py's snapshot already knew.
+    Qwen3_5Config(text_config=text.to_dict(), tie_word_embeddings=True).save_pretrained(dirpath)
     save_file(
         {
             f"{TEXT_PREFIX}{k}": v.detach().clone().contiguous()
@@ -308,6 +320,181 @@ def test_a_memory_spec_for_another_model_is_refused(tmp_path):
         )  # spec defaults to QWEN3_5_2B_TEXT, which is not this tower
     message = str(excinfo.value)
     assert "hidden_size" in message and "vocab_size" in message
+
+
+# --- the output head, and every architecture number the budget rests on ---------------------
+#
+# Pinned 2026-10-06 (DevMap audit #1): Qwen3.5-9B-Base's head is untied -- config.json says
+# false and ``lm_head.weight`` is stored. ``load_text_tower`` loaded only TEXT_PREFIX tensors,
+# so it dropped that head and trained the embedding in its place, and ``ModelSpec``'s
+# ``tied_embedding`` was never read. Each test below loaded silently before the fix.
+
+
+def _rewrite_config(snapshot: Path, *, text_tie: bool | None = None, **changes: object) -> None:
+    """Set (or, for ``None``, delete) top-level keys of the snapshot's config.json, and
+    ``text_config.tie_word_embeddings`` when ``text_tie`` is given."""
+    path = snapshot / "config.json"
+    config = json.loads(path.read_text(encoding="utf-8"))
+    for key, value in changes.items():
+        if value is None:
+            config.pop(key, None)
+        else:
+            config[key] = value
+    if text_tie is not None:
+        config["text_config"]["tie_word_embeddings"] = text_tie
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+
+def _store_a_head(snapshot: Path) -> None:
+    """Add an ``lm_head.weight`` of its own, as an untied checkpoint stores it."""
+    from safetensors.torch import load_file, save_file
+
+    shard = snapshot / "model.safetensors"
+    tensors = load_file(str(shard))
+    tensors["lm_head.weight"] = torch.randn(TINY_VOCAB, TINY_HIDDEN)
+    save_file(tensors, str(shard))
+
+
+def _load_tiny(snapshot: Path, spec: ModelSpec | None = None):
+    return load_text_tower(
+        snapshot,
+        gradient_checkpointing=True,
+        optimizer=ADAMW_FP32,
+        attn_implementation="sdpa",
+        dtype="fp32",
+        width=64,
+        spec=_tiny_spec() if spec is None else spec,
+    )
+
+
+def test_the_tiny_snapshot_is_described_by_the_spec_its_tests_pass():
+    """A fixture invariant, and ``spec_from_checkpoint`` on a ``save_pretrained`` config.json:
+    every architecture number the builder reads off the tiny snapshot is ``_tiny_spec``'s.
+    (``params_total`` is the fixture's stated round number, not a measurement.)"""
+    from qd_train.memory import spec_from_checkpoint
+
+    snapshot = Path(__import__("tempfile").mkdtemp()) / "snapshot"
+    _write_tiny_snapshot(snapshot)
+    measured = spec_from_checkpoint(snapshot)
+    stated = _tiny_spec()
+    for field in dataclasses.fields(stated):
+        if field.name in ("name", "params_total"):
+            continue
+        assert getattr(measured, field.name) == getattr(stated, field.name), field.name
+
+
+def test_a_checkpoint_with_its_own_output_head_is_refused_not_silently_replaced(tmp_path):
+    """Both flags say untied and the storage holds a head: a consistent untied checkpoint,
+    which reaches the untied refusal itself rather than the contradiction check."""
+    snapshot = tmp_path / "snapshot"
+    _write_tiny_snapshot(snapshot)
+    _store_a_head(snapshot)
+    _rewrite_config(snapshot, tie_word_embeddings=False, text_tie=False)
+    with pytest.raises(BackboneContractViolation, match="silently replace") as caught:
+        _load_tiny(snapshot)
+    assert "contradictory" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("top_tie", "head_stored", "why"),
+    [
+        (True, True, "contradictory"),  # config says tied, storage holds a head
+        (False, False, "contradictory"),  # config says untied, storage holds none
+        (None, False, "no top-level"),  # transformers would default the flag to false
+    ],
+)
+def test_a_head_whose_tie_would_be_a_guess_is_refused_at_load(
+    tmp_path, top_tie, head_stored, why
+):
+    snapshot = tmp_path / "snapshot"
+    _write_tiny_snapshot(snapshot)
+    if head_stored:
+        _store_a_head(snapshot)
+    # text_config's flag follows the top-level one, so the case under test is the one named
+    # (config against storage, or a missing top-level flag), not a flag-against-flag split.
+    _rewrite_config(snapshot, tie_word_embeddings=top_tie, text_tie=top_tie)
+    with pytest.raises(BackboneContractViolation, match=why) as caught:
+        _load_tiny(snapshot)
+    assert "silently replace" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong"),
+    [
+        ("linear_value_heads", 4),
+        ("linear_value_head_dim", 32),
+        ("linear_heads", 1),
+        ("tied_embedding", False),
+        ("intermediate_size", 128),
+        ("q_heads", 4),
+        ("kv_heads", 2),
+        ("head_dim", 32),
+        ("attn_output_gate", False),
+    ],
+)
+def test_a_spec_wrong_about_any_architecture_number_is_refused(tmp_path, field, wrong):
+    """The comparison was hidden size, vocabulary and layer counts. A 2B-shaped head count
+    on a 4B tower -- the same hidden size class, other heads -- passed it."""
+    snapshot = tmp_path / "snapshot"
+    _write_tiny_snapshot(snapshot)
+    tower = _load_tiny(snapshot)  # the control: the right spec loads
+    assert tower.spec == _tiny_spec()
+    with pytest.raises(BackboneContractViolation, match=field):
+        _load_tiny(snapshot, spec=dataclasses.replace(_tiny_spec(), **{field: wrong}))
+
+
+def test_the_linear_layer_enumeration_uses_the_real_modules_widths_when_value_heads_differ():
+    """Qwen3.5-4B/9B-Base have twice as many value heads as key heads. The enumeration is
+    checked against transformers' own ``Qwen3_5GatedDeltaNet`` at that ratio: every
+    projection width from the module, and the recurrent state's shape from a real forward
+    through the torch reference kernel."""
+    from transformers.models.qwen3_5 import Qwen3_5TextConfig, Qwen3_5TextModel
+
+    from qd_train.memory import ActivationModel, estimate_step
+
+    cfg = Qwen3_5TextConfig(
+        vocab_size=TINY_VOCAB, hidden_size=TINY_HIDDEN, intermediate_size=64,
+        num_hidden_layers=TINY_LAYERS, num_attention_heads=2, num_key_value_heads=1,
+        head_dim=16, full_attention_interval=2, linear_num_key_heads=2,
+        linear_num_value_heads=4, linear_key_head_dim=16, linear_value_head_dim=16,
+        linear_conv_kernel_dim=4, tie_word_embeddings=True,
+    )
+    torch.manual_seed(0)
+    model = Qwen3_5TextModel(cfg).eval()
+    i = cfg.layer_types.index("linear_attention")
+    lin = model.layers[i].linear_attn
+    spec = dataclasses.replace(_tiny_spec(), linear_value_heads=4, linear_value_head_dim=16)
+    h, inter = TINY_HIDDEN, 64
+    expected = (
+        2 * h  # residual, input norm
+        + 2 * lin.in_proj_qkv.out_features  # qkv, conv
+        + lin.value_dim  # per-head norm
+        + lin.in_proj_z.out_features
+        + lin.out_proj.in_features
+        + h  # post-attention norm
+        + 3 * inter
+    )
+    assert lin.in_proj_qkv.out_features == 2 * 2 * 16 + 4 * 16  # the ratio is real here
+    assert ActivationModel(recompute="none").linear_layer_elements(spec) == expected
+
+    seen: list[tuple[int, ...]] = []
+    real = lin.chunk_gated_delta_rule
+
+    def spy(*args, **kwargs):
+        kwargs["output_final_state"] = True
+        out, state = real(*args, **kwargs)
+        seen.append(tuple(state.shape))
+        return out, state
+
+    lin.chunk_gated_delta_rule = spy
+    with torch.no_grad():
+        model(input_ids=torch.randint(0, TINY_VOCAB, (3, 8)))
+    assert seen == [(3, 4, 16, 16)]  # [rows, value heads, key dim, value dim]
+    f = estimate_step(
+        spec, rows=3, width=8, activations=ActivationModel(recompute="full"),
+        optimizer=ADAMW_FP32, param_dtype="fp32", grad_dtype="fp32", activation_dtype="fp32",
+    )
+    assert f.recurrent_state_bytes == math.prod(seen[0]) * spec.recurrent_state_bytes
 
 
 # --- gradient checkpointing -------------------------------------------------------------------
@@ -1433,6 +1620,54 @@ def test_the_kahan_recipe_resumes_through_a_real_checkpoint_file(tmp_path):
     assert resumed.loss_log.losses() == pytest.approx(
         whole.loss_log.losses(), rel=1e-6, abs=1e-8
     )
+
+
+@pytest.mark.parametrize("recipe", ["master", "kahan"])
+def test_the_sidecar_preflight_predicts_the_checkpoint_the_step_writes(
+    tmp_path, monkeypatch, recipe
+):
+    """``real_ft_run`` refuses, before step 0, a checkpoint ``Checkpoint.write`` would refuse
+    at the first save (DevMap audit #2: a 4B under either 16-bit-weight recipe is ~55 GiB
+    against the 32 GiB ``MAX_SIDECAR_BYTES``, and used to find out after training). The
+    prediction is made before the first step and checked against every non-scalar tensor the
+    trained step's ``state()`` hands the sidecar."""
+    sys.path.insert(0, str(REPO / "tools"))
+    import real_ft_run
+
+    from qd_train.memory import ADAMW_KAHAN, ADAMW_MASTER
+    from qd_train.run_control import TensorRef
+
+    spec = {"master": ADAMW_MASTER, "kahan": ADAMW_KAHAN}[recipe]
+    tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=spec)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=8, max_width=64)
+    predicted = real_ft_run.checkpoint_sidecar_bytes(step, spec)
+    train_ft(
+        (_ft_batch(i) for i in range(4)),
+        epoch=0,
+        step=step,
+        control=_control(8),
+        recorder=_recorder(tmp_path / "rec"),
+    )
+
+    def refs(value):
+        if isinstance(value, TensorRef):
+            yield value
+        elif isinstance(value, dict):
+            for item in value.values():
+                yield from refs(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                yield from refs(item)
+
+    # 0-d tensors are the optimizers' step counters, not state the size of a parameter.
+    written = sum(len(r.data) for r in refs(step.state()) if r.shape != ())
+    assert written == predicted, (recipe, written, predicted)
+
+    monkeypatch.setattr(real_ft_run, "MAX_SIDECAR_BYTES", predicted - 1)
+    with pytest.raises(SystemExit, match="MAX_SIDECAR_BYTES"):
+        real_ft_run.checkpoint_sidecar_bytes(step, spec)
+    monkeypatch.setattr(real_ft_run, "MAX_SIDECAR_BYTES", predicted)
+    assert real_ft_run.checkpoint_sidecar_bytes(step, spec) == predicted
 
 
 def test_a_kahan_spec_on_an_fp32_tower_is_refused(tmp_path):

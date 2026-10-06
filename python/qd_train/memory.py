@@ -41,9 +41,13 @@ never do is let "could not check" read like "checked and fits".
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+import math
+import struct
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Final
+from pathlib import Path
+from typing import Any, Final
 
 __all__ = [
     "ADAMW_BF16",
@@ -51,18 +55,26 @@ __all__ = [
     "ADAMW_KAHAN",
     "ADAMW_MASTER",
     "BYTES_PER_ELEMENT",
+    "MAX_CHECKPOINT_TENSORS",
+    "MAX_SAFETENSORS_HEADER_BYTES",
     "MAX_SAFETY_FRACTION",
     "MAX_SEARCH_ROWS",
     "QWEN3_5_2B_TEXT",
     "SAFETY_FRACTION",
+    "TEXT_PREFIX",
     "ActivationModel",
+    "CheckpointRefused",
     "MemoryRefused",
     "ModelSpec",
     "OptimizerSpec",
     "StepFootprint",
+    "checkpoint_tensor_index",
     "estimate_step",
+    "head_is_tied",
     "max_positions_that_fit",
     "refuse_unless_it_fits",
+    "safetensors_header",
+    "spec_from_checkpoint",
 ]
 
 #: Bytes per element, by the names this repository uses for dtypes. ``float8`` is absent on
@@ -164,6 +176,20 @@ class OptimizerSpec:
             + master
         )
 
+    @property
+    def checkpoint_bytes_per_param(self) -> int:
+        """Bytes per optimized parameter in this optimizer's ``state_dict``: what a checkpoint
+        sidecar holds for it beside the weights.
+
+        The moments, plus an fp32 master for every parameter when the recipe keeps one
+        (``MasterWeightAdamW``) or stores one in place of its compensation
+        (``KahanBf16AdamW``: fp32 ``p + c``, the compensation recovered on load). So master
+        and kahan both checkpoint 12, plain AdamW 2 x its state width. ``tests/test_optim.py``
+        measures this off each built optimizer's real ``state_dict``.
+        """
+        masters = 4 if (self.keeps_fp32_master or self.compensation_bytes) else 0
+        return self.states_per_param * self.state_bytes + masters
+
 
 #: What ``tools/ft_toy_run.py:271``, ``tools/real_ft_run.py:574``, ``tools/rung0_toy_run.py:393``
 #: and ``qd_train/byte_train.py:206`` all construct: ``torch.optim.AdamW``. Read, not assumed
@@ -228,8 +254,18 @@ class ModelSpec:
     kv_heads: int
     head_dim: int
     attn_output_gate: bool
+    #: ``linear_attention`` KEY heads and their width (``linear_num_key_heads``,
+    #: ``linear_key_head_dim``): q and k are this wide.
     linear_heads: int
     linear_head_dim: int
+    #: ``linear_attention`` VALUE heads and their width (``linear_num_value_heads``,
+    #: ``linear_value_head_dim``): v, the gate z, the per-head norm and ``out_proj``'s input
+    #: are this wide, and so is the recurrent state's head count. Equal to the key heads on
+    #: the 2B; twice them on Qwen3.5-4B/9B-Base, where counting key heads for both
+    #: under-counted the activations. Required, with no default, because a default of "the
+    #: key heads" is that under-count.
+    linear_value_heads: int
+    linear_value_head_dim: int
     vocab_size: int
     params_total: int
     params_embedding: int
@@ -247,6 +283,8 @@ class ModelSpec:
             "head_dim",
             "linear_heads",
             "linear_head_dim",
+            "linear_value_heads",
+            "linear_value_head_dim",
             "vocab_size",
             "params_total",
             "params_embedding",
@@ -259,6 +297,13 @@ class ModelSpec:
             raise ValueError("layer counts must be non-negative")
         if self.n_full_attention_layers + self.n_linear_attention_layers == 0:
             raise ValueError("a model with no layers has no step to estimate")
+        if self.linear_value_heads % self.linear_heads:
+            # transformers repeats q and k across the value heads (num_v // num_k); a ratio
+            # that is not whole is a layer no kernel here runs.
+            raise ValueError(
+                f"linear_value_heads ({self.linear_value_heads}) must be a multiple of "
+                f"linear_heads ({self.linear_heads})"
+            )
         if self.params_embedding > self.params_total:
             raise ValueError(
                 f"the embedding ({self.params_embedding:,}) cannot be larger than the model "
@@ -281,6 +326,14 @@ class ModelSpec:
             return self.params_total
         if not isinstance(vocab_size, int) or isinstance(vocab_size, bool) or vocab_size <= 0:
             raise ValueError(f"vocab_size must be a positive int, got {vocab_size!r}")
+        if not self.tied_embedding:
+            # An untied head is a second [V, H] matrix the remap would have to cut too, and
+            # nothing here cuts it: load_text_tower refuses an untied checkpoint. Budgeting
+            # one cut would describe a run nobody can launch.
+            raise ValueError(
+                f"{self.name} has an untied output head; a remapped vocabulary is budgeted "
+                "only for a tied embedding, the only kind the trainer loads"
+            )
         return self.params_total - self.params_embedding + vocab_size * self.hidden_size
 
 
@@ -305,6 +358,8 @@ QWEN3_5_2B_TEXT: Final[ModelSpec] = ModelSpec(
     attn_output_gate=True,
     linear_heads=16,
     linear_head_dim=128,
+    linear_value_heads=16,
+    linear_value_head_dim=128,
     vocab_size=248_320,
     params_total=1_881_825_088,
     params_embedding=508_559_360,
@@ -313,6 +368,248 @@ QWEN3_5_2B_TEXT: Final[ModelSpec] = ModelSpec(
     # compute dtype, and assuming it was would understate it by half.
     recurrent_state_bytes=4,
 )
+
+
+# --- a spec measured from a checkpoint ------------------------------------------------------
+
+#: The prefix that separates the text tower from the vision tower and the MTP block in a
+#: Qwen3.5 conditional-generation checkpoint. Measured from the 2B's header, not assumed:
+#: ``model.language_model.`` (320), ``model.visual.`` (297) and ``mtp.`` (15) partition all
+#: 632 tensors with nothing left over. ``qd_train.backbone`` loads exactly this prefix.
+TEXT_PREFIX: Final[str] = "model.language_model."
+
+#: Where a checkpoint stores an output head of its own -- only when it is untied.
+_HEAD_PREFIX: Final[str] = "lm_head."
+
+#: Stored, dropped on load, never trained: the vision tower and the multi-token-prediction
+#: block.
+_DROPPED_PREFIXES: Final[tuple[str, ...]] = ("model.visual.", "mtp.")
+
+#: Safetensors headers are JSON behind a little-endian u64 length. A header larger than this
+#: is refused rather than read into memory.
+MAX_SAFETENSORS_HEADER_BYTES: Final[int] = 64 * 1024 * 1024
+
+#: A bound on the tensors one snapshot may name, all shards together. The 2B has 632; a
+#: checkpoint two orders of magnitude past that is not a Qwen3.5 base this code describes.
+MAX_CHECKPOINT_TENSORS: Final[int] = 65_536
+
+#: A bound on the shard fan-out. The 9B has 4.
+_MAX_SHARDS: Final[int] = 1024
+
+#: ``text_config.mamba_ssm_dtype`` -> bytes per recurrent-state element.
+_STATE_DTYPE_BYTES: Final[Mapping[str, int]] = {"float32": 4, "bfloat16": 2, "float16": 2}
+
+
+class CheckpointRefused(ValueError):
+    """The checkpoint on disk is not one this module will describe, and it says why."""
+
+
+def safetensors_header(path: Path) -> dict[str, Any]:
+    """The JSON header of one safetensors file, without reading a byte of tensor data."""
+    path = Path(path)
+    with path.open("rb") as handle:
+        raw_len = handle.read(8)
+        if len(raw_len) != 8:
+            raise CheckpointRefused(f"{path}: truncated safetensors header length")
+        n = struct.unpack("<Q", raw_len)[0]
+        if n <= 0 or n > MAX_SAFETENSORS_HEADER_BYTES:
+            raise CheckpointRefused(
+                f"{path}: safetensors header claims {n} bytes, outside "
+                f"(0, {MAX_SAFETENSORS_HEADER_BYTES}]. Refusing to read a header this size."
+            )
+        raw = handle.read(n)
+    if len(raw) != n:
+        raise CheckpointRefused(
+            f"{path}: safetensors header claims {n} bytes and the file holds {len(raw)}"
+        )
+    try:
+        header = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CheckpointRefused(f"{path}: safetensors header is not JSON: {exc}") from exc
+    if not isinstance(header, dict):
+        raise CheckpointRefused(
+            f"{path}: safetensors header is a {type(header).__name__}, not an object"
+        )
+    return header
+
+
+def checkpoint_tensor_index(snapshot: Path) -> dict[str, tuple[Path, tuple[int, ...]]]:
+    """Every tensor in ``snapshot``'s shards, by its full name: ``(shard, shape)``.
+
+    The one reader of a snapshot's tensor inventory: ``qd_train.backbone.text_tensor_index``
+    filters it to the text tower, and [`spec_from_checkpoint`] counts it. A name stored in two
+    shards is refused -- which one is the weight is not a question to guess at.
+    """
+    snapshot = Path(snapshot)
+    shards = sorted(snapshot.glob("*.safetensors"))
+    if not shards:
+        raise CheckpointRefused(
+            f"{snapshot}: no .safetensors file. A text tower cannot be built from a snapshot "
+            "that carries no weights, and an empty load would produce a randomly initialised "
+            "model whose loss curve merely looks disappointing."
+        )
+    if len(shards) > _MAX_SHARDS:
+        raise CheckpointRefused(f"{snapshot}: {len(shards)} shards, more than {_MAX_SHARDS}")
+    index: dict[str, tuple[Path, tuple[int, ...]]] = {}
+    for shard in shards:
+        for name, entry in safetensors_header(shard).items():
+            if name == "__metadata__":
+                continue
+            if name in index:
+                raise CheckpointRefused(
+                    f"{snapshot}: tensor {name!r} appears in two shards "
+                    f"({index[name][0].name} and {shard.name}); which one is the weight is "
+                    "not a question this module will guess at."
+                )
+            if len(index) >= MAX_CHECKPOINT_TENSORS:
+                raise CheckpointRefused(
+                    f"{snapshot}: more than {MAX_CHECKPOINT_TENSORS} tensors; the 2B has 632. "
+                    "This is a different model."
+                )
+            shape = entry.get("shape") if isinstance(entry, dict) else None
+            if not isinstance(shape, list) or not all(
+                isinstance(d, int) and not isinstance(d, bool) and d >= 0 for d in shape
+            ):
+                raise CheckpointRefused(f"{shard}: tensor {name!r} has no valid shape: {shape!r}")
+            index[name] = (shard, tuple(shape))
+    return index
+
+
+def head_is_tied(config: Mapping[str, Any], tensor_names: Iterable[str], *, where: str) -> bool:
+    """Whether the output head *is* the embedding, decided by the config and the storage.
+
+    Two signals, and both must agree. transformers ties a Qwen3.5 checkpoint's head by the
+    **top-level** ``tie_word_embeddings`` (``PreTrainedModel`` reads ``self.config``, the
+    composite config, and ``Qwen3_5Config`` defaults it to false whatever ``text_config``
+    says); ``text_config`` may state its own. The storage is the other signal: an untied head
+    is a tensor of its own under ``lm_head.``, and a tied one is not stored at all.
+
+    True when every stated flag is true and no head is stored; False when every stated flag is
+    false and a head is stored. Anything else is refused -- an absent top-level flag, a
+    non-bool, two flags that disagree, or flags the storage contradicts -- because each is a
+    model whose head would be a guess. ``ojas-qwen35``'s reader refuses a false flag at
+    either level too; this one says why.
+    """
+    top = config.get("tie_word_embeddings")
+    if top is None:
+        raise CheckpointRefused(
+            f"{where}: config.json states no top-level tie_word_embeddings. transformers "
+            "reads that flag for this architecture and defaults it to false, so whether the "
+            "head is the embedding would be a default, not a fact."
+        )
+    stated: dict[str, object] = {"tie_word_embeddings": top}
+    text = config.get("text_config")
+    if isinstance(text, Mapping) and text.get("tie_word_embeddings") is not None:
+        stated["text_config.tie_word_embeddings"] = text["tie_word_embeddings"]
+    for key, value in stated.items():
+        if not isinstance(value, bool):
+            raise CheckpointRefused(f"{where}: {key} is {value!r}, not a bool")
+    stored = sorted(name for name in tensor_names if name.startswith(_HEAD_PREFIX))
+    flags = set(stated.values())
+    if flags == {True} and not stored:
+        return True
+    if flags == {False} and stored:
+        return False
+    raise CheckpointRefused(
+        f"{where}: whether the output head is the embedding is contradictory: {stated}, and "
+        f"the checkpoint stores {len(stored)} tensor(s) under {_HEAD_PREFIX!r} "
+        f"({stored[:4]}). A tied head is not stored; an untied one is."
+    )
+
+
+def _config_field(text: Mapping[str, Any], key: str, kind: type, *, where: str) -> Any:
+    value = text.get(key)
+    if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
+        raise CheckpointRefused(
+            f"{where}: text_config.{key} is {value!r}, not a {kind.__name__}. A spec built "
+            "on a default here would describe a model nobody read."
+        )
+    return value
+
+
+def spec_from_checkpoint(snapshot: Path) -> ModelSpec:
+    """A [`ModelSpec`] measured from a checkpoint on disk rather than taken from a constant.
+
+    The parameter count is summed over the text tower's tensors and, when the head is untied,
+    the head's -- read off the safetensors headers, not derived from the config. The
+    architecture is read from ``config.json``'s ``text_config``, and every field is required:
+    nothing here falls back to a default, because a defaulted head count or tie is exactly
+    how a 2B-shaped budget gets applied to a 4B. ``tests/test_memory.py`` checks that the 2B
+    snapshot reproduces [`QWEN3_5_2B_TEXT`] field for field.
+
+    It describes an untied head too (the 9B's), so a budget can be computed for it; loading
+    one is ``qd_train.backbone``'s refusal, not this function's.
+    """
+    snapshot = Path(snapshot)
+    where = str(snapshot)
+    try:
+        config = json.loads((snapshot / "config.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CheckpointRefused(f"{where}: config.json is unreadable: {exc}") from exc
+    text = config.get("text_config") if isinstance(config, dict) else None
+    if not isinstance(text, dict):
+        raise CheckpointRefused(
+            f"{where}: config.json has no text_config object. This describes the text tower "
+            "of a Qwen3.5 conditional-generation checkpoint."
+        )
+    index = checkpoint_tensor_index(snapshot)
+    known = (TEXT_PREFIX, _HEAD_PREFIX, *_DROPPED_PREFIXES)
+    unknown = sorted(name for name in index if not name.startswith(known))
+    if unknown:
+        raise CheckpointRefused(
+            f"{where}: {len(unknown)} tensor(s) under a prefix this module has not seen "
+            f"({unknown[:4]}). Counting them or dropping them would be a guess."
+        )
+    tied = head_is_tied(config, index, where=where)
+
+    def need_int(key: str) -> int:
+        return int(_config_field(text, key, int, where=where))
+
+    vocab, hidden = need_int("vocab_size"), need_int("hidden_size")
+    embedding_name = TEXT_PREFIX + "embed_tokens.weight"
+    embedding_shape = index[embedding_name][1] if embedding_name in index else None
+    if embedding_shape != (vocab, hidden):
+        raise CheckpointRefused(
+            f"{where}: {embedding_name} is {embedding_shape}, and text_config says "
+            f"({vocab}, {hidden})"
+        )
+    layer_types = _config_field(text, "layer_types", list, where=where)
+    if not all(t in ("full_attention", "linear_attention") for t in layer_types):
+        raise CheckpointRefused(
+            f"{where}: text_config.layer_types names a layer kind other than full_attention "
+            f"and linear_attention: {sorted(set(layer_types))}"
+        )
+    state_dtype = _config_field(text, "mamba_ssm_dtype", str, where=where)
+    if state_dtype not in _STATE_DTYPE_BYTES:
+        raise CheckpointRefused(
+            f"{where}: text_config.mamba_ssm_dtype {state_dtype!r} is not one of "
+            f"{sorted(_STATE_DTYPE_BYTES)}"
+        )
+    model_dir = snapshot.parent.parent.name
+    return ModelSpec(
+        name=f"{model_dir.removeprefix('models--').replace('--', '/')} (text tower)",
+        hidden_size=hidden,
+        intermediate_size=need_int("intermediate_size"),
+        n_full_attention_layers=layer_types.count("full_attention"),
+        n_linear_attention_layers=layer_types.count("linear_attention"),
+        q_heads=need_int("num_attention_heads"),
+        kv_heads=need_int("num_key_value_heads"),
+        head_dim=need_int("head_dim"),
+        attn_output_gate=bool(_config_field(text, "attn_output_gate", bool, where=where)),
+        linear_heads=need_int("linear_num_key_heads"),
+        linear_head_dim=need_int("linear_key_head_dim"),
+        linear_value_heads=need_int("linear_num_value_heads"),
+        linear_value_head_dim=need_int("linear_value_head_dim"),
+        vocab_size=vocab,
+        params_total=sum(
+            math.prod(shape)
+            for name, (_shard, shape) in index.items()
+            if name.startswith((TEXT_PREFIX, _HEAD_PREFIX))
+        ),
+        params_embedding=vocab * hidden,
+        tied_embedding=tied,
+        recurrent_state_bytes=_STATE_DTYPE_BYTES[state_dtype],
+    )
 
 
 # --- activations --------------------------------------------------------------------------
@@ -388,16 +685,24 @@ class ActivationModel:
             )
 
     def linear_layer_elements(self, m: ModelSpec) -> int:
-        """One ``linear_attention`` layer's saved elements per token."""
-        qkv = 3 * m.linear_heads * m.linear_head_dim  # in_proj_qkv -> [6144, 2048]
+        """One ``linear_attention`` layer's saved elements per token.
+
+        q and k are key-heads wide; v, z, the per-head norm and ``out_proj``'s input are
+        value-heads wide (transformers' ``Qwen3_5GatedDeltaNet``: ``conv_dim = key_dim * 2 +
+        value_dim``, and ``in_proj_z`` and ``out_proj`` are ``value_dim``). On the 2B the two
+        are equal and ``value_dim == hidden_size``, so its figures are what they always were.
+        """
+        key_dim = m.linear_heads * m.linear_head_dim
+        value_dim = m.linear_value_heads * m.linear_value_head_dim
+        qkv = 2 * key_dim + value_dim  # in_proj_qkv -> [6144, 2048] on the 2B
         return (
             m.hidden_size  # residual entering the layer
             + m.hidden_size  # input_layernorm output
             + qkv  # in_proj_qkv output
             + qkv  # conv1d output
-            + m.linear_heads * m.linear_head_dim  # per-head norm output
-            + m.hidden_size  # in_proj_z gate output
-            + m.hidden_size  # gated attention output, o_proj input
+            + value_dim  # per-head norm output
+            + value_dim  # in_proj_z gate output
+            + value_dim  # gated attention output, out_proj input
             + m.hidden_size  # post_attention_layernorm output
             + 3 * m.intermediate_size  # gate_proj, up_proj, silu(gate)*up
         )
@@ -620,8 +925,9 @@ def estimate_step(
 
     activation_bytes = positions * acts.elements_per_token(model) * a_bytes
     score_bytes = acts.score_matrix_elements(model, rows=rows, width=width) * a_bytes
-    # The recurrent state is [rows, heads, key_dim, value_dim] per linear-attention layer
-    # and does not scale with sequence length. Under checkpointing one layer is live.
+    # The recurrent state is [rows, value_heads, key_head_dim, value_head_dim] per
+    # linear-attention layer (q and k are repeated across the value heads) and does not
+    # scale with sequence length. Under checkpointing one layer is live.
     live_linear = (
         1 + acts.retained_linear_layers if acts.recompute == "full"
         else model.n_linear_attention_layers
@@ -629,9 +935,9 @@ def estimate_step(
     recurrent_bytes = (
         live_linear
         * rows
-        * model.linear_heads
+        * model.linear_value_heads
         * model.linear_head_dim
-        * model.linear_head_dim
+        * model.linear_value_head_dim
         * model.recurrent_state_bytes
     )
     # fused_linear_cross_entropy keeps one fp32 accumulator the size of the projection

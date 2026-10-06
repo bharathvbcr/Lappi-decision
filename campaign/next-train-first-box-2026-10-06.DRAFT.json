@@ -1,0 +1,45 @@
+{
+  "recorded": "2026-10-06 ~19:30 UTC, before any run of either probe: no kahan row exists in any ledger, and the 4B weights are not on any machine. Written by the next-training-plan lane (session cd80fb) for HANDOFF/next-training-plan-2026-10-06.md section 9.",
+  "status": "DRAFT. Not launched. Needs: (1) the human's yes on cost and on the GH200 cycle; (2) for P2 only, the human's yes on the 4B download; (3) Fable's review of the reading rule. Promoted to campaign/next-train-first-box-preregistered.json, unchanged in substance, before the first command runs. Every row it writes is quick (rule 8): --max-steps runs and footprint probes cannot promote anything.",
+  "why": "qd_train.optim.KahanBf16AdamW (9819d16) is the recipe that fits a 4B base on one GH200 (AUDIT/next-train-2026-10-06/sizing.txt), but it has no GPU measurement (GAP-KAHAN-RECIPE-NOT-MEASURED-ON-A-GPU-2026-10-06). P1 decides whether it may be used; P2 measures the 4B's real footprint instead of the predicted one (GAP-MEMORY-PREDICTS-084-TO-097X-OF-MEASURED-BACKBONE-FOOTPRINT-ON-GH200).",
+  "box": {
+    "instance": "Lambda 1x GH200 (aarch64), $2.29/h (fetched 2026-10-06, AUDIT/training-audit-2026-10-06.md section 5)",
+    "box_usd_ceiling": 12.0,
+    "wall_clock_cap_s": 18000,
+    "estimate": "P1 ~2.5 h (three 600-step arms at ~1.9 s/step plus load and val scoring, plus two footprint sweeps); P2 ~1.5 h plus the download. ~4 h = ~$9.2.",
+    "auto_terminate": "The queue stops all GPU work at the wall-clock cap or the box ceiling and writes BOX_CEILING; the instance is terminated by the human (no agent holds a cloud credential). The box guard of HANDOFF/next-training-plan-2026-10-06.md precaution 4 must be in the queue before launch."
+  },
+  "P1": {
+    "what": "Recipe parity on the 2B tower. One seed (0), v5's data and recipe flags (the v5 ft row's recipe) except --optimizer, --max-steps 600 (past bf16's 384-step freeze, so the schedule is one plain bf16 could not pass), --score-val after each arm. Then tools/gh200_footprint.py --optimizer master and --optimizer kahan.",
+    "arms": {
+      "master": "--optimizer master",
+      "master-repeat": "--optimizer master, the same seed and data order: the run-to-run noise floor on this device",
+      "kahan": "--optimizer kahan"
+    },
+    "per_arm": "the per-step letter and span channel losses (QwenDecisionStep.letter_log / span_log, in the checkpoint), val choice top-1 and span top-1 from --score-val, the optimizer step time (median of steps 101-600) and the peak memory from gh200_footprint.py at the arm's recipe.",
+    "definitions": {
+      "loss_gap(a,b)": "mean over steps 385-600 of |letter_a - letter_b| / letter_b",
+      "floor": "loss_gap(master-repeat, master)",
+      "val_gap(a,b)": "val choice top-1 of a minus that of b, with a paired bootstrap 95% interval over val rows (2,000 draws, seed 20261006)"
+    },
+    "outcomes": {
+      "admissible": "loss_gap(kahan, master) <= max(2 x floor, 0.02), and val_gap(kahan, master)'s interval lies inside [-0.02, +0.02], and kahan's measured peak <= 0.80 x master's at the same shape, and kahan's median step time <= 1.5 x master's.",
+      "slow": "every condition of 'admissible' but the step time. kahan is not used until its step moves to torch._foreach_* slices and P1's timing is re-run.",
+      "diverges": "loss_gap(kahan, master) > max(2 x floor, 0.02), or val_gap's interval leaves [-0.02, +0.02].",
+      "no_saving": "kahan's measured peak > 0.80 x master's: the 14 vs 20 B/param arithmetic does not survive the allocator.",
+      "refused": "any arm did not complete, or a check could not run. Never read as any other word."
+    },
+    "first_matching_word_wins_in_order": ["refused", "diverges", "no_saving", "slow", "admissible"]
+  },
+  "P2": {
+    "runs_only_if": "P1 reads 'admissible', and the human said yes to the 4B download",
+    "what": "The 4B base: tools/memory_budget.py --snapshot <4B> (the measured parameter count, against the derived 4,205,751,296), then tools/gh200_rows.py --snapshot <4B> --optimizer kahan --width 9638 --loss fused-ce, walking rows up until the device refuses. --loss fused-ce drives the trainer's own loss head, which every earlier GH200 measurement left out (GAP-LOSS-HEAD-TERM-NEVER-MEASURED-2026-10-06). The row count a later 4B run launches at is this measured one, not the predicted 38,552 tokens. Before any GPU work, spec_from_checkpoint and load_text_tower check the download's shape and head tie; a refusal there is recorded as a finding about the download, and no check is relaxed to proceed.",
+    "not_a_training_run": "No 4B ft row is written by P2."
+  },
+  "guards": [
+    "Rule 3: the qd-train path check refuses held-out paths; P1 reads v5's train and val splits only.",
+    "Every binary and data input is pinned by sha256 in the queue.",
+    "A recipe change is never compared outside this reading: kahan rows are quick and named by optimizer_recipe."
+  ],
+  "not_claimed": "P1 at 600 steps says whether the recipe tracks the master at the start of a run on this device; it does not say a full 12,176-step run lands where master's does. That is the first non-quick kahan run's own pre-registration."
+}

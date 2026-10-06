@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import struct
 import sys
 from pathlib import Path
 
@@ -38,12 +37,14 @@ from qd_train.memory import (
     ADAMW_MASTER,
     QWEN3_5_2B_TEXT,
     ActivationModel,
+    CheckpointRefused,
     MemoryRefused,
     ModelSpec,
     StepFootprint,
     estimate_step,
     max_positions_that_fit,
     refuse_unless_it_fits,
+    spec_from_checkpoint,
 )
 
 GB = 1000**3
@@ -97,59 +98,6 @@ RECIPES: dict[str, tuple[str, dict[str, object]]] = {
 DEFAULT_RECIPE = "master"
 
 
-def safetensors_header(path: Path) -> dict:
-    """The JSON header of a safetensors file, without reading a byte of tensor data."""
-    with path.open("rb") as fh:
-        raw = fh.read(8)
-        if len(raw) != 8:
-            raise SystemExit(f"{path}: too short to carry a safetensors header")
-        return json.loads(fh.read(struct.unpack("<Q", raw)[0]))
-
-
-def spec_from_checkpoint(snapshot: Path) -> ModelSpec:
-    """Rebuild [`ModelSpec`] from a checkpoint on disk rather than trusting the constant.
-
-    The constant in ``qd_train.memory`` was measured once; this re-measures, so a different
-    snapshot is budgeted as itself and a drifted constant is caught rather than inherited.
-    """
-    cfg = json.loads((snapshot / "config.json").read_text(encoding="utf-8"))
-    text = cfg["text_config"]
-    header: dict = {}
-    for shard in sorted(snapshot.glob("*.safetensors")):
-        header.update(safetensors_header(shard))
-    header.pop("__metadata__", None)
-
-    def numel(spec: dict) -> int:
-        n = 1
-        for dim in spec["shape"]:
-            n *= dim
-        return n
-
-    total = sum(
-        numel(v) for k, v in header.items() if not k.startswith(("model.visual.", "mtp."))
-    )
-    embedding = int(text["vocab_size"]) * int(text["hidden_size"])
-    layer_types = text["layer_types"]
-    return ModelSpec(
-        name=f"{snapshot.parent.parent.name} (text tower)",
-        hidden_size=int(text["hidden_size"]),
-        intermediate_size=int(text["intermediate_size"]),
-        n_full_attention_layers=layer_types.count("full_attention"),
-        n_linear_attention_layers=layer_types.count("linear_attention"),
-        q_heads=int(text["num_attention_heads"]),
-        kv_heads=int(text["num_key_value_heads"]),
-        head_dim=int(text["head_dim"]),
-        attn_output_gate=bool(text.get("attn_output_gate", False)),
-        linear_heads=int(text["linear_num_key_heads"]),
-        linear_head_dim=int(text["linear_key_head_dim"]),
-        vocab_size=int(text["vocab_size"]),
-        params_total=total,
-        params_embedding=embedding,
-        tied_embedding=bool(text.get("tie_word_embeddings", False)),
-        recurrent_state_bytes=4 if text.get("mamba_ssm_dtype") == "float32" else 2,
-    )
-
-
 def read_shard_header(shards: Path) -> dict:
     path = shards / "header.json"
     if not path.is_file():
@@ -200,7 +148,10 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    model = spec_from_checkpoint(args.snapshot) if args.snapshot else QWEN3_5_2B_TEXT
+    try:
+        model = spec_from_checkpoint(args.snapshot) if args.snapshot else QWEN3_5_2B_TEXT
+    except CheckpointRefused as exc:
+        raise SystemExit(f"--snapshot refused: {exc}") from exc
     acts = ActivationModel(recompute=args.recompute, attention=args.attention)
 
     widths: list[int] = []

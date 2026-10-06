@@ -76,15 +76,17 @@ DEFAULT_BETA2: float = 0.999
 LR_SCALE_KEY: str = "lr_scale"
 
 #: Refused above this, rather than discovered as an allocation failure part way through a
-#: run. An fp32 master plus fp32 moments is 12 B/param on top of the live parameters; at
-#: this bound that is 96 GB of optimizer-side memory, which no single device here has.
+#: run. The fp32 master, fp32 moments and the fp32 gradient cast are 16 B/param on top of
+#: the live bf16 weight and grad -- 20 B/param all-in, measured on a GH200
+#: (``qd_train.memory.OptimizerSpec.bytes_per_param``); at this bound that is 160 GB, more
+#: than any single device rented here.
 MAX_MASTER_PARAMS: int = 8_000_000_000
 
 #: Refused above this, for the same reason. [`KahanBf16AdamW`] keeps 10 B/param beside the
 #: live weights (a 2-byte compensation and two fp32 moments), 14 B/param all-in with the bf16
 #: weight and grad; at this bound that is 224 GB, more than any single device rented here.
-#: It allocates all of it at construction, so a model that cannot fit fails before the first
-#: batch is read, not at the first step.
+#: The count is refused at construction; the state itself is allocated at the first step,
+#: as torch's AdamW allocates its moments, so a step built only to score pays nothing.
 MAX_KAHAN_PARAMS: int = 16_000_000_000
 
 #: Elements per slice of [`KahanBf16AdamW.step`]. Each slice casts its grad, weight and
@@ -379,8 +381,9 @@ class MasterWeightAdamW:
         if total > MAX_MASTER_PARAMS:
             raise ValueError(
                 f"{total:,} trainable parameters exceeds MAX_MASTER_PARAMS "
-                f"({MAX_MASTER_PARAMS:,}). The fp32 master and fp32 moments would need "
-                f"{total * 12 / 1024 ** 3:.1f} GiB on top of the live parameters. Refusing "
+                f"({MAX_MASTER_PARAMS:,}). The fp32 master, fp32 moments and fp32 gradient "
+                f"cast would need {total * 16 / 1024 ** 3:.1f} GiB on top of the live "
+                "parameters. Refusing "
                 "up front rather than failing part way through a run."
             )
         if all(p.dtype == torch.float32 for p in live):

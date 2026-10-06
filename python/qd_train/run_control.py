@@ -193,15 +193,19 @@ MAX_CHECKPOINT_BYTES: Final[int] = 1 << 30
 #: bound on a new payload**, not a relaxation of [`MAX_CHECKPOINT_BYTES`]: before this
 #: existed, a model state of this size could not be written at all.
 #:
-#: The number is derived from the largest checkpoint this repository can construct, not
-#: guessed. ``qd_train.memory.QWEN3_5_2B_TEXT.trainable_params()`` is 1,881,825,088 and
-#: ``ADAMW_FP32`` keeps two fp32 moments per parameter, so weights and optimizer state in
-#: fp32 -- the widest combination any recipe here can ask for -- is 1,881,825,088 x 12 =
-#: 22,581,901,056 bytes, **21.03 GiB**. 32 GiB leaves 1.52x headroom over that and still
-#: refuses a runaway: a checkpoint larger than the whole model in its widest dtype is a bug
-#: in the step's ``state()``, not a recipe. ``test_the_sidecar_bound_is_derived_from_the_
-#: model_it_has_to_hold`` pins the derivation against ``qd_train.memory`` so the two cannot
+#: The number is derived from the largest checkpoint this repository can construct for the
+#: 2B, not guessed. It was first derived from fp32 weights and two fp32 moments, 12 B/param,
+#: 21.03 GiB; the master and kahan recipes that came after are wider -- bf16 weights, fp32
+#: masters and two fp32 moments, 14 B/param (``OptimizerSpec.checkpoint_bytes_per_param``)
+#: -- so the widest 2B checkpoint is 1,881,825,088 x 14 = 26,345,551,232 bytes, **24.54
+#: GiB**. 32 GiB leaves 1.30x headroom over that and still refuses a runaway.
+#: ``test_the_sidecar_bound_is_derived_from_the_model_it_has_to_hold`` pins the derivation
+#: against ``qd_train.memory`` and every recipe ``real_ft_run.py`` builds, so the two cannot
 #: drift apart silently. Rule 2 applies to it from here on.
+#:
+#: It does NOT hold a larger base: a 4B is ~55 GiB under either recipe. ``real_ft_run.py``
+#: refuses such a run before step 0 (``checkpoint_sidecar_bytes``); raising the bound is the
+#: human's decision (GAP-SIDECAR-BOUND-REFUSES-4B-CHECKPOINTS-AFTER-TRAINING-2026-10-06).
 MAX_SIDECAR_BYTES: Final[int] = 32 << 30
 
 #: How many tensors one checkpoint may carry. Every fan-out here is bounded; this one turns
@@ -1657,9 +1661,11 @@ class Checkpoint:
                 raise ValueError(
                     f"this checkpoint's tensors come to {declared['nbytes']:,} bytes, over "
                     f"MAX_SIDECAR_BYTES ({MAX_SIDECAR_BYTES:,}). That is larger than the "
-                    "full Qwen3.5-2B text tower with fp32 weights and two fp32 optimizer "
-                    "moments (22,581,901,056 bytes), so it is a bug in the step's state(), "
-                    "not a recipe. Refusing rather than filling a rented disk."
+                    "widest 2B checkpoint any recipe here writes (14 B/param, "
+                    "26,345,551,232 bytes): either the step's state() grew without bound, "
+                    "or this is a larger base, which the bound was not derived for "
+                    "(real_ft_run.py refuses that before step 0). Refusing rather than "
+                    "filling a rented disk."
                 )
             _require_little_endian("write a checkpoint sidecar")
 
