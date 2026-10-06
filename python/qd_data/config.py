@@ -102,6 +102,11 @@ class DataConfig:
     max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
 
     metadata: dict[str, str] = field(default_factory=dict)
+    #: v6's benchmark re-pin (:meth:`with_v6_benchmark_targets`): the upstream evaluation splits
+    #: in ``qd_data.sources.BENCHMARK_TARGET_SPLITS`` are never rows, only decontamination
+    #: targets. False is v5's (MMLU test and dev train, CLINC test is split by intent); in
+    #: :meth:`fingerprint` only when set, so a v5 config hashes as it always did.
+    benchmark_eval_splits_are_targets: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.seed, int) or isinstance(self.seed, bool):
@@ -168,6 +173,11 @@ class DataConfig:
                 "held_out_roots is empty: the training-time path check would then have "
                 "nothing to refuse, which is the check silently disabled"
             )
+        if not isinstance(self.benchmark_eval_splits_are_targets, bool):
+            raise TypeError(
+                "benchmark_eval_splits_are_targets must be bool, got "
+                f"{type(self.benchmark_eval_splits_are_targets).__name__}"
+            )
 
     @property
     def training_families(self) -> tuple[str, ...]:
@@ -189,4 +199,14 @@ class DataConfig:
             "train_fraction": self.train_fraction,
             "val_fraction": self.val_fraction,
             "admitted_by_human": dict(sorted(self.licence.admitted_by_human.items())),
-        }
+        } | ({"benchmark_eval_splits_are_targets": True}
+             if self.benchmark_eval_splits_are_targets else {})
+
+    def with_v6_benchmark_targets(self) -> DataConfig:
+        """This config under v6's benchmark re-pin (data-clean plan section 3 item 6;
+        GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03):
+        MMLU test and dev and CLINC test are refused as rows (``benchmark_eval_split_is_a_target``)
+        and scanned as targets by ``tools/containment_scan.py --v6-benchmark-targets``."""
+        from dataclasses import replace
+
+        return replace(self, benchmark_eval_splits_are_targets=True)
