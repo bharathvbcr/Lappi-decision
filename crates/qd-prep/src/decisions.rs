@@ -204,23 +204,23 @@ pub struct Config {
     pub train_caps: BTreeMap<String, usize>,
 }
 
-fn get<'a>(v: &'a Value, key: &str, what: &str) -> Result<&'a Value, String> {
+pub(crate) fn get<'a>(v: &'a Value, key: &str, what: &str) -> Result<&'a Value, String> {
     v.get(key).ok_or_else(|| format!("{what}: no {key:?}"))
 }
 
-fn get_str<'a>(v: &'a Value, key: &str, what: &str) -> Result<&'a str, String> {
+pub(crate) fn get_str<'a>(v: &'a Value, key: &str, what: &str) -> Result<&'a str, String> {
     get(v, key, what)?
         .as_str()
         .ok_or_else(|| format!("{what}: {key:?} is not a string"))
 }
 
-fn get_u64(v: &Value, key: &str, what: &str) -> Result<u64, String> {
+pub(crate) fn get_u64(v: &Value, key: &str, what: &str) -> Result<u64, String> {
     get(v, key, what)?
         .as_u64()
         .ok_or_else(|| format!("{what}: {key:?} is not a non-negative integer"))
 }
 
-fn get_f64(v: &Value, key: &str, what: &str) -> Result<f64, String> {
+pub(crate) fn get_f64(v: &Value, key: &str, what: &str) -> Result<f64, String> {
     let x = get(v, key, what)?
         .as_f64()
         .ok_or_else(|| format!("{what}: {key:?} is not a number"))?;
@@ -230,7 +230,7 @@ fn get_f64(v: &Value, key: &str, what: &str) -> Result<f64, String> {
     Ok(x)
 }
 
-fn str_map(v: &Value, key: &str) -> Result<BTreeMap<String, String>, String> {
+pub(crate) fn str_map(v: &Value, key: &str) -> Result<BTreeMap<String, String>, String> {
     let obj = get(v, key, "config")?
         .as_object()
         .ok_or_else(|| format!("config: {key:?} is not an object"))?;
@@ -298,7 +298,7 @@ impl Config {
 }
 
 /// The digest every seeded choice is made from: sha256 over the seed and the parts.
-fn keyed(seed: u64, parts: &[&str]) -> [u8; 32] {
+pub(crate) fn keyed(seed: u64, parts: &[&str]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(&seed.to_le_bytes());
     for p in parts {
@@ -309,7 +309,7 @@ fn keyed(seed: u64, parts: &[&str]) -> [u8; 32] {
 }
 
 /// A uniform draw in [0, 1) from [`keyed`].
-fn unit_draw(seed: u64, parts: &[&str]) -> f64 {
+pub(crate) fn unit_draw(seed: u64, parts: &[&str]) -> f64 {
     let d = keyed(seed, parts);
     let x = u64::from_le_bytes(d[..8].try_into().expect("8 bytes"));
     (x >> 11) as f64 / (1u64 << 53) as f64
@@ -319,7 +319,7 @@ fn unit_draw(seed: u64, parts: &[&str]) -> f64 {
 /// is read once: the digest is of the bytes parsed, so the caller checks it against the input's
 /// pin after the read and discards everything on a mismatch. A line is refused past
 /// [`MAX_LINE_BYTES`] before more than that is buffered.
-fn for_lines(
+pub(crate) fn for_lines(
     path: &Path,
     mut each: impl FnMut(usize, Value) -> Result<(), String>,
 ) -> Result<String, String> {
@@ -351,7 +351,7 @@ fn for_lines(
     }
 }
 
-fn check_pin(path: &Path, got: &str, want: &str, pinned_by: &str) -> Result<(), String> {
+pub(crate) fn check_pin(path: &Path, got: &str, want: &str, pinned_by: &str) -> Result<(), String> {
     if got == want {
         Ok(())
     } else {
@@ -396,7 +396,7 @@ pub fn clear_mode(p: &[f64], tau: f64) -> Option<usize> {
     (ties == 1 && p[best] >= tau).then_some(best)
 }
 
-fn option_text(key: &str, desc: Option<&str>) -> String {
+pub(crate) fn option_text(key: &str, desc: Option<&str>) -> String {
     // decider writes a missing description as null or as the string "null"
     // (`decider/data/mixture.py:56` normalises both to None).
     match desc.map(str::trim) {
@@ -1194,10 +1194,30 @@ pub fn containment_request(
     candidates: &[Candidate],
     targets: &[TargetSet],
 ) -> Vec<u8> {
+    containment_request_with(
+        cfg.ngram_n,
+        cfg.containment_threshold,
+        &json!({"tool": "qd-prep decisions", "seed": cfg.seed}),
+        "decision-candidates",
+        candidates,
+        targets,
+    )
+}
+
+/// [`containment_request`] for any caller that builds [`Candidate`]s (`qd-prep synth` too):
+/// `tool` is the request's provenance object and `candidate_set` names the candidates' set.
+pub fn containment_request_with(
+    ngram_n: u32,
+    threshold: f64,
+    tool: &Value,
+    candidate_set: &str,
+    candidates: &[Candidate],
+    targets: &[TargetSet],
+) -> Vec<u8> {
     let mut out = containment::INPUT_MAGIC.to_vec();
-    out.extend_from_slice(&cfg.ngram_n.to_le_bytes());
-    out.extend_from_slice(&cfg.containment_threshold.to_le_bytes());
-    put_str(&mut out, &json!({"tool": "qd-prep decisions", "seed": cfg.seed}).to_string());
+    out.extend_from_slice(&ngram_n.to_le_bytes());
+    out.extend_from_slice(&threshold.to_le_bytes());
+    put_str(&mut out, &tool.to_string());
     put_str(&mut out, "{}");
     let checks = ["identity_disjoint", "near_duplicate_disjoint"];
     out.extend_from_slice(&(checks.len() as u32).to_le_bytes());
@@ -1207,7 +1227,7 @@ pub fn containment_request(
         put_str(&mut out, "not run here: qd_data.split runs it over the built mixture");
     }
     out.extend_from_slice(&((1 + targets.len()) as u32).to_le_bytes());
-    put_str(&mut out, "decision-candidates");
+    put_str(&mut out, candidate_set);
     for (name, _) in targets {
         put_str(&mut out, name);
     }
@@ -1464,7 +1484,7 @@ pub struct Built {
     pub summary: String,
 }
 
-fn example_json(c: &Candidate) -> Value {
+pub(crate) fn example_json(c: &Candidate) -> Value {
     let (gold_option, gold_noul) = match c.gold {
         Gold::Option(i) => (Value::String(c.options[i].clone()), false),
         Gold::Noul => (Value::Null, true),

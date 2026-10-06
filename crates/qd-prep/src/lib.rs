@@ -19,9 +19,19 @@
 //!   complete pair list, the v5 decontamination scan (the Python gold-side scan of 2026-10-02
 //!   peaked at 17.4 GB). [`pyunicode`] is Python's `\w` and `str.lower()`, from tables read
 //!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
+//! - [`convert`] (with [`convert_licence`], [`convert_tools`], [`convert_text`],
+//!   [`convert_code`] and [`convert_inject`]): the downloaded v6 datasets made into decision
+//!   pools through the [`pool`] seam, with licence filters. Not a port: its licence table is a
+//!   mirror of `qd_data.licences`, and `tests/convert_licence_parity.rs` holds it to Python.
 
 pub mod blake2b;
 pub mod containment;
+pub mod convert;
+pub mod convert_code;
+pub mod convert_inject;
+pub mod convert_licence;
+pub mod convert_text;
+pub mod convert_tools;
 pub mod decisions;
 pub mod linfit;
 pub mod linwire;
@@ -29,6 +39,7 @@ pub mod lsh;
 pub mod minhash;
 pub mod ngram;
 pub mod pairwise;
+pub mod pool;
 pub mod pyunicode;
 #[rustfmt::skip]
 mod pyunicode_tables;

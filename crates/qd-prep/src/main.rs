@@ -18,6 +18,9 @@
 //! - `qd-prep decisions --config C --fetch-record R --decider-dir D --target NAME=FILE ...
 //!   --out-dir DIR [--survey]`: the v5 general-decision pool (see `qd_prep::decisions`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, or `texts.jsonl` with `--survey`.
+//! - `qd-prep convert --config C --view-record VR --pool NAME [--licence-cache F] --out-dir DIR`:
+//!   one downloaded v6 dataset as a decision pool (see `qd_prep::convert`), the same pool shape
+//!   `decisions` writes; `swe-rebench-filter` and `injections` write a view and a corpus.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -73,6 +76,49 @@ enum Command {
     /// The decision pool's cap refresh between two surveys: every all-admitted stratum's cap
     /// becomes its new train availability, the rest are kept (`decisions::refresh_train_caps`).
     DecisionCaps(DecisionCapsIo),
+    /// A downloaded v6 dataset made into a decision pool, licence-filtered and decontaminated
+    /// (`qd_prep::convert`), or SWE-rebench's filtered view, or the injection-text corpus.
+    Convert(ConvertIo),
+}
+
+/// `qd-prep convert`'s inputs.
+#[derive(clap::Args, Debug)]
+struct ConvertIo {
+    /// The conversion config (`data/convert/*.json`, schema qd-convert-config/v1).
+    #[arg(long)]
+    config: PathBuf,
+    /// The view record `view_v6.py` wrote beside the data (schema qd-view-record/v1).
+    #[arg(long)]
+    view_record: PathBuf,
+    /// One of: tools, mnli, scirepeval, csn, swe-rebench-filter, injections.
+    #[arg(long)]
+    pool: String,
+    /// CodeSearchNet's repository licence cache (`csn_licences.py`); `--pool csn` only.
+    #[arg(long)]
+    licence_cache: Option<PathBuf>,
+    /// The directory to create; refused if it, or DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// Worker threads for the containment scan; default every core, at most 256.
+    #[arg(long)]
+    threads: Option<usize>,
+}
+
+/// `qd-prep convert`: the config, the view record and a pool name in, the directory out.
+fn run_convert(io: &ConvertIo) -> Result<String, String> {
+    let threads = match io.threads {
+        Some(0) => return Err("--threads 0 would do nothing".to_string()),
+        Some(n) => n,
+        None => std::thread::available_parallelism().map(usize::from).unwrap_or(1),
+    }
+    .min(MAX_THREADS);
+    let inputs = qd_prep::convert::Inputs {
+        config: io.config.clone(),
+        view_record: io.view_record.clone(),
+        pool: io.pool.clone(),
+        licence_cache: io.licence_cache.clone(),
+    };
+    qd_prep::convert::run(&inputs, &io.out_dir, threads)
 }
 
 /// `qd-prep decision-caps`' inputs.
@@ -298,6 +344,7 @@ fn main() -> ExitCode {
         Command::Containment(io) => run_containment(io),
         Command::Decisions(io) => run_decisions(io),
         Command::DecisionCaps(io) => run_decision_caps(io),
+        Command::Convert(io) => run_convert(io),
     };
     match result {
         Ok(line) => {
