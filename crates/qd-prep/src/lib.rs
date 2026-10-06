@@ -36,9 +36,19 @@
 //! - [`dedupe`]: `qd_data.dedupe.dedupe`'s MinHash path end to end -- sign, band, confirm,
 //!   union across repos, and the keep rule (v5's lexical or v6's split priority) -- over
 //!   [`minhash`], [`wire`] and [`lsh`].
+//! - [`convert`] (with [`convert_licence`], [`convert_tools`], [`convert_text`],
+//!   [`convert_code`] and [`convert_inject`]): the downloaded v6 datasets made into decision
+//!   pools through the [`pool`] seam, with licence filters. Not a port: its licence table is a
+//!   mirror of `qd_data.licences`, and `tests/convert_licence_parity.rs` holds it to Python.
 
 pub mod blake2b;
 pub mod containment;
+pub mod convert;
+pub mod convert_code;
+pub mod convert_inject;
+pub mod convert_licence;
+pub mod convert_text;
+pub mod convert_tools;
 pub mod decisions;
 pub mod dedupe;
 pub mod gitcli;

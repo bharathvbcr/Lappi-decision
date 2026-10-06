@@ -32,8 +32,11 @@
 //!   positions or the refusal, as `qd_train.shards._span_token_positions` finds them before it
 //!   decodes.
 //! - `qd-prep synth --config C [--target NAME=FILE ...] --out-dir DIR`: decision rows
-//!   synthesised by rule for the email sorter or Jarvis (see `qd_prep::synth`) ->
+//!   synthesised by rule for the email sorter, Jarvis or tool selection (see `qd_prep::synth`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, the pool shape `decisions` writes.
+//! - `qd-prep convert --config C --view-record VR --pool NAME [--licence-cache F] --out-dir DIR`:
+//!   one downloaded v6 dataset as a decision pool (see `qd_prep::convert`), the same pool shape
+//!   `decisions` writes; `swe-rebench-filter` and `injections` write a view and a corpus.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -105,6 +108,9 @@ enum Command {
     /// sorter, Jarvis, tool selection), split by template, leak-checked and decontaminated
     /// (`qd_prep::synth`).
     Synth(SynthIo),
+    /// A downloaded v6 dataset made into a decision pool, licence-filtered and decontaminated
+    /// (`qd_prep::convert`), or SWE-rebench's filtered view, or the injection-text corpus.
+    Convert(ConvertIo),
 }
 
 /// `qd-prep synth`'s inputs.
@@ -125,16 +131,61 @@ struct SynthIo {
     threads: Option<usize>,
 }
 
-/// `qd-prep synth`: the config in, the pool directory out.
-fn run_synth(io: &SynthIo) -> Result<String, String> {
-    let threads = match io.threads {
+/// `qd-prep convert`'s inputs.
+#[derive(clap::Args, Debug)]
+struct ConvertIo {
+    /// The conversion config (`data/convert/*.json`, schema qd-convert-config/v1).
+    #[arg(long)]
+    config: PathBuf,
+    /// The view record `view_v6.py` wrote beside the data (schema qd-view-record/v1).
+    #[arg(long)]
+    view_record: PathBuf,
+    /// One of: tools, mnli, scirepeval, csn, swe-rebench-filter, injections.
+    #[arg(long)]
+    pool: String,
+    /// CodeSearchNet's repository licence cache (`csn_licences.py`); `--pool csn` only.
+    #[arg(long)]
+    licence_cache: Option<PathBuf>,
+    /// The directory to create; refused if it, or DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// Worker threads for the containment scan; default every core, at most 256.
+    #[arg(long)]
+    threads: Option<usize>,
+}
+
+/// `--threads`, bounded: an explicit 0 is refused, the default is every core, at most 256.
+fn bounded_threads(threads: Option<usize>) -> Result<usize, String> {
+    Ok(match threads {
         Some(0) => return Err("--threads 0 would do nothing".to_string()),
         Some(n) => n,
-        None => std::thread::available_parallelism().map(usize::from).unwrap_or(1),
+        None => std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1),
     }
-    .min(MAX_THREADS);
-    let inputs = qd_prep::synth::Inputs { config: io.config.clone(), targets: io.targets.clone() };
+    .min(MAX_THREADS))
+}
+
+/// `qd-prep synth`: the config in, the pool directory out.
+fn run_synth(io: &SynthIo) -> Result<String, String> {
+    let threads = bounded_threads(io.threads)?;
+    let inputs = qd_prep::synth::Inputs {
+        config: io.config.clone(),
+        targets: io.targets.clone(),
+    };
     qd_prep::synth::run(&inputs, &io.out_dir, threads)
+}
+
+/// `qd-prep convert`: the config, the view record and a pool name in, the directory out.
+fn run_convert(io: &ConvertIo) -> Result<String, String> {
+    let threads = bounded_threads(io.threads)?;
+    let inputs = qd_prep::convert::Inputs {
+        config: io.config.clone(),
+        view_record: io.view_record.clone(),
+        pool: io.pool.clone(),
+        licence_cache: io.licence_cache.clone(),
+    };
+    qd_prep::convert::run(&inputs, &io.out_dir, threads)
 }
 
 /// `qd-prep decision-caps`' inputs.
@@ -265,12 +316,7 @@ fn run_decisions(io: &DecisionsIo) -> Result<String, String> {
     if io.out_dir.exists() {
         return Err(format!("{} exists; refusing to overwrite it", io.out_dir.display()));
     }
-    let threads = match io.threads {
-        Some(0) => return Err("--threads 0 would do nothing".to_string()),
-        Some(n) => n,
-        None => std::thread::available_parallelism().map(usize::from).unwrap_or(1),
-    }
-    .min(MAX_THREADS);
+    let threads = bounded_threads(io.threads)?;
     let inputs = decisions::Inputs {
         config: io.config.clone(),
         fetch_record: io.fetch_record.clone(),
@@ -332,15 +378,7 @@ fn read_input(
         ));
     }
     let buf = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
-    let threads = match threads {
-        Some(0) => return Err("--threads 0 would do nothing".to_string()),
-        Some(n) => n,
-        None => std::thread::available_parallelism()
-            .map(usize::from)
-            .unwrap_or(1),
-    }
-    .min(MAX_THREADS);
-    Ok((buf, threads))
+    Ok((buf, bounded_threads(threads)?))
 }
 
 /// Read `io.input`, hand it to `work` with the thread count, and write what it returns to
@@ -409,6 +447,7 @@ fn main() -> ExitCode {
         Command::NaturalBugs(io) => run_natural_bugs(io),
         Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),
         Command::Synth(io) => run_synth(io),
+        Command::Convert(io) => run_convert(io),
     };
     match result {
         Ok(line) => {
