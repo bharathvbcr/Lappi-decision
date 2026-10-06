@@ -1,0 +1,21 @@
+{
+  "schema": "qd-synth-config/v1",
+  "kind": "email",
+  "seed": 20261006,
+  "rows_per_template": 110,
+  "val_templates_per_class": 1,
+  "injection_rate": 0.1,
+  "ngram_n": 8,
+  "containment_threshold": 0.5,
+  "target_sha256": {},
+  "probe": {
+    "n_min": 3,
+    "n_max": 5,
+    "dim": 65536,
+    "max_iter": 500,
+    "tol": 0.0001,
+    "lr": 0.05,
+    "l2_grid": [0.0001, 0.001, 0.01, 0.1],
+    "max_val_accuracy": 0.95
+  }
+}

@@ -22,6 +22,9 @@
 //!   `qd_prep::spancheck`) -> `QDPSCOK1`, each span sequence's line-start candidates, gold
 //!   positions or the refusal, as `qd_train.shards._span_token_positions` finds them before it
 //!   decodes.
+//! - `qd-prep synth --config C [--target NAME=FILE ...] --out-dir DIR`: decision rows
+//!   synthesised by rule for the email sorter or Jarvis (see `qd_prep::synth`) ->
+//!   `DIR/{examples.jsonl, manifest.json, containment/}`, the pool shape `decisions` writes.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -80,6 +83,40 @@ enum Command {
     /// Span sequences' line starts and gold projected onto token positions, as
     /// qd_train.shards._span_token_positions does before its decode check.
     Spancheck(Io),
+    /// Decision rows synthesised by rule for callers with no usable real data (the email
+    /// sorter, Jarvis, tool selection), split by template, leak-checked and decontaminated
+    /// (`qd_prep::synth`).
+    Synth(SynthIo),
+}
+
+/// `qd-prep synth`'s inputs.
+#[derive(clap::Args, Debug)]
+struct SynthIo {
+    /// The generator config (`data/synth/*.json`, schema qd-synth-config/v1).
+    #[arg(long)]
+    config: PathBuf,
+    /// A decontamination target set, `NAME=FILE` of `{"id", "text"}` JSONL; repeat per set.
+    #[arg(long = "target", value_parser = parse_target)]
+    targets: Vec<(String, PathBuf)>,
+    /// The directory to create; refused if it, or DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// Worker threads for the containment scan and the leak probe; default every core, at
+    /// most 256.
+    #[arg(long)]
+    threads: Option<usize>,
+}
+
+/// `qd-prep synth`: the config in, the pool directory out.
+fn run_synth(io: &SynthIo) -> Result<String, String> {
+    let threads = match io.threads {
+        Some(0) => return Err("--threads 0 would do nothing".to_string()),
+        Some(n) => n,
+        None => std::thread::available_parallelism().map(usize::from).unwrap_or(1),
+    }
+    .min(MAX_THREADS);
+    let inputs = qd_prep::synth::Inputs { config: io.config.clone(), targets: io.targets.clone() };
+    qd_prep::synth::run(&inputs, &io.out_dir, threads)
 }
 
 /// `qd-prep decision-caps`' inputs.
@@ -306,6 +343,7 @@ fn main() -> ExitCode {
         Command::Decisions(io) => run_decisions(io),
         Command::DecisionCaps(io) => run_decision_caps(io),
         Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),
+        Command::Synth(io) => run_synth(io),
     };
     match result {
         Ok(line) => {

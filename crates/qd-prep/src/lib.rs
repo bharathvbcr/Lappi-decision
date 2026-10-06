@@ -25,6 +25,10 @@
 //!   slot's line starts and gold projected onto token positions, every refusal the reference
 //!   makes before it decodes, and the runs its decode check walks. The per-slot Python of shard
 //!   writing's stage 6 (`AUDIT/perf-pipeline-shards-2026-09-30.md`); decoding stays in Python.
+//! - [`synth`], [`synth_email`], [`synth_jarvis`] and [`synth_tools`]: decision rows synthesised
+//!   by rule for callers with no licensable or shareable data (the human's "Synthetic only"
+//!   ruling of 2026-10-06). Not a port: there is no Python reference, so its tests pin the
+//!   rules directly. [`pool`] is the seam every v6 pool producer writes through.
 
 pub mod blake2b;
 pub mod containment;
@@ -35,10 +39,15 @@ pub mod lsh;
 pub mod minhash;
 pub mod ngram;
 pub mod pairwise;
+pub mod pool;
 pub mod pyunicode;
 #[rustfmt::skip]
 mod pyunicode_tables;
 pub mod sha256;
 pub mod spancheck;
+pub mod synth;
+pub mod synth_email;
+pub mod synth_jarvis;
+pub mod synth_tools;
 pub mod team;
 pub mod wire;

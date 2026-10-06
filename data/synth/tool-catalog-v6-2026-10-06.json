@@ -1,0 +1,4045 @@
+{
+ "schema": "qd-tool-catalog/v1",
+ "generated_by": "~/qd-campaign/v6-data-2026-10-06/extract_tool_catalog.py",
+ "sources": [
+  {
+   "app": "devmap",
+   "path": "devtools/DevCouncil/rust/devmap-serve/src/mcp.rs",
+   "sha256": "13b33d4d95435c81dec3964c8441f26b29fb8b65c701791296d13b259d1fe25e"
+  },
+  {
+   "app": "gitpulse",
+   "path": "devtools/GitPulse/src-tauri/src/mcp/mod.rs",
+   "sha256": "21602894d27d95e5691ff8c52a45ee5f244d3336b20a29135fae77fbcd74ef43"
+  },
+  {
+   "app": "devcouncil",
+   "path": "devtools/DevCouncil/backend/go_orchestrator/devcouncil/registry.go",
+   "sha256": "f62390ae530b1e00e6c003b311de0f23add3a4963d19f03a5f6251a006183c2b"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/tools.go",
+   "sha256": "ffd000e13144f8406f4b7b9bd57db7aeaf2338c1f93ac7f1a5beaae0f1020d51"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/navigate.go",
+   "sha256": "caff56ba8eb14e2450883f7677d85b207cf7af7a76900a7aefc7dc1fafbedc26"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/subagent_tools.go",
+   "sha256": "d54d32eafc267fe13349fb349c76640cc8481a101617f5ab3d832d4b19805de0"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/mcp_tools.go",
+   "sha256": "e440265b2872ec73624a983a74ccd3e091b68fd59dd346a41e2140759f57c0cf"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/artifact_tools.go",
+   "sha256": "f1f562f59c7ad38a273a6c953cb39e37a05dac65410de901cbea5cc6dd970e8c"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/question_tools.go",
+   "sha256": "76e3c68c2da57bf882220efa8cc1d8c8b3becce9e0490221beb1ccc02466fc45"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/git_tools.go",
+   "sha256": "4a6fdc0778dd19243e9cffba9e3d71c77bbce589430359cdd590ee27da6492f2"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/devbridge.go",
+   "sha256": "6bde30cff7c55c2133d130f1f872cdf83bc55ff586dccd9cd529681d5a7ff15e"
+  },
+  {
+   "app": "manvi",
+   "path": "devtools/Manvi/manvi/devcouncil/web_tools.go",
+   "sha256": "4e9293bca762139820183eb08180e6fd8fbd860326499baef5a46c649ff07ce8"
+  },
+  {
+   "app": "scholarlm",
+   "path": "scholarlm/backend/go_orchestrator/internal/wisdev/mcp_tools.go",
+   "sha256": "91ac8a95fddb413edd8187332b6caa7cb92a0322d7509b4ef1e3cda27bb18ab1"
+  },
+  {
+   "app": "scholarlm",
+   "path": "scholarlm/backend/go_orchestrator/internal/wisdev/mcp_wiring.go",
+   "sha256": "781371d46e6db529929f20ac9c4fc5e9d57dca78cf4eca321ac836f7f1a85e0c"
+  },
+  {
+   "app": "scholarlm",
+   "path": "scholarlm/backend/go_orchestrator/internal/wisdev/mcp_server.go",
+   "sha256": "41428d4353b8f122357822ff7167e0b0703bb63b031aa7e2e7e4066cc80278af"
+  },
+  {
+   "app": "scholarlm",
+   "path": "scholarlm/backend/go_orchestrator/internal/wisdev/mcp_paperclip.go",
+   "sha256": "05cab26ad6aec0b7c91b658cb07911990afa7ad6907f3de62d6d04a4427ad827"
+  },
+  {
+   "app": "scholarlm",
+   "path": "scholarlm/backend/go_orchestrator/internal/wisdev/passage_inspection.go",
+   "sha256": "ee8b2ead614089d66ea0d516b196a5f7d09d91758f446214678e2e82a9fa5442"
+  },
+  {
+   "app": "scholarlm-manuscript",
+   "path": "scholarlm/backend/python_sidecar/manuscript_orchestrator/mcp_server.py",
+   "sha256": "b61e9547d114f1ccbe8fb8bc76e6746afd92c17b8447104e1a04d40defaefe0c"
+  },
+  {
+   "app": "devprism",
+   "path": "devtools/DevPrism/apps/desktop/src-tauri/src/mcp/tools_career.rs",
+   "sha256": "1d720dbf9b420b794c85b48bb790492f47f61ab39426072ee476d79210860b9f"
+  },
+  {
+   "app": "devprism",
+   "path": "devtools/DevPrism/apps/desktop/src-tauri/src/mcp/tools_resume.rs",
+   "sha256": "fcaef6a42f85d8a8ba28b984cfc729f9ae0f427d97b64bf6009dd18e3774c4e5"
+  },
+  {
+   "app": "devprism",
+   "path": "devtools/DevPrism/apps/desktop/src-tauri/src/plugins/resume_documents.rs",
+   "sha256": "267a31087ef0f55a76eaeff7438b1e6a68ed8ac35d8296f6703ce72f2701ca6b"
+  },
+  {
+   "app": "liquitask",
+   "path": "devtools/LiquiTask/scripts/liquitask-mcp-bridge.mjs",
+   "sha256": "95f9984b643653c6fe5943119082dc9ca959778d6610cde567d8ceb55cac4006"
+  },
+  {
+   "app": "devtype",
+   "path": "apps/DevType/Sources/ExpanderEngine/AI/PaletteToolRouter.swift",
+   "sha256": "0e15c0445cca0135200df1593d2da49d15fb1c3be20bc93de56575d71fe3fc9e"
+  },
+  {
+   "app": "jarvis",
+   "path": "devtools/Jarvis/examples/balance.json",
+   "sha256": "12396b8c6cd5bc9881fd2dd8720d131bd6948ed2572a86e8848600438d6cdeaa"
+  },
+  {
+   "app": "jarvis",
+   "path": "devtools/Jarvis/examples/create-subaccount.json",
+   "sha256": "1a1ae2205500adbc718d7c3485de18a76dbda2c8ff5b83efd727438a9409ffa6"
+  }
+ ],
+ "catalogs": [
+  {
+   "app": "devmap",
+   "tools": [
+    {
+     "name": "devmap_status",
+     "description": "Index health for this repository: generation id, node and edge counts, how many files are pending, any degraded reason, and the build-time resolution_rate (per-language attribution coverage).",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "devmap_search",
+     "description": "Find symbols by name across the indexed repository. Returns ranked hits with file and line, budgeted to a token cap.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "semantic",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_find",
+     "extracted": true
+    },
+    {
+     "name": "devmap_ask",
+     "description": "Plain-language find over the call graph. Seeds with TF-IDF over symbol names plus docstrings when present, then re-ranks with personalized PageRank over stored call edges.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "min_confidence",
+       "type": "number",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_find",
+     "extracted": true
+    },
+    {
+     "name": "devmap_ask_evidence",
+     "description": "The devmap_ask answer shaped for reading, so the first reads are already done. Three quarters of budget go to the hits, in devmap_ask's order; a hit whose lines an earlier hit already prints costs only its lead, so the pack holds every hit devmap_ask would at that budget and sometimes more.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "min_confidence",
+       "type": "number",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_find",
+     "extracted": true
+    },
+    {
+     "name": "devmap_dependencies",
+     "description": "What the target depends on — its outbound edges. Accepts a file path or a symbol name.",
+     "params": [
+      {
+       "name": "target",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "min_confidence",
+       "type": "number",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_reach",
+     "extracted": true
+    },
+    {
+     "name": "devmap_impact",
+     "description": "Blast radius: what reaches the target, walked in reverse to a depth cap. Use before deleting or changing a symbol.",
+     "params": [
+      {
+       "name": "target",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "layers",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_reach",
+     "extracted": true
+    },
+    {
+     "name": "devmap_trace",
+     "description": "Forward call paths from a symbol, or the paths between two symbols when 'to' is supplied.",
+     "params": [
+      {
+       "name": "from",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "to",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_edges",
+     "extracted": true
+    },
+    {
+     "name": "devmap_neighbors",
+     "description": "Callers and callees for up to 16 targets in one exchange. Prefer this over separate dependencies+impact calls: it is one round trip and it detects when the index moved underneath the answer.",
+     "params": [
+      {
+       "name": "targets",
+       "type": "array",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "min_confidence",
+       "type": "number",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_edges",
+     "extracted": true
+    },
+    {
+     "name": "devmap_dead_symbols",
+     "description": "Dead-symbol candidates with per-row confidence — not one flat delete list. High confidence (above the degraded ceiling) means no inbound evidence after the call walk; only_ambiguous_callers and unresolved-namesake rows sit at 0.4 (unconfirmed).",
+     "params": [
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_cleanup",
+     "extracted": true
+    },
+    {
+     "name": "devmap_skeleton",
+     "description": "Definitions in one file as signature plus span — never the body. When a signature was not extracted the span is still returned and the row says so.",
+     "params": [
+      {
+       "name": "file",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_find",
+     "extracted": true
+    },
+    {
+     "name": "devmap_clones",
+     "description": "Duplicate and structurally similar code groups.",
+     "params": [
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "kind",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "min_nodes",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_cleanup",
+     "extracted": true
+    },
+    {
+     "name": "devmap_preview",
+     "description": "Speculative edit preview: given replacement content for a file, report which callers the edit would break before it is written. Reads the index and the supplied content; writes nothing.",
+     "params": [
+      {
+       "name": "file",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "content",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "min_confidence",
+       "type": "number",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_reach",
+     "extracted": true
+    },
+    {
+     "name": "devmap_explore",
+     "description": "Definitions matching a query, each with its source, its callers, its callees and a layered blast radius — the whole neighbourhood in one call.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "min_confidence",
+       "type": "number",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_find",
+     "extracted": true
+    },
+    {
+     "name": "devmap_affected_tests",
+     "description": "Test files reachable through the inbound blast radius of some symbols — which tests to run for a change. Ranked nearest-first, so a budget-trimmed list keeps the tests closest to the change.",
+     "params": [
+      {
+       "name": "targets",
+       "type": "array",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "min_confidence",
+       "type": "number",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_reach",
+     "extracted": true
+    },
+    {
+     "name": "devmap_suspects",
+     "description": "Which commits since a known-good revision could have caused a symptom.",
+     "params": [
+      {
+       "name": "symptom",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "since",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_reach",
+     "extracted": true
+    },
+    {
+     "name": "devmap_blast",
+     "description": "What a change affects: the symbols, files, modules and test files downstream of the lines it touched. The mirror of devmap_suspects — this walks **inbound** call edges, because a change breaks what calls it, never what it calls.",
+     "params": [
+      {
+       "name": "since",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "at",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "root",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dm_reach",
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "gitpulse",
+   "tools": [
+    {
+     "name": "gitpulse_insights",
+     "description": "One-shot snapshot of worktrees, agent sessions, uncommitted changes, overlapping dirty files, ledger, and code-graph availability. Facets fail independently so a missed scan never looks clean.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "gp_state",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_status",
+     "description": "Inspect repository status, worktrees, ledger, and code graph availability",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "gp_state",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_active_changes",
+     "description": "Working-tree file list for a worktree (path, staged, conflicted, churn), capped. A failed read is reported rather than an empty list.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "worktree_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "gp_state",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_collision_risk",
+     "description": "Files with uncommitted changes in more than one worktree — parallel agent checkouts editing the same path. Unscanned worktrees are counted, never implied clean.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "gp_state",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_change_context",
+     "description": "In-flight context for one worktree: branch, dirty files, parked merge/rebase, bound task, and collisions that involve it.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "worktree_path",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "gp_state",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_ledger_events",
+     "description": "Read durable ledger event history (actor, tool, verdict, changes), oldest first from cursor. Page by passing the last id you saw back as cursor; truncated says whether more follow.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "cursor",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "gp_history",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_task_view",
+     "description": "Read task leases plus evidence, gaps, and verification runs from dc-store. Never acquires a lease.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "gp_task_read",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_add_task",
+     "description": "File a task on the GitPulse task board for this repository — the board a person sees and launches agents from. Prefer fewer, larger tasks: before filing, call gitpulse_list_tasks and fold related work into one task (one coherent concern each) rather than one task per finding.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "title",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "description",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "priority",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "severity",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "kind",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "owner",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "due",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "labels",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "repositories",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "planned_files",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "acceptance_criteria",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "logs",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "overwrite",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "reviewed_related",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "gp_task_file",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_import_tasks",
+     "description": "Put the Markdown task briefs in the repository's tasks folder onto the GitPulse task board. Requires the repository to be trusted.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "tasks_dir",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "replace",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "gp_task_file",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_list_tasks",
+     "description": "List the tasks on the GitPulse task board for this repository, in board order. repository null means no task has ever been filed under it — not that its tasks are done.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "cursor",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "gp_task_read",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_get_task",
+     "description": "Read one task from the GitPulse task board with its canonical agent brief — the same Markdown GitPulse hands an agent it launches. Accepts the task_id it was added with, or an item_id from gitpulse_list_tasks.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "gp_task_read",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_complete_task",
+     "description": "Move your GitPulse board task to done when the work is finished (or to review to hand it to a person, or in_progress when you start). Pass the task id from your brief's 'Task:' line, or the task_id it was filed with.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "summary",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "expected_revision",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "gp_task_close",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_delete_task",
+     "description": "Delete a task card from the GitPulse task board — the same delete as the board's own Delete. Pass the task_id it was filed with or its board item_id, and a reason: the reason is appended to the task's logs first, so it stays in the task's history.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "reason",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "expected_revision",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "even_if_running",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "gp_task_close",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_merge_tasks",
+     "description": "Merge duplicate or overlapping tasks on the GitPulse task board into one that stays.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "into_task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "into_expected_revision",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "sources",
+       "type": "array",
+       "required": true
+      },
+      {
+       "name": "reason",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "even_if_running",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "gp_task_close",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_codeintel_search",
+     "description": "Search symbols across indexed code files via in-process devmap",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_codeintel_impact",
+     "description": "Compute downstream blast radius / affected callers for a symbol or file",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "target",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "gp_graph",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_codeintel_dependencies",
+     "description": "What a file depends on — the mirror of impact. Answers outgoing edges from the devmap code graph",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "file_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "gp_graph",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_codeintel_trace",
+     "description": "Shortest edge path between two symbols in the devmap code graph",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "from",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "to",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "gp_graph",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_codeintel_dead_symbols",
+     "description": "Unreferenced symbols in the indexed code graph. Unavailable is reported, never an empty list that reads as none found.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "budget",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_codeintel_suspects",
+     "description": "Which commits since since could have caused a symptom. Blames only the lines belonging to symbols the symptom depends on, so the answer is the dependency cone rather than the file's recent history.",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "symptom",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "since",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "gp_graph",
+     "extracted": true
+    },
+    {
+     "name": "gitpulse_provenance",
+     "description": "Read Git-native verification notes and confidence decay for a commit",
+     "params": [
+      {
+       "name": "repo_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "commit_sha",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "base_branch",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "gp_history",
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "devcouncil",
+   "tools": [
+    {
+     "name": "devcouncil_get_diff",
+     "description": "Return the working-tree (or staged) git diff, optionally scoped to a task's planned files or explicit paths.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "paths",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "staged",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_checkout_task",
+     "description": "Acquire a lease on a task and return its scope, lease token, and allowed next tools.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "client_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "agent",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "force",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "dc_claim",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_renew_lease",
+     "description": "Extend an active lease before its TTL expires.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "lease_token",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dc_lease",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_release_task",
+     "description": "Release a held lease so another agent can check the task out.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "lease_token",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dc_lease",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_next_task",
+     "description": "Find the next ready, unheld task. Does not acquire a lease.",
+     "params": [
+      {
+       "name": "client_id",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dc_claim",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_verify_task",
+     "description": "Verify a leased task. Requires a valid lease_token.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "lease_token",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dc_verify",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_get_gaps",
+     "description": "Return verification gaps for a task from the latest persisted verification run.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dc_verify",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_policy_check_write",
+     "description": "Ask whether a write to a path would be allowed under the current gate posture and optional task scope.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "operation",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "manvi",
+   "tools": [
+    {
+     "name": "devcouncil_next_task",
+     "description": "Find the next task that is ready to work and not already held by another agent. Call this first when you have no task; it does not claim anything.",
+     "params": [],
+     "group": "mv_claim",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_get_task",
+     "description": "Read a task's scope: planned files, allowed commands, expected tests, and prohibitions. Call this before writing anything, so you know what the task authorises.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_scope",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_checkout_task",
+     "description": "Claim a task by taking its lease. One agent holds a task at a time.",
+     "params": [
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "owner",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "mv_claim",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_renew_lease",
+     "description": "Extend the current lease before it expires. Renewal only works before expiry; after that, check the task out again.",
+     "params": [],
+     "group": "mv_lease",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_release_task",
+     "description": "Release the current lease so another agent can take the task. Call this when you finish, or when you are abandoning the work.",
+     "params": [],
+     "group": "mv_lease",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_policy_check_write",
+     "description": "Ask whether a write would be allowed, without performing it. Call this when you are unsure whether a path is in scope — it is cheaper than a refused write.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_scope",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_read_file",
+     "description": "Read a file from the repository.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_write_file",
+     "description": "Write a file. The write passes the policy gate and requires a valid lease.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "content",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_write",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_patch_file",
+     "description": "Replace an exact target text substring with replacement text in a file. Avoids rewriting entire large files.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "target_content",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "replacement_content",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "start_line",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "end_line",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "allow_multiple",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "mv_write",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_delete_file",
+     "description": "Delete a file from the repository. Passes the write policy gate (dc.OpDelete) and requires a valid task lease.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_write",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_exec_command",
+     "description": "Execute a shell command inside the repository. Requires an active task lease.",
+     "params": [
+      {
+       "name": "command",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_list_dir",
+     "description": "List contents of a directory in the repository. Without recursive, reports the literal directory as it is on disk.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "recursive",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "include_ignored",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "mv_find",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_find_files",
+     "description": "Find files in the repository matching a glob pattern (e.g. *.go, src/**/*.rs, *test*). Lists exactly the files devcouncil_grep would search: ignore rules apply by default, so .gitignore'd and hidden files are excluded unless include_ignored is set.",
+     "params": [
+      {
+       "name": "pattern",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "include_ignored",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "mv_find",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_grep",
+     "description": "Search for regular-expression matches across files in the repository. Ignore rules apply by default: .gitignore, .ignore, .git/info/exclude and hidden files are skipped, as are binary files.",
+     "params": [
+      {
+       "name": "pattern",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "include_ignored",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "case_insensitive",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "mv_find",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_search_tools",
+     "description": "Search registered tools by capability or keyword without loading full schemas into context. Returns names, groups, descriptions, and active state.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "mv_toolbox",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_activate_tools",
+     "description": "Dynamically activate tools or entire tool groups into the model's active context. Prerequisites declared in requires are resolved and activated automatically.",
+     "params": [
+      {
+       "name": "tools",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": "mv_toolbox",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_spawn_subagents",
+     "description": "Concurrently dispatch sub-agent tasks in bounded worker pool with lease tracking and cancellation cleanup. Give a task a type to run it as a defined role, on that role's model.",
+     "params": [
+      {
+       "name": "tasks",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": "mv_sub",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_request_override",
+     "description": "Ask for an exception to a soft policy block you just hit — for example a helper file the plan did not enumerate. Copy rule from the block's payload, put its target in path for a file block or in command for a command block, and state why in reason; it is recorded and reviewed.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "command",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "rule",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "reason",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_scope",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_get_diff",
+     "description": "Show the working-tree changes for the current task, with the files each touches.",
+     "params": [],
+     "group": "mv_git_state",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_verify_task",
+     "description": "Run the deterministic verifier over the working tree: are the changed files inside the task's declared scope? Returns passed, blocking gaps, and typed next actions.",
+     "params": [],
+     "group": "mv_verify",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_get_gaps",
+     "description": "List the verification gaps blocking the current task.",
+     "params": [],
+     "group": "mv_verify",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_get_next_actions",
+     "description": "Get the typed, machine-routable repair steps for the current task's gaps. Each carries a category you can branch on rather than prose to parse.",
+     "params": [],
+     "group": "mv_verify",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_graph_query",
+     "description": "Find symbols by name or path in the code graph, with the file and the source span of each hit.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_graph",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_code_dead",
+     "description": "List symbols with no discovered callers. Each carries a confidence and, where one applies, the reason it is exempt — a symbol reached only through a build tag, a registry, or reflection looks callerless to any static analyser.",
+     "params": [
+      {
+       "name": "include_exempt",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_graph_context",
+     "description": "For a set of files, what they depend on and what depends on them. Use before editing to see the blast radius.",
+     "params": [
+      {
+       "name": "files",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": "mv_graph",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_define_subagent",
+     "description": "Dynamically define or update a specialized subagent type with a custom role, system prompt, and tool configuration.",
+     "params": [
+      {
+       "name": "name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "description",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "system_prompt",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "model",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "enable_mcp_tools",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "enable_write_tools",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "allowed_tools",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "mv_sub",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_invoke_subagent",
+     "description": "Invoke one or more subagents concurrently by name with custom task prompts, returning their unique conversation IDs and execution outcomes.",
+     "params": [
+      {
+       "name": "subagents",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": "mv_sub",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_send_message",
+     "description": "Send a message or instruction to an active subagent by its conversation ID.",
+     "params": [
+      {
+       "name": "recipient",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "message",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_sub_ctl",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_manage_subagents",
+     "description": "Manage subagents: list active direct subagents with live state, or terminate specific/all subagents.",
+     "params": [
+      {
+       "name": "action",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "conversation_ids",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "mv_sub_ctl",
+     "extracted": true
+    },
+    {
+     "name": "mcp_list_tools",
+     "description": "List available tools from configured Model Context Protocol (MCP 2.0) servers and Open Plugins.",
+     "params": [
+      {
+       "name": "server_name",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "mv_mcp",
+     "extracted": true
+    },
+    {
+     "name": "mcp_call_tool",
+     "description": "Call a tool on an external MCP 2.0 server or Open Plugin over stateless JSON-RPC.",
+     "params": [
+      {
+       "name": "server_name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "tool_name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "arguments",
+       "type": "object",
+       "required": true
+      }
+     ],
+     "group": "mv_mcp",
+     "extracted": true
+    },
+    {
+     "name": "mcp_list_resources",
+     "description": "List resources exposed by a target MCP server.",
+     "params": [
+      {
+       "name": "server_name",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_mcp",
+     "extracted": true
+    },
+    {
+     "name": "mcp_read_resource",
+     "description": "Read the contents of a resource from a target MCP server by URI.",
+     "params": [
+      {
+       "name": "server_name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "uri",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "mv_mcp",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_create_artifact",
+     "description": "Create a persistent structured artifact (e.g. implementation plan, walkthrough, research notes, architecture design document) under .devcouncil/artifacts/.",
+     "params": [
+      {
+       "name": "name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "content",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "metadata",
+       "type": "object",
+       "required": true
+      }
+     ],
+     "group": "mv_artifact",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_update_artifact",
+     "description": "Update an existing structured artifact's content and metadata, incrementing its revision.",
+     "params": [
+      {
+       "name": "name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "content",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "metadata",
+       "type": "object",
+       "required": false
+      }
+     ],
+     "group": "mv_artifact",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_list_artifacts",
+     "description": "List all persistent artifacts currently recorded in .devcouncil/artifacts/.",
+     "params": [],
+     "group": "mv_artifact",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_ask_question",
+     "description": "Ask the user one or more interactive questions to clarify underspecified requirements, solicit design feedback, or pick a solution from options. Prioritize inquiry and clarify the impact of decisions before undertaking complex tasks or designing the UI for collaborative workflows.",
+     "params": [
+      {
+       "name": "questions",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_git_status",
+     "description": "Report the working tree's version-control state: current branch, HEAD commit, and which files are staged, modified, or untracked. Read-only; needs no lease.",
+     "params": [],
+     "group": "mv_git_state",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_git_log",
+     "description": "List recent commits: hash, author, date, subject. Use this to orient before changing anything, not to reconstruct history.",
+     "params": [
+      {
+       "name": "max",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "mv_git_hist",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_git_branches",
+     "description": "List local branches with the current one marked.",
+     "params": [],
+     "group": "mv_git_state",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_git_show",
+     "description": "Show one commit's metadata and patch. Defaults to HEAD.",
+     "params": [
+      {
+       "name": "object",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "mv_git_hist",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_git_stage",
+     "description": "Stage named paths for the next commit. Passes the command policy gate — the same ladder as devcouncil_exec_command — and refuses outright to stage credential and secret paths under any posture.",
+     "params": [
+      {
+       "name": "paths",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": "mv_git_write",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_git_commit",
+     "description": "Commit everything currently staged with the given message. Passes the command policy gate and refuses if the staged set contains a secret path, whatever staged it.",
+     "params": [
+      {
+       "name": "message",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "allow_empty",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "mv_git_write",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_dev_inspect",
+     "description": "Query a pinned DevCouncil inspect binary for project-level status/gaps/check JSON. The Python dev CLI is deleted; Go devcouncil does not implement those sections.",
+     "params": [
+      {
+       "name": "section",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "task_id",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "mv_verify",
+     "extracted": true
+    },
+    {
+     "name": "devcouncil_fetch_url",
+     "description": "Fetch a documentation page over https and return its text. Only hosts the operator allowlisted are reachable.",
+     "params": [
+      {
+       "name": "url",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "scholarlm",
+   "tools": [
+    {
+     "name": "wisdevSearchPapers",
+     "description": "Search academic papers across 15+ providers (OpenAlex, arXiv, Semantic Scholar, PubMed, Europe PMC, Crossref, DBLP, etc.). Returns ranked papers with titles, abstracts, authors, years, DOIs, and citation counts.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "sources",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "domain",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "yearFrom",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "yearTo",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "minCitations",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "qualitySort",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "expandQuery",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "dynamicProviders",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "researchMode",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "hyde",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "multiQuery",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "screen",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "snowball",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "gapBackfill",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "qualityMode",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "sl_find",
+     "extracted": true
+    },
+    {
+     "name": "wisdevPaperLookup",
+     "description": "Fetch full metadata for a single paper by its provider-specific ID (e.g. arXiv ID like '2310.07862', DOI, or Semantic Scholar corpusId). Returns title, abstract, authors, year, venue, citation count, and open-access PDF URL.",
+     "params": [
+      {
+       "name": "paperId",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "sl_by_id",
+     "extracted": true
+    },
+    {
+     "name": "wisdevEvidenceSearch",
+     "description": "Retrieve candidate sources for a claim: searches for papers on the claim text and returns each candidate's most claim-relevant abstract sentence, ranked by lexical overlap with the claim.",
+     "params": [
+      {
+       "name": "claim",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "domain",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "sl_find",
+     "extracted": true
+    },
+    {
+     "name": "wisdevAuthorSearch",
+     "description": "Retrieve papers by a specific author using their provider-specific author ID. Returns a list of that author's papers with metadata.",
+     "params": [
+      {
+       "name": "authorId",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "sl_by_id",
+     "extracted": true
+    },
+    {
+     "name": "wisdevInspectPassages",
+     "description": "Inspect preserved citation passages owned by the authenticated user. Supply paperId and optionally chunkId for the exact cited window; dossierId/projectId narrow ownership.",
+     "params": [
+      {
+       "name": "paperId",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "chunkId",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "projectId",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "dossierId",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "sourceText",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "sourceBasis",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "offset",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "sl_by_id",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmPaperclipSearch",
+     "description": "Search the Paperclip biomedical corpus by FULL TEXT, not just titles and abstracts: PubMed Central, bioRxiv, medRxiv, arXiv, FDA regulatory documents, and ClinicalTrials.gov.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "source",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "since",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "sort",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "author",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "all",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "sl_find",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmPaperclipGrep",
+     "description": "Regex search across Paperclip full text. Scope to the whole corpus or to one paper.",
+     "params": [
+      {
+       "name": "pattern",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "ignoreCase",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "sl_find",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmPaperclipRead",
+     "description": "Read a paper's full text, or one named section of it, from the Paperclip paper filesystem. Text is already segmented — no PDF download, no front matter.",
+     "params": [
+      {
+       "name": "documentId",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "section",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "sl_by_id",
+     "extracted": true
+    },
+    {
+     "name": "wisdevGenerateManuscript",
+     "description": "Start an async ScholarDoc manuscript job (literature-review style by default). Returns {jobId, status, pollHint} immediately — manuscripts are async; poll via scholarlmRunScript paper.status/watch.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "maxPapers",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "resumeJobId",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "idempotencyKey",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "words",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "minCitations",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "reviewRounds",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "genre",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "instructions",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "citationStyle",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "flow",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "sources",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "domain",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "format",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "wait",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "sync",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "qualityMode",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "selfHealAttempts",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "sl_docjob",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmSynthesizePaper",
+     "description": "Start an async ScholarDoc literature-synthesis job (same Full Paper pipeline as wisdevGenerateManuscript). Returns jobId; poll paper.status.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "maxPapers",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "resumeJobId",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "idempotencyKey",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "words",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "minCitations",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "reviewRounds",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "genre",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "instructions",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "citationStyle",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "flow",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "sources",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "domain",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "format",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "wait",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "sync",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "qualityMode",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "selfHealAttempts",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "papers",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "sl_docjob",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmExportPaper",
+     "description": "Export a persisted ScholarDoc job (requires jobId) to markdown/html/latex via job-scoped export. Client content wraps are rejected.",
+     "params": [
+      {
+       "name": "jobId",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "format",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "citationStyle",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "scholarlmExecuteWorkflow",
+     "description": "Start an async ScholarDoc job from a JSON flow (paper.run). Auto-approve defaults to false on SaaS.",
+     "params": [
+      {
+       "name": "flow",
+       "type": "object",
+       "required": true
+      },
+      {
+       "name": "out",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "sl_docjob",
+     "extracted": true
+    },
+    {
+     "name": "wisdevGetConfig",
+     "description": "Inspect the WisDev runtime's tunable configuration. Returns every tunable knob with its type, allowed range/enum, default, current value, and a description of what it controls.",
+     "params": [
+      {
+       "name": "keys",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "sl_config",
+     "extracted": true
+    },
+    {
+     "name": "wisdevTuneConfig",
+     "description": "Tune the WisDev runtime. Pass a 'settings' object of knob-key → value to change runtime defaults that subsequent search/evidence/author/manuscript calls inherit.",
+     "params": [
+      {
+       "name": "settings",
+       "type": "object",
+       "required": true
+      }
+     ],
+     "group": "sl_config",
+     "extracted": true
+    },
+    {
+     "name": "wisdevResetConfig",
+     "description": "Reset WisDev runtime knobs back to their built-in defaults. Pass 'keys' to reset a subset, or omit to reset everything.",
+     "params": [
+      {
+       "name": "keys",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "sl_config",
+     "extracted": true
+    },
+    {
+     "name": "wisdevListProviders",
+     "description": "List the academic search providers registered in this runtime, with their canonical name, specialised domains, and current health. Use this to discover valid values for the 'sources' argument and the 'search.defaultSources' knob.",
+     "params": [],
+     "group": "sl_about",
+     "extracted": true
+    },
+    {
+     "name": "wisdevCapabilities",
+     "description": "Describe everything this WisDev MCP runtime can do: the callable tools, the tunable configuration groups, and the introspectable resources. Use this for a one-shot overview of the full control surface.",
+     "params": [],
+     "group": "sl_about",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmSignIn",
+     "description": "Explain ScholarLM MCP authentication. Authenticate with an Authorization bearer token at the deployed MCP endpoint; do not pass credentials in a tool argument.",
+     "params": [],
+     "group": "sl_auth",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmGetAuthStatus",
+     "description": "Inspect MCP auth status: userID, subscription tier, VIP, admin, and whether ScholarDoc generate is allowed. Entitlements come from gateway-injected headers on HTTP MCP (Firebase Bearer).",
+     "params": [],
+     "group": "sl_auth",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmListScripts",
+     "description": "List allowlisted ScholarLM script capabilities with execution_target (remote|local_only). Remote ops never use os/exec.",
+     "params": [],
+     "group": "sl_scripts",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmRunScript",
+     "description": "Execute allowlisted remote capabilities (search, paper.*). Local-only ops (stack.*, agent) rejected with guidance.",
+     "params": [
+      {
+       "name": "script",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "object",
+       "required": false
+      },
+      {
+       "name": "argv",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "jobId",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "sl_scripts",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmListSkills",
+     "description": "List the available ScholarLM MCP workflow and repository engineering skills. Returns names accepted by scholarlmGetSkillInstructions.",
+     "params": [],
+     "group": "sl_skills",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmGetSkillInstructions",
+     "description": "Read full instruction markdown (SKILL.md) for a skill returned by scholarlmListSkills: ScholarLM MCP workflows or repository engineering guidance.",
+     "params": [
+      {
+       "name": "skillName",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "sl_skills",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmGetAppDocs",
+     "description": "Retrieve an embedded developer reference excerpt. docName is one of workflows, agents, architecture, mcp_guide, or dev_reference (MCP-facing excerpt — not a raw repo filename).",
+     "params": [
+      {
+       "name": "docName",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "sl_skills",
+     "extracted": true
+    },
+    {
+     "name": "scholarlmGetSystemStatus",
+     "description": "Report MCP server identity, supported protocol versions, registered search provider count, and whether ScholarDoc lifecycle is wired. Does not probe ports, ADK, or LLM health.",
+     "params": [],
+     "group": "sl_about",
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "scholarlm-manuscript",
+   "tools": [
+    {
+     "name": "engine_status",
+     "description": "Health, current iteration, and per-section scores/word-counts.",
+     "params": [],
+     "group": "ms_status",
+     "extracted": true
+    },
+    {
+     "name": "list_sections",
+     "description": "List the review sections with their evidence-packet keys.",
+     "params": [],
+     "group": "ms_sections",
+     "extracted": true
+    },
+    {
+     "name": "get_section",
+     "description": "Read one section's current draft and open findings.",
+     "params": [
+      {
+       "name": "id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "ms_sections",
+     "extracted": true
+    },
+    {
+     "name": "set_section_goal",
+     "description": "Reshape a section's writing goal/intent before (re)generating it.",
+     "params": [
+      {
+       "name": "id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "goal",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "ms_steer",
+     "extracted": true
+    },
+    {
+     "name": "set_genre",
+     "description": "Set the manuscript genre (drives the aligned critic's referee rubric and review voice).",
+     "params": [
+      {
+       "name": "genre",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "load_spec",
+     "description": "Retarget the engine at a DIFFERENT manuscript by loading another JSON spec/config file.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "ms_spec",
+     "extracted": true
+    },
+    {
+     "name": "spec_template",
+     "description": "Get the spec schema + example so an LLM can convert a free-form user brief into a runnable spec.",
+     "params": [],
+     "group": "ms_spec",
+     "extracted": true
+    },
+    {
+     "name": "set_spec",
+     "description": "Drive the engine from a spec synthesized inline (e.g. an LLM turning a user's brief/flow into a manuscript), no file needed.",
+     "params": [
+      {
+       "name": "spec",
+       "type": "object",
+       "required": true
+      }
+     ],
+     "group": "ms_spec",
+     "extracted": true
+    },
+    {
+     "name": "reset_state",
+     "description": "Clear persisted engine state and rebuild from the current spec for a clean run.",
+     "params": [],
+     "group": "ms_persist",
+     "extracted": true
+    },
+    {
+     "name": "generate_all",
+     "description": "Have ScholarLM draft every section from its evidence packets.",
+     "params": [],
+     "group": "ms_draft",
+     "extracted": true
+    },
+    {
+     "name": "generate_section",
+     "description": "Have ScholarLM (re)draft a single section.",
+     "params": [
+      {
+       "name": "id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "ms_draft",
+     "extracted": true
+    },
+    {
+     "name": "review_manuscript",
+     "description": "Run ScholarLM review + the engine's fused critics; returns score and per-section findings.",
+     "params": [],
+     "group": "ms_review",
+     "extracted": true
+    },
+    {
+     "name": "fact_check_section",
+     "description": "Run the server's prose-vs-source entailment fact-check on a section; returns flagged unsupported sentences as findings.",
+     "params": [
+      {
+       "name": "id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "ms_review",
+     "extracted": true
+    },
+    {
+     "name": "coordinate_dedupe",
+     "description": "Run the whole-manuscript redundancy-resolution pass (keeps each repeated point in one owning section).",
+     "params": [],
+     "group": "ms_review",
+     "extracted": true
+    },
+    {
+     "name": "inject_guidance",
+     "description": "STEER: push targeted findings for a section to apply on its next revision.",
+     "params": [
+      {
+       "name": "section_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "findings",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": "ms_steer",
+     "extracted": true
+    },
+    {
+     "name": "revise_section",
+     "description": "Revise a section using injected guidance + heuristic findings (or explicit findings).",
+     "params": [
+      {
+       "name": "id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "findings",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "ms_draft",
+     "extracted": true
+    },
+    {
+     "name": "run_iteration",
+     "description": "Run one or more full generate-review-revise improvement cycles.",
+     "params": [
+      {
+       "name": "max_iters",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "score_target",
+       "type": "number",
+       "required": false
+      }
+     ],
+     "group": "ms_draft",
+     "extracted": true
+    },
+    {
+     "name": "generate_abstract",
+     "description": "Write the abstract from a set of citation keys.",
+     "params": [
+      {
+       "name": "keys",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "goal",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "metrics",
+     "description": "Convergence diagnostics: scores, calls, per-section revisions.",
+     "params": [],
+     "group": "ms_status",
+     "extracted": true
+    },
+    {
+     "name": "export_draft",
+     "description": "Export the assembly-ready sections JSON for the LaTeX builder.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "ms_persist",
+     "extracted": true
+    },
+    {
+     "name": "save_state",
+     "description": "Persist engine state for a later resume.",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "ms_persist",
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "devprism",
+   "tools": [
+    {
+     "name": "career_search_kb",
+     "description": "Search the career knowledgebase across blocks, bullets, facts and KB chunks. Runs semantic vector search when an embedding provider is reachable and always runs a word-boundary lexical pass, merging both.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "owner_kinds",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "persona_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "domain",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_kb",
+     "extracted": true
+    },
+    {
+     "name": "career_get_profile",
+     "description": "Retrieve the candidate's complete master career profile including all experience blocks (work, education, projects, skills), distilled facts, and personas.",
+     "params": [
+      {
+       "name": "persona_id",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_kb",
+     "extracted": true
+    },
+    {
+     "name": "career_upsert_block",
+     "description": "Create or update an experience block (work, project, education, skill_group, leadership) in the candidate's career database. This is a whole-document replace: any bullet or fact absent from the payload is discarded.",
+     "params": [
+      {
+       "name": "block",
+       "type": "object",
+       "required": true
+      },
+      {
+       "name": "input_responses",
+       "type": "object",
+       "required": false
+      },
+      {
+       "name": "request_state",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_block",
+     "extracted": true
+    },
+    {
+     "name": "career_delete_block",
+     "description": "Delete an experience block and its associated embeddings. Requires MRTR confirmation when the block has bullets or facts; the returned request_state binds the confirmation to that specific block, and a follow-up naming a different block_id is rejected.",
+     "params": [
+      {
+       "name": "block_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "input_responses",
+       "type": "object",
+       "required": false
+      },
+      {
+       "name": "request_state",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_block",
+     "extracted": true
+    },
+    {
+     "name": "career_distill_facts",
+     "description": "Distill unstructured notes, project summaries, or accomplishment write-ups into structured atomic facts with extracted skills and metrics.",
+     "params": [
+      {
+       "name": "text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "source",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_ingest",
+     "extracted": true
+    },
+    {
+     "name": "career_add_facts",
+     "description": "Append verified atomic facts to an existing experience block in the career database.",
+     "params": [
+      {
+       "name": "block_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "facts",
+       "type": "array",
+       "required": true
+      }
+     ],
+     "group": "dp_block",
+     "extracted": true
+    },
+    {
+     "name": "career_list_personas",
+     "description": "List all career personas (AI/ML, Life Sciences, Management, Custom) with their default templates, skill weights, and tone directives.",
+     "params": [],
+     "group": "dp_persona",
+     "extracted": true
+    },
+    {
+     "name": "career_upsert_persona",
+     "description": "Create or update a career persona with tailored section orders and tone directives.",
+     "params": [
+      {
+       "name": "persona",
+       "type": "object",
+       "required": true
+      }
+     ],
+     "group": "dp_persona",
+     "extracted": true
+    },
+    {
+     "name": "career_ingest_knowledge",
+     "description": "Ingest a document, text notes, or resume into the career knowledgebase chunk store for semantic retrieval.",
+     "params": [
+      {
+       "name": "title",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "source_type",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "uri",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_ingest",
+     "extracted": true
+    },
+    {
+     "name": "resume_analyze_jd",
+     "description": "Extract a canonical JDProfile from a job description: roleTitle, seniority, mustHaveSkills, niceToHaveSkills, domains, atsKeywords, toneSignals, and the responsibilities/qualifications section text.",
+     "params": [
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dp_fit",
+     "extracted": true
+    },
+    {
+     "name": "resume_gap_analysis",
+     "description": "Classify every JD must-have as covered / weak / missing by searching block skill tags, domains, bullet text AND the fact pool with word-boundary matching. Returns per-skill evidence hits, counts, and a coverage percentage computed over the blocks that would actually be printed.",
+     "params": [
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "persona_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "page_budget",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "dp_fit",
+     "extracted": true
+    },
+    {
+     "name": "resume_score_and_select",
+     "description": "Score every experience block (skills / persona / recency / seniority, renormalised because no embedding provider is bound) and pack them into a page budget with a wrap-aware greedy knapsack: per-section caps, per-org de-duplication, and a must-have coverage repair pass.",
+     "params": [
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "persona_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "page_budget",
+       "type": "integer",
+       "required": false
+      }
+     ],
+     "group": "dp_fit",
+     "extracted": true
+    },
+    {
+     "name": "resume_rewrite_bullets",
+     "description": "Verify bullet drafts against canonical provenance. This server does NOT generate rewrites: supply your own drafts in drafts and every canonical metric on the source bullet is checked against your text, with drops reported and the canonical text substituted on failure.",
+     "params": [
+      {
+       "name": "block_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "bullet_ids",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "drafts",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "dp_bullet",
+     "extracted": true
+    },
+    {
+     "name": "resume_synthesize",
+     "description": "Run the deterministic synthesis stages: JD scan, block scoring, knapsack selection, must-have gap analysis, real ATS keyword coverage, and (unless render=false) materialization through an injection-safe plain Typst layout.",
+     "params": [
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "persona_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "template_id",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "page_budget",
+       "type": "integer",
+       "required": false
+      },
+      {
+       "name": "render",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "header_name",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "contact_lines",
+       "type": "array",
+       "required": false
+      },
+      {
+       "name": "async",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "dp_build",
+     "extracted": true
+    },
+    {
+     "name": "resume_compile",
+     "description": "Compile Typst resume source to PDF with the in-process, filesystem-denied Typst engine, returning diagnostics; pdfBase64 only when include_pdf=true (default false — PDF bytes flood agent context; pdfOmitted reports a suppressed PDF honestly).",
+     "params": [
+      {
+       "name": "typst_source",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "include_pdf",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "latex_source",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_compile",
+     "extracted": true
+    },
+    {
+     "name": "resume_finetune_bullet",
+     "description": "Analyse a bullet against a JD and report findings: weak opening verb, presence of a quantity, which supplied verified metrics are actually expressed in the text, JD keywords present/absent, and estimated rendered lines.",
+     "params": [
+      {
+       "name": "bullet_text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "context",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "verified_metrics",
+       "type": "array",
+       "required": false
+      }
+     ],
+     "group": "dp_bullet",
+     "extracted": true
+    },
+    {
+     "name": "resume_ats_check",
+     "description": "Simulate how an applicant tracking system parses resume text: which sections it detects (summary/experience/education/skills/projects/publications/leadership/certifications/awards/languages/volunteer/links/contact), whether the system's required sections are present.",
+     "params": [
+      {
+       "name": "text",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "ats_system",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_fit",
+     "extracted": true
+    },
+    {
+     "name": "resume_doc_list_projects",
+     "description": "List workspace projects registered with DevPrism — the only roots these document tools may touch. Read-only.",
+     "params": [],
+     "group": "dp_listing",
+     "extracted": true
+    },
+    {
+     "name": "resume_doc_list_files",
+     "description": "List source files of a registered project (relative paths + sizes). Dot-directories like .prism/.git are excluded; use resume_variant_list for tailored versions.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dp_listing",
+     "extracted": true
+    },
+    {
+     "name": "resume_doc_read",
+     "description": "Read a UTF-8 text file from a registered project. Returns content plus its sha1 — pass that sha1 as expected_sha1 to later writes/edits so concurrent changes cannot be clobbered.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "file_path",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dp_doc",
+     "extracted": true
+    },
+    {
+     "name": "resume_doc_write",
+     "description": "Create or overwrite a text file (.typ .tex .md .txt .json .yaml .yml .bib .cls .sty .csv) in a registered project.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "file_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "content",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "expected_sha1",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "allow_major_reduction",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "dp_doc",
+     "extracted": true
+    },
+    {
+     "name": "resume_doc_edit",
+     "description": "Apply several exact-string edits to ONE file atomically (all-or-nothing: every edit must match or nothing is written). Requires expected_sha1 from a prior read; backs up the original.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "file_path",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "edits",
+       "type": "array",
+       "required": true
+      },
+      {
+       "name": "expected_sha1",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "allow_major_reduction",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "dp_doc",
+     "extracted": true
+    },
+    {
+     "name": "resume_variant_list",
+     "description": "List tailored versions (variants) of a registered master project. Accepts a master or variant path.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dp_listing",
+     "extracted": true
+    },
+    {
+     "name": "resume_variant_create",
+     "description": "Snapshot the master's sources into <project>/.prism/variants/<slug>/ as a new tailored version. Additive; never touches the master.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_variant",
+     "extracted": true
+    },
+    {
+     "name": "resume_variant_update",
+     "description": "Update a variant's display name, pipeline status, or job description. Does not touch document sources.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "variant_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_variant",
+     "extracted": true
+    },
+    {
+     "name": "resume_variant_delete",
+     "description": "Delete a tailored version folder permanently. Requires human confirmation via MRTR: call without request_state to receive an inputRequired confirmation, have the user approve, then re-call passing request_state and input_responses.confirm=true.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "variant_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "request_state",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "input_responses",
+       "type": "object",
+       "required": false
+      }
+     ],
+     "group": "dp_variant",
+     "extracted": true
+    },
+    {
+     "name": "resume_variant_diff",
+     "description": "Diff a variant against its master file by file (added/modified/deleted, with contents). Read-only.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "variant_id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "dp_variant",
+     "extracted": true
+    },
+    {
+     "name": "resume_compile_file",
+     "description": "Compile a Typst resume from a registered project with the in-process engine. Defaults to the detected main .typ source.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "file_path",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "include_pdf",
+       "type": "boolean",
+       "required": false
+      },
+      {
+       "name": "persist_pdf",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "dp_compile",
+     "extracted": true
+    },
+    {
+     "name": "resume_save_synthesis",
+     "description": "Persist generated Typst resume source as a NEW tailored version of a registered master: creates the variant snapshot, replaces the variant's main Typst file with the given source, compiles a verification PDF into the variant's .prism/build/, and records the JD text.",
+     "params": [
+      {
+       "name": "project_root",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "version_name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "typst_source",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "jd_text",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "dp_build",
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "liquitask",
+   "tools": [
+    {
+     "name": "get_task",
+     "description": "Fetch the agent's task card (title, description, subtasks, current status) and the board's column layout. Call this first to orient yourself.",
+     "params": [],
+     "group": "lt_view",
+     "extracted": true
+    },
+    {
+     "name": "update_status",
+     "description": "Move the agent's task card to a board column by id or title. Board lifecycle: Task → In Progress → Completed → Commit.",
+     "params": [
+      {
+       "name": "status",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "lt_status",
+     "extracted": true
+    },
+    {
+     "name": "complete_task",
+     "description": "Signal that your work on this task is DONE. Verified before acceptance: your card must be In Progress, and if you work in an isolated worktree it must contain actual changes (dirty files or commits) unless you pass no_changes: true.",
+     "params": [
+      {
+       "name": "summary",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "no_changes",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "lt_status",
+     "extracted": true
+    },
+    {
+     "name": "get_worktree_state",
+     "description": "Inspect your isolated git worktree: branch name, count of uncommitted (dirty) files, commits ahead of the main checkout, and last commit. Call before complete_task to confirm your work is actually captured.",
+     "params": [],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "post_comment",
+     "description": "Add a progress note to the task's activity trail. Post one when you start a major step, hit something surprising, or finish a milestone — this is how the user follows your progress on the board.",
+     "params": [
+      {
+       "name": "comment",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "create_subtask",
+     "description": "Create an open subtask under the agent's current task.",
+     "params": [
+      {
+       "name": "title",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "lt_subtask",
+     "extracted": true
+    },
+    {
+     "name": "toggle_subtask",
+     "description": "Check off (or reopen) a subtask on the current task by title or id.",
+     "params": [
+      {
+       "name": "subtask",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "completed",
+       "type": "boolean",
+       "required": false
+      }
+     ],
+     "group": "lt_subtask",
+     "extracted": true
+    },
+    {
+     "name": "report_blocker",
+     "description": "File a blocker as a new task linked to the current work.",
+     "params": [
+      {
+       "name": "title",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "description",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "lt_new",
+     "extracted": true
+    },
+    {
+     "name": "get_user_guidance",
+     "description": "Fetch pending user guidance injected mid-run from the LiquiTask board. Call at the start of each major step and before large refactors.",
+     "params": [],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "board_list",
+     "description": "List board task cards, optionally filtered by column id or title.",
+     "params": [
+      {
+       "name": "column",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "lt_view",
+     "extracted": true
+    },
+    {
+     "name": "board_show",
+     "description": "Show one task card by id, job id, or title prefix.",
+     "params": [
+      {
+       "name": "task",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "lt_view",
+     "extracted": true
+    },
+    {
+     "name": "board_create",
+     "description": "Create a new board task (meta-agent orchestration).",
+     "params": [
+      {
+       "name": "title",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "projectId",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "assignee",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "summary",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "lt_new",
+     "extracted": true
+    },
+    {
+     "name": "board_assign",
+     "description": "Assign a task to an agent by name.",
+     "params": [
+      {
+       "name": "task",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "assignee",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "lt_assign",
+     "extracted": true
+    },
+    {
+     "name": "board_dispatch",
+     "description": "Start an agent run for a task (respects scope reservations).",
+     "params": [
+      {
+       "name": "task",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "agent",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": "lt_assign",
+     "extracted": true
+    },
+    {
+     "name": "board_reservations",
+     "description": "Read active file-scope reservations from the agentd daemon.",
+     "params": [],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "permission_prompt",
+     "description": "Handle permission requests from Claude Code (--permission-prompt-tool). Returns allow/deny JSON.",
+     "params": [
+      {
+       "name": "tool_use_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "tool_name",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "input",
+       "type": "object",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "devtype",
+   "tools": [
+    {
+     "name": "resolveDate",
+     "description": "Resolve a relative or named date phrase into a formatted date string.",
+     "params": [
+      {
+       "name": "phrase",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "format",
+       "type": "string",
+       "required": false
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "runMacro",
+     "description": "Run a built-in palette text operation on the supplied text.",
+     "params": [
+      {
+       "name": "operation",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "text",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    },
+    {
+     "name": "findSnippet",
+     "description": "Find the best matching snippet trigger for a search phrase.",
+     "params": [
+      {
+       "name": "query",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": null,
+     "extracted": true
+    }
+   ]
+  },
+  {
+   "app": "jarvis",
+   "tools": [
+    {
+     "name": "bank.balance",
+     "description": "Look up a member and return an independently verified USD balance.",
+     "params": [
+      {
+       "name": "member_id",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "jv_bank",
+     "extracted": true
+    },
+    {
+     "name": "bank.create-subaccount",
+     "description": "Create a simulated subaccount after a human approves the exact reviewed form.",
+     "params": [
+      {
+       "name": "member_id",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "subaccount_name",
+       "type": "string",
+       "required": true
+      }
+     ],
+     "group": "jv_bank",
+     "extracted": true
+    }
+   ]
+  }
+ ]
+}

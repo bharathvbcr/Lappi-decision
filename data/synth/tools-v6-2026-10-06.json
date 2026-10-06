@@ -1,0 +1,36 @@
+{
+  "schema": "qd-synth-config/v1",
+  "kind": "tools",
+  "seed": 20261006,
+  "rows_per_template": 4,
+  "val_templates_per_class": 1,
+  "injection_rate": 0.0,
+  "ngram_n": 8,
+  "containment_threshold": 0.5,
+  "target_sha256": {
+    "tool-heldout": "5f8bf09b72c29533f0d4130b1cba514fd3a88713b6fe5bc76ad90f9f183894e2"
+  },
+  "probe": {
+    "n_min": 3,
+    "n_max": 5,
+    "dim": 65536,
+    "max_iter": 500,
+    "tol": 0.0001,
+    "lr": 0.05,
+    "l2_grid": [0.0001, 0.001, 0.01, 0.1],
+    "max_val_accuracy": 0.95
+  },
+  "tools": {
+    "catalog": "tool-catalog-v6-2026-10-06.json",
+    "catalog_sha256": "3f6420994954d17cc3ff8b4c520d3790c3a2738d1456d9884d948be2e50368d6",
+    "phrasings": "tool-phrasings-v6-2026-10-06.json",
+    "phrasings_sha256": "7667618b5c61b5669d8f8e3225c03a9f02a8d471e825b2e9ed57b44dc429098d",
+    "unable_rate": 0.15,
+    "mask_rate": 0.3,
+    "max_median_overlap": 0.35,
+    "exclude_tools": {
+      "devcouncil_ask_question": "it asks the user a clarifying question, which is the ASK action itself: offered beside ASK, both 'call' and 'ask' would be right",
+      "permission_prompt": "machine-only (Claude Code's --permission-prompt-tool): no user asks for it, so its phrasings are invented and its 'call' rows would teach nothing a caller sends"
+    }
+  }
+}
