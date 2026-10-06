@@ -14,8 +14,9 @@
 //!   of a payload;
 //! * concurrent connections are capped, and a connection over the cap is told so and closed;
 //! * concurrent *requests* are capped by [`Service`], which answers [`BackendError::Overloaded`];
-//! * every read and every write has a timeout, so a client that connects and stops does not hold a
-//!   thread forever.
+//! * every request line and every reply line has a deadline over the whole line
+//!   ([`crate::deadline::DeadlineStream`]), so a client that connects and stops, or that drips a
+//!   line a byte at a time, does not hold a thread or a connection slot past it.
 
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -24,8 +25,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::deadline::DeadlineStream;
 use crate::refusal::{BackendError, Refusal};
 use crate::schema::Response;
 use crate::service::Service;
@@ -40,7 +42,9 @@ const OVERSIZE_SCAN_CEILING: usize = MAX_PAYLOAD_BYTES * 4;
 pub struct ServeOptions {
     pub socket_path: PathBuf,
     pub max_connections: usize,
+    /// Deadline for waiting for and receiving one whole request line (not one `read(2)`).
     pub read_timeout: Duration,
+    /// Deadline for writing one whole reply line (not one `write(2)`).
     pub write_timeout: Duration,
 }
 
@@ -257,22 +261,27 @@ fn spawn_connection(
         })
 }
 
+/// `read_timeout` bounds waiting for **and receiving** one whole line, from the moment the agent
+/// starts waiting for it; `write_timeout` bounds writing one whole reply. Both are deadlines over the
+/// exchange, not per-`read(2)` bounds, so a client that drips a line a byte at a time loses its
+/// connection slot when the line has taken `read_timeout`, however short each gap
+/// (`tests/serve_stress.rs`).
 fn serve_connection(service: Arc<Service>, stream: UnixStream, options: &ServeOptions) {
-    if stream.set_read_timeout(Some(options.read_timeout)).is_err()
-        || stream
-            .set_write_timeout(Some(options.write_timeout))
-            .is_err()
-    {
-        return;
-    }
     let read_half = match stream.try_clone() {
         Ok(half) => half,
         Err(_) => return,
     };
-    let mut reader = BufReader::new(read_half);
-    let mut writer = BufWriter::new(stream);
+    let now = Instant::now();
+    let mut reader = BufReader::new(DeadlineStream::new(read_half, now + options.read_timeout));
+    let mut writer = BufWriter::new(DeadlineStream::new(stream, now + options.write_timeout));
 
     loop {
+        reader
+            .get_mut()
+            .set_deadline(Instant::now() + options.read_timeout);
+        // The write deadline starts when the reply is ready, never before: the model's time to
+        // answer is `request_timeout`'s to bound, and a write clock running through a long decode
+        // would drop a reply the model finished in time (`tests/serve_stress.rs`).
         match read_line_bounded(&mut reader, MAX_PAYLOAD_BYTES) {
             Ok(LineRead::Eof) => break,
             Ok(LineRead::Line(line)) => {
@@ -280,6 +289,9 @@ fn serve_connection(service: Arc<Service>, stream: UnixStream, options: &ServeOp
                     continue;
                 }
                 let reply = service.handle_line(&line);
+                writer
+                    .get_mut()
+                    .set_deadline(Instant::now() + options.write_timeout);
                 if write_line(&mut writer, &reply).is_err() {
                     break;
                 }
@@ -295,6 +307,9 @@ fn serve_connection(service: Arc<Service>, stream: UnixStream, options: &ServeOp
                     Ok(bytes) => bytes,
                     Err(_) => break,
                 };
+                writer
+                    .get_mut()
+                    .set_deadline(Instant::now() + options.write_timeout);
                 let _ = write_line(&mut writer, &reply);
                 // The rest of that line is not a line. Closing is the only way to avoid parsing
                 // the middle of a payload as the next request.
@@ -310,7 +325,7 @@ fn serve_connection(service: Arc<Service>, stream: UnixStream, options: &ServeOp
     }
 }
 
-fn write_line(writer: &mut BufWriter<UnixStream>, reply: &[u8]) -> io::Result<()> {
+fn write_line<W: Write>(writer: &mut W, reply: &[u8]) -> io::Result<()> {
     writer.write_all(reply)?;
     writer.write_all(b"\n")?;
     writer.flush()

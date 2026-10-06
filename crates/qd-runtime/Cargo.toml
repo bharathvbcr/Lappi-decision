@@ -42,6 +42,12 @@ path = "src/bin/qd_gate_report.rs"
 name = "qd-post-f-rules"
 path = "src/bin/qd_post_f_rules.rs"
 
+# Checks caller-record files (docs/caller-contract.md) through `caller_record::validate_line`. It
+# reads and reports; it admits nothing to training or eval, which is the human's call.
+[[bin]]
+name = "qd-caller-records"
+path = "src/bin/qd_caller_records.rs"
+
 # No async runtime, no socket crate, no timer crate: `std::os::unix::net`,
 # `Condvar::wait_timeout` and `set_read_timeout` cover the whole server.
 # Adding one would be a new dependency for capability std already has.

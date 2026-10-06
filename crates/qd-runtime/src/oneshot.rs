@@ -13,8 +13,9 @@
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::deadline::DeadlineStream;
 use crate::service::Service;
 use crate::wire::MAX_PAYLOAD_BYTES;
 
@@ -72,6 +73,9 @@ pub fn read_one_line<R: BufRead>(reader: R, cap: usize) -> io::Result<Vec<u8>> {
 
 /// Send one line to a running agent and read one reply.
 ///
+/// `timeout` bounds the **whole exchange** — connect, write and the complete reply — not each
+/// read, so an agent that drips its reply cannot hold the caller past it.
+///
 /// Every error here is an `io::Error`, and every one of them means "fall back to the sidecar". A
 /// **refusal or a backend error inside the reply is not an error here** — it is the agent's answer,
 /// and retrying it in-process would be asking a second opinion of the same code.
@@ -94,22 +98,33 @@ pub fn ask_over_socket(
             "a zero socket timeout cannot bound the exchange; refused before connecting",
         ));
     }
+    let deadline = Instant::now() + timeout;
     let stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
+    let mut stream = DeadlineStream::new(stream, deadline);
 
-    let mut writer = stream.try_clone()?;
-    writer.write_all(line)?;
-    writer.write_all(b"\n")?;
-    writer.flush()?;
+    // One write of the framed line: a request and its newline are one message, and a write split
+    // across a deadline would leave the agent holding half a line.
+    let mut framed = Vec::with_capacity(line.len() + 1);
+    framed.extend_from_slice(line);
+    framed.push(b'\n');
+    // A failed write is not yet the outcome. An agent over its connection cap writes `overloaded`
+    // the moment it accepts and closes (`serve::refuse_connection`), so the request can meet a
+    // closed socket while that reply sits unread in the receive buffer. Read it; only a socket
+    // with nothing to read reports the write's error.
+    let written = stream.write_all(&framed).and_then(|()| stream.flush());
 
     let mut reader = BufReader::new(stream);
-    let reply = read_one_line(&mut reader, MAX_PAYLOAD_BYTES)?;
+    let reply = match read_one_line(&mut reader, MAX_PAYLOAD_BYTES) {
+        Ok(reply) => reply,
+        Err(read_error) => return Err(written.err().unwrap_or(read_error)),
+    };
     if reply.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "the agent closed the connection without replying",
-        ));
+        return Err(written.err().unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the agent closed the connection without replying",
+            )
+        }));
     }
     Ok(reply)
 }
