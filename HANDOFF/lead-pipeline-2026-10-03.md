@@ -6,6 +6,45 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~02:25Z 2026-10-06: J5′ s3 passes; v5's verdict re-run; the margin probe; the human's serving and budget answers
+
+**J5′ for v5 seed 3: ran and passed.** [V] Row deaf6717 (shuffled ft 264c7d5b, at 142a67c), in `h100x2-v5-2026-10-03.jsonl`:
+- shuffled-label accuracy 0.2183 against chance 0.2769 and the 0.3049 ceiling, n 2304/2304;
+- done 02:00:24Z, exit 0;
+- v5's running total: 64.29 GPU-h, $269.36 of the approved ~$356.
+
+Bar 2 holds: no leakage signal.
+
+**v5's promotion verdict, re-run read-only** (`build/v5-h100/v5_verdict.py`, main 4ebb790 clone) [V]. The eval family 408d7387 is **not promoted**.
+
+| Seed | paired_margin_vs_linear | ood_abstain | needle_hunk_recall | shuffled_label |
+|---|---|---|---|---|
+| s0 | not_run, blocks | FAIL 158/180 | FAIL | |
+| s1 | not_run, blocks | FAIL 162/180 | | |
+| s2 | not_run, blocks | FAIL 152/180 | FAIL | |
+| s3 | not_run, blocks | FAIL 156/180 | | |
+| s4 | not_run, blocks | FAIL 155/180 | | not_run |
+
+- Seed 3's shuffled_label no longer blocks: deaf6717 ran and passed.
+- The ft-row family d9a2a8cb (train rows, no gates) reads not_run on everything, as expected.
+
+**The margin probe**, pre-registered at `campaign/v6x-margin-probe-preregistered.json` (58c2bf5) before any report [V]:
+- The word is **`trade`, adverse**: +0 to +8 of 180 OOD abstentions for 30-39% extra in-distribution abstentions on val half B.
+- It covered 20 reports, v5 and v6x seeds 0-4 × two keys, in `/Users/bharath/qd-campaign/margin-probe-2026-10-06/`.
+- Details are in `HANDOFF/v6-plan-proposal-2026-10-06.md`.
+
+**The human's answers (AskUserQuestion, ~02:22Z), after a precision sweep on the practice table:**
+- **Serving caution: "80% target".** The preview's table is fitted with `--target-precision 0.80`. On v5 s1, in-sample, that answers 90.9% of normal choice questions at 86.6% precision; 0.95 would refuse 31.9%. `preview_release.sh` now takes the target as its argument and passes it to both fits.
+- **Budget: "Spend $0, shut down".** No new GPU job. After the preview tail the H100 box is the human's to shut down.
+- "lets finalize the model": the v0.1 preview is the deliverable for now.
+
+**An incident: `build/preview-wt/target` was removed by something outside this session at ~02:19Z.**
+- The same happened to `build/v5-build-wt` and `build/v6-linfit-pool-wt`: their directory mtimes are all 21:19 local.
+- Several peer sessions were busy, and ListAgents does not say which one did it.
+- The preview's inputs in `/Users/bharath/qd-campaign/preview-2026-10-05/` were untouched.
+- `qd-export` and `qd-calib-fit` were rebuilt at a766fcf (clean tree [V]) into `/Users/bharath/qd-campaign/target-preview-a766fcf/` (`cargo build --release -j 2`, 28 s, via `tools/mac_heavy.sh`).
+- The release's weight_hash must equal the trial's, 6f7b9ba7…, as a check on the rebuild.
+
 ## ~01:59Z 2026-10-06: the preview's acceptance bar, written before the average's row exists
 
 Fable (lead lane, ~01:57Z) ruled that the bar is written down now, before any number is read. At
