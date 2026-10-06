@@ -179,6 +179,7 @@ Judges [V, each run's `runs/<name>/` in `external/jevarena`]:
 | Base, letter readout (f2) | 0.495 | 0.498 | 0.461 [0.431, 0.499] | 0.496 | 0.428 | 0.500 | 0.001 | 0 | 152 |
 | Lappi v4 (f1) | 0.444 | 0.438 | 0.531 [0.444, 0.594] | 0.393 | 0.596 | 0.483 | 0.620 | 0 | 145 |
 | Gemma 4 E4B (8.0B total), no reasoning | **0.632** | 0.621 | 0.812 [0.733, 0.863] | 0.522 | 0.892 | 0.800 | 0.801 | 7 | 318 |
+| decider-2b v11 (2B, same base), CPU float32 | **0.612** | 0.605 | 0.719 [0.661, 0.767] | 0.554 | 0.763 | 0.719 | 0.749 | 0 | 5,679 |
 
 Macro weights each of the 28 domains equally (point estimates, complete pairs); the `all` row is a
 micro diagnostic dominated by RewardBench 2's Ties domain (368 of 849 pairs). Latency is the
@@ -258,7 +259,20 @@ run).**
     slower on CPU.
   - decider_stdio.py now refuses to report ready unless the warm-up's easy question gets a finite
     A > 0.5.
-  - Its row lands in a follow-up commit.
+- **Result** (row in the table above):
+  - Smoke: 10/10 calls, median 7.7 s.
+  - test-g6: complete at 17:44:34Z, 1,698 calls, 0 failed, implementation_sha256 `d39ba018…`.
+  - **decider-2b minus Lappi, paired: +0.110 [+0.071, +0.157]** on all 849 pairs. JudgeBench +0.041
+    [-0.017, +0.097], RewardBench 2 +0.074 [+0.038, +0.133], RM-Bench +0.200 [+0.106, +0.304].
+  - Domain macro 0.612 vs Lappi 0.534. Order consistency 0.749 vs 0.716.
+  - RM-Bench code (108 calls): correct 59, rejected 29, TIE 20; Lappi 12 / 43 / 53.
+  - On the 191-pair pilot: 0.707 [0.590, 0.796], paired +0.136 [+0.048, +0.226].
+- **Reading:** a decision model of the same base and size beats Lappi clearly on this benchmark.
+  - Its model card lists RewardBench (v1) and Arena preferences as held out of its training, and
+    HelpSteer2 as trained (as it is for Lappi).
+  - Whether RewardBench 2, RM-Bench or JudgeBench overlap its training is [unverified].
+  - Its latency here is CPU-only and not comparable; the card cites 4 ms per request with CUDA
+    graphs.
 
 Provenance and limits:
 - The jevjudge harness carries a **local, uncommitted patch** in `external/jevarena` (never
@@ -358,7 +372,14 @@ pairs. Not a gate.
 - RM-Bench code (card `lappi-rmbench-code-prefers-rejected`): out of task.
   - Remaining criteria: measure the style prior on more than 6 groups before any public claim; any
     training change is a pre-registered campaign and the human's decision.
-- decider-2b on CPU, full test-g6: queued at commit time; its row lands in a follow-up commit.
+- decider-2b, same base and size, leads Lappi by +0.110 [+0.071, +0.157] on test-g6.
+  - What it does differently (its training mix, its calibration-aware RL) is the comparison
+    worth reading before v6's data plan.
+  - Whether these benchmarks overlap its training is [unverified].
+- The published JevArena page is https://claude.ai/artifact/Hdq9CDPFQrqN6DJLnkKNEd, version 3 (private).
+  - It adds decider-2b, the Gemma reasoning pilot and the probe, and corrects the RM-Bench code
+    framing.
+  - Rebuild it with `python3 build/jevarena-artifact/build_page.py` after `compare_all.sh`.
 - GAP-16-OPTION-CALIBRATION-FAILS-AND-HAS-NO-ID-2026-10-06,
   GAP-NEEDLE-VERDICT-STRING-NAMES-A-CAUSE-THE-BUCKET-CONTRADICTS-2026-10-06 and
   GAP-DEVMAP-INDEX-MALFORMED-2026-10-06 (appended this lane).
