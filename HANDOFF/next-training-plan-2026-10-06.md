@@ -49,7 +49,8 @@ This file adds four things: precision (16-bit), sizing for a larger base, the co
 - **Correction to my own records:** the GAP-DEVMAP-INDEX-MALFORMED-2026-10-06 update.
   - The store is not damaged: `sqlite3 PRAGMA quick_check` returns ok, and the CLI reads generation 3557.
   - Only the devmap MCP server answers "malformed".
-  - So restarting that server fixes it; the index needs no rebuild.
+  - A second reading at 20:36Z: the GitPulse plugin's DevMap view now fails closed with "code map is stale or degraded: source tree differs from the indexed generation". Both hold: the store is not corrupt, and it is stale against a tree with 70+ uncommitted files.
+  - So the fix is to restart that server **and** rebuild the index or drain the watcher before trusting a walk. "No rebuild needed" was about corruption only.
 
 ## 2. The evidence the plan rests on
 
@@ -325,10 +326,14 @@ The training-side DevMap audit's findings are in section 10.
 ## 11. Decisions
 
 - **Fable (taken here):** 2B v6 stays on `master`; `kahan` is gated by P1; the box guard ships with the v6 queue; 9B is a trainer project.
-- **Fable (open):** the red lint gate (GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-COMMITTED-FILES-2026-10-06).
-  - Whether the 2026-10-02 ruling extends to the 14 `AUDIT/finalize-2026-10-03` records and the two training-side generators, whose sha256 committed fixtures record. That ruling is per-file ignores, rule by rule.
-  - A per-file ignore loosens a gate, so this lane did not add one.
-  - The two test files, `test_perf_tierb_build.py` and `test_decisions_pool.py`, go to their lanes.
+- **Fable (taken 2026-10-06): the red lint gate** (GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-COMMITTED-FILES-2026-10-06). The ruling is the 2026-10-02 one as `pyproject.toml` writes it.
+  - **AUDIT records:** per-file ignores, rule by rule, only what each file already breaks. Applied to the 14 `AUDIT/finalize-2026-10-03` records (137 findings) in this lane's lint commit.
+  - **The oracle generators under `tools/`:** not ignored. They are reformatted and their fixtures regenerated, so the 10 findings in `qd_train_oracle_{optimizer_table,head_digest}.py` are owed by this lane.
+    - The steps are in the gap record.
+    - Every fixture field but `generator.script_sha256` and `generator.argv` must come back byte-identical.
+    - The Rust tests then run in a worktree under `mac_heavy.sh`.
+  - **Test files:** fixed in code by their lanes. `test_decisions_pool.py` is fixed in `d279d71` ([764787]). `test_perf_tierb_build.py`'s 7 go to the owner of `076963f` or to the human.
+  - ruff now reports 17, and `test_lint_gate` passes 14 of 15.
 - **The human: cost, downloads, dependencies, gates:**
   - the first box session (≈ $8-10) and any later box;
   - the 4B weights download (~8.4 GB);
@@ -344,6 +349,8 @@ The training-side DevMap audit's findings are in section 10.
 - No 4B/9B safetensors header has been read; the loader's checks on the real 4B are first exercised at download.
 - The pre-fix failures marked [I] in section 10 were inferred from the code, not run.
 - DevMap's walk for the suite's test list stopped at depth 3 (`walk_incomplete`), and Rust call resolution is net 28.8%. Every DevMap list here is a lower bound. Thirteen more files came from `rg` (section 13).
+- DevMap could not answer this lane's test selection: its MCP server reports "malformed", and the GitPulse view reports stale or degraded. The selection came from a static import closure (`build/next-train-2026-10-06/coverage.py`, an analysis, not the graph), and then from running the whole suite (section 13).
+- `test_qd_train_oracle_trainer` skips on this Mac. Its fixture pins python 3.14.7, and the ml venv's interpreter is 3.14.8, through Homebrew's `python@3.14` link, moved 2026-10-02 12:57 CDT. That it has skipped since then is inferred (GAP-TRAINER-ORACLE-SKIPS-SINCE-HOMEBREW-PYTHON-3-14-8-2026-10-06).
 - No GPU ran anything in this lane. Every GPU-only path changed here (`gh200_rows.attempt`, the `--loss fused-ce` step on CUDA) is **not run**; its CPU half is tested.
 
 ## 13. Regression and stress results
@@ -397,7 +404,7 @@ The Python suite runs single-process under `tools/mac_heavy.sh` (`build/next-tra
 - **4,549 passed, 39 skipped, 1 deselected (network), 1 failed**, in 19 min 39 s.
 - Against run 3: +63 passed, which is the 22 binary-fixture tests, `test_minhash`'s 29, the 11 new conftest tests and `test_declared_dependencies`. The skips fall 62 → 39.
 - No skip names cargo or a missing binary, except `test_cargo_workspace_exclude` (it runs `cargo metadata` itself) and `test_export_oracle` (`QD_EXPORT_BIN`, outside conftest).
-- **The one failure is the lint gate:** the same 154 findings in the same 18 untouched files, none in a file of either commit (GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-COMMITTED-FILES-2026-10-06). Turning it green needs either a ruling on per-file ignores or the owning lanes' fixes. It is not this lane's to move (rule 2).
+- **The one failure is the lint gate:** the same 154 findings in the same 18 untouched files, none in a file of either commit (GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-COMMITTED-FILES-2026-10-06). After run 4, Fable's ruling (section 11) took it to 17 findings, all with named owners.
 - `gaps.jsonl` changed during the run: two data-lane records were appended. So the three gaps-ledger tests and `test_conftest_binaries` were re-run on the exact bytes before `c04eadf`: **54 passed**. The committed blob hashes to the same `e1c96550…`.
 
 **Not run by this lane:** any GPU path, the Rust suites (no cargo), `test_cargo_workspace_exclude`, `test_export_oracle` (no `QD_EXPORT_BIN`), the opt-in benchmarks and real-data checks, and the `network` test.
