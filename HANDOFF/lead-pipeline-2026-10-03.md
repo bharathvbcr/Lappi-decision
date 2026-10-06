@@ -6,6 +6,41 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~01:55Z 2026-10-06: v6x reads no_signal (targets clear, two guards lose); J6(g) done; the average's scoring started
+
+**v6x (noul-weight 4, report-only) is complete. The pre-registered reading is `no_signal`** [V].
+- Source: `build/v6x/read_v6x.py` over `h100x2-v5-2026-10-03.jsonl` and `h100x2-v6x-noulw-2026-10-05.jsonl`, exit 0.
+- Seed 4: eval eaef0a59, ft 6d4958f3. Done 01:52:42Z, 23,500 s, `steps_exhausted`.
+- **Both targets clear**, above v5's same seed on 4 of 5 seeds (1-4); seed 0 is equal:
+  - `gates.ood_abstain`: 158/168/159/172/168 vs v5 158/162/152/156/155 of 180;
+  - `metrics.ood_abstain.unseen-language`: 41/50/43/53/50 vs v5 41/47/36/40/39 of 60.
+- **Two guards lose:**
+  - `metrics.val_top1.choice`: run min 0.8233 vs v5 min 0.8278. The min is seed 4: 14205/17254 vs v5 s4 14283.
+  - `metrics.ood_abstain.in_distribution`: run max 0.0869 vs v5 max 0.0819. The max is seed 4: 1469/16905 vs v5 s4 1384.
+- **Guards that hold:** span (0.9085 vs 0.9066), permutation_consistency (0.9305 vs 0.9288), needle_worst_bucket (0.9661 vs 0.7049), scrambled (0.9333 vs 0.9167), prose (1.0 vs 1.0), F3 on every seed.
+- **What it means for v6 (inferred):** noul-weight 4 buys OOD abstention at the cost of in-distribution abstention and choice accuracy. A smaller weight, or pairing it with a fitted `noul_margin`, is the lead. No gate moves.
+- **Seed 4's verdicts** are on the Mac: `/Users/bharath/qd-campaign/verdicts-2026-10-05/v6x-noulw/`. suite bd92c4df…, verdicts e8d70a5c…, SHA-256 OK.
+
+**The 5-seed average's scoring** took `gpu1.lock` at 01:52:58Z, the moment v6x lane 1 ended, with no idle gap. It writes `/home/ubuntu/ledger/h100x2-v5avg-2026-10-05.jsonl`. J5′ s3 holds GPU 0 to ~02:00Z.
+
+**J6(g) on the GH200 is done** [V, `gh200-j6g-v4-2026-10-02.jsonl`]:
+- ft 057bc336, score ed53e415; train+score exit 0 at 00:55:45Z.
+- F with `--option-permutation-seed 20260919` on v4 data. Report-only.
+- Results:
+
+  | | J6(g) | J6(a) |
+  |---|---|---|
+  | ood_abstain | 111/180 (Wilson lower 0.544) | 57/180 |
+  | in-distribution abstain | 8.5% | |
+  | permutation_consistency | 92.8% FAIL | 91.0% |
+  | needle_hunk_recall, worst bucket | 0.639 FAIL (80-100%) | 1.000 |
+  | unseen-language | 0/60 | |
+  | degenerate_head | 6/6 | |
+
+- ece and paired_margin_vs_linear are not_run.
+- The log's pointer `qd-post-f-rules j6g` names a subcommand the binary does not have; the row was read directly with `build/v6x/peek_gate.py`.
+- tierb3 started at 00:59Z: train+score exit 0 at 01:26:26Z, eval row 256f6e42. Its CPU `ft_linear_control.py` phase idled the GPU ~01:26-01:40Z (expected, a v6 Rust target). MLresearch's hold follows.
+
 ## ~21:25Z 2026-10-05: the human answered both late-night questions in advance; the H100 ledgers are on the Mac
 
 Fable (lead lane, ~21:20Z) advised two things.
