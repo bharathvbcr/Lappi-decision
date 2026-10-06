@@ -23,3 +23,6 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 serde_json.workspace = true
+# A workspace crate (no C, serde only), not a new dependency: `natural-bugs` admits a file by
+# the one owner of the path-to-language map, as the runtime's admission check does.
+qd-lang = { path = "../qd-lang" }
