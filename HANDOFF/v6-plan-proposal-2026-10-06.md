@@ -13,7 +13,7 @@ Fable's answer (lead lane, ~02:05Z): **v5 is a complete first milestone, and sto
 v0.1 preview" is a legitimate choice.** v5 does the task [V, `h100x2-v5-2026-10-03.jsonl`]:
 - val choice top-1 ≥ 0.8278 and span ≥ 0.9066 on every seed (these are the worst seeds' values, from `read_v6x.py`'s v5 minimums);
 - permutation_consistency ≥ 0.9288 on every seed;
-- needle worst bucket 1.000 on seeds 1, 3 and 4;
+- needle worst bucket ≥ 0.95 on seeds 1, 3 and 4: 1.000 on seed 1, 0.967 on seed 3, 0.966 on seed 4 (rows e1bafd6f, e09b652a, a51c5bf4; corrected 2026-10-06, this line said 1.000 on all three);
 - shuffled-label controls at chance on all four that ran: seeds 0-3, rows ba375781, daf4ec89, 8a47dd8a and deaf6717 (0.2370, 0.2296, 0.2209, 0.2183 against the 0.3049 ceiling). The model learned content, not label format.
 
 What v5 fails:
@@ -72,7 +72,8 @@ the `ledger.py` code and tests on a branch; the merge is the human's.
 
 ### Needle: long inputs in the mixture
 
-- v5's needle worst bucket fails on seeds 0 and 2 (0.705 at 80-100% depth) [V]. The gate's detail names the shape: "A recurrent model losing early context".
+- v5's needle worst bucket fails on seeds 0 and 2: seed 0 0.918, seed 2 0.705, both at 80-100% depth (rows 166f7ebd, 2af3c80d) [V].
+- Every miss is at 60-100% depth, the **end** of the context (`needle.py`: depth 0.0 is the start) [V]. The gate's detail, "A recurrent model losing early context", is a fixed sentence appended to every failing verdict, not a diagnosis (GAP-NEEDLE-VERDICT-STRING-NAMES-A-CAUSE-THE-BUCKET-CONTRADICTS-2026-10-06; corrected 2026-10-06, this item had quoted it as naming the shape). The cause is [U] (GAP-V5-NEEDLE-END-OF-CONTEXT-MISSES-SEEDS-0-2-HAVE-NO-ID-2026-10-06).
 - Add long-input examples. Target: worst depth bucket ≥ 0.95 on every seed.
 - The data prep cost is [U].
 - It can ride on Arm B's seeds rather than a third arm [I]. If it does, Arm B's reading rule names both targets.

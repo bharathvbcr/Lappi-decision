@@ -201,48 +201,167 @@ What the numbers say:
 - **Outside RewardBench 2's Ties domain Lappi is at chance.** Macro without Ties 0.528, where
   always-A scores 0.5 on A/B pairs; JudgeBench 0.512 on balanced gold; RM-Bench 0.519 on all-A gold.
   Its one clear lift is Ties (0.719 vs base-letter 0.410).
-- **RM-Bench code is a defect in the product's own domain.** Lappi scores **0.111 [0.019, 0.222]**
-  on its 54 pairs (gold always the correct program). Of 108 calls it answers TIE on 53, the rejected
-  program on 43 and the correct one on 12: it abstains or prefers the subtly broken code,
-  systematically. The same pairs give Gemma 0.639, base-as-chat 0.361, Qwen3.5-2B 47 rejected vs
-  55 correct. Exploratory (6 prompt groups), but the direction is not noise. GitPulse card
-  `lappi-rmbench-code-prefers-rejected`.
+- **RM-Bench code: 0.111 [0.019, 0.222] on its 54 pairs** (gold is always the correct program).
+  - Of 108 calls Lappi answers TIE on 53, the rejected program on 43 and the correct one on 12.
+  - The same pairs: Gemma 0.639, base-as-chat 0.361, Qwen3.5-2B 47 rejected vs 55 correct.
+  - Exploratory: 6 prompt groups.
+  - *Corrected after the first commit of this file:* this is not "a defect in the product's own
+    domain". These pairs are out of Lappi's task: they route through its weakest family,
+    pairwise.helpfulness, not code.defect_class. The defect probe in section 7 shows the
+    defect-class skill does not carry over to them either.
+  - GitPulse card `lappi-rmbench-code-prefers-rejected` (board item
+    `ft-882ed8fcd29cfacd3e1cf14748a0e9de`), revision 3 carries the diagnosis and the probe.
 - **A larger model is clearly better.** Gemma 4 E4B (8.0B total parameters, about four times
   Lappi's) minus Lappi: **+0.200 [+0.133, +0.257]**; RewardBench 2 +0.203, RM-Bench +0.281, but
   JudgeBench +0.000 [-0.075, +0.073]: every judge here is near chance on JudgeBench. Its 7 failed
   calls: 6 replies that were not the required JSON, 1 Ollama HTTP 500.
 
-**Gemma 4 E4B with its default reasoning, on the 191-pair pilot** (the human's choice; 8,192-token
-cap, since PROTOCOL.md requires "enough total output/reasoning tokens to finish a verdict" and
-2,048 truncated 2 of 10 probe calls): running under `mac_heavy` since 11:51:43Z, 14 of 382 calls at
-11:55Z, none failed, about 780 output tokens a call. Its row and the pilot table land in a
-follow-up commit. Two limits stand already: the pilot has no TIE golds (JudgeBench A 23 / B 16,
-RewardBench 2 A 62, RM-Bench A 90), so it says nothing about Ties; and reasoning-on is a distinct
-configuration, compared only with the other runs scored on the same 191 pairs.
+**Gemma 4 E4B with its default reasoning, on the 191-pair pilot.**
+- **Setup:** the human's choice. The cap is 8,192 tokens, because PROTOCOL.md requires "enough total
+  output/reasoning tokens to finish a verdict" and a 2,048 cap truncated 2 of 10 probe calls.
+- **Run:** finished complete at 14:26:09Z: 382 calls, 1 failed (ValueError),
+  implementation_sha256 `5ccaa922…`.
+- **Table:** `jev-compare-pilot.txt`. Every test-g6 run is re-scored on the same 191 pairs, a subset
+  of test-g6.
+
+| Judge (pilot, 191 pairs) | domain macro | all [95%] | JudgeBench | RB2 | RM-Bench | order consistency | p50 s |
+|---|---|---|---|---|---|---|---|
+| Gemma 4 E4B, reasoning on | **0.708** | 0.816 [0.728, 0.882] | 0.632 | 0.855 | 0.867 | 0.853 | 14.0 |
+| Gemma 4 E4B, no reasoning | 0.635 | 0.721 [0.599, 0.815] | 0.528 | 0.782 | 0.756 | 0.729 | 0.59 |
+| Qwen3.5-2B, chat | 0.547 | 0.616 [0.512, 0.709] | 0.487 | 0.710 | 0.606 | 0.484 | 0.37 |
+| Lappi v0.1 | 0.529 | 0.571 [0.466, 0.671] | 0.487 | 0.734 | 0.494 | 0.639 | 0.24 |
+
+- **Reasoning on, minus Lappi**, paired: **+0.245 [+0.122, +0.347]**. JudgeBench +0.145
+  [+0.012, +0.284], RM-Bench +0.372 [+0.183, +0.533].
+- **No reasoning, minus Lappi**, on the same pairs: +0.144 [+0.002, +0.258].
+- **Output tokens:** median 698, p90 2,505, max 5,470, so 0 calls reached 8,192. That is
+  [inferred]: the record's `reasoning_tokens` is empty, and it assumes Ollama's `completion_tokens`
+  counts the thinking tokens, which the latency fits.
+- **Limits:** the pilot has no TIE golds (JudgeBench A 23 / B 16, RewardBench 2 A 62, RM-Bench A 90),
+  so it says nothing about Ties. Reasoning-on is a distinct configuration, at about 58× Lappi's
+  median latency.
+
+**decider-2b (Mapika/decider-2b v11, rev 533964da, Apache-2.0; the human approved the download and
+run).**
+- **Its Mac-GPU path cannot be scored.**
+  - The first smoke (probe5b, 14:26Z, Decider's own default MPS float16) failed 5 of 5 calls.
+    decider_stdio.py could not encode the NaN answers as JSON.
+  - Direct calls to its own `Decider.system_one` (`lappi-bench-2026-10-06/decider_debug.py`, logs
+    `decider-debug{,2,3,4,5}.log`) answer NaN or a flat 1/3 on MPS in float16, bfloat16 and
+    float32, with or without its MPS patch. With only its MoE patch off, they answer P=1.000.
+  - That happens even on the 23-token warm-up. On CPU the same calls are finite, and bfloat16 and
+    float32 agree (P(B) 0.777 vs 0.773).
+  - The cause inside its MPS path is [unverified].
+- **The CPU run.** The human: "run decider-2b on CPU for the full test-g6".
+  - Config `decider-2b-v11-cpu`: float32, 6 torch threads, 600 s call timeout. The longest
+    test-g6 state is 3,292 tokens; float32 took ~7 s per 950-token call, and bfloat16 was 3–5×
+    slower on CPU.
+  - decider_stdio.py now refuses to report ready unless the warm-up's easy question gets a finite
+    A > 0.5.
+  - Its row lands in a follow-up commit.
 
 Provenance and limits:
 - The jevjudge harness carries a **local, uncommitted patch** in `external/jevarena` (never
   committed or pushed): a `lappi` stdio provider; plain HTTP to loopback only; `stop` in
   `extra_body`; and `JEVJUDGE_CONTINUE_ON_PARSE_ERROR=1`, which lets a local, zero-priced judge
   record a failed call (cost 0, wrong in attempted accuracy, absent from complete pairs) and go on,
-  stopping after 5 failures in a row. The harness's tests pass (44, 3 added for this). The patch
-  changed during the lane; each run's `manifest.json` carries `implementation_sha256`: the four
-  Lappi/letter runs `c862e1d5…`, base-as-chat `4728cb62…` (continued past parse errors only),
-  Qwen3.5-2B, Gemma no-reasoning and the reasoning pilot `5ccaa922…`.
+  stopping after 5 failures in a row.
+  - **Later fix:** a stdio judge whose reply timed out, broke or never came was asked again. Its late
+    reply would have been read as the next request's answer.
+    - Now the process is killed and the next call starts a fresh one.
+    - The test `test_stdio_judge_that_timed_out_is_never_read_again` failed first against the old
+      code ('slow' != 'fast').
+    - No finished run timed out: the Lappi runs answer in milliseconds, and the decider smoke failed
+      on error replies, not timeouts.
+  - The harness's tests pass: 46 in `tests/`.
+  - The patch changed during the lane; each run's `manifest.json` carries `implementation_sha256`:
+    - the four Lappi/letter runs `c862e1d5…`;
+    - base-as-chat `4728cb62…` (continued past parse errors only);
+    - Qwen3.5-2B, Gemma no-reasoning and the reasoning pilot `5ccaa922…`;
+    - the failed decider smoke `9f3fb0d9…`.
+    - The decider CPU run gets a new hash, because the timeout fix changed `providers.py`.
 - Gemma no-reasoning's first run stopped at 333 calls on the HTTP 500 (the harness then refused to
   resume a directory with a failed call); it is kept as `runs/chat-gemma4-e4b-ollama-nothink-test-g6-stopped-at-333`
   and the full rerun is the one reported.
 - JevArena is not Lappi's task: Lappi was trained for code-change decisions and its letter readout
   is uncalibrated here. Nothing in this section is a gate, and no threshold was read against it.
 
+## 7. Does the defect-class skill carry over to model-written bugs? (RM-Bench defect probe)
+
+The human: turn each RM-Bench program into a new-file diff and ask Lappi its own defect question;
+"run those". Lane dir `~/qd-campaign/lappi-bench-2026-10-06/defect-probe/`. $0, Mac only.
+
+**What the trained task is** [V, rebuilt from the corpus]. code.defect_class asks whether a real
+commit's diff carries a planted qd-mutate edit (stub, logic or cosmetic) or is clean. It is not a
+code-correctness question. v5's corpus is commitpackft-corpus-v3: all 2,304 val rows rebuild
+byte-identically (row_content_hash = the val manifest's content_hash). 21,893 of its 49,953 rows
+are commits that add a whole file, rendered `@@ -1,1 +1,N @@` with every line `+`. The probe renders
+programs exactly that way, checked equal on 918 whole-file val rows.
+
+**Instrument.** `jevarena-lappi score`, sha256 `16aab7f5ff9058b21ed7e07c56e34302c3397e155f429eac2b6557fa60055e8f`.
+- It runs on release-lappi-v0.1-preview: weight_hash `6f7b9ba73bca3a0b2e4ec9b2c0fc2aa6e7459f7e3286b26386633a222667dfcb`,
+  tokenizer_hash `fe000e3e…`.
+- Per request it runs the runtime's own `parse_line` → `admit_defect_context` → `render` → the
+  `defect_class` slot, both passes. The judge path never ran admission; this one does.
+- Its unit tests include admission (py/go/rs/ts admitted; cpp/java/js refused) and a test that the
+  choice prompt does not depend on the span slot.
+- Requests: `requests.jsonl`, sha256 `6bee669f…`, 909 lines.
+
+**Readout (pre-registered in `build_requests.py`, then `analyze.py` → `report.txt`):**
+- **C1, fidelity: trained val rows, must read ≥ 0.90.**
+  - First registration: **0.887, FAIL.** The sample took ≤ 12 rows per class×language×shape cell,
+    so it over-weights small, hard cells against ledger 6af73bef's population figure (0.950–0.958).
+    `c1_reweight_posthoc.txt` (post-hoc) reweights it to 0.950.
+  - Re-registration (`REREGISTRATION-c1full.md`, written before scoring): all 2,304 val rows,
+    `requests-c1full.jsonl` sha256 `6d7658d0…` → `report-c1full.txt`.
+    - First-pass top-1 **0.9562** (2,203/2,304), permuted-pass agreement 2,295/2,304 (= the ledger):
+      **PASS**.
+    - whole_file 0.945, edit 0.965; Rust is lowest at 0.862.
+- **C2, positive control: the same file, real vs planted.** A whole-file val row with a planted
+  defect, scored on its own trained context, against the pool's real file at the same path.
+  - **0.906 [0.835, 0.965]** of 85 pairs give the real file the higher P(clean): SEPARATES.
+  - stub 1.000 (36), logic 0.960 (25), cosmetic 0.708 [0.500, 0.875] (24, no separation).
+- **A: RM-Bench code_filtered** (THU-KEG 73c52d7), style 2 (markdown; styles 0/1 flatten the code),
+  the longest fenced block as `solution.<ext>`.
+  - **0.536 [0.448, 0.624]** of 125 pairs give the chosen program the higher P(clean): **no
+    separation**.
+  - Go 0.583 (36), Python 0.519 (27), Rust 0.516 (62). Median P(clean): chosen 0.74, rejected 0.71.
+  - 103 pairs (C++ 40, Java 35, JavaScript 28) are refused by admission
+    (`context_language_not_in_pool`).
+  - Only 2 of test-g6's 6 code prompts are admissible, too few to read.
+
+**Answer:** no. Lappi's defect-class skill detects stub and logic mutations planted into real
+commits. It does not tell RM-Bench's correct programs from their model-written broken twins in
+Go, Python or Rust. The intervals are the analysis's bootstrap (2,000 draws, seed 20261006) over
+pairs. Not a gate.
+
+## 8. Other notes from this lane
+
+- **GH200:** a fourth MLresearch hold. The human answered "Yes, hand it over"; the holder started
+  holding gpu.lock at 14:03:12Z, and Lappi has no GH200 work.
+  `build/gh200-mlr/{state_check.sh,archive_cycle.sh,launch_hold4.sh}`.
+- **Needle misses:** v5 seeds 0 and 2 miss needles at 60–100% depth, the end of the context.
+  GAP-V5-NEEDLE-END-OF-CONTEXT-MISSES-SEEDS-0-2-HAVE-NO-ID-2026-10-06.
+  - The training-audit session's own diagnosis (its measurement, not re-derived here) is in
+    `HANDOFF/needle-span-mac-2026-10-06.md` (commit ee1dfab): 39 misses, all 1–2 hunks early, Swift
+    and TypeScript only.
+  - Its span-candidate-state hypothesis is GAP-SPAN-CANDIDATE-STATE-HAS-NOT-READ-ITS-LINE-2026-10-06
+    (code claims verified here).
+- **HANDOFF/v6-plan-proposal-2026-10-06.md:** its needle line was corrected. Seeds 1, 3 and 4 clear
+  0.95; seeds 0 and 2 do not.
+
 ## Open
 
 - GAP-MAIN-UNCOMMITTED-BATCHED-DECODE-FAILS-ITS-DIGEST-PIN-2026-10-06 (the human / whoever owns it).
 - GAP-CARGO-TARGET-DIR-DELETED-MID-SUITE-2026-10-06 (deleter unidentified).
 - GAP-WORKSPACE-IS-NOT-RUSTFMT-CLEAN-2026-10-06 (a one-time reformat is the human's call).
-- RM-Bench code: Lappi abstains (TIE 53 of 108) or picks the rejected program (43 vs 12) on code
-  pairs, in its own domain. Card `lappi-rmbench-code-prefers-rejected`.
-- The Gemma 4 reasoning pilot's result (running at commit time).
+- RM-Bench code (card `lappi-rmbench-code-prefers-rejected`): out of task.
+  - Remaining criteria: measure the style prior on more than 6 groups before any public claim; any
+    training change is a pre-registered campaign and the human's decision.
+- decider-2b on CPU, full test-g6: queued at commit time; its row lands in a follow-up commit.
+- GAP-16-OPTION-CALIBRATION-FAILS-AND-HAS-NO-ID-2026-10-06,
+  GAP-NEEDLE-VERDICT-STRING-NAMES-A-CAUSE-THE-BUCKET-CONTRADICTS-2026-10-06 and
+  GAP-DEVMAP-INDEX-MALFORMED-2026-10-06 (appended this lane).
 
 ## First command for the next lane
 
