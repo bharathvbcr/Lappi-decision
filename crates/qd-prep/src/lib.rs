@@ -19,10 +19,14 @@
 //!   complete pair list, the v5 decontamination scan (the Python gold-side scan of 2026-10-02
 //!   peaked at 17.4 GB). [`pyunicode`] is Python's `\w` and `str.lower()`, from tables read
 //!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
+//! - [`dedupe`]: `qd_data.dedupe.dedupe`'s MinHash path end to end -- sign, band, confirm,
+//!   union across repos, and the keep rule (v5's lexical or v6's split priority) -- over
+//!   [`minhash`], [`wire`] and [`lsh`].
 
 pub mod blake2b;
 pub mod containment;
 pub mod decisions;
+pub mod dedupe;
 pub mod linfit;
 pub mod linwire;
 pub mod lsh;

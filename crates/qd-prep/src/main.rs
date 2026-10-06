@@ -18,13 +18,15 @@
 //! - `qd-prep decisions --config C --fetch-record R --decider-dir D --target NAME=FILE ...
 //!   --out-dir DIR [--survey]`: the v5 general-decision pool (see `qd_prep::decisions`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, or `texts.jsonl` with `--survey`.
+//! - `qd-prep dedupe --input IN --output OUT`: a `QDPDDIN1` request (see `qd_prep::dedupe`) ->
+//!   `QDPDDOK1`, the near-duplicate clusters and survivors `qd_data.dedupe.dedupe` finds.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use qd_prep::{containment, decisions, linwire, lsh, wire};
+use qd_prep::{containment, decisions, dedupe, linwire, lsh, wire};
 
 /// Threads are bounded whatever the host reports.
 const MAX_THREADS: usize = 256;
@@ -73,6 +75,8 @@ enum Command {
     /// The decision pool's cap refresh between two surveys: every all-admitted stratum's cap
     /// becomes its new train availability, the rest are kept (`decisions::refresh_train_caps`).
     DecisionCaps(DecisionCapsIo),
+    /// Near-duplicate clusters and survivors, as qd_data.dedupe.dedupe's MinHash path finds them.
+    Dedupe(Io),
 }
 
 /// `qd-prep decision-caps`' inputs.
@@ -298,6 +302,7 @@ fn main() -> ExitCode {
         Command::Containment(io) => run_containment(io),
         Command::Decisions(io) => run_decisions(io),
         Command::DecisionCaps(io) => run_decision_caps(io),
+        Command::Dedupe(io) => run(io, dedupe::MAX_INPUT_BYTES, dedupe::run_dedupe),
     };
     match result {
         Ok(line) => {

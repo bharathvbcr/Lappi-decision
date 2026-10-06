@@ -1929,6 +1929,7 @@ NATIVE_LSH_CANARIES: Final[int] = 4
 _PREP_REQUEST_MAGIC: Final[bytes] = b"QDPMHIN1"
 _PREP_REPLY_MAGIC: Final[bytes] = b"QDPMHOK1"
 _LSH_REQUEST_MAGIC: Final[bytes] = b"QDPLSIN1"
+_LSH_REQUEST_MAGIC_V2: Final[bytes] = b"QDPLSIN2"
 _LSH_REPLY_MAGIC: Final[bytes] = b"QDPLSOK1"
 _PREP_BUILD: Final[str] = (
     "build it with `cargo build --release -p qd-prep` (target/release/qd-prep) on the Mac, or "
@@ -2028,12 +2029,15 @@ class NativePairs:
 
 
 def _prep_candidate_pairs(
-    binary: Path, keys: list[str], banded: np.ndarray, *, bands: int, rows: int, max_pairs: int
+    binary: Path, keys: list[str], banded: np.ndarray, *, bands: int, rows: int, max_pairs: int,
+    min_agreement_permille: int = 0,
 ) -> NativePairs:
     """``qd_data.minhash.candidate_pairs`` over ``keys``, computed by ``qd-prep lsh``.
 
     ``banded[i]`` is the first ``bands * rows`` values of ``keys[i]``'s signature -- all the
-    reference reads. Keys go over as UTF-8 with ``surrogatepass``, which keeps Python's
+    reference reads. With ``min_agreement_permille`` (v6's prefilter, ``BandConfig``) the request
+    is a ``QDPLSIN2`` carrying it; without, the ``QDPLSIN1`` request v5 sent, byte for byte.
+    Keys go over as UTF-8 with ``surrogatepass``, which keeps Python's
     code-point order bytewise (``crates/qd-prep/src/lsh.rs``). The reply is checked in full:
     magic, flag, exact length, every index in range, every pair ``(lo, hi)`` with ``lo < hi``,
     no pair twice, and a pair count that is the bound plus one exactly when it says truncated.
@@ -2045,8 +2049,14 @@ def _prep_candidate_pairs(
             f"keys of {width} banded values"
         )
     encoded = [key.encode("utf-8", "surrogatepass") for key in keys]
+    header = (
+        [_LSH_REQUEST_MAGIC_V2, struct.pack("<IIIQQ", bands, rows, min_agreement_permille,
+                                            max_pairs, n)]
+        if min_agreement_permille
+        else [_LSH_REQUEST_MAGIC, struct.pack("<IIQQ", bands, rows, max_pairs, n)]
+    )
     parts = [
-        _LSH_REQUEST_MAGIC, struct.pack("<IIQQ", bands, rows, max_pairs, n),
+        *header,
         np.fromiter(map(len, encoded), dtype="<u4", count=n), b"".join(encoded),
         np.ascontiguousarray(banded, dtype="<u8"),
     ]
@@ -2259,7 +2269,7 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
         bound = min(max_pairs, len(keys) * (len(keys) - 1) // 2)
         got = _prep_candidate_pairs(
             Path(named), keys, matrix[at, :width], bands=config.bands, rows=config.rows,
-            max_pairs=bound,
+            max_pairs=bound, min_agreement_permille=config.min_agreement_permille,
         )
         if got.truncated:
             # The reply is an order-dependent prefix; only the whole search can confirm it.

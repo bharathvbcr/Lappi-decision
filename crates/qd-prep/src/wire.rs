@@ -169,8 +169,9 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
 }
 
 impl Request<'_> {
-    /// The shingles of one document, in input order.
-    fn shingles(&self, doc: &Doc) -> impl Iterator<Item = &[u8]> {
+    /// The shingles of one document, in input order; [`crate::dedupe`] reads them for the exact
+    /// Jaccard that confirms a candidate pair.
+    pub(crate) fn shingles(&self, doc: &Doc) -> impl Iterator<Item = &[u8]> {
         let mut at = doc.bytes.start;
         le_u32s(&self.buf[doc.lengths.clone()]).map(move |l| {
             let len = l as usize;

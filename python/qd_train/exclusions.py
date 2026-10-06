@@ -53,8 +53,7 @@ from typing import Any, Final
 from qd_data.config import DataConfig
 from qd_data.fingerprint import code_fingerprint
 from qd_data.rows import DataRow
-from qd_data.sources import PINNED_SPLIT_KEY
-from qd_data.split import HELD_OUT, SplitReport, assign_repo
+from qd_data.split import SplitReport, planned_split
 
 from .containment_strip import STRIP_RULE, STRIP_VERSION
 from .replay import DEFAULT_N, DEFAULT_THRESHOLD
@@ -309,18 +308,10 @@ def pre_dedupe_drops_identity(path: Path | None) -> dict[str, object]:
 
 def split_before_dedupe(row: DataRow, *, config: DataConfig) -> str:
     """The split ``qd_data.split.split`` gives ``row`` if it survives dedupe: its family's
-    hold-out, else its pinned split, else its repo's hash. The same three steps, from the
-    same functions, as that function's per-row assignment, which
-    ``test_pre_dedupe_drops`` checks row for row against ``split`` itself."""
-    if config.is_held_out_family(row.family_id):
-        return HELD_OUT
-    pinned = row.metadata.get(PINNED_SPLIT_KEY)
-    if pinned is not None:
-        return str(pinned)
-    return assign_repo(
-        row.repo_key, seed=config.seed, train_fraction=config.train_fraction,
-        val_fraction=config.val_fraction,
-    )
+    hold-out, else its pinned split, else its repo's hash -- ``qd_data.split.planned_split``,
+    the one owner of that rule, which ``split`` assigns with and ``test_pre_dedupe_drops``
+    checks row for row against ``split`` itself."""
+    return planned_split(row, config=config)
 
 
 def drop_before_dedupe(

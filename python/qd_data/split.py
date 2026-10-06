@@ -52,10 +52,12 @@ from .dedupe import (
     EXACT_CONTENT,
     NEAR_DUPLICATE_RULING,
     DedupeReport,
+    band_config_for,
+    lsh_prefilter_note,
     near_duplicate_policy,
     text_digest,
 )
-from .minhash import MinHasher, candidate_pairs, choose_bands, exact_jaccard, shingle
+from .minhash import MinHasher, candidate_pairs, exact_jaccard, shingle
 from .rows import DataRow
 from .sources import PINNED_SPLIT_KEY
 
@@ -69,6 +71,8 @@ __all__ = [
     "SplitReport",
     "assign_repo",
     "content_disjoint_families",
+    "planned_split",
+    "repo_split_of",
     "split",
     "squad_title_family",
     "squad_title_repo_key",
@@ -161,6 +165,40 @@ def assign_repo(
     if u < train_fraction + val_fraction:
         return "val"
     return HELD_OUT
+
+
+def repo_split_of(row: DataRow, *, config: DataConfig) -> str:
+    """``row``'s content-boundary split: its pinned split, else its repo's hash.
+
+    A source that pins splits (``Source.pinned_splits``, e.g. cais/mmlu: test and dev train,
+    validation val) decides the content boundary by its upstream split, not by the repo hash --
+    hashing MMLU validation subjects into train is the bug this closes. The pinned split is part
+    of such a row's repo_key, so repo-disjointness still holds by construction; a value outside
+    SPLITS is refused loudly, never defaulted.
+    """
+    pinned = row.metadata.get(PINNED_SPLIT_KEY)
+    if pinned is not None:
+        if pinned not in SPLITS:
+            raise ValueError(
+                f"{row.row_id}: metadata[{PINNED_SPLIT_KEY!r}] is {pinned!r}, which is not one "
+                f"of {SPLITS}"
+            )
+        return pinned
+    return assign_repo(
+        row.repo_key,
+        seed=config.seed,
+        train_fraction=config.train_fraction,
+        val_fraction=config.val_fraction,
+    )
+
+
+def planned_split(row: DataRow, *, config: DataConfig) -> str:
+    """The split :func:`split` gives ``row`` if it survives dedupe: its family's hold-out, else
+    :func:`repo_split_of`. The one owner of that rule; ``split`` assigns with it, dedupe's v6
+    keep rule ranks with it and ``qd_train.exclusions.split_before_dedupe`` delegates to it."""
+    if config.is_held_out_family(row.family_id):
+        return HELD_OUT
+    return repo_split_of(row, config=config)
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,32 +359,12 @@ def split(
     rows = report.kept
     assignments: list[SplitAssignment] = []
     for row in rows:
-        # A source that pins splits (``Source.pinned_splits``, e.g. cais/mmlu: test and dev
-        # train, validation val) decides the content boundary by its upstream split, not by
-        # the repo hash -- hashing MMLU validation subjects into train is the bug this closes.
-        # The pinned split is part of such a row's repo_key, so repo-disjointness still holds
-        # by construction; a value outside SPLITS is refused loudly, never defaulted.
-        pinned = row.metadata.get(PINNED_SPLIT_KEY)
-        if pinned is not None and pinned not in SPLITS:
-            raise ValueError(
-                f"{row.row_id}: metadata[{PINNED_SPLIT_KEY!r}] is {pinned!r}, which is not one "
-                f"of {SPLITS}"
-            )
-        repo_split = (
-            pinned
-            if pinned is not None
-            else assign_repo(
-                row.repo_key,
-                seed=config.seed,
-                train_fraction=config.train_fraction,
-                val_fraction=config.val_fraction,
-            )
-        )
+        repo_split = repo_split_of(row, config=config)
         held_by_family = config.is_held_out_family(row.family_id)
         assignments.append(
             SplitAssignment(
                 row_id=row.row_id,
-                split=HELD_OUT if held_by_family else repo_split,
+                split=planned_split(row, config=config),
                 repo_split=repo_split,
                 repo_key=row.repo_key,
                 family_id=row.family_id,
@@ -557,7 +575,7 @@ def _cross_split_near_duplicates(
             )
         )
     hasher = MinHasher(num_perm=config.num_perm, seed=config.seed)
-    band_config = choose_bands(num_perm=config.num_perm, threshold=config.dedupe_threshold)
+    band_config = band_config_for(config)
     sh = {r.row_id: shingle(r.dedupe_text, k=config.shingle_size).shingles for r in rows}
     sigs = {rid: hasher.signature(s) for rid, s in sh.items()}
     cands, truncated = candidate_pairs(sigs, config=band_config, max_pairs=max_candidate_pairs)
@@ -590,5 +608,6 @@ def _cross_split_near_duplicates(
             else "near-duplicate pairs span a repo split boundary: "
             + ", ".join(f"{a}~{b} (J={j:.3f})" for a, b, j in offenders[:5])
         )
+        + lsh_prefilter_note(band_config)
         + scope_note,
     )
