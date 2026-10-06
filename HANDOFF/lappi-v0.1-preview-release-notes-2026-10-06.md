@@ -27,12 +27,36 @@ mutation-labelled distribution only. Transfer to naturally occurring defects is 
 
 `trained_families`: 23, recorded in the release manifest. The runtime refuses every other task.
 
-**Load-tested: no.** It was exported and hash-verified only; no `qd` runtime binary was built to load
-it (rule 5).
+**Load-tested: yes, on the Mac's GPU, 2026-10-06 02:56Z** [V]. `qd-metal-serve` at a766fcf
+(`build/v6x/loadtest.sh`, `loadtest_defect.sh`) bound to this release directory, and requests went
+through `qd oneshot --socket`, the product path. Outputs are in
+`/Users/bharath/qd-campaign/preview-2026-10-05/loadtest/`.
+
+**What worked:**
+- The server confirmed weight_hash 6f7b9ba7… and calibration 7e56b34e… at bind.
+- The backend is `qd-metal/qwen3.5-2b-base/tessl`, not degraded, and every request was served through the socket.
+- **Latency:** the first request took 3.37 s (it loads the model); after that the median was 0.12 s and the maximum 0.76 s.
+
+**The replay** was 90 val choice rows from the 15 decision-pool families scored at 6af73bef, 6 per family, deterministic. `build/v6x/replay_requests.py` built them through training's own request builder.
+- Served correctness equals the CUDA scoring's correctness on 89 of 90 rows.
+- The CUDA scoring shuffled option order, so answers are compared by correctness, not by option.
+- **Answered:** 85, of which 70 were correct.
+- **Abstained:** 5. On 4 of them CUDA was wrong; the fifth was a correct low-margin NLI row (score 0.117), which is the one disagreement.
+
+**Refusals behaved as specified:**
+- An untrained task gets `task_not_trained`.
+- A wrong calibration-hash pin gets `hash_mismatch`; the right pin answers.
+
+**`code.defect_class` is not servable by this release.** This is the core family and DevCouncil's use.
+- **Its trained request asks for a choice slot and a span slot.** The span slot is refused with `calibration_entry_missing` (no span entry, GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS).
+- **Asking for the choice slot alone** is a prompt the model never saw, because slots are rendered into it. On `a + b` → `a - b` it answered `noul`, score 0.405.
+- **The multi-file `diff --git` / `---` / `+++` shape** is refused as `context_not_unified_diff`. v4's composed-v1 defect rows use it, per the 10-01 gap; v5's composed-v2 is assumed to as well, not verified here. The documented example request, which carries a `---`/`+++` preamble, is refused the same way. Both are GAP-ADMISSION-REFUSES-COMPOSED-DEFECT-CLASS-ROWS, open since 10-01, now measured.
+
+So the preview serves the general decision families' choice questions only. This is GAP-PREVIEW-DOES-NOT-SERVE-CODE-DEFECT-CLASS-2026-10-06.
 
 ## What it serves
 
-- **Choice (letters) slots:** 15 entries, 3 to 17 options.
+- **Choice (letters) slots of the general decision families:** 15 entries, 3 to 17 options. **Not `code.defect_class`** (see the load test above).
 - **Span requests refuse** (`calibration_entry_missing`): span verdicts carry no pointer distribution, so no span entry can be fitted (GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS).
 - **Score requests refuse.**
 
@@ -122,5 +146,6 @@ The record's `average_may_promote` is false, so an average cannot promote under 
 - GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05
 - GAP-SHUFFLED-LABEL-REQUIRED-ON-EVERY-SEED-2026-10-05
 - GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06
+- GAP-ADMISSION-REFUSES-COMPOSED-DEFECT-CLASS-ROWS (measured 10-06)
+- GAP-PREVIEW-DOES-NOT-SERVE-CODE-DEFECT-CLASS-2026-10-06
 - The `qd-export` fix branch awaits the human's merge.
-- A load test with the `qd` runtime is offered, not run.

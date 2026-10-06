@@ -2036,13 +2036,15 @@ The human's open items (GitPulse `LAPPI-HUMAN-2026-10-05`):
 - decide the two re-specs (`HANDOFF/promotion-respec-proposal-2026-10-05.md`);
 - the v6 plan (`HANDOFF/v6-plan-proposal-2026-10-06.md`).
 
-The next lane's first step is the release's load test. Build the `qd` runtime in a worktree, never
-in main's checkout (`cargo -j 2` under `tools/mac_heavy.sh`), then load it:
+**The load test is done** (~02:56Z 10-06; the release notes' "Load-tested" section).
+- `qd` alone has no model backend at a766fcf. The load path is `qd-metal-serve --release <dir>`, with requests through `qd oneshot --socket`.
+- General decision families: served, and correctness equals CUDA's on 89 of 90 replayed val rows.
+- **`code.defect_class` is not servable**: GAP-PREVIEW-DOES-NOT-SERVE-CODE-DEFECT-CLASS-2026-10-06. That finding goes to the human before any DevCouncil wiring.
+
+To rerun the load test (builds are in `/Users/bharath/qd-campaign/target-preview-a766fcf/release/`):
 
 ```bash
-bash /Users/bharath/Code/research/Lappi-decision/tools/mac_heavy.sh qd-build env CARGO_TARGET_DIR=/Users/bharath/qd-campaign/target-preview-a766fcf cargo build --release -j 2 --manifest-path /Users/bharath/Code/research/Lappi-decision/build/preview-wt/Cargo.toml -p qd-runtime --bin qd
+bash /Users/bharath/Code/research/Lappi-decision/tools/mac_heavy.sh preview-loadtest bash /Users/bharath/Code/research/Lappi-decision/build/v6x/loadtest.sh
 ```
 
-Then `qd oneshot` against
-`/Users/bharath/qd-campaign/preview-2026-10-05/release-lappi-v0.1-preview/`. Read `qd --help`
-for the current flags, and run it under `tools/mac_heavy.sh`.
+`loadtest.sh` refuses nothing on an existing `replies/` directory; it overwrites it.
