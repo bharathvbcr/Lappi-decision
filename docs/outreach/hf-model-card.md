@@ -70,7 +70,12 @@ pre-registered bar on two of six lines (span accuracy and out-of-distribution ab
   - multi-file `diff --git` / `---` / `+++` contexts are refused at admission.
 - **Span answers are not served.** Neither is the span-only `qa.answer_span` family. The span head
   in this release is the mean of five seeds' heads, which point in nearly unrelated directions, and
-  it measures 0.773 span top-1 against 0.907-0.915 for single seeds. It is not used.
+  it measures 0.773 span top-1 against 0.907-0.915 for single seeds. It is not used. The span
+  figure pools SQuAD answer spans (5,139 validation rows; 0.730 for this release) and code-change
+  evidence lines (2,099; 0.878). On the code rows it is weak evidence that the head locates
+  changes: the diff's `+` markers show the changed lines, and on an earlier run a pointer to a
+  random added line scored 90.8% where the head scored 92.3%. v5's rows were not measured against
+  that baseline.
 - **Score (ordinal) slots** are refused. No family trained one.
 - **Out-of-distribution abstention fails its bar.** On 180 inputs it was never trained for, it
   abstained on 149 (bar: at least 90%, so 162). By kind: unseen programming languages 40/60,
@@ -133,6 +138,13 @@ repository); the script reproduces the published all-families numbers first.
 CommonsenseQA-derived; both are bounded by what a 2B base model knows. `pairwise.helpfulness`
 (which of two responses is more helpful) is near chance.
 
+**These are internal validation numbers, not benchmark results.** MMLU's test and dev splits are
+training data for this model (its validation split is the family's val), and CLINC150's train,
+validation and test splits were all read and re-split by intent, so the published test utterances
+of the training intents are training data. CommonsenseQA's validation split is used as a curated
+internal val, with overlapping training rows removed. Do not report this model's MMLU or CLINC150
+scores as benchmark results.
+
 **Served through the runtime:** 90 validation questions from the 15 load-tested families, 6 each,
 were replayed through the product path on Apple silicon. Served correctness equalled the training
 cluster's scoring on 89 of 90. It answered 85 (70 correct) and abstained on 5.
@@ -155,10 +167,49 @@ only.
   [-0.039, +0.094].
 - **Gemma 4 E4B is clearly better:** +0.200 [+0.133, +0.257].
 - **Outside RewardBench 2's Ties domain, Lappi is near chance.**
-- **On RM-Bench's code pairs it scores 0.111.** Of 108 calls it answered "tie" on 53, picked the
-  broken program on 43 and the correct one on 12. Code is its own domain, so this is a real defect.
+- **On RM-Bench's code pairs it scores 0.111** (54 pairs, 6 prompt groups, exploratory). Of 108
+  calls it answered "tie" on 53, picked the broken program on 43 and the correct one on 12. These
+  pairs reach Lappi as a "which answer is better" question, through `pairwise.helpfulness` (its
+  weakest family, 2% of training), not through the code-defect question it was trained on.
 - Lappi is more order-consistent than Qwen3.5-2B and had no failed calls.
-- Gemma 4 E4B with reasoning on: pending.
+- **The decision families' training rows were checked against JevArena's three source
+  benchmarks** (8-gram containment); one overlapping `pairwise.helpfulness` row was removed. The
+  code family was not checked against RM-Bench's code.
+
+**The code-defect question on RM-Bench's programs** (a diagnostic probe, not a gate). Each program
+was rendered as a whole-file diff, the shape the training corpus uses for added files, and asked
+the trained `code.defect_class` request; a pair counts as separated when the correct program gets
+the higher probability of `clean`. Scored with these weights through the project's Metal scorer,
+not the serving runtime, which does not serve this family.
+
+| Check | Pairs | Separated [95% interval] |
+|---|---|---|
+| The probe reads the model correctly: top-1 on all 2,304 `code.defect_class` validation rows | 2,304 rows | 0.956 (ledger: 0.950-0.958) |
+| A commit's real file vs the same file with a planted mutation | 85 | **0.906** [0.835, 0.965] |
+| ... planted `logic` / `stub` / `cosmetic` mutations | 25 / 36 / 24 | 0.960 / 1.000 / 0.708 [0.500, 0.875] |
+| RM-Bench: correct vs broken program (Go, Python, Rust) | 125 | **0.536** [0.448, 0.624], no separation |
+
+- It separates the kinds of mutation it was trained on (not cosmetic ones), and it does not
+  separate RM-Bench's correct and broken programs: on both, it calls most of them `clean`.
+- RM-Bench programs in C++, Java and JavaScript (206) are refused: those languages are not in the
+  training pool.
+- The readout was written down before the probe ran. Its fidelity check was re-specified once,
+  before the full-validation run, because the first version compared a stratified sample with a
+  population figure; under the first version the probe was uninterpreted.
+
+**Gemma 4 E4B with reasoning on**, on a 191-pair subset of the same data (no tie answers in it;
+8,192-token output cap), against the other judges scored on the same 191 pairs:
+
+| Judge | Domain macro | All pairs (micro) [95%] | Order consistency | Median time per call |
+|---|---|---|---|---|
+| Lappi v0.1 preview | 0.529 | 0.571 [0.466, 0.671] | 0.639 | 0.24 s |
+| Qwen3.5-2B, as a chat judge | 0.547 | 0.616 [0.512, 0.709] | 0.484 | 0.37 s |
+| Gemma 4 E4B, no reasoning | 0.635 | 0.721 [0.599, 0.815] | 0.729 | 0.59 s |
+| Gemma 4 E4B, reasoning on | 0.708 | 0.816 [0.728, 0.882] | 0.853 | 14.0 s |
+
+- Gemma with reasoning minus Lappi, paired: **+0.245** [+0.122, +0.347].
+- Times are the harness's wall clock per call over different transports, not a kernel
+  measurement.
 
 Full results: [JevArena results page](https://claude.ai/artifact/Hdq9CDPFQrqN6DJLnkKNEd)
 <!-- private until the author shares it; remove the link otherwise -->
@@ -324,6 +375,10 @@ Z. noul
 - **Deduplication and splits:** MinHash/LSH (threshold 0.8) across the pool. Training rows that
   overlap validation rows were excluded, after an earlier corpus was found to share 215 validation
   rows with MMLU and CommonsenseQA training rows.
+- **Public test splits in the training data:** MMLU's test and dev splits, and CLINC150's test
+  utterances for the training intents, were trained on (see the note under the per-family table).
+  The decision families were checked against ARC's test split, BoolQ's validation split, VitaminC's
+  test split and JevArena's three source benchmarks, and overlapping rows were removed.
 - **Controls:** a model trained on shuffled labels scored at chance on v5 seeds 0-3 (0.218-0.237
   against a 0.305 ceiling); it was not run on seed 4. A per-family linear baseline on v5 seed 0
   trailed Lappi on 20 of 22 families. No control was run on the averaged weights themselves.
@@ -333,7 +388,10 @@ Z. noul
 - A preview. It is not promoted under the project's own rules, and its two missed lines (span and
   OOD abstention) are real.
 - It answers confidently on some inputs it should refuse: unseen programming languages above all.
-- It does not serve the code-review use it was built for.
+- It does not serve the code-review use it was built for. Asked its own code-defect question, it
+  separates planted mutations of the kinds it was trained on, but not RM-Bench's correct and broken
+  programs.
+- Its MMLU and CLINC150 scores are not benchmark results: their test items are in the training data.
 - Calibration on 16-option questions fails its own threshold.
 - The training text is English (the code is in several programming languages). Contexts and
   option text outside the trained families' shapes are untested.
@@ -343,7 +401,7 @@ Z. noul
 
 | File | What |
 |---|---|
-| `model.safetensors` | The language tower in bf16 (320 `model.language_model.*` tensors), the mean of five seeds. No vision tower |
+| `model.safetensors` | The language tower in bf16 (320 `model.language_model.*` tensors, 1,881,825,088 parameters), the mean of five seeds. No vision tower, so the count is below the base model's published total |
 | `config.json`, `tokenizer.json`, `tokenizer_config.json`, `vocab.json`, `merges.txt` | The base model's files, byte for byte. `config.json` still describes the base's multimodal architecture; only its text tower is in this release |
 | `calibration.json` | Per slot width: temperature, conformal quantile, abstention margin. Span is `null` |
 | `release_manifest.json` | The hashes the runtime checks at load, and the trained families |

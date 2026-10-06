@@ -62,10 +62,53 @@ Paths are relative to this repository unless they name the campaign directory.
 | two kernel panics on 10-02 | `AUDIT/mac-stability-2026-10-02/report.md` |
 | peers' figures | `AUDIT/prior-art-jev-nimble-2026-09-19.md`, `docs/build-order-2026-09-19.md` (README-level claims; none measured here) |
 | prompt format 2 text, the 21 trained questions | rendered by `python/qd_data/render.py` from load-test request r023; `python/qd_data/sources.py:716-770` |
+| Gemma 4 E4B reasoning pilot: 191 pairs; 0.708 / 0.816 / 0.853 / 14.0 s; Lappi 0.529 / 0.571 / 0.639 / 0.24 s on the same pairs; +0.245 [+0.122, +0.347] | campaign `lappi-bench-2026-10-06/jev-compare-pilot.txt` (`compare_all.sh`); the run's status `complete`, 382 calls, in `logs/jev-gemma4-think-pilot-run2.log` |
+| RM-Bench code pairs reach Lappi through `pairwise.helpfulness` (2% of training, weakest family) | GitPulse card `ft-882ed8fcd29cfacd3e1cf14748a0e9de` (Fable's diagnosis, revision 2) |
+| Defect probe: C1 0.956 on 2,304 val rows; C2 0.906 [0.835, 0.965] of 85 (logic 0.960, stub 1.000, cosmetic 0.708); RM-Bench 0.536 [0.448, 0.624] of 125; 206 programs refused by language | campaign `lappi-bench-2026-10-06/defect-probe/`: `report-c1full.txt` (C1, PASS), `report.txt` (C2 and A, first pass, primary), `REREGISTRATION-c1full.md`, design in `build_requests.py`'s docstring |
+| MMLU test and dev trained on; CLINC150 test utterances of training intents trained on; CommonsenseQA val is a curated internal val | `python/qd_data/sources.py:196-204`, `:219-227`, `:486-493`; GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03 |
+| Decision families checked against ARC test, BoolQ val, VitaminC test and JevArena's sources; 1 `pairwise.helpfulness` row hit jevjudge; remaining hits 0 | campaign `v5-decisions-data-2026-10-03/pool-v5-decisions-v4/containment/attestation.json` |
+| A random added line scores 90.8% where the span head scored 92.3% (diff mode, an earlier run) | GAP-THE-DIFF-MARKS-ITS-OWN-ANSWER-FOR-THE-SPAN-HEAD (2026-09-22) |
+| Span rows: `qa.answer_span` 3,753 / 5,139 (0.730), `code.defect_class` 1,843 / 2,099 (0.878); 5,596 / 7,238 in all | campaign `preview-2026-10-05/v5-avg-verdicts/verdicts-avg.jsonl`, `kind == span` rows counted by family by this lane |
+| 1,881,825,088 parameters, 320 tensors | the release's `model.safetensors` header, summed by this lane |
 
-**Left out on purpose:** the GH200 cost floor ($129.35 in the story notes; not found in the cited
-files by this lane), and any "no gate moved", "trained without PyTorch", "calibration guarantee",
-"span grounding shipped" or "DevCouncil uses it" claim (the story notes' do-not-claim list).
+**Left out on purpose:**
+- the GH200 cost floor ($129.35 in the story notes; not found in the cited files by this lane);
+- any "no gate moved", "trained without PyTorch", "calibration guarantee", "span grounding
+  shipped" or "DevCouncil uses it" claim (the story notes' do-not-claim list);
+- "picks the longer program on 37 of 55 calls": the GitPulse card asks for the style prior to be
+  measured on more than 6 prompt groups before any public claim;
+- calling the RM-Bench 0.111 "a defect in its own domain": the same card says the pairs never asked
+  the code-defect question. The defect probe now asks it, and the drafts report that instead;
+- the needle misses' diagnosis (one hunk early, Swift and TypeScript only;
+  `HANDOFF/needle-span-mac-2026-10-06.md`): no public claim depends on it, and the averaged
+  weights miss none.
+
+## Re-audit against the 2026-10-06 afternoon results
+
+What the new results changed in the drafts:
+- **The Gemma 4 E4B reasoning pilot finished**, so every "pending" now gives its result, on its own
+  191-pair table and never mixed into the 849-pair one.
+- **The RM-Bench framing.** The drafts had called 0.111 a defect in Lappi's own domain. They now say
+  the pairs arrive as a helpfulness question, and they report the defect probe: it separates
+  planted mutations but not RM-Bench's correct and broken programs.
+- **A disclosure the card lacked:** MMLU's and CLINC150's test items are training data, so those
+  scores are not benchmark results.
+- **The span caveat:** span top-1 pools SQuAD answer spans (5,139 val rows, 0.730 for the average)
+  and code-change evidence lines (2,099, 0.878). On the code rows it is weak evidence, because the
+  diff's `+` markers show the changed lines. The caveat is scoped to those rows only.
+- **The abstain row** is described as a design choice, not a measured advantage (the literature in
+  `AUDIT/training-audit-2026-10-06.md` 4.1 says a reserved abstain class adds no separating
+  information, matching the OOD miss).
+
+Unchanged, and re-confirmed:
+- the 849-pair JevArena numbers (`jev-compare-all-test-g6.txt`, regenerated 09:29, same values);
+- the served-families split (the training audit, 2.5, cites this lane's evidence file);
+- "no head-to-head with a peer", for now: decider-2b's MPS smoke run failed (NaN probabilities in
+  fp16), its CPU smoke run passed, and its full 849-pair CPU run started at 14:49Z (about 7.7 s per
+  call, so about 3.5 hours). When it lands, the "not ranking them" paragraph in the article, card,
+  README and story page goes stale and needs the result;
+- 487,407 training rows: the data-clean plan's "558,790" counts shard sequences, which are not 1:1
+  with rows (`HANDOFF/v6-startup-2026-10-04.md:360-361`).
 
 ## The README conflicts with held work in main's checkout
 
@@ -85,7 +128,9 @@ Each is separate; a yes to one is not a yes to another.
 
 1. **Post the LinkedIn article** (`linkedin-article.md`), after you edit it.
 2. **Use the derived served-families numbers in public text** (0.842; ~91% at ~86%), or drop them
-   for the release notes' all-families figures.
+   for the release notes' all-families figures. The same question applies to the defect-probe and
+   reasoning-pilot results: both sit in the campaign bench directory, and their owning lane has not
+   written them up in a handoff yet.
 3. **Make `bharathvbcr/Lappi-decision` public.** The README, card and article point at it.
 4. **Push the `outreach-2026-10-06` branch,** or merge it into main (resolving the `README.md`
    conflict above).
@@ -94,6 +139,7 @@ Each is separate; a yes to one is not a yes to another.
 6. **Share the Lappi story page** this lane published privately.
 7. **Create the Hugging Face repo and upload** the release (`hf-release-plan.md`: redacted manifest,
    no span head, `LICENSE` and `LICENSE-Qwen`), with your own token.
-8. **Settle the two licence questions** in `hf-release-plan.md`: ShareAlike on the CC BY-SA rows,
-   and DeepSeek's output terms for the synthetic source.
+8. **Settle the licence questions** in `hf-release-plan.md`: ShareAlike on the CC BY-SA rows,
+   DeepSeek's output terms for the synthetic source, and OpenAI's terms for WANLI's GPT-3 seeds
+   (behind Open-Jev's NLI rows).
 9. **Push and deploy the Portfolio** branch (`lappi-v0.1-preview`), after its local CI.

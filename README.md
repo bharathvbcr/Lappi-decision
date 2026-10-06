@@ -44,7 +44,11 @@ The served-families row is recomputed from the same score row's verdicts by
   request needs a span slot, which has no calibration in this release. A choice-only request is a
   prompt the model never saw. Multi-file diffs are refused at admission.
 - **Span and score slots.** The release's span head is the mean of five seeds' heads, which do not
-  agree, and it is not served.
+  agree, and it is not served. Span top-1 pools SQuAD answer spans (5,139 val rows) and
+  code-change evidence lines (2,099). On the code rows it is weak evidence, because the diff's `+`
+  markers show the changed lines (GAP-THE-DIFF-MARKS-ITS-OWN-ANSWER-FOR-THE-SPAN-HEAD).
+- **Benchmark scores on MMLU or CLINC150.** Their test items are training data
+  (`python/qd_data/sources.py`, `benchmark_reportable=False`).
 - **Anything outside the 23 trained families**: refused with `task_not_trained`.
 
 ### How it compares
@@ -53,8 +57,13 @@ On [JevArena](https://github.com/chenmingtang830/jevarena), a pairwise-judge ben
 trained for (849 pairs, local models only), Lappi ties Qwen3.5-2B: domain macro 0.534 against
 0.522, with an interval on the difference that includes zero. Gemma 4 E4B (8B) is clearly better
 (0.632). Lappi is near chance outside RewardBench 2's Ties domain and scores 0.111 on RM-Bench's
-code pairs, where it calls most pairs a tie or prefers the broken program. A Gemma 4 E4B run with
-reasoning on is pending. Details: `HANDOFF/merge-and-bench-2026-10-06.md` section 6.
+code pairs, where it calls most pairs a tie or prefers the broken program. Those pairs reach it as a
+"which answer is better" question, through `pairwise.helpfulness`, its weakest family. Asked its own
+code-defect question in a diagnostic probe, it separates a commit's real file from the same file
+with a planted mutation (0.906 of 85 pairs), but not RM-Bench's correct programs from the broken
+ones (0.536 of 125 pairs, chance). On a 191-pair subset with no ties, Gemma 4 E4B with reasoning on
+scores 0.816 against Lappi's 0.571 on the same pairs, at about 14 s per verdict. JevArena details:
+`HANDOFF/merge-and-bench-2026-10-06.md` section 6.
 
 On an M5 Pro, a full decision takes about 72 ms at a 124-token prompt and 2.3 s at 8,185 tokens. That
 is the same as the base model: only the weights differ (section 5 of the same file).
@@ -70,7 +79,8 @@ answer   { slot -> { value, conformal_set, score, noul, degraded } }
   normalisation can never move a line.
 - **A choice slot is decoded over 17 rows:** up to 16 option letters, plus one reserved abstain row
   (`noul`), always last. The abstain row competes in the same softmax but is never an option, so the
-  abstain rate is not entangled with the label distribution.
+  abstain rate is not entangled with the label distribution. That is the design's intent; on its own
+  the row did not make out-of-distribution abstention pass (149 / 180).
 - **Each choice is asked twice,** the second time with the options permuted. If the two passes
   disagree, the answer is `noul`.
 - **Calibration** is a fitted table per slot width (temperature, conformal quantile, abstention

@@ -30,7 +30,8 @@ Two design choices matter more than the size:
 - **Abstaining is a row, not an option.** Most small decision models add a "none of these" answer.
   That answer competes with the real options for probability, so how often the model abstains gets
   tangled up with which labels are common. Lappi's abstain row competes in the same softmax but is
-  never one of the options.
+  never one of the options. That is a design choice, not a measured win: the out-of-distribution
+  result below shows that the row alone does not make it refuse what it has never seen.
 - **Every question is asked twice.** The second time the options are in a different order. If the
   two answers disagree, Lappi abstains. A model that changes its mind when you shuffle the options
   was not reading them.
@@ -92,7 +93,9 @@ measures. It passed four and missed two.
   rest it answers, often confidently.
 - **Span accuracy fell to 77%.** The span head says which line is the evidence. Averaging five seeds
   blended span heads that point in nearly unrelated directions. So this release does not serve span
-  answers at all.
+  answers at all. The span figure mixes reading-comprehension answers with code changes, and on
+  code it is a weak test anyway: the diff's `+` markers already show which lines changed. On an
+  earlier run, a pointer that picked a random added line scored 90.8% where the head scored 92.3%.
 
 I shipped it anyway, as a preview, because it is my first model and I would rather show it with its
 measurements than polish it in private.
@@ -123,12 +126,20 @@ for.
 - **Gemma 4 E4B, about four times larger, is clearly better.**
 - **Outside one domain (deciding when two answers are equally good), Lappi is near chance.**
 - **On RM-Bench's code pairs it scored 0.111.** It called most pairs a tie or picked the broken
-  program. That is a defect in the domain it was built for, and the next version has to fix it.
-- A run of Gemma 4 E4B with reasoning on is still pending.
+  program. JevArena asks "which answer is better", and that reaches Lappi through its weakest
+  family (pairwise helpfulness, 2% of training), not through the code-defect question it was
+  trained on. So I asked it that question directly. It tells a real file from the same file with a
+  planted bug (0.906 of 85 pairs), but it does not tell RM-Bench's correct programs from the broken
+  ones (0.536 of 125 pairs, which is chance). It recognises the kind of bug it was trained on, not
+  RM-Bench's. That is the gap the next version has to close.
+- **With reasoning on, Gemma does better still, at a price.** On a 191-pair subset with no ties in
+  it, Gemma 4 E4B scored 0.816 with reasoning and 0.721 without; Lappi scored 0.571 on the same
+  pairs. With reasoning it took about 14 s per verdict, where Lappi took about 0.24 s.
 
 Other small "typed decision" models appeared the same week I started: TypeSafe's Jev, Bespoke's
 Nimble, and decider-2b, which uses the same base model. Their published numbers are on different
-tasks and metrics, and I have not run them head to head, so I am not ranking them against Lappi.
+tasks and metrics. I have not run them head to head (a run of decider-2b through the same harness
+has no result yet), so I am not ranking them against Lappi.
 By their own documentation, none of them returns a span (which line is the evidence), and where
 abstention is documented it is a catch-all answer.
 

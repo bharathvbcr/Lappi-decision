@@ -158,9 +158,10 @@ footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: 0.8
         <dt>Answer</dt><dd><strong>inquiry</strong>, score <span class="num">0.986</span>, not an abstention</dd>
       </dl>
       <p>Options fill the letters from A down. The abstain row, <code>Z. noul</code>, is always the
-      last row: it competes for probability like an option but is never one. Each question is asked
-      twice, the second time with the options in a different order, and if the two answers differ
-      Lappi abstains.</p>
+      last row: it competes for probability like an option but is never one. That is a design
+      choice, not a measured advantage: on its own it did not make out-of-distribution abstention
+      pass. Each question is asked twice, the second time with the options in a different order, and
+      if the two answers differ Lappi abstains.</p>
     </div>
     <div class="slice" role="img" aria-label="The 17-row letter slice for this request: options A to F filled, D (inquiry) chosen, G to P unused, Z the abstain row">
       <div class="slice-head">17-row slice</div>
@@ -207,7 +208,10 @@ footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: 0.8
   <p>The out-of-distribution line also fails its absolute bar of 90%. Prose got 60 of 60
   abstentions, scrambled text 49 of 60, and unseen programming languages only 40 of 60. The span
   line fell because averaging blended five span heads that point in nearly unrelated directions, so
-  this release does not serve span answers. The author released it as a preview anyway.</p>
+  this release does not serve span answers. The span line pools reading-comprehension answers and
+  code-change evidence lines, and on the code rows it is a weak test: the diff's <code>+</code>
+  markers show the changed lines (on an earlier run a pointer to a random added line scored 90.8%
+  where the head scored 92.3%). The author released it as a preview anyway.</p>
 </section>
 
 <section aria-labelledby="serves">
@@ -336,14 +340,37 @@ footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: 0.8
     <li>Gemma 4 E4B, about four times larger, is clearly better: +0.200 [+0.133, +0.257].</li>
     <li>Outside RewardBench 2's Ties domain, Lappi is near chance.</li>
     <li><strong>On RM-Bench's code pairs it scores 0.111.</strong> Of 108 calls it said "tie" on 53,
-    chose the broken program on 43 and the correct one on 12. Code is its own domain, so this is a
-    defect to fix.</li>
-    <li>Gemma 4 E4B with reasoning on: pending.</li>
+    chose the broken program on 43 and the correct one on 12. Those pairs reach it as a "which answer
+    is better" question, through its weakest family (pairwise helpfulness, 2% of training), not the
+    code-defect question it was trained on.</li>
   </ul>
+  <h3>Its own code question, on the same kind of programs</h3>
+  <p>A diagnostic probe asked Lappi its trained code-defect question about each program, rendered as
+  a whole-file diff. A pair counts as separated when the correct program gets the higher probability
+  of <code>clean</code>.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Pairs</th><th>Count</th><th>Separated [95%]</th></tr></thead>
+      <tbody>
+        <tr><td>A commit's real file vs the same file with a planted mutation</td><td class="num">85</td><td class="num">0.906 [0.835, 0.965]</td></tr>
+        <tr><td>RM-Bench: correct vs broken program (Go, Python, Rust)</td><td class="num">125</td><td class="num">0.536 [0.448, 0.624]</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>It recognises the logic and stub mutations it was trained on (not cosmetic ones), but it does
+  not tell RM-Bench's correct programs from the broken ones: it calls most of both
+  <code>clean</code>. Before reading either arm, the probe checked that it reads the model correctly:
+  0.956 top-1 on all 2,304 validation rows of the code task, where the ledger has 0.950-0.958.</p>
+  <h3>Gemma 4 E4B with reasoning on</h3>
+  <p>On a 191-pair subset with no tie answers, scored against the other judges on the same pairs:
+  Gemma 4 E4B reaches 0.816 with reasoning and 0.721 without, against 0.571 for Lappi (with
+  reasoning minus Lappi: +0.245 [+0.122, +0.347]). With reasoning it takes about 14 s per verdict
+  in the harness; Lappi takes about 0.24 s.</p>
   <p><a href="https://claude.ai/artifact/Hdq9CDPFQrqN6DJLnkKNEd">The full JevArena results</a></p>
   <p class="note">Other small typed-decision models appeared the week this started: TypeSafe's Jev,
   Bespoke's Nimble, and decider-2b on the same base model. Their published numbers use other tasks
-  and metrics and were not run head to head here, so they are not ranked against Lappi.</p>
+  and metrics and were not run head to head here (a decider-2b run through the same harness has no
+  result yet), so they are not ranked against Lappi.</p>
 </section>
 
 <section aria-labelledby="next">
@@ -351,16 +378,19 @@ footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: 0.8
   <ul>
     <li>Serve the code-defect task: a release whose span calibration exists, or a trained
     choice-only request.</li>
-    <li>Average the tower but keep one seed's span head, so span survives (proposed for v6).</li>
-    <li>Fix abstention on unseen languages and the RM-Bench code result.</li>
+    <li>Rebuild the span head so it survives averaging: refit it on the averaged weights, keep one
+    seed's head, or start every seed from one shared head. A refit, compared with one seed's head,
+    is being set up first.</li>
+    <li>Fix abstention on unseen languages, and make the code-defect skill reach bugs it did not
+    plant itself.</li>
     <li>Publish the weights, model card and source. Each waits on the author's decision.</li>
   </ul>
 </section>
 
 <footer>
-  <span>Figures come from the project's release notes, benchmark handoff, pre-registration and
-  ledger. The served-family figures (21, 0.842, ~91% / ~86%) were recomputed from the same score
-  row's per-question verdicts.</span>
+  <span>Figures come from the project's release notes, benchmark handoff and results files,
+  pre-registration and ledger. The served-family figures (21, 0.842, ~91% / ~86%) were recomputed
+  from the same score row's per-question verdicts.</span>
   <span>Drafted 6 October 2026.</span>
 </footer>
 
