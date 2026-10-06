@@ -158,16 +158,8 @@ pub struct Phrasings {
 }
 
 fn read_pinned(path: &Path, want: &str) -> Result<(Value, String), String> {
-    let size = std::fs::metadata(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?
-        .len();
-    if size > MAX_FILE_BYTES {
-        return Err(format!(
-            "{}: {size} bytes; the bound is {MAX_FILE_BYTES}",
-            path.display()
-        ));
-    }
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::heldout::refuse_training_input(path, "tools data file")?;
+    let bytes = crate::files::read_bounded(path, MAX_FILE_BYTES, "tools data file")?;
     let got = sha256_hex(&bytes);
     decisions::check_pin(path, &got, want, "the config")?;
     let v = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;

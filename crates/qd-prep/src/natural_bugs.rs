@@ -48,12 +48,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use qd_lang::{DEFECT_CLASS_POOL_LANGUAGES, LangId, language_from_path};
 use serde_json::{Value, json};
 
 use crate::gitcli::{self, GitError, is_full_sha};
+use crate::heldout::check_held_out_path;
 use crate::own_repos::{self, civil_from_days, days_from_civil, split_of, utc_now};
 use crate::sha256::sha256_hex;
 
@@ -79,8 +80,6 @@ pub const AGENT_NAMES: [&str; 10] = [
     "gemini",
     "openai",
 ];
-/// `crates/qd-train/src/held_out.rs::DEFAULT_HELD_OUT_PATH_MARKERS`.
-pub const HELD_OUT_PATH_MARKERS: [&str; 3] = ["heldout", "held_out", "held-out"];
 /// The set's target size (`AUDIT/training-audit-2026-10-06.md` §4.7). Reported, never enforced
 /// by loosening a filter.
 pub const TARGET: (usize, usize) = (100, 300);
@@ -115,36 +114,6 @@ pub fn parse_cutoff(s: &str) -> Result<i64, String> {
         return Err(format!("--cutoff {s:?} is not a calendar date"));
     }
     Ok(days * 86_400)
-}
-
-/// Refuse an output path that `qd-train`'s path check would not refuse: no `..`, and some
-/// segment equal (ASCII case-insensitively) to a held-out marker.
-pub fn check_held_out_path(path: &Path) -> Result<(), String> {
-    if path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(format!(
-            "{} has a '..' segment; a held-out marker before it would not mark where the \
-             files land",
-            path.display()
-        ));
-    }
-    let marked = path.components().any(|c| match c {
-        Component::Normal(seg) => seg.to_str().is_some_and(|s| {
-            HELD_OUT_PATH_MARKERS
-                .iter()
-                .any(|m| s.eq_ignore_ascii_case(m))
-        }),
-        _ => false,
-    });
-    if marked {
-        Ok(())
-    } else {
-        Err(format!(
-            "{} has no path segment in {HELD_OUT_PATH_MARKERS:?}. This set must never be \
-             trained on, and a path without a marker is one qd-train's path check would let \
-             a training process open (CLAUDE.md rule 3).",
-            path.display()
-        ))
-    }
 }
 
 /// The [`FIX_WORDS`] a message holds, sorted and distinct.
@@ -715,16 +684,7 @@ pub struct Args<'a> {
 }
 
 fn read_bounded(path: &Path) -> Result<Vec<u8>, String> {
-    let len = fs::metadata(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?
-        .len();
-    if len > MAX_INPUT_BYTES {
-        return Err(format!(
-            "{}: {len} bytes; the bound is {MAX_INPUT_BYTES}",
-            path.display()
-        ));
-    }
-    fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
+    crate::files::read_bounded(path, MAX_INPUT_BYTES, "input")
 }
 
 #[derive(Default)]
@@ -892,7 +852,7 @@ pub fn run(args: &Args<'_>) -> Result<String, String> {
         return Err("--cutoff-basis is empty; say where the cutoff date comes from".into());
     }
     check_held_out_path(args.out_dir)?;
-    let partial = args.out_dir.with_extension("partial");
+    let partial = crate::files::partial_path(args.out_dir)?;
     for p in [args.out_dir, partial.as_path()] {
         if p.exists() {
             return Err(format!("{} exists; refusing to overwrite it", p.display()));
@@ -987,17 +947,18 @@ pub fn run(args: &Args<'_>) -> Result<String, String> {
     let mut report_bytes = serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?;
     report_bytes.push(b'\n');
 
-    fs::create_dir_all(&partial).map_err(|e| format!("{}: {e}", partial.display()))?;
-    // A symlinked parent could land the files somewhere unmarked; check where they really go.
-    let real = fs::canonicalize(&partial).map_err(|e| format!("{}: {e}", partial.display()))?;
-    if let Err(e) = check_held_out_path(&real) {
-        let _ = fs::remove_dir(&partial);
-        return Err(e);
+    // This subcommand makes the held-out directory it writes under; the write itself is whole
+    // or not at all.
+    if let Some(parent) = args.out_dir.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
-    own_repos::write_new(&partial.join("natural-bugs.jsonl"), &jsonl)?;
-    own_repos::write_new(&partial.join("report.json"), &report_bytes)?;
-    fs::rename(&partial, args.out_dir)
-        .map_err(|e| format!("{} -> {}: {e}", partial.display(), args.out_dir.display()))?;
+    crate::files::write_new_dir(args.out_dir, |partial| {
+        // A symlinked parent could land the files somewhere unmarked; check where they go.
+        let real = fs::canonicalize(partial).map_err(|e| format!("{}: {e}", partial.display()))?;
+        check_held_out_path(&real)?;
+        crate::files::write_synced_new(&partial.join("natural-bugs.jsonl"), &jsonl)?;
+        crate::files::write_synced_new(&partial.join("report.json"), &report_bytes)
+    })?;
     Ok(format!(
         "qd-prep natural-bugs: {} held-out repo(s), {} commits scanned, {} fix-like after the \
          cutoff, {n} single-statement fixes (target {}-{}: {}) -> {}",
@@ -1039,17 +1000,6 @@ mod tests {
             assert!(parse_cutoff(bad).is_err(), "{bad:?} accepted");
         }
         assert!(parse_cutoff("2024-02-29").is_ok(), "a leap day");
-    }
-
-    #[test]
-    fn an_output_path_needs_a_held_out_segment_and_no_dot_dot() {
-        let ok = |p: &str| check_held_out_path(Path::new(p)).is_ok();
-        assert!(ok("/x/v6/heldout/natural-bugs"));
-        assert!(ok("/x/HeldOut/natural-bugs"));
-        assert!(ok("data/held-out/nb"));
-        assert!(!ok("/x/v6/natural-bugs"), "no marker");
-        assert!(!ok("/x/heldoutset/nb"), "a marker is a whole segment");
-        assert!(!ok("/x/heldout/../train/nb"), "'..' escapes the marker");
     }
 
     #[test]

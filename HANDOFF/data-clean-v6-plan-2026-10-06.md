@@ -467,6 +467,164 @@ The pools are built by runner 2's first step (`synth-2`). Pools land at `/Users/
 
 **Tests [U, queued in runner 2]:** shape, unable removes the group, call offers a sibling, ask/direct gold, masking, assembly, the overlap break-it pair, underspecified naming a required parameter, a one-member group refused, the per-catalog ask rule (fails against the pre-fix parser, which refused the shipped file), exclusions (stale refused), and the shipped config end to end.
 
+## 9. Integration and hardening (2026-10-06, 18:50-20:00Z)
+
+**Integration [V].** Branch `integrate-v6-data` (`22c38b6`) holds S (the synth lane), the four lane merges, F (the dedupe lane's fingerprint merge) and C′ (every pool producer states its `allocation`; the loader refuses an unallocated pool). It was built in object space; main's HEAD and working tree were not touched. Worktree: `build/integ-v6/wt`. The workspace's relative `../../../tessl` and `ojas` paths resolve beside `build/integ-v6/`, so `build/integ-v6/{tessl,ojas}` are symlinks to `~/Code/research/{tessl,ojas}`. Runner 4's first launch (18:50Z) died on that and is void; its logs are kept as `runner-4.void-tessl-path.*`.
+
+**Runner 4 [V, `build/queue-2026-10-06/status-4.tsv`].** The tree was `22c38b6`, plus lane 4's held-out patch to `convert.rs`, plus `not_viewed` in the injections and swe-rebench manifests.
+
+| step | exit | note |
+|---|---|---|
+| integ-clippy | 0 | qd-prep, `-D warnings` |
+| integ-cargo-test | 0 | 197 lib tests, including lane 4's `an_entry_moved_to_held_out_is_loaded_unreachable_and_counted` |
+| integ-release | 0 | |
+| integ-torch-pytest | 1 | 4382 passed, 4 failed, 74 skipped, 69 errors. The 69 errors and 2 of the failures are the worktree environment, not code (no `<tree>/target/debug` fixture bins, the checkout named `wt`, no `.venv/bin/ruff`): **not run**, not passes. The other 2 failures are 18 gap ids that exist only in main's working-tree `gaps.jsonl`, all present there [V]; the merge carries it. GAP-INTEG-WORKTREE-PYTEST-NEEDS-MAIN-ENVIRONMENT-2026-10-06. |
+| integ-red-clinc | 0 | the new CLINC split test fails on the pre-fix tree `49c08ce`, as it must |
+| integ-pools | 1 | email refused, "0 scans: a decontamination against nothing is not a check". Jarvis and tools were **not run** (`set -e`, email first). The refusal left no `synth-email-v1` and no `.partial`, which is U2 observed. GAP-SYNTH-EMAIL-HAS-NO-HELD-OUT-TARGET-2026-10-06. |
+| span chain | running | val extract finished all 7,238 rows at `--batch-tokens 4096` (522 s, max RSS 20.7 GiB); the gate exited 0. Results are read only as pre-registered. |
+
+`write_pool` (the `not_viewed` list in the build-path manifest, with its test) was written after runner 4's cargo steps compiled the tree, so runner 5 re-checks it.
+
+**Runner 5** (queued behind 4, `run-queue-5.sh`) runs on the same tree:
+- qd-prep clippy, test and release;
+- the jarvis and tools synth pools, one step each, gated only on the build;
+- `view_v6.py`, which applies the TSSB addendum and never opens a held-out entry;
+- the six conversions.
+
+**Branch `stress-v6`** (worktree `build/integ-v6/stress`, off `22c38b6`; uncompiled until runner 6):
+- `crates/qd-prep/src/heldout.rs`: the one owner of rule 3's path marker in qd-prep.
+  - `check_held_out_path` moved here from `natural_bugs`.
+  - `refuse_training_input` checks both the lexical and the canonical path; `--target` files are exempt by design.
+  - Wired into `synth` (config, tools catalog and phrasings), `convert` (config, view record, licence cache, and `Views::train_rows`) and `decisions` (config, fetch record, every source, the decider files). GAP-QD-PREP-TRAINING-INPUTS-NOT-HELD-OUT-CHECKED-2026-10-06.
+- `crates/qd-prep/src/files.rs`: `read_bounded` and `open_regular`.
+  - The type is checked before open, since a FIFO would block, and again on the handle. The read stops one byte past the bound.
+  - Replaces four size-then-read copies, which let a symlink to `/dev/zero` read without end, and four unbounded reads. `decisions::for_lines` opens through it. GAP-QD-PREP-SIZE-CHECK-THEN-UNBOUNDED-READ-2026-10-06.
+- Synth held-out templates. Config key `heldout_templates_per_class` (absent = 0, which splits exactly as before; a test pins this). The held-out templates are drawn before val and dropped from the pool, counted as `refused.heldout_template`. Dedupe runs held-out, then val, then train, so a pool row duplicating a held-out row is the one dropped.
+  - `qd-prep synth --emit-heldout --out-dir <marked dir>` writes `examples.jsonl` (decision rows, split `heldout`), `targets.jsonl` (`{"id","text"}`, the scanned text) and a `qd-synth-heldout/v1` manifest.
+  - Email config: `heldout_templates_per_class: 1`.
+- `convert::shuffled` converged onto `synth::Scope::shuffle`. Its own doc planned this at merge; a pinned permutation test shows no option moved.
+- `qd_data.defect_class.sha256_file` is public and the one owner of the file digest. The exact clone in `tools/real_tokenizer_pipeline.py` is deleted, and `tools/containment_scan.py` imports the public helper. `ruff check` is clean.
+- The pre-registered stress suite's tests, `crates/qd-prep/tests/stress_v6.rs` and `python/tests/test_stress_v6.py`, written by a subagent. They are compiled by runner 6 and run once, on main, after the merge.
+
+**Runner 6** (`run-queue-6.sh`) runs on the stress tree:
+- clippy, every test target built, and qd-prep's tests with `stress_v6` excluded;
+- the debug fixture bins in `<tree>/target`;
+- the Python suite without `test_stress_v6.py`;
+- release, then `--emit-heldout` to `~/qd-campaign/v6-data-2026-10-06/heldout/synth-email-v1/`.
+
+After it: pin `targets.jsonl`'s sha256 in the email config as `email-heldout`, and build the email pool with `--target email-heldout=…/targets.jsonl`. Read its exclusion rate; do not assume it.
+
+**Second round on `stress-v6` (2026-10-06 ~20:00-20:40Z; uncompiled until runner 6).** Every item below came from the stress-suite subagent's reading or from Fable's review. Each one has a test.
+- **The `wt` changes are in the tree:** lane 4's held-out patch, `write_pool`, and `not_viewed` in every convert manifest, applied as a patch. The stress tree is now the whole candidate for main.
+- **`pool::examples` runs `structural_refusal` on every row and refuses a split other than train or val.** Before this, a gold out of range panicked (exit 101) and a held-out row would have been written as train.
+- **`pool::decontaminate` refuses no target set, or an empty one, itself.** It no longer relies on its callers to.
+- **One owner for "write whole or not at all".**
+  - `files::write_new_dir`, `write_new_file`, `write_synced_new` and `partial_path` replace six copies: `decisions::write_out`, `convert::write_dir`, `containment::write_dir`, `own_repos::write_new`, main's `write_atomically`, and the writers in natural-bugs and emit-heldout.
+  - A failure after the partial is created now removes it. A concurrent run's partial is never touched.
+  - `PATH.partial` is appended, not `with_extension`, so `pool.v5` and `pool.v6` no longer share one partial. `containment` already knew this; the other five did not.
+  - `decision-caps` wrote with a plain `fs::write`; it now writes atomically too.
+- **`for_lines` returns `Lines`.**
+  - It counts a torn last line, CRLF lines and blank lines in `LineFacts`. `decisions::record_input` writes the counts to the manifest's `inputs` as `line_facts/<key>`.
+  - It refuses an escaped NUL with the line number.
+  - `pool::read_targets` refuses a repeated id with both line numbers. `decisions`' own copy of `read_targets` (which accepted a target named twice) now delegates to it.
+- **`synth::generate` refuses a config past `MAX_ROWS` before drafting the pool's rows.** It does this through a one-row-per-template probe.
+- **`qd_data.decisions.load_decision_pool` refuses a pool under a held-out path marker,** as spelled and as resolved. The S10 tests were red before this and are green after, in a light pytest on the stress tree: 101 passed.
+- **My `holding_no_template_out_splits_exactly_as_before` could not fail.** It compared heldout=0 with heldout=0. It is replaced by a test that recomputes the seeded order and pins held-out = order[0], val = order[1].
+- **Pre-registration clarifications (S1, S4, S5, S11) are dated in `AUDIT/data-stress-suite-2026-10-06.md`, before the run.** The subagent's S11 test for `dedupe` and `own-repos` now asserts the ruled behaviour.
+- **Gap:** GAP-STRESS-SUBAGENT-NAVIGATED-WITHOUT-DEVMAP-MCP-2026-10-06.
+- **One subagent claim was wrong:** `tool-heldout.jsonl` does exist (2.5 MB, 13:01).
+
+**Runners after this round.**
+- Runner 5 was retired before it took the lock. Pools must come from the tree that is committed, and that is the stress tree. Its pool and conversion steps moved into runner 6.
+- Runner 6 waited on a `stress6-ready` sentinel, which its launcher checks before asking for the lock. Its steps:
+  - clippy, every test target built, and qd-prep's tests;
+  - `stress6-red`: each fixed stress test is run alone on the pre-fix tree `22c38b6` (`build/integ-v6/red2`) and must fail there;
+  - the fixture bins and the Python suite;
+  - release, the email held-out emit, the jarvis and tools pools, `view_v6.py`, and the six conversions.
+- Runner 4 finished at 20:14:43Z. The span train extract died at MPS out-of-memory at batch 781 of 1087 (ps RSS 24.2 GiB; MPS "other allocations" 39.84 of 48 GiB). That is a second observation for GAP-MAC-HEAVY-RSS-CAP-MAY-NOT-COUNT-METAL-2026-10-06.
+- Runner 7 (`run-queue-7.sh`) resumes the span chain from the train extract at `--batch-tokens 2084`, the script's floor. It is queued after runner 6. The MPS watermark override is not used.
+
+**Third round: runner 6 against the real views (2026-10-06 20:55-22:25Z).**
+
+Runner 6 [V, `status-6.tsv`]:
+- **Passed:**
+  - clippy, the test build, and cargo test (230 passed);
+  - the fixture bins and release;
+  - the email held-out emit;
+  - the jarvis pool (8,199 rows, 909 noul gold) and the tools pool (4,061);
+  - views, `convert-tools` and `convert-mnli`.
+- **Failed, each with a cause:**
+  - **The red check (exit 2).** The suite built `synth::Config` from a struct literal naming a field that 22c38b6 lacks. The test now builds it through `Config::parse`, so one source compiles on both trees. Attempt 1's red evidence stands.
+  - **Torch pytest: 152 failed, 25 errors.** The runner's fault: `QD_PREP_BIN` named the release binary one step before release built it. `run-queue-6.sh` keeps that order as evidence; 6b and 6c run pytest after release.
+  - **Four conversions:**
+    - scirepeval and injections: escaped NULs in source rows;
+    - swe-rebench-filter: a SWE-bench **target** row of 117,859,127 bytes;
+    - csn: a go train row of 9,945,948 bytes.
+
+    The 8 MiB bound was already in 22c38b6. It had simply never met the real views (GAP-QD-PREP-LINE-BOUND-NEVER-EXERCISED-ON-REAL-VIEWS-2026-10-06).
+
+Runner 6b [V]:
+- **Clippy passed.**
+- **The red check passed:** all 12 Rust items and Python S10 fail on 22c38b6.
+- **Pytest: 4,464 passed, 4 failed, 61 skipped.** All four failures are the worktree's environment, not code (GAP-INTEG-WORKTREE-PYTEST-NEEDS-MAIN-ENVIRONMENT-2026-10-06):
+  - two gap-ledger tests: the 18 cited ids are all in main's `gaps.jsonl`, but not in the stress tree's older copy;
+  - the directory name: `stress` is not `Lappi-decision`;
+  - `ruff` is not installed in the tree's `.venv`.
+- **The email pool was refused:** "no row survived decontamination".
+
+**S1 scoped by role (the advisor's ruling; the AUDIT clarification is dated ~21:30Z).** `decisions::for_lines` takes a `Role`:
+- **`Source`** (rows that can become training examples): an escaped NUL, or a line past `MAX_LINE_BYTES`, drops **that row**. It is counted per cause, with its first 16 line numbers. The bytes are still hashed, and an oversized line is skipped without being buffered.
+- **`Reference`** (targets, held-out id sets, the licence cache, decider files): never dropped. A NUL is accepted and counted. The bound is `MAX_REFERENCE_LINE_BYTES`, 256 MiB, and past it the file is refused.
+- `line_facts/<key>` is now written for every input, a clean one too.
+- `convert::read_view` is the source reader. `Views::target_rows` returns a `TargetView` that reads only as a reference, so a target cannot be handed to the dropping reader; the type system refuses it.
+- **Tests:**
+  - unit: both roles, the hash of dropped bytes, a line whose `\n` is the byte past the bound, a torn oversized last line, past `NOTED_LINES`;
+  - S1 stress items rewritten: a target NUL is read and counted; a target past 8 MiB is read; a source NUL row and an oversized source row are dropped and counted. The counts are read through `{:?}`, so the tests build on 22c38b6.
+- Gaps: GAP-LLMAIL-INJECT-NUL-PAYLOAD-ROWS-DROPPED-2026-10-06 (40 lines of an attack class, a known loss), and the DevMap worktree gap, updated. DevMap answered `for_lines`' callers from main's store; the stress tree's 13 others were found with rg, labelled as rg.
+
+**The email held-out target text (my defect; the advisor's ruling).** `synth::held_out` wrote each target as `Candidate::text()`: question, context and every option.
+- A v1 target was 2,167 bytes, of which about 300 were the email. The rest is identical in every row, so every candidate matched every target.
+- **Fix:** a target's text is the row's `context`, the instance and never the shared scaffolding. The test runs `pool::decontaminate` with two controls: a candidate carrying a held-out email is excluded; the genuine candidates are not all excluded.
+  - Red proof: the test's own run on the tree before the fix (`email-heldout-target-prefix.log`: "no row survived decontamination"). `held_out` does not exist at 22c38b6, so the red2 check cannot carry it.
+  - After the fix: 218 of 218 lib tests passed (`email-heldout-target-postfix.log`).
+- **v2 emitted:** `heldout/synth-email-v2`, 1,667 rows, targets `6cf99185…be1c`, pinned in the email config. Its `examples.jsonl` is v1's byte for byte (`8db76ea2…9733`), since only the target text changed. v1 moved to `heldout/superseded/synth-email-v1`.
+- The exclusion rate is read against `campaign/synth-email-heldout-v2-exclusion-2026-10-06.preregistered.json`, written before the pool ran.
+- GAP-SYNTH-HELDOUT-TARGET-TEXT-CARRIED-SHARED-SCAFFOLDING-2026-10-06.
+
+**Not decontaminated yet: the jarvis and tools pools (GAP-SYNTH-POOLS-ZERO-EXCLUSION-NOT-POSITIVE-CONTROLLED-2026-10-06).** Both excluded 0. That is what a disjoint target set reports, and also what a scan that cannot hit reports. Checkable targets: 14 of 17 (jarvis) and 8,143 of 9,204 (tools). A positive control per real target set is not run.
+
+**Runner 6c [V, `status-6.tsv`, 22:42:56-22:46:37Z; every step exit 0].**
+- **Clippy** passed, warnings denied, on every target.
+- **cargo test** passed.
+- **The red check:** all 14 Rust items and Python S10 fail on 22c38b6. The three rewritten S1 items fail for the reasons they name:
+  - the target NUL was read but not counted;
+  - the target line past 8 MiB was refused;
+  - the source file was refused whole for one oversized row.
+- **Release** built. **The email pin check** passed: v2's examples equal v1's, and this binary's re-emit equals v2 on both files.
+- **Every pool rebuilt.** Runner 6's pools are in `pool-runner6/`. Their manifests gained `line_facts` for every input, +61 lines and −0 across the four compared.
+- **Clean pools reproduce byte for byte:** `convert-mnli`, `convert-tools`, `synth-jarvis` and `synth-tools`. That covers `examples.jsonl` and every `containment/` file. The policy change touched no clean path.
+- **Rows dropped, counted in each manifest's `line_facts`:**
+  - csn: 1 oversized row (go train line 249501);
+  - llmail-inject: 39 NUL rows (36 in phase 1, 3 in phase 2);
+  - scirepeval search train: 12 NUL rows over 7 shards.
+
+  The SWE-rebench and SWE-bench views report `nul_rows=0`. An independent parse confirms it: their `\u0000` text matches (2, 4, 5 and 2 lines) are all a literal backslash in patch text, with 0 real NUL rows. swe-rebench-filter kept 8,945 of 27,878 rows, and the 117.9 MB target row was read.
+- **The email pool:** 6,992 rows (475 noul gold). It excluded **0 of 6,992**; all 1,667 targets were checkable at n=8. That is the pre-registered band "0", read together with the scan's positive control (`synth::tests`, where the carried-email copy is excluded). The email held-out set stands as a test of unseen templates.
+- **Not measured:** the RSS of the swe-rebench-filter step. The runner records wall time only, about 6 s.
+
+**DevMap audit (data side) [V for the calls; second signals by rg, labelled].**
+- `devmap_dead_symbols`: 71 rows, 2 at 0.9.
+  - `FileRecord` is a false positive: it is constructed at `own_prose.rs:952` (GAP-DEVMAP-DEAD-SYMBOLS-MISSES-STRUCT-LITERAL-USE-2026-10-06).
+  - `replay_texts_from_prompts` is on the training side; it is already named in `HANDOFF/caller-contract-2026-10-06.md:110` and is not deleted here.
+  - The 0.4 rows are unresolved-namesake rows; none was deleted on that alone.
+- `devmap_clones` at budget 100000: 216 of 216 groups, not truncated. At budget 8000 it showed 113 of 216; that was a capped sample, not the list.
+  - Acted on: the exact `_sha256_file` clone, and `convert::shuffled` (a clone DevMap did not group).
+  - Named, not touched: the other `sha256_file` copies in `tools/` and `campaign/` (other lanes' one-offs); the exact `hex` clone across `qd-prep/src/blake2b.rs` and qd-runtime/qd-train bins (other owners); the qd-mutate per-language query wrappers (alike in shape, different grammars).
+
 ## Open
 
-All of sections 3-4. The first command is in §5.
+- The stress-v6 merge into `integrate-v6-data` and then main (the advisor reviewed the plan at ~22:55Z).
+- A positive control per real target set (jarvis-scenarios, tool-heldout), before those pools are called decontaminated.
+- The stress suite's one run on main, reported tri-state.
+- The v6 allocation over every pool (GAP-V6-THREE-POOL-PRODUCERS-CAPS-APPLIED-IN-DECISIONS-ONLY-2026-10-06, the rebuild lane).
+- Sections 3-4 otherwise as before.

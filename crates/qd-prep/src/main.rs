@@ -38,7 +38,6 @@
 //!   one downloaded v6 dataset as a decision pool (see `qd_prep::convert`), the same pool shape
 //!   `decisions` writes; `swe-rebench-filter` and `injections` write a view and a corpus.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -129,6 +128,11 @@ struct SynthIo {
     /// most 256.
     #[arg(long)]
     threads: Option<usize>,
+    /// Write the config's held-out templates (`heldout_templates_per_class`) to --out-dir as
+    /// an evaluation set and a target file, instead of the pool. --out-dir must carry a
+    /// held-out path marker; no --target is read.
+    #[arg(long)]
+    emit_heldout: bool,
 }
 
 /// `qd-prep convert`'s inputs.
@@ -168,6 +172,12 @@ fn bounded_threads(threads: Option<usize>) -> Result<usize, String> {
 
 /// `qd-prep synth`: the config in, the pool directory out.
 fn run_synth(io: &SynthIo) -> Result<String, String> {
+    if io.emit_heldout {
+        if !io.targets.is_empty() {
+            return Err("--emit-heldout writes a target set; it reads no --target".into());
+        }
+        return qd_prep::synth::emit_heldout(&io.config, &io.out_dir);
+    }
     let threads = bounded_threads(io.threads)?;
     let inputs = qd_prep::synth::Inputs {
         config: io.config.clone(),
@@ -210,7 +220,8 @@ fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     if io.output.exists() {
         return Err(format!("{} exists; refusing to overwrite it", io.output.display()));
     }
-    let read = |p: &PathBuf| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+    let read =
+        |p: &PathBuf| qd_prep::files::read_bounded(p, qd_prep::files::MAX_RECORD_BYTES, "input");
     let (config, before, after) = (read(&io.config)?, read(&io.before)?, read(&io.after)?);
     let cfg = decisions::Config::parse(&config)?;
     let (caps, moved) = decisions::refresh_train_caps(
@@ -228,7 +239,7 @@ fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     });
     let mut bytes = serde_json::to_vec_pretty(&out).map_err(|e| e.to_string())?;
     bytes.push(b'\n');
-    std::fs::write(&io.output, bytes).map_err(|e| format!("{}: {e}", io.output.display()))?;
+    qd_prep::files::write_new_file(&io.output, &bytes)?;
     Ok(format!("{} cap(s) moved -> {}", moved.len(), io.output.display()))
 }
 
@@ -368,16 +379,7 @@ fn read_input(
     threads: Option<usize>,
     max_input_bytes: u64,
 ) -> Result<(Vec<u8>, usize), String> {
-    let size = std::fs::metadata(input)
-        .map_err(|e| format!("{}: {e}", input.display()))?
-        .len();
-    if size > max_input_bytes {
-        return Err(format!(
-            "{}: {size} bytes; the bound is {max_input_bytes}",
-            input.display(),
-        ));
-    }
-    let buf = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
+    let buf = qd_prep::files::read_bounded(input, max_input_bytes, "--input")?;
     Ok((buf, bounded_threads(threads)?))
 }
 
@@ -397,23 +399,9 @@ fn run(
     }
     let (buf, threads) = read_input(input, io.threads, max_input_bytes)?;
     let (bytes, line) = work(&buf, threads)?;
-    write_atomically(output, &bytes)?;
+    // Written beside the destination and renamed over it, so a reader never sees a prefix.
+    qd_prep::files::write_new_file(output, &bytes)?;
     Ok(format!("{line} -> {}", output.display()))
-}
-
-/// Written beside the destination and renamed over it, so a reader never sees a prefix.
-fn write_atomically(output: &Path, bytes: &[u8]) -> Result<(), String> {
-    let partial = output.with_extension("partial");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&partial)
-        .map_err(|e| format!("{}: {e}", partial.display()))?;
-    file.write_all(bytes)
-        .map_err(|e| format!("{}: {e}", partial.display()))?;
-    file.sync_all()
-        .map_err(|e| format!("{}: {e}", partial.display()))?;
-    std::fs::rename(&partial, output).map_err(|e| format!("{}: {e}", output.display()))
 }
 
 fn minhash(buf: &[u8], threads: usize) -> Result<(Vec<u8>, String), String> {

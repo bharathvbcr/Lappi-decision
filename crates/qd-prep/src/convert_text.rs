@@ -93,8 +93,8 @@ fn ids_of(
     dataset: &str,
     file: &str,
     mut take: impl FnMut(&Value),
-) -> Result<String, String> {
-    convert::read_view(views.target_rows(dataset, file)?, |_, r| {
+) -> Result<decisions::Lines, String> {
+    views.target_rows(dataset, file)?.read(|_, r| {
         take(&r);
         Ok(())
     })
@@ -123,7 +123,7 @@ pub fn build_mnli(
                 val_prompts.insert(p);
             }
         })?;
-        digests.insert(format!("target-rows/{MNLI}/{f}"), got);
+        decisions::record_input(&mut digests, format!("target-rows/{MNLI}/{f}"), got);
     }
     let mut acc = Acc::new(cfg);
     let mut prompt_hits = 0usize;
@@ -137,7 +137,7 @@ pub fn build_mnli(
         };
         acc.offer(MNLI, MNLI_FAMILY, made)
     })?;
-    digests.insert(format!("{MNLI}/{MNLI_FILE}"), got);
+    decisions::record_input(&mut digests, format!("{MNLI}/{MNLI_FILE}"), got);
     let refs: Vec<(&str, &str, &str)> = val_files.iter().map(|(n, f)| (*n, MNLI, *f)).collect();
     let (targets, td) = views.target_texts(&refs)?;
     digests.extend(td);
@@ -314,7 +314,11 @@ pub fn build_scirepeval(
             }
         }
     })?;
-    digests.insert(format!("target-rows/{SCIREPEVAL}/{eval_file}"), got);
+    decisions::record_input(
+        &mut digests,
+        format!("target-rows/{SCIREPEVAL}/{eval_file}"),
+        got,
+    );
     let test_file = "search/test-00000-of-00001.parquet";
     let got = ids_of(views, SCIREPEVAL_TEST, test_file, |r| {
         if let Some(q) = convert::opt_str(r, "query_id") {
@@ -324,7 +328,11 @@ pub fn build_scirepeval(
             eval.papers.insert(c.to_owned());
         }
     })?;
-    digests.insert(format!("target-rows/{SCIREPEVAL_TEST}/{test_file}"), got);
+    decisions::record_input(
+        &mut digests,
+        format!("target-rows/{SCIREPEVAL_TEST}/{test_file}"),
+        got,
+    );
 
     let mut acc = Acc::new(cfg);
     let mut counts = SciCounts::default();
@@ -333,7 +341,7 @@ pub fn build_scirepeval(
         let got = convert::read_view(views.train_rows(SCIREPEVAL, &file)?, |_, r| {
             sci_query(&mut acc, caps, &eval, &mut counts, &r)
         })?;
-        digests.insert(format!("{SCIREPEVAL}/{file}"), got);
+        decisions::record_input(&mut digests, format!("{SCIREPEVAL}/{file}"), got);
     }
     let refs = [
         ("scirepeval-search-evaluation", SCIREPEVAL, eval_file),

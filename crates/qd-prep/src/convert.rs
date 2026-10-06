@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 
 use crate::convert_licence::{self, Verdict};
 use crate::decisions::{self, Candidate, Gold, TargetSet};
+use crate::heldout;
 use crate::pool;
 use crate::sha256::sha256_hex;
 
@@ -154,10 +155,12 @@ pub struct Views {
     pub entries: Vec<Entry>,
     /// `fetch_record` and `view_record` sha256s, for the manifest.
     pub digests: BTreeMap<String, String>,
+    /// Entries an addendum moved away from training, never viewed: `"<dataset> <file>: <use>"`.
+    pub not_viewed: Vec<String>,
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
+    crate::files::read_bounded(path, crate::files::MAX_RECORD_BYTES, "input")
 }
 
 /// Whether `path` lies under a `targets` directory: the fetch places every target-only file
@@ -204,6 +207,7 @@ impl Views {
             }
         }
         let mut entries = Vec::new();
+        let mut not_viewed = Vec::new();
         for e in decisions::get(&vr, "entries", "view record")?
             .as_array()
             .ok_or("view record: entries is not a list")?
@@ -217,6 +221,28 @@ impl Views {
             let source_sha = decisions::get_str(e, "source_sha256", what)?;
             let source_use = decisions::get_str(e, "use", what)?;
             let source_path = decisions::get_str(e, "source_path", what)?;
+            // An entry a fetch-record addendum moved away from training (TSSB-3M to
+            // `held-out-only`, 2026-10-06): its use and path differ from the record by design.
+            // It must carry no view and the record's sha256; it is kept out of `entries`, so no
+            // reader of either kind can reach it.
+            if let Some(reason) = e.get("not_viewed") {
+                let has_views = e
+                    .get("views")
+                    .and_then(Value::as_array)
+                    .is_some_and(|v| !v.is_empty());
+                if has_views
+                    || source_sha != *sha
+                    || source_use == TRAIN
+                    || source_use == TARGET_ONLY
+                {
+                    return Err(format!(
+                        "view record: {dataset} {file} is marked not_viewed ({reason}) but has \
+                         views, a sha256 other than the record's, or use {source_use:?}"
+                    ));
+                }
+                not_viewed.push(format!("{dataset} {file}: {source_use}"));
+                continue;
+            }
             if source_sha != *sha || source_use != *use_ || source_path != *path {
                 return Err(format!(
                     "view record: {dataset} {file} says sha256 {source_sha}, use {source_use:?}, \
@@ -250,7 +276,11 @@ impl Views {
         let mut digests = BTreeMap::new();
         digests.insert("fetch_record".to_owned(), fr_sha);
         digests.insert("view_record".to_owned(), sha256_hex(&vr_bytes));
-        Ok(Views { entries, digests })
+        Ok(Views {
+            entries,
+            digests,
+            not_viewed,
+        })
     }
 
     fn entry(&self, dataset: &str, file: &str) -> Result<&Entry, String> {
@@ -285,6 +315,10 @@ impl Views {
                 v.path.display()
             ));
         }
+        // Rule 3: a held-out file never reaches a training reader, whatever its recorded use.
+        let what = format!("{dataset} {file}");
+        heldout::refuse_training_input(&e.source_path, &format!("{what} source"))?;
+        heldout::refuse_training_input(&v.path, &format!("{what} rows view"))?;
         Ok(v)
     }
 
@@ -301,8 +335,8 @@ impl Views {
     }
 
     /// The full-row view of a target file, for an id-disjointness check.
-    pub fn target_rows(&self, dataset: &str, file: &str) -> Result<&View, String> {
-        Self::view(self.target_entry(dataset, file)?, "rows")
+    pub fn target_rows(&self, dataset: &str, file: &str) -> Result<TargetView<'_>, String> {
+        Self::view(self.target_entry(dataset, file)?, "rows").map(TargetView)
     }
 
     /// The `{"id", "text"}` views of target files, as `pool::read_targets` reads them: the
@@ -324,34 +358,44 @@ impl Views {
     }
 }
 
-/// Every JSON line of a view, handed to `each`, then checked against the view's sha256.
+/// Every JSON line of a source view, handed to `each`, then checked against the view's sha256.
+/// Its rows can become training examples ([`decisions::Role::Source`]): one that cannot be
+/// passed on is dropped and counted.
 pub fn read_view(
     v: &View,
     each: impl FnMut(usize, Value) -> Result<(), String>,
-) -> Result<String, String> {
-    let got = decisions::for_lines(&v.path, each)?;
-    decisions::check_pin(&v.path, &got, &v.sha256, "the view record")?;
+) -> Result<decisions::Lines, String> {
+    read_pinned(v, decisions::Role::Source, each)
+}
+
+fn read_pinned(
+    v: &View,
+    role: decisions::Role,
+    each: impl FnMut(usize, Value) -> Result<(), String>,
+) -> Result<decisions::Lines, String> {
+    let got = decisions::for_lines(&v.path, role, each)?;
+    decisions::check_pin(&v.path, &got.sha256, &v.sha256, "the view record")?;
     Ok(got)
+}
+
+/// A target file's full-row view. Its rows are references, never dropped, so it is read only
+/// through [`TargetView::read`] and cannot be handed to [`read_view`], which drops.
+pub struct TargetView<'a>(&'a View);
+
+impl TargetView<'_> {
+    /// Every JSON line, handed to `each`, then checked against the view's sha256
+    /// ([`decisions::Role::Reference`]).
+    pub fn read(
+        &self,
+        each: impl FnMut(usize, Value) -> Result<(), String>,
+    ) -> Result<decisions::Lines, String> {
+        read_pinned(self.0, decisions::Role::Reference, each)
+    }
 }
 
 /// A string field, or `None` when absent, null or not a string.
 pub fn opt_str<'a>(r: &'a Value, key: &str) -> Option<&'a str> {
     r.get(key).and_then(Value::as_str)
-}
-
-/// The order a seeded draw puts `0..n` in: Fisher-Yates over [`decisions::keyed`].
-///
-/// A clone of `synth::Scope::new(seed, key).shuffle(tag, ..)` (uncommitted in main at the time
-/// of writing, so not importable from this tree): byte for byte the same draws, so the two
-/// converge onto `synth::Scope` at merge without moving a row.
-pub fn shuffled(seed: u64, key: &str, tag: &str, n: usize) -> Vec<usize> {
-    let mut v: Vec<usize> = (0..n).collect();
-    for i in (1..n).rev() {
-        let d = decisions::keyed(seed, &[key, &format!("{tag}\u{1f}{i}")]);
-        let j = (u64::from_le_bytes(d[..8].try_into().expect("8 bytes")) % (i as u64 + 1)) as usize;
-        v.swap(i, j);
-    }
-    v
 }
 
 /// The split of a group within a scope: `decisions`' `Ctx::split_of` rule (a seeded hash puts
@@ -468,7 +512,8 @@ impl<'c> Acc<'c> {
                 return Ok(());
             }
         };
-        let perm = shuffled(self.cfg.seed, &r.id, "options", r.options.len());
+        let order: Vec<usize> = (0..r.options.len()).collect();
+        let perm = crate::synth::Scope::new(self.cfg.seed, &r.id).shuffle("options", &order);
         let options: Vec<String> = perm.iter().map(|&i| r.options[i].clone()).collect();
         let gold = match r.gold {
             Gold::Option(g) => match perm.iter().position(|&i| i == g) {
@@ -763,6 +808,11 @@ pub fn run(inputs: &Inputs, out_dir: &Path, threads: usize) -> Result<String, St
             out_dir.display()
         ));
     }
+    heldout::refuse_training_input(&inputs.config, "--config")?;
+    heldout::refuse_training_input(&inputs.view_record, "--view-record")?;
+    if let Some(cache) = &inputs.licence_cache {
+        heldout::refuse_training_input(cache, "--licence-cache")?;
+    }
     let config_bytes = read(&inputs.config)?;
     let cfg = Config::parse(&config_bytes)?;
     let views = Views::load(&inputs.view_record, &cfg.fetch_record_sha256)?;
@@ -785,6 +835,17 @@ pub fn run(inputs: &Inputs, out_dir: &Path, threads: usize) -> Result<String, St
         "injections" => return crate::convert_inject::run(&cfg, &views, digests, out_dir),
         other => return Err(format!("--pool {other:?} is not one of {POOLS:?}")),
     };
+    write_pool(out_dir, built, &views)
+}
+
+/// Writes a built pool, its manifest stating the entries an addendum moved out of reach, so a
+/// source dropped from training is seen in every pool built from that view record.
+fn write_pool(
+    out_dir: &Path,
+    mut built: decisions::Built,
+    views: &Views,
+) -> Result<String, String> {
+    built.manifest["not_viewed"] = json!(views.not_viewed);
     decisions::write_out(out_dir, &built)?;
     Ok(format!("{} -> {}", built.summary, out_dir.display()))
 }
@@ -792,24 +853,11 @@ pub fn run(inputs: &Inputs, out_dir: &Path, threads: usize) -> Result<String, St
 /// Write `files` into a new directory, as `DIR.partial` renamed, so it appears whole or not at
 /// all (the shape `decisions::write_out` gives a pool).
 pub fn write_dir(out_dir: &Path, files: &[(&str, &[u8])]) -> Result<(), String> {
-    use std::io::Write;
-    let partial = out_dir.with_extension("partial");
-    if out_dir.exists() || partial.exists() {
-        return Err(format!(
-            "{} or its .partial exists; refusing to overwrite it",
-            out_dir.display()
-        ));
-    }
-    std::fs::create_dir(&partial).map_err(|e| format!("{}: {e}", partial.display()))?;
-    for (name, bytes) in files {
-        let path = partial.join(name);
-        let mut f = std::fs::File::create(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        f.write_all(bytes)
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-        f.sync_all()
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-    }
-    std::fs::rename(&partial, out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))
+    crate::files::write_new_dir(out_dir, |partial| {
+        files.iter().try_for_each(|(name, bytes)| {
+            crate::files::write_synced_new(&partial.join(name), bytes)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -943,8 +991,132 @@ pub(crate) mod tests {
         let views = Views {
             entries: vec![e],
             digests: BTreeMap::new(),
+            not_viewed: Vec::new(),
         };
         assert!(views.train_rows("d", "f").unwrap_err().contains("targets/"));
+    }
+
+    /// A view record holding one train entry and one entry an addendum moved to held-out-only,
+    /// recorded as `view_v6.py` records it (new path, amended use, no views).
+    fn records_with_held_out(dir: &Path, held_out_views: bool, sha: &str) -> (PathBuf, String) {
+        let train_src = dir.join("ds__a/rev/train.parquet");
+        std::fs::create_dir_all(train_src.parent().unwrap()).unwrap();
+        let train_view = view_of(
+            train_src.parent().unwrap(),
+            "train.jsonl",
+            &[json!({"x": 1})],
+        );
+        let fr = json!([
+            {"dataset": "ds/a", "file": "train.parquet", "use": "train", "sha256": "aa",
+             "file_path": train_src.display().to_string()},
+            {"dataset": "zenodo/TSSB-3M", "file": "tssb.zip", "use": "train", "sha256": "cc",
+             "file_path": dir.join("zenodo__TSSB-3M/1/tssb.zip").display().to_string()},
+        ]);
+        let fr_bytes = serde_json::to_vec(&fr).unwrap();
+        let fr_path = dir.join("fetch.json");
+        std::fs::write(&fr_path, &fr_bytes).unwrap();
+        let fr_sha = sha256_hex(&fr_bytes);
+        let held_views = if held_out_views {
+            json!([{"kind": "rows", "path": train_view.path.display().to_string(),
+                    "sha256": train_view.sha256, "rows": 1}])
+        } else {
+            json!([])
+        };
+        let vr = json!({"schema": VIEW_RECORD_SCHEMA, "fetch_record": fr_path.display().to_string(),
+            "fetch_record_sha256": fr_sha, "entries": [
+                {"dataset": "ds/a", "file": "train.parquet", "use": "train", "source_sha256": "aa",
+                 "source_path": train_src.display().to_string(),
+                 "views": [{"kind": "rows", "path": train_view.path.display().to_string(),
+                            "sha256": train_view.sha256, "rows": 1}]},
+                {"dataset": "zenodo/TSSB-3M", "file": "tssb.zip", "use": "held-out-only",
+                 "source_sha256": sha, "views": held_views,
+                 "source_path": dir.join("heldout/tssb-3m/1/tssb.zip").display().to_string(),
+                 "not_viewed": "held-out-only (addendum fetch.addendum-tssb-heldout.json)"}]});
+        let vr_path = dir.join("view-record.json");
+        std::fs::write(&vr_path, serde_json::to_vec(&vr).unwrap()).unwrap();
+        (vr_path, fr_sha)
+    }
+
+    #[test]
+    fn an_entry_moved_to_held_out_is_loaded_unreachable_and_counted() {
+        let dir = scratch("heldout");
+        let (vr, pin) = records_with_held_out(&dir, false, "cc");
+        let views = Views::load(&vr, &pin).unwrap();
+        assert!(views.train_rows("ds/a", "train.parquet").is_ok());
+        assert!(views.train_rows("zenodo/TSSB-3M", "tssb.zip").is_err());
+        assert!(views.target_rows("zenodo/TSSB-3M", "tssb.zip").is_err());
+        assert_eq!(views.not_viewed, ["zenodo/TSSB-3M tssb.zip: held-out-only"]);
+        // Fail-closed: a not-viewed entry with a view, or a sha256 other than the record's.
+        let dir = scratch("heldout-views");
+        let (vr, pin) = records_with_held_out(&dir, true, "cc");
+        assert!(Views::load(&vr, &pin).is_err());
+        let dir = scratch("heldout-sha");
+        let (vr, pin) = records_with_held_out(&dir, false, "dd");
+        assert!(Views::load(&vr, &pin).is_err());
+    }
+
+    #[test]
+    fn a_pool_manifest_states_what_an_addendum_moved_out_of_reach() {
+        let dir = scratch("heldout-manifest");
+        let (vr, pin) = records_with_held_out(&dir, false, "cc");
+        let views = Views::load(&vr, &pin).unwrap();
+        let built = decisions::Built {
+            examples: Vec::new(),
+            manifest: json!({"pool": "p"}),
+            texts: None,
+            containment: crate::containment::Written {
+                pairs_tsv: Vec::new(),
+                exclusions: Vec::new(),
+                attestation: Vec::new(),
+                summary: String::new(),
+            },
+            summary: "p".to_owned(),
+        };
+        let out = dir.join("pool");
+        write_pool(&out, built, &views).unwrap();
+        let manifest: Value =
+            serde_json::from_slice(&std::fs::read(out.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(
+            manifest["not_viewed"],
+            json!(["zenodo/TSSB-3M tssb.zip: held-out-only"])
+        );
+    }
+
+    /// Rule 3 at the training reader's door: a `train` entry whose source or view sits under a
+    /// held-out marker is refused, so a mislabelled record cannot route held-out rows in.
+    #[test]
+    fn a_held_out_path_is_refused_for_training_even_if_marked_train() {
+        let entry = |source: &str, view: &str| Entry {
+            dataset: "d".into(),
+            file: "f".into(),
+            use_: TRAIN.into(),
+            source_path: PathBuf::from(source),
+            source_sha256: "s".into(),
+            views: vec![View {
+                kind: "rows".into(),
+                path: PathBuf::from(view),
+                sha256: "s".into(),
+                rows: 1,
+            }],
+        };
+        for (source, view) in [
+            ("/x/heldout/tssb-3m/d.zip", "/x/views/d/f.jsonl"),
+            ("/x/d/f.parquet", "/x/views/HeldOut/d/f.jsonl"),
+        ] {
+            let views = Views {
+                entries: vec![entry(source, view)],
+                digests: BTreeMap::new(),
+                not_viewed: Vec::new(),
+            };
+            let err = views.train_rows("d", "f").unwrap_err();
+            assert!(err.contains("held-out data"), "{source} {view}: {err}");
+        }
+        let views = Views {
+            entries: vec![entry("/x/d/f.parquet", "/x/views/d/f.jsonl")],
+            digests: BTreeMap::new(),
+            not_viewed: Vec::new(),
+        };
+        assert!(views.train_rows("d", "f").is_ok());
     }
 
     #[test]
@@ -1044,16 +1216,21 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_shuffle_is_synth_scope_s_draw() {
-        // Pinned: the permutation synth::Scope::new(7, "k").shuffle("options", [0..5]) gives,
-        // computed from its definition (Fisher-Yates, tag "options\u{1f}i", keyed % (i+1)).
+    fn the_option_order_is_synth_scope_s_draw_as_pinned() {
+        // Pinned: the permutation the convert lane drew with its own copy of this shuffle
+        // (Fisher-Yates, tag "options\u{1f}i", keyed % (i+1)) before it converged onto
+        // synth::Scope, so the convergence moved no option.
         let mut v: Vec<usize> = (0..5).collect();
         for i in (1..5).rev() {
             let d = decisions::keyed(7, &["k", &format!("options\u{1f}{i}")]);
             let j = (u64::from_le_bytes(d[..8].try_into().unwrap()) % (i as u64 + 1)) as usize;
             v.swap(i, j);
         }
-        assert_eq!(shuffled(7, "k", "options", 5), v);
+        let order: Vec<usize> = (0..5).collect();
+        assert_eq!(
+            crate::synth::Scope::new(7, "k").shuffle("options", &order),
+            v
+        );
     }
 
     #[test]

@@ -48,7 +48,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -420,16 +419,7 @@ fn read_config(repo: &Path) -> Result<ConfigUrls, String> {
 }
 
 fn read_bounded(path: &Path) -> Result<String, String> {
-    let len = fs::metadata(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?
-        .len();
-    if len > MAX_CONFIG_BYTES {
-        return Err(format!(
-            "{}: {len} bytes; a git config past {MAX_CONFIG_BYTES} is refused",
-            path.display()
-        ));
-    }
-    let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = crate::files::read_bounded(path, MAX_CONFIG_BYTES, "git config")?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -610,26 +600,6 @@ pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// Write `bytes` to `path` whole or not at all; refused if `path` or its `.partial` exists.
-pub fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if path.exists() {
-        return Err(format!(
-            "{} exists; refusing to overwrite it",
-            path.display()
-        ));
-    }
-    let partial = path.with_extension("partial");
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&partial)
-        .map_err(|e| format!("{}: {e}", partial.display()))?;
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|e| format!("{}: {e}", partial.display()))?;
-    fs::rename(partial, path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
 /// `qd-prep own-repos --code-root ROOT --out FILE`.
 pub fn run(code_root: &Path, out: &Path) -> Result<String, String> {
     if out.exists() {
@@ -643,7 +613,7 @@ pub fn run(code_root: &Path, out: &Path) -> Result<String, String> {
     let manifest = build_manifest(&rules, &head, &utc_now())?;
     let mut bytes = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
     bytes.push(b'\n');
-    write_new(out, &bytes)?;
+    crate::files::write_new_file(out, &bytes)?;
     let t = &manifest["totals"];
     Ok(format!(
         "qd-prep own-repos: {} discovered, {} admitted ({} heldout, {} train), {} excluded -> {} \

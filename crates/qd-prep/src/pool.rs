@@ -35,17 +35,24 @@ pub fn read_targets(
     let mut digests = BTreeMap::new();
     for (name, path) in given {
         let mut rows = Vec::new();
-        let got = decisions::for_lines(path, |n, r| {
+        // An id names one row: the scan reports exclusions by id, so a repeated one would make
+        // two rows indistinguishable in the record. Refused with both line numbers.
+        let mut first_line: BTreeMap<String, usize> = BTreeMap::new();
+        let got = decisions::for_lines(path, decisions::Role::Reference, |n, r| {
             let what = format!("{name}:{n}");
-            rows.push((
-                decisions::get_str(&r, "id", &what)?.to_owned(),
-                decisions::get_str(&r, "text", &what)?.to_owned(),
-            ));
+            let id = decisions::get_str(&r, "id", &what)?.to_owned();
+            if let Some(first) = first_line.insert(id.clone(), n) {
+                return Err(format!(
+                    "{}:{n}: target set {name}: id {id:?} repeats line {first}",
+                    path.display()
+                ));
+            }
+            rows.push((id, decisions::get_str(&r, "text", &what)?.to_owned()));
             Ok(())
         })?;
         decisions::check_pin(
             path,
-            &got,
+            &got.sha256,
             &pins[name],
             &format!("the config (target {name})"),
         )?;
@@ -54,7 +61,7 @@ pub fn read_targets(
                 "target set {name} is empty: a scan against nothing is not a check"
             ));
         }
-        digests.insert(format!("target/{name}"), got);
+        decisions::record_input(&mut digests, format!("target/{name}"), got);
         out.push((name.clone(), rows));
     }
     Ok((out, digests))
@@ -78,6 +85,16 @@ pub fn decontaminate<'c>(
     targets: &[TargetSet],
     threads: usize,
 ) -> Result<Scanned<'c>, String> {
+    // Refused here, not only by `read_targets`: this is `pub`, and a caller that built its
+    // target sets another way must not get a scan against nothing reported as a scan.
+    if targets.is_empty() {
+        return Err("no target set: a decontamination against nothing is not a check".into());
+    }
+    if let Some((name, _)) = targets.iter().find(|(_, rows)| rows.is_empty()) {
+        return Err(format!(
+            "target set {name} is empty: a scan against nothing is not a check"
+        ));
+    }
     let request_bytes = decisions::containment_request_with(
         ngram_n,
         threshold,
@@ -166,6 +183,20 @@ pub fn examples(rows: &[&Candidate]) -> Result<Examples, String> {
     let mut gold_position: BTreeMap<&str, BTreeMap<String, usize>> = BTreeMap::new();
     let mut noul = 0usize;
     for c in rows {
+        // The last gate before bytes: a row a producer let through malformed is refused here by
+        // name, never written (and never a panic on an out-of-range gold).
+        if let Some(reason) = decisions::structural_refusal(c) {
+            return Err(format!(
+                "pool row {}: {reason}; every row is checked before it is written",
+                c.id
+            ));
+        }
+        if c.split != "train" && c.split != "val" {
+            return Err(format!(
+                "pool row {}: split {:?}; a pool holds only train and val rows",
+                c.id, c.split
+            ));
+        }
         serde_json::to_writer(&mut bytes, &decisions::example_json(c))
             .map_err(|e| e.to_string())?;
         bytes.push(b'\n');
@@ -254,6 +285,43 @@ mod tests {
     }
 
     #[test]
+    fn a_repeated_target_id_is_refused_with_both_line_numbers() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir =
+            std::env::temp_dir().join(format!("qd-prep-pool-dup-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.jsonl");
+        let body = b"{\"id\":\"a\",\"text\":\"x\"}\n{\"id\":\"b\",\"text\":\"y\"}\n{\"id\":\"a\",\"text\":\"z\"}\n";
+        std::fs::write(&path, body).unwrap();
+        let pins: BTreeMap<String, String> = [("t".to_owned(), sha256_hex(body))].into();
+        let Err(err) = read_targets(&pins, &[("t".to_owned(), path)]) else {
+            panic!("not refused")
+        };
+        assert!(
+            err.contains("t.jsonl:3:") && err.contains("repeats line 1"),
+            "{err}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_scan_with_no_target_set_or_an_empty_one_is_refused() {
+        let rows = vec![cand("a", "some text to scan", Gold::Option(0), "train")];
+        let Err(err) = decontaminate(8, 0.5, &json!({}), "rows", &rows, &[], 1) else {
+            panic!("not refused")
+        };
+        assert!(err.contains("against nothing"), "{err}");
+        let empty: Vec<TargetSet> = vec![("t".to_owned(), Vec::new())];
+        let Err(err) = decontaminate(8, 0.5, &json!({}), "rows", &rows, &empty, 1) else {
+            panic!("not refused")
+        };
+        assert!(err.contains("target set t is empty"), "{err}");
+    }
+
+    #[test]
     fn nothing_surviving_is_refused() {
         let text = "the quick brown fox jumps over the lazy dog near the river bank today";
         let rows = vec![cand("a", text, Gold::Option(0), "train")];
@@ -278,6 +346,31 @@ mod tests {
         assert_eq!(e.gold_position["t.family"]["noul"], 1);
         assert_eq!(e.bytes.iter().filter(|b| **b == b'\n').count(), 2);
         assert_eq!(e.sha256, sha256_hex(&e.bytes));
+    }
+
+    /// The last gate before bytes refuses by name what a producer let through: before this
+    /// check an out-of-range gold panicked in `example_json`'s index (exit 101), and a held-out
+    /// row was written as train.
+    #[test]
+    fn examples_refuse_a_malformed_or_held_out_row_by_name() {
+        let bad_gold = cand("g", "x", Gold::Option(5), "train");
+        let Err(err) = examples(&[&bad_gold]) else {
+            panic!("not refused")
+        };
+        assert!(err.contains("pool row g: gold_not_in_options"), "{err}");
+        let mut many = cand("m", "x", Gold::Option(0), "train");
+        many.options = (0..=decisions::MAX_OPTIONS)
+            .map(|i| format!("o{i}"))
+            .collect();
+        let Err(err) = examples(&[&many]) else {
+            panic!("not refused")
+        };
+        assert!(err.contains("too_many_options"), "{err}");
+        let held = cand("h", "x", Gold::Option(0), "heldout");
+        let Err(err) = examples(&[&held]) else {
+            panic!("not refused")
+        };
+        assert!(err.contains("split \"heldout\""), "{err}");
     }
 
     /// A stratum with val rows and no train row is reported at the seam, so every producer

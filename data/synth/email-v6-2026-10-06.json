@@ -4,10 +4,13 @@
   "seed": 20261006,
   "rows_per_template": 110,
   "val_templates_per_class": 1,
+  "heldout_templates_per_class": 1,
   "injection_rate": 0.1,
   "ngram_n": 8,
   "containment_threshold": 0.5,
-  "target_sha256": {},
+  "target_sha256": {
+    "email-heldout": "6cf99185352bbf73cde59f513fd7ec76526a67e03ecf3dc359e9af059de8be1c"
+  },
   "probe": {
     "n_min": 3,
     "n_max": 5,

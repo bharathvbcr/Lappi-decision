@@ -45,6 +45,8 @@ use crate::pool;
 use crate::sha256::sha256_hex;
 
 pub const CONFIG_SCHEMA: &str = "qd-synth-config/v1";
+/// The manifest of an `--emit-heldout` directory.
+pub const HELDOUT_SCHEMA: &str = "qd-synth-heldout/v1";
 /// Not a licence any upstream granted: the rows are written by this crate's own rules. The
 /// Python licence table refuses it (default deny) until it is registered there with the
 /// human's 2026-10-06 ruling as its note, so the pool cannot enter a mixture unregistered.
@@ -120,6 +122,11 @@ pub struct Config {
     pub rows_per_template: usize,
     /// Templates per stratification class that go to val.
     pub val_templates_per_class: usize,
+    /// Templates per stratification class held out of the pool entirely (`heldout`, 0 = none):
+    /// rendered only by [`emit_heldout`], as the kind's held-out evaluation set and the pool's
+    /// decontamination target. They are drawn before val, so a config without the key splits
+    /// exactly as before it existed.
+    pub heldout_templates_per_class: usize,
     /// Email only: the share of rows that also get a label-flip injection variant.
     pub injection_rate: f64,
     pub ngram_n: u32,
@@ -134,7 +141,8 @@ impl Config {
     /// The config at `path` and its bytes. The tools config's data-file paths are relative to
     /// the config's own directory, so a committed config names no home path.
     pub fn load(path: &Path) -> Result<(Self, Vec<u8>), String> {
-        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        crate::heldout::refuse_training_input(path, "--config")?;
+        let bytes = crate::files::read_bounded(path, crate::files::MAX_RECORD_BYTES, "--config")?;
         let mut cfg = Self::parse(&bytes)?;
         if let Some(t) = cfg.tools.as_mut() {
             let dir = path.parent().unwrap_or(Path::new("."));
@@ -212,6 +220,20 @@ impl Config {
                  of the {MIN_TEMPLATES_PER_CLASS} required templates to train on"
             ));
         }
+        let heldout_templates_per_class = match v.get("heldout_templates_per_class") {
+            None => 0,
+            Some(n) => n
+                .as_u64()
+                .ok_or("config: heldout_templates_per_class is not a whole number")?
+                as usize,
+        };
+        if heldout_templates_per_class + val_templates_per_class >= MIN_TEMPLATES_PER_CLASS {
+            return Err(format!(
+                "config: heldout_templates_per_class {heldout_templates_per_class} and \
+                 val_templates_per_class {val_templates_per_class} must leave at least one of the \
+                 {MIN_TEMPLATES_PER_CLASS} required templates to train on"
+            ));
+        }
         let injection_rate = get_f64(&v, "injection_rate", "config")?;
         if !(0.0..=1.0).contains(&injection_rate) {
             return Err(format!(
@@ -236,6 +258,7 @@ impl Config {
             seed: get_u64(&v, "seed", "config")?,
             rows_per_template,
             val_templates_per_class,
+            heldout_templates_per_class,
             injection_rate,
             ngram_n: u32::try_from(get_u64(&v, "ngram_n", "config")?)
                 .ok()
@@ -348,8 +371,13 @@ impl Draft {
 /// Each (family, template) and the side of the split it is on.
 type Split = BTreeMap<(String, String), &'static str>;
 
-/// The split of every template: per family and stratification class, the
-/// `val_templates_per_class` templates that sort first by a seeded key go to val.
+/// The side of a template held out of the pool: never in `examples.jsonl`, rendered only by
+/// [`emit_heldout`].
+pub const HELDOUT: &str = "heldout";
+
+/// The split of every template: per family and stratification class, the templates sorted by a
+/// seeded key; the first `heldout_templates_per_class` are held out, the next
+/// `val_templates_per_class` go to val, and the rest to train.
 fn template_split(cfg: &Config, drafts: &[Draft]) -> Result<(Split, Value), String> {
     let mut by_class: BTreeMap<(&str, &str), BTreeSet<&str>> = BTreeMap::new();
     let mut owner: BTreeMap<(&str, &str), &str> = BTreeMap::new();
@@ -382,14 +410,22 @@ fn template_split(cfg: &Config, drafts: &[Draft]) -> Result<(Split, Value), Stri
         }
         let mut order: Vec<&str> = templates.iter().copied().collect();
         order.sort_by_key(|t| decisions::keyed(cfg.seed, &["val-template", *family, *class, *t]));
-        let val: Vec<&str> = order[..cfg.val_templates_per_class].to_vec();
+        let h = cfg.heldout_templates_per_class;
+        let held: Vec<&str> = order[..h].to_vec();
+        let val: Vec<&str> = order[h..h + cfg.val_templates_per_class].to_vec();
         for t in &order {
-            let side = if val.contains(t) { "val" } else { "train" };
+            let side = if held.contains(t) {
+                HELDOUT
+            } else if val.contains(t) {
+                "val"
+            } else {
+                "train"
+            };
             split.insert(((*family).to_owned(), (*t).to_owned()), side);
         }
         report.insert(
             format!("{family}/{class}"),
-            json!({"templates": templates.len(), "val_templates": val}),
+            json!({"templates": templates.len(), "val_templates": val, "heldout_templates": held}),
         );
     }
     Ok((split, Value::Object(report)))
@@ -427,9 +463,22 @@ pub struct Assembled {
     pub report: Value,
 }
 
-/// Split, shuffle, check and identify every draft. Refuses a class with too few templates, a
-/// template owned by two classes and a pool over [`MAX_ROWS`]; counts every row it drops.
+/// Split, shuffle, check and identify every draft of the pool (train and val). Refuses a class
+/// with too few templates, a template owned by two classes and a pool over [`MAX_ROWS`]; counts
+/// every row it drops, held-out-template rows included.
 pub fn assemble(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, String> {
+    assemble_sides(cfg, drafts, false)
+}
+
+/// The held-out templates' rows, assembled exactly as the pool's are (same ids, shuffle and
+/// structural checks), for [`emit_heldout`].
+pub fn assemble_heldout(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, String> {
+    assemble_sides(cfg, drafts, true)
+}
+
+/// Both sides go through one dedupe in one order (held-out first, then val, then train), so a
+/// pool row that duplicates a held-out row is the one dropped, and counted.
+fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assembled, String> {
     if drafts.len() > MAX_ROWS {
         return Err(format!(
             "{} drafts; a pool holds at most {MAX_ROWS}",
@@ -437,12 +486,17 @@ pub fn assemble(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, String> {
         ));
     }
     let (split, split_report) = template_split(cfg, drafts)?;
-    // The keep rule is split-aware: val drafts go first, so a duplicate never removes one.
+    // The keep rule is split-aware: held-out drafts go first, then val, so a duplicate never
+    // removes one of those in favour of a train row.
     let mut order: Vec<(&Draft, &'static str)> = drafts
         .iter()
         .map(|d| (d, split[&(d.family_id.to_owned(), d.template.clone())]))
         .collect();
-    order.sort_by_key(|(_, s)| if *s == "val" { 0 } else { 1 });
+    order.sort_by_key(|(_, s)| match *s {
+        HELDOUT => 0,
+        "val" => 1,
+        _ => 2,
+    });
     let source_id = cfg.kind.source_id();
     let mut seen = BTreeSet::new();
     let mut refused: BTreeMap<&'static str, usize> = BTreeMap::new();
@@ -463,6 +517,12 @@ pub fn assemble(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, String> {
         );
         if !seen.insert(digest.clone()) {
             *refused.entry("exact_duplicate").or_default() += 1;
+            continue;
+        }
+        if (side == HELDOUT) != heldout {
+            if side == HELDOUT {
+                *refused.entry("heldout_template").or_default() += 1;
+            }
             continue;
         }
         let perm = Scope::new(cfg.seed, &digest)
@@ -636,6 +696,28 @@ pub struct Generated {
 
 /// The generator for `cfg.kind`.
 pub fn generate(cfg: &Config) -> Result<Generated, String> {
+    // The row budget, before the pool's rows are drafted: one row per template is drafted to
+    // count the templates (the tools kind's come from its data files), and a config whose
+    // templates x rows_per_template is past MAX_ROWS is refused there, not after drafting it.
+    if cfg.rows_per_template > 1 {
+        let mut one = cfg.clone();
+        one.rows_per_template = 1;
+        let probe = generate(&one)?;
+        let templates = probe
+            .drafts
+            .iter()
+            .map(|d| (d.family_id, d.template.as_str()))
+            .collect::<BTreeSet<_>>()
+            .len();
+        let at_least = templates.saturating_mul(cfg.rows_per_template);
+        if at_least > MAX_ROWS {
+            return Err(format!(
+                "{templates} templates x rows_per_template {} = {at_least} rows; a pool holds at \
+                 most {MAX_ROWS} (refused before drafting them)",
+                cfg.rows_per_template
+            ));
+        }
+    }
     let plain = |drafts| Generated {
         drafts,
         report: Value::Null,
@@ -765,6 +847,101 @@ pub fn run(inputs: &Inputs, out_dir: &Path, threads: usize) -> Result<String, St
     Ok(format!("{} -> {}", built.summary, out_dir.display()))
 }
 
+/// What [`emit_heldout`] writes, before it is written.
+pub struct HeldOut {
+    /// Decision rows of the held-out templates, `split` = [`HELDOUT`]: the evaluation set.
+    pub examples: Vec<u8>,
+    /// `{"id", "text"}` rows, the text the containment scan compares: the pool's target set.
+    pub targets: Vec<u8>,
+    pub manifest: Value,
+    pub rows: usize,
+}
+
+/// The held-out templates' rows of `cfg`'s kind. Refuses a config that holds no template out.
+///
+/// A target's text is its row's context: the instance, never what every row of the kind shares.
+/// The question and the option list are the same in every row of a kind, so a target carrying
+/// them is contained in every candidate, and the pool's scan excludes them all
+/// (GAP-SYNTH-HELDOUT-TARGET-TEXT-CARRIED-SHARED-SCAFFOLDING-2026-10-06).
+pub fn held_out(cfg: &Config, config_sha256: &str) -> Result<HeldOut, String> {
+    if cfg.heldout_templates_per_class == 0 {
+        return Err(format!(
+            "config ({}) holds no template out: heldout_templates_per_class is 0",
+            cfg.kind.name()
+        ));
+    }
+    let generated = generate(cfg)?;
+    let a = assemble_heldout(cfg, &generated.drafts)?;
+    if a.candidates.is_empty() {
+        return Err("no held-out row survived assembly".into());
+    }
+    let mut examples = Vec::new();
+    let mut targets = Vec::new();
+    for c in &a.candidates {
+        let line = |v: Value, out: &mut Vec<u8>| -> Result<(), String> {
+            serde_json::to_writer(&mut *out, &v).map_err(|e| e.to_string())?;
+            out.push(b'\n');
+            Ok(())
+        };
+        line(decisions::example_json(c), &mut examples)?;
+        line(json!({"id": c.id, "text": c.context}), &mut targets)?;
+    }
+    let mut inputs = generated.inputs;
+    inputs.insert("config".to_owned(), config_sha256.to_owned());
+    let manifest = json!({
+        "schema": HELDOUT_SCHEMA, "tool": "qd-prep synth --emit-heldout",
+        "tool_version": env!("CARGO_PKG_VERSION"), "kind": cfg.kind.name(),
+        "source_id": cfg.kind.source_id(), "licence": LICENCE,
+        "never_train": "held-out evaluation set (CLAUDE.md rule 3): its templates are excluded \
+                        from every pool built from this config, and its path carries a held-out \
+                        marker. A pool reads targets.jsonl only as a decontamination target.",
+        "inputs": inputs,
+        "heldout_templates_per_class": cfg.heldout_templates_per_class,
+        "rows": a.candidates.len(),
+        "examples_sha256": sha256_hex(&examples),
+        "targets_sha256": sha256_hex(&targets),
+        "assembly": a.report,
+    });
+    Ok(HeldOut {
+        examples,
+        targets,
+        manifest,
+        rows: a.candidates.len(),
+    })
+}
+
+/// `qd-prep synth --emit-heldout`: `DIR/{examples.jsonl, targets.jsonl, manifest.json}` out,
+/// where `DIR` carries a held-out path marker. Pin `targets.jsonl`'s sha256 in the config's
+/// `target_sha256` and pass it as `--target` when the pool is built.
+pub fn emit_heldout(config: &Path, out_dir: &Path) -> Result<String, String> {
+    crate::heldout::check_held_out_path(out_dir)?;
+    let partial = crate::files::partial_path(out_dir)?;
+    for p in [out_dir, partial.as_path()] {
+        if p.exists() {
+            return Err(format!("{} exists; refusing to overwrite it", p.display()));
+        }
+    }
+    let (cfg, config_bytes) = Config::load(config)?;
+    let h = held_out(&cfg, &sha256_hex(&config_bytes))?;
+    let mut manifest = serde_json::to_vec_pretty(&h.manifest).map_err(|e| e.to_string())?;
+    manifest.push(b'\n');
+    crate::files::write_new_dir(out_dir, |partial| {
+        // A symlinked parent could land the files somewhere unmarked; check where they go.
+        let real =
+            std::fs::canonicalize(partial).map_err(|e| format!("{}: {e}", partial.display()))?;
+        crate::heldout::check_held_out_path(&real)?;
+        crate::files::write_synced_new(&partial.join("examples.jsonl"), &h.examples)?;
+        crate::files::write_synced_new(&partial.join("targets.jsonl"), &h.targets)?;
+        crate::files::write_synced_new(&partial.join("manifest.json"), &manifest)
+    })?;
+    Ok(format!(
+        "qd-prep synth {} held-out: {} rows -> {}",
+        cfg.kind.name(),
+        h.rows,
+        out_dir.display()
+    ))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -775,6 +952,7 @@ pub(crate) mod tests {
             seed: 20261006,
             rows_per_template: 6,
             val_templates_per_class: 1,
+            heldout_templates_per_class: 0,
             injection_rate: 0.1,
             ngram_n: 8,
             containment_threshold: 0.5,
@@ -874,6 +1052,268 @@ pub(crate) mod tests {
                 .count();
             assert_eq!(val, 3, "{class}: one val template of three rows");
         }
+    }
+
+    fn two_class_drafts() -> Vec<Draft> {
+        let mut ds = Vec::new();
+        for (ci, class) in ["alpha", "beta"].iter().enumerate() {
+            for t in 0..5 {
+                for r in 0..3 {
+                    ds.push(draft(
+                        &format!("{class}-t{t}"),
+                        class,
+                        ci,
+                        &format!("{class} {t} {r}"),
+                    ));
+                }
+            }
+        }
+        ds
+    }
+
+    #[test]
+    fn the_seeded_order_puts_held_out_first_then_val_and_none_held_out_splits_as_before() {
+        let ds = two_class_drafts();
+        // The order the split draws from, recomputed from its definition: per class, templates
+        // sorted by the seeded key. Without a held-out template val is order[0], as before the
+        // key existed; with one, held-out is order[0] and val order[1].
+        let order = |class: &str| {
+            let mut ts: Vec<String> = (0..5).map(|t| format!("{class}-t{t}")).collect();
+            ts.sort_by_key(|t| {
+                decisions::keyed(20261006, &["val-template", "t.family", class, t.as_str()])
+            });
+            ts
+        };
+        let side_of = |a: &Assembled, template: &str| -> BTreeSet<&'static str> {
+            a.candidates
+                .iter()
+                .filter(|c| c.group_key == template)
+                .map(|c| c.split)
+                .collect()
+        };
+        let none = assemble(&cfg(Kind::Email), &ds).unwrap();
+        let mut c = cfg(Kind::Email);
+        c.heldout_templates_per_class = 1;
+        let one = assemble(&c, &ds).unwrap();
+        let held = assemble_heldout(&c, &ds).unwrap();
+        for class in ["alpha", "beta"] {
+            let o = order(class);
+            assert_eq!(side_of(&none, &o[0]), BTreeSet::from(["val"]), "{class}");
+            assert_eq!(side_of(&none, &o[1]), BTreeSet::from(["train"]), "{class}");
+            assert_eq!(side_of(&held, &o[0]), BTreeSet::from([HELDOUT]), "{class}");
+            assert!(
+                side_of(&one, &o[0]).is_empty(),
+                "{class}: held out of the pool"
+            );
+            assert_eq!(side_of(&one, &o[1]), BTreeSet::from(["val"]), "{class}");
+        }
+        assert!(none.report["refused"].get("heldout_template").is_none());
+    }
+
+    #[test]
+    fn held_out_templates_never_reach_the_pool_and_are_counted() {
+        let ds = two_class_drafts();
+        let mut c = cfg(Kind::Email);
+        c.heldout_templates_per_class = 1;
+        let pool = assemble(&c, &ds).unwrap();
+        let held = assemble_heldout(&c, &ds).unwrap();
+        // One template of three rows per class is held out.
+        assert_eq!(held.candidates.len(), 6);
+        assert!(held.candidates.iter().all(|c| c.split == HELDOUT));
+        assert_eq!(pool.report["refused"]["heldout_template"], 6);
+        let held_templates: BTreeSet<&str> = held
+            .candidates
+            .iter()
+            .map(|c| c.group_key.as_str())
+            .collect();
+        let pool_templates: BTreeSet<&str> = pool
+            .candidates
+            .iter()
+            .map(|c| c.group_key.as_str())
+            .collect();
+        assert!(held_templates.is_disjoint(&pool_templates));
+        assert_eq!(pool.candidates.len() + held.candidates.len(), ds.len());
+        // Val still holds one whole template per class, drawn from what is left.
+        for class in ["alpha", "beta"] {
+            let val = pool
+                .candidates
+                .iter()
+                .filter(|c| c.split == "val" && c.group_key.starts_with(class))
+                .count();
+            assert_eq!(val, 3, "{class}");
+        }
+    }
+
+    #[test]
+    fn a_pool_row_duplicating_a_held_out_row_is_the_one_dropped() {
+        let mut ds = two_class_drafts();
+        let mut c = cfg(Kind::Email);
+        c.heldout_templates_per_class = 1;
+        let held = assemble_heldout(&c, &ds).unwrap();
+        // A train-side draft with a held-out row's exact text, under another template.
+        let h = &held.candidates[0];
+        let class = if h.group_key.starts_with("alpha") {
+            "alpha"
+        } else {
+            "beta"
+        };
+        let ci = usize::from(class == "beta");
+        let text = ds
+            .iter()
+            .find(|d| d.template == h.group_key)
+            .map(|d| d.context.clone())
+            .unwrap();
+        let other = ds
+            .iter()
+            .map(|d| d.template.clone())
+            .find(|t| t.starts_with(class) && *t != h.group_key)
+            .unwrap();
+        ds.push(draft(&other, class, ci, &text));
+        let pool = assemble(&c, &ds).unwrap();
+        assert!(pool.candidates.iter().all(|p| p.id != h.id));
+        assert_eq!(pool.report["refused"]["exact_duplicate"], 1);
+        assert_eq!(assemble_heldout(&c, &ds).unwrap().candidates.len(), 6);
+    }
+
+    /// A held-out target is decontaminated by its row's own content. The v1 email set put the
+    /// question and the option list, which every email row shares, into each target, and the
+    /// pool's scan then excluded every candidate
+    /// (GAP-SYNTH-HELDOUT-TARGET-TEXT-CARRIED-SHARED-SCAFFOLDING-2026-10-06). The controls: a
+    /// candidate carrying a held-out row's email is excluded, and the genuine candidates, drafted
+    /// from other templates, are not all excluded.
+    #[test]
+    fn a_held_out_target_is_its_rows_content_so_the_scan_still_tells_rows_apart() {
+        let c = Config {
+            heldout_templates_per_class: 1,
+            ..cfg(Kind::Email)
+        };
+        let h = held_out(&c, "config-sha").unwrap();
+        let targets: Vec<(String, String)> = h
+            .targets
+            .split(|&b| b == b'\n')
+            .filter(|l| !l.is_empty())
+            .map(|l| {
+                let v: Value = serde_json::from_slice(l).unwrap();
+                let field = |k: &str| v[k].as_str().unwrap().to_owned();
+                (field("id"), field("text"))
+            })
+            .collect();
+        let g = generate(&c).unwrap();
+        let a = assemble(&c, &g.drafts).unwrap();
+        let held = assemble_heldout(&c, &g.drafts).unwrap();
+        let mut copy = a.candidates[0].clone();
+        copy.id = "control/carries-a-held-out-email".to_owned();
+        copy.context = held.candidates[0].context.clone();
+        let mut candidates = a.candidates.clone();
+        candidates.push(copy.clone());
+        let set: TargetSet = ("email-heldout".to_owned(), targets.clone());
+        let s = pool::decontaminate(
+            c.ngram_n,
+            c.containment_threshold,
+            &json!({"tool": "test"}),
+            "synth-candidates",
+            &candidates,
+            &[set],
+            1,
+        )
+        .unwrap_or_else(|e| panic!("every candidate matched a held-out target: {e}"));
+        let clean: BTreeSet<&str> = s.clean.iter().map(|x| x.id.as_str()).collect();
+        assert!(
+            !clean.contains(copy.id.as_str()),
+            "a candidate carrying a held-out email was kept"
+        );
+        let kept = a
+            .candidates
+            .iter()
+            .filter(|x| clean.contains(x.id.as_str()))
+            .count();
+        assert!(
+            kept > 0,
+            "all {} genuine candidates were excluded: the targets match what every row shares, \
+             not the rows",
+            a.candidates.len()
+        );
+        for (id, text) in &targets {
+            assert!(
+                !text.contains(&copy.question),
+                "{id} carries the shared question"
+            );
+            for o in &copy.options {
+                assert!(
+                    !text.contains(o.as_str()),
+                    "{id} carries the shared option {o:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_config_must_leave_a_train_template_after_val_and_held_out() {
+        let shipped: Value = serde_json::from_slice(include_bytes!(
+            "../../../data/synth/email-v6-2026-10-06.json"
+        ))
+        .unwrap();
+        let with = |h: u64| {
+            let mut v = shipped.clone();
+            v["heldout_templates_per_class"] = json!(h);
+            Config::parse(&serde_json::to_vec(&v).unwrap())
+        };
+        let val = shipped["val_templates_per_class"].as_u64().unwrap();
+        let most = MIN_TEMPLATES_PER_CLASS as u64 - 1 - val;
+        assert_eq!(
+            with(most).unwrap().heldout_templates_per_class,
+            most as usize
+        );
+        let err = with(most + 1).err().unwrap();
+        assert!(err.contains("at least one"), "{err}");
+        let mut v = shipped.clone();
+        v["heldout_templates_per_class"] = json!("one");
+        assert!(Config::parse(&serde_json::to_vec(&v).unwrap()).is_err());
+    }
+
+    /// Before the probe, a config past the row budget was refused by `assemble`, after every
+    /// row (~650k for email) had been drafted in memory.
+    #[test]
+    fn a_config_past_the_row_budget_is_refused_before_its_rows_are_drafted() {
+        let mut c = cfg(Kind::Email);
+        c.rows_per_template = MAX_ROWS_PER_TEMPLATE;
+        let Err(err) = generate(&c) else {
+            panic!("not refused")
+        };
+        assert!(err.contains("refused before drafting them"), "{err}");
+        assert!(
+            err.contains(&format!("a pool holds at most {MAX_ROWS}")),
+            "{err}"
+        );
+        c.rows_per_template = 2;
+        assert!(generate(&c).is_ok());
+    }
+
+    #[test]
+    fn emitting_held_out_rows_needs_a_marked_directory_and_a_held_out_template() {
+        let dir = std::env::temp_dir().join(format!(
+            "qd-prep-synth-emit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("email.json");
+        let shipped: Value = serde_json::from_slice(include_bytes!(
+            "../../../data/synth/email-v6-2026-10-06.json"
+        ))
+        .unwrap();
+        let mut none = shipped.clone();
+        none["heldout_templates_per_class"] = json!(0);
+        std::fs::write(&config, serde_json::to_vec(&none).unwrap()).unwrap();
+        let err = emit_heldout(&config, &dir.join("unmarked")).unwrap_err();
+        assert!(err.contains("no path segment"), "{err}");
+        let err = emit_heldout(&config, &dir.join("heldout").join("email")).unwrap_err();
+        assert!(err.contains("holds no template out"), "{err}");
+        assert!(!dir.join("heldout").join("email").exists());
+        assert!(!dir.join("heldout").join("email.partial").exists());
     }
 
     #[test]

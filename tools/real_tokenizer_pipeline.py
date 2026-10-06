@@ -82,6 +82,7 @@ from qd_data.defect_class import (
     DEFECT_SOURCE_ID,
     DefectRow,
     load_defect_rows,
+    sha256_file,
 )
 from qd_data.errors import NOUL, QdRefusal
 from qd_data.general import (
@@ -1664,14 +1665,6 @@ class GeneralLoad:
     refused_reads: dict[str, str]
 
 
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for block in iter(lambda: fh.read(1 << 20), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
 def fetch_record_entries(record: Path) -> tuple[bytes, list[dict[str, Any]]]:
     """``(raw bytes, entries)`` of a fetch record, bounded and shape-checked, nothing read.
 
@@ -1716,7 +1709,7 @@ def general_rows(record: Path, *, max_rows_per_file: int = DEFAULT_GENERAL_MAX_R
         path = Path(str(entry["jsonl"])).resolve()
         if not path.is_relative_to(root):
             raise SystemExit(f"{record}: {path} is outside the cache root {root}")
-        found = _sha256_file(path)
+        found = sha256_file(path)
         if found != entry["jsonl_sha256"]:
             raise SystemExit(
                 f"{path}: sha256 {found} but the fetch record says {entry['jsonl_sha256']}; "
@@ -3062,7 +3055,7 @@ def build_native_spancheck(
         flush()
     return NativeSpancheck(
         binary=binary,
-        binary_sha256=_sha256_file(binary),
+        binary_sha256=sha256_file(binary),
         token_offsets=token_offsets,
         table=table,
         calls=counts["calls"],

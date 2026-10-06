@@ -64,9 +64,9 @@ pub enum RepoLicence {
 pub fn read_cache(
     path: &Path,
     pin: &str,
-) -> Result<(BTreeMap<String, RepoLicence>, String), String> {
+) -> Result<(BTreeMap<String, RepoLicence>, decisions::Lines), String> {
     let mut out = BTreeMap::new();
-    let got = decisions::for_lines(path, |n, r| {
+    let got = decisions::for_lines(path, decisions::Role::Reference, |n, r| {
         let what = format!("licence cache line {n}");
         let repo = decisions::get_str(&r, "repo", &what)?.to_owned();
         let lic = match decisions::get_str(&r, "status", &what)? {
@@ -93,7 +93,7 @@ pub fn read_cache(
     })?;
     decisions::check_pin(
         path,
-        &got,
+        &got.sha256,
         pin,
         "the config (pools.csn.licence_cache_sha256)",
     )?;
@@ -348,7 +348,7 @@ pub fn build_csn(
     }
     let pin = decisions::get_str(p, "licence_cache_sha256", "pools.csn")?;
     let (cache, cache_sha) = read_cache(cache_path, pin)?;
-    digests.insert("csn_licence_cache".to_owned(), cache_sha);
+    decisions::record_input(&mut digests, "csn_licence_cache".to_owned(), cache_sha);
     let mut functions = Tally::default();
     let mut masked = 0usize;
     let mut repos: BTreeMap<String, Vec<Func>> = BTreeMap::new();
@@ -377,7 +377,7 @@ pub fn build_csn(
             }
             Ok(())
         })?;
-        digests.insert(format!("{CSN}/{file}"), got);
+        decisions::record_input(&mut digests, format!("{CSN}/{file}"), got);
     }
     for v in repos.values_mut() {
         if v.len() > caps.max_functions_per_repo {
@@ -508,13 +508,13 @@ pub fn swe_rebench_filter(
     let mut per_target = serde_json::Map::new();
     for (dataset, file) in SWE_TARGETS {
         let before = excluded.len();
-        let got = convert::read_view(views.target_rows(dataset, file)?, |_, r| {
+        let got = views.target_rows(dataset, file)?.read(|_, r| {
             if let Some(id) = convert::opt_str(&r, "instance_id") {
                 excluded.insert(id.to_owned());
             }
             Ok(())
         })?;
-        digests.insert(format!("target-rows/{dataset}/{file}"), got);
+        decisions::record_input(&mut digests, format!("target-rows/{dataset}/{file}"), got);
         per_target.insert(format!("{dataset}/{file}"), json!(excluded.len() - before));
     }
     let mut rows = Vec::new();
@@ -547,10 +547,11 @@ pub fn swe_rebench_filter(
             }
             Ok(())
         })?;
-        digests.insert(format!("{SWE_REBENCH}/{file}"), got);
+        decisions::record_input(&mut digests, format!("{SWE_REBENCH}/{file}"), got);
     }
     let counts = json!({
         "schema": "qd-convert-swe-rebench-filter/v1", "inputs": digests,
+        "not_viewed": views.not_viewed,
         "rows": tally.json(), "rows_sha256": sha256_hex(&rows),
         "excluded_instance_ids_by_target": per_target, "excluded_instance_ids": excluded.len(),
         "license_name_values": names.iter().map(|(n, (t, c))| (n.clone(), json!({"tier": t, "rows": c})))

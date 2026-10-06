@@ -228,8 +228,9 @@ def benchmark_target_sets(record: Path) -> list[TargetSet]:
     the record's ``jsonl_sha256``, as ``real_tokenizer_pipeline.general_rows`` requires of the
     rows it reads. The text is what the item scans as when it is a row: MMLU's through
     :func:`mmlu_target_text`; CLINC's utterance, which is all a stripped intent row keeps."""
-    from real_tokenizer_pipeline import _sha256_file, fetch_record_entries
+    from real_tokenizer_pipeline import fetch_record_entries
 
+    from qd_data.defect_class import sha256_file
     from qd_data.loaders import parse_mmlu
     from qd_data.sources import BENCHMARK_TARGET_PREFIX, BENCHMARK_TARGET_SPLITS
 
@@ -244,7 +245,7 @@ def benchmark_target_sets(record: Path) -> list[TargetSet]:
             continue
         if not path.is_relative_to(root):
             raise SystemExit(f"{record}: {path} is outside the cache root {root}")
-        found = _sha256_file(path)
+        found = sha256_file(path)
         if found != entry["jsonl_sha256"]:
             raise SystemExit(f"{path}: sha256 {found} but the fetch record says "
                              f"{entry['jsonl_sha256']}; the cache is not the approved download")

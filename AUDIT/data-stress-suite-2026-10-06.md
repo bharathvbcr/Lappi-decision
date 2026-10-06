@@ -54,6 +54,41 @@ integration session (32beaa): `crates/qd-prep`, `crates/qd-mutate`, `python/qd_d
 | S11 | Held-out invariants (rule 3) | `heldout/natural-bugs/`, `heldout/tssb-3m/` and the caller records offered to every producer's input flags | Every producer refuses, or never reads them. `qd-train`'s path check refuses them. |
 | S12 | Licence default-deny | a row with an unknown licence string; aliases differing only in case or whitespace; `NOASSERTION`; an empty licence string | Unknown is denied and counted. Aliases resolve or deny, never pass unclassified. |
 
+## Clarifications (dated, recorded before the suite's run)
+
+These were added on 2026-10-06 at about 20:30Z, after the tests were written and before any item ran on main. Each one interprets wording; none removes an item or moves a bound. The rulings are Fable's.
+
+- **S1, "refused or counted".** A torn last line, CRLF endings and blank lines are counted, not refused. Every input `for_lines` reads is sha256-pinned, so refusing one of these would make a pinned, verified input unreadable for good: the only way to load it again would change its bytes and break the pin.
+  - The count lands in the producer's manifest `inputs` map as `line_facts/<key>` (`decisions::record_input`). A clean file adds no entry. *Superseded at ~21:30Z, below: the entry is always written.*
+  - A BOM fails the JSON parse and is refused with the line number.
+  - An escaped NUL (`\u0000` in a string) is refused with the line number. *Superseded at ~21:30Z, below.*
+  - A repeated target id is refused by `pool::read_targets` with both line numbers.
+  - Not covered: the Python pool reader `qd_data.decisions._read_lines`.
+- **S1 scoped by role (2026-10-06 ~21:30Z, the advisor's ruling).** The first S1 ruling did not say *whose* rows it governed, and the real views showed that it matters. Runner 6's conversions over them stopped on:
+  - escaped NULs in source views: scirepeval search train, and llmail-inject phase 1 and 2. In llmail, 40 lines carry the `\u0000` escape, and 39 of them are real NUL rows (36 and 3, as measured by runner 6c); the other is a literal backslash in text;
+  - a csn go train row of 9,945,948 bytes;
+  - a SWE-bench **target** row of 117,859,127 bytes. This is `explosion__spaCy-1502`, whose `patch` field is a legitimate 102,783,478-byte diff.
+
+  Escaped NULs also sit in target views: 2 in SWE-bench train and 1 in csn python test. `decisions::for_lines` now takes a role.
+  - **Source** rows are rows that can become training examples. An escaped NUL, or a line past `MAX_LINE_BYTES` (8 MiB, unchanged), drops **that row**. The drop is counted per cause, with its first line numbers, in `line_facts/<key>`. The file is never refused for it, and nothing is dropped silently.
+  - **Reference** rows are decontamination targets, held-out id sets, and the caches and decider files every row must be read from. They are **never dropped**: dropping one would shrink decontamination coverage, which is rule 2 in spirit.
+    - An escaped NUL is accepted and counted. Strings do not truncate at NUL, and no surviving training row holds one, so a target n-gram spanning a NUL only over-covers.
+    - A line past `MAX_REFERENCE_LINE_BYTES` (256 MiB, a finite bound of its own, sized from that 117,859,127-byte row) refuses the file.
+  - `line_facts/<key>` is written for **every** input, clean or not. A count of zero then reads differently from an input that was never examined.
+
+  Tests rewritten to this scope:
+  - S1 "escaped NUL": a source row is dropped and counted; a target row is accepted and counted.
+  - S1 "line bound": a source row past the bound is dropped and counted; a target row past `MAX_LINE_BYTES` is read.
+
+  Both still fail on 22c38b6, which refused the over-bound target line and passed NULs on silently. The red check was rerun on them. A known loss: the 39 llmail-inject rows whose payloads hold NULs are an attack class, and dropping them is recorded in a gap, not only counted.
+- **S4, "refused before any row is drafted".** `synth::generate` drafts one row per template to count the templates; for the tools kind, those come from its data files. It refuses when templates × `rows_per_template` passes `MAX_ROWS`, before the pool's rows are drafted. That probe is 1/`rows_per_template` of the pool, and it is the only drafting before the refusal.
+- **S5, the `/dev/zero` symlink.** It is refused as "not a regular file" (`files::open_regular`) before any size bound is consulted. That is stricter than "refused by the size bound", and it is never read.
+- **S11, "every producer".** The producers of training rows are the three subcommands that write pools: `synth`, `convert` and `decisions`. Two other subcommands are not producers, and a held-out path given to either is not refused as held-out:
+  - `dedupe` is a kernel over a request that Python builds. Deduplicating a held-out set is legitimate.
+  - `own-repos` reads repositories under a scan root and *makes* the held-out split.
+
+  `--target` files of the three producers are accepted under a held-out marker by design: decontaminating against held-out sets is how they stay out of training.
+
 ## What this suite does not cover
 
 - GPU paths, training steps and serving are other sessions' suites.

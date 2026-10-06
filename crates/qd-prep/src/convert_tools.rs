@@ -425,7 +425,7 @@ pub fn build(
         let got = convert::read_view(v, |n, r| {
             acc.offer(WHEN2CALL, W2C_FAMILY, when2call_row(kind, n, &r))
         })?;
-        digests.insert(format!("{WHEN2CALL}/{file}"), got);
+        crate::decisions::record_input(&mut digests, format!("{WHEN2CALL}/{file}"), got);
     }
     let mut irrelevance_rows = 0usize;
     let v = views.train_rows(TOOLACE, TOOLACE_FILE)?;
@@ -439,7 +439,7 @@ pub fn build(
         }
         Err(reason) => acc.offer(TOOLACE, TOOLACE_FAMILY, Err(reason)),
     })?;
-    digests.insert(format!("{TOOLACE}/{TOOLACE_FILE}"), got);
+    crate::decisions::record_input(&mut digests, format!("{TOOLACE}/{TOOLACE_FILE}"), got);
     let names = target_files(views);
     let refs: Vec<(&str, &str, &str)> = names
         .iter()

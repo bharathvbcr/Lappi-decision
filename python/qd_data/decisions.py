@@ -115,6 +115,17 @@ def _read_lines(path: Path) -> tuple[list[dict[str, object]], str]:
 
 def load_decision_pool(pool_dir: Path) -> DecisionPool:
     """The pool at ``pool_dir``, checked against its manifest. Refuses rather than caps."""
+    # Rule 3 at the pool door: a decision pool is training data, so one under a held-out path
+    # marker is refused, as spelled and as resolved (a symlink into a held-out directory).
+    markers = {m.casefold() for m in DataConfig().held_out_path_markers}
+    for spelling in (Path(pool_dir), Path(pool_dir).expanduser().resolve(strict=False)):
+        held = [seg for seg in spelling.parts if seg.casefold() in markers]
+        if held:
+            raise DecisionPoolError(
+                f"{pool_dir}: path segment {held[0]!r} marks held-out data ({spelling}); a "
+                "decision pool is training data and is never read from a held-out path "
+                "(CLAUDE.md rule 3)"
+            )
     manifest_path = pool_dir / "manifest.json"
     examples_path = pool_dir / "examples.jsonl"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

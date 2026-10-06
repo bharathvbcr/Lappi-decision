@@ -190,7 +190,7 @@ pub fn run(
         let got = convert::read_view(views.train_rows(dataset, file)?, |_, r| {
             c.offer(short, dataset, licence, &r)
         })?;
-        digests.insert(format!("{dataset}/{file}"), got);
+        crate::decisions::record_input(&mut digests, format!("{dataset}/{file}"), got);
     }
     let mut not_read = serde_json::Map::new();
     for file in NOT_READ {
@@ -202,6 +202,7 @@ pub fn run(
     let manifest = json!({
         "schema": SCHEMA, "tool": "qd-prep convert", "tool_version": env!("CARGO_PKG_VERSION"),
         "inputs": digests, "rows": c.rows, "sha256": sha256_hex(&c.bytes),
+        "not_viewed": views.not_viewed,
         "sources": c.tallies.iter().map(|(k, t)| ((*k).to_owned(), t.json())).collect::<serde_json::Map<_, _>>(),
         "labels": c.labels, "conflicting_label_duplicates": c.conflicting_duplicates,
         "datasets": distinct,
