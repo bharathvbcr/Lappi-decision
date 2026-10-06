@@ -680,3 +680,302 @@ def test_fused_on_a_recipe_without_masters_is_refused() -> None:
     with pytest.raises(ValueError, match="fp32-master recipe only"):
         build_optimizer([_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=100,
                         fused=True)
+
+
+# -- KahanBf16AdamW: the 16-bit recipe (bf16 weights + bf16 compensation + fp32 moments) ------
+#
+# The question each test below answers is whether the compensated recipe reaches where the
+# master recipe reaches, at 14 B/param instead of 20, and whether it refuses the inputs that
+# would make that false without a word. The reference is MasterWeightAdamW, the recipe v5
+# trained every row with; the contrast is plain torch.optim.AdamW over bf16, which loses the
+# updates. The trajectory is a noisy quadratic at the real tower's numbers: weights ~N(0,
+# 0.02), the lr real_ft_run.REAL_BACKBONE_LR = 1e-5.
+
+from qd_train.memory import ADAMW_KAHAN, ADAMW_MASTER  # noqa: E402
+from qd_train.optim import (  # noqa: E402
+    KAHAN_RECIPE,
+    KahanBf16AdamW,
+)
+
+REAL_LR = 1e-5
+
+
+def _quadratic_run(kind: str, *, steps: int, lr: float = REAL_LR, n: int = 4096, seed: int = 0):
+    """Train one bf16 vector toward a target under shared noise. Returns (w0, value, opt, p).
+
+    ``value`` is the full-precision weight each recipe holds: the master for the master
+    recipe, ``p + c`` for the compensated one, the bf16 weight itself for plain AdamW. The
+    gradient is computed from that value, as a real backward reads the weights it trains.
+    """
+    gen = torch.Generator().manual_seed(seed)
+    w0 = torch.randn(n, generator=gen) * 0.02
+    target = w0 + torch.randn(n, generator=gen) * 0.005
+    p = torch.nn.Parameter(w0.to(torch.bfloat16))
+    if kind == "master":
+        opt = MasterWeightAdamW([p], lr=lr)
+    elif kind == "kahan":
+        opt = KahanBf16AdamW([p], lr=lr)
+    else:
+        opt = torch.optim.AdamW([p], lr=lr)
+
+    def value() -> torch.Tensor:
+        if kind == "master":
+            return opt._masters[0].detach().clone()
+        if kind == "kahan":
+            return p.detach().float() + opt.state[p]["kahan_comp"].float()
+        return p.detach().float()
+
+    for _ in range(steps):
+        noise = torch.randn(n, generator=gen) * 0.01
+        p.grad = ((value() - target) + noise).to(torch.bfloat16)
+        opt.step()
+        opt.zero_grad(set_to_none=True)
+    return w0, value(), opt, p
+
+
+def test_plain_bf16_adamw_loses_most_of_the_update_at_the_real_lr() -> None:
+    """The defect, characterised, so the fix has something to beat.
+
+    At lr 1e-5 an Adam step on a 0.02-magnitude weight is below bf16's half-spacing, so most
+    steps round away. Measured on this host (2026-10-06, 2,000 steps): plain bf16 ends 95.7%
+    of the master's distance away from the master. If torch ever changes this, the recipe
+    comparison below has to be re-measured.
+    """
+    w0, master, _, _ = _quadratic_run("master", steps=2000)
+    _, plain, _, _ = _quadratic_run("plain", steps=2000)
+    moved = float((master - w0).norm())
+    assert moved > 0.1, "the master trajectory did not move; the comparison is vacuous"
+    err = float((plain - master).norm()) / moved
+    assert err > 0.5, f"plain bf16 tracked the master to {err:.3e}; the premise has changed"
+
+
+def test_kahan_tracks_the_master_trajectory_at_the_real_lr() -> None:
+    """The fix: within 0.5% of the master's movement, where plain bf16 misses by ~96%.
+
+    Measured on this host: 2.7e-4 at 2,000 steps and 5.2e-4 at 500. The bound is ten times
+    the larger. The residual is the compensation's own 8-bit rounding, which the master does
+    not have; it is not a drift that grows with steps (the 2,000-step error is smaller).
+    """
+    for steps in (500, 2000):
+        w0, master, _, _ = _quadratic_run("master", steps=steps)
+        _, kahan, _, _ = _quadratic_run("kahan", steps=steps)
+        moved = float((master - w0).norm())
+        err = float((kahan - master).norm()) / moved
+        assert err < 5e-3, f"{steps} steps: compensated recipe is {err:.3e} off the master"
+
+
+def test_kahan_update_rule_is_torch_adamw_on_fp32_parameters() -> None:
+    """An fp32 parameter takes the same rule with no compensation, so it must reproduce
+    torch.optim.AdamW exactly: same decay, bias correction, eps placement and lr_scale."""
+    torch.manual_seed(1)
+    init = torch.randn(300)
+    grads = [torch.randn(300) for _ in range(60)]
+    mine = torch.nn.Parameter(init.clone())
+    ref = torch.nn.Parameter(init.clone())
+    anchor = _bf16_param(n=8)  # an fp32-only model is refused; the anchor never gets a grad
+    opt = KahanBf16AdamW(
+        [{"params": [mine], "lr_scale": 0.5}, {"params": [anchor]}],
+        lr=3e-3, betas=(0.9, 0.95), weight_decay=0.1,
+    )
+    torch_opt = torch.optim.AdamW([ref], lr=1.5e-3, betas=(0.9, 0.95), weight_decay=0.1)
+    for g in grads:
+        mine.grad, ref.grad = g.clone(), g.clone()
+        opt.step()
+        torch_opt.step()
+    assert torch.equal(mine.detach(), ref.detach()), (
+        float((mine - ref).abs().max())
+    )
+    assert torch.equal(opt.state[mine]["exp_avg_sq"], torch_opt.state[ref]["exp_avg_sq"])
+
+
+def test_kahan_keeps_the_layout_its_budget_describes() -> None:
+    """14 B/param: bf16 weight 2 + bf16 grad 2 + bf16 compensation 2 + fp32 moments 8."""
+    assert ADAMW_KAHAN.bytes_per_param(param_bytes=2, grad_bytes=2) == 14
+    assert ADAMW_MASTER.bytes_per_param(param_bytes=2, grad_bytes=2) == 20
+    p = _bf16_param(n=4096)
+    opt = KahanBf16AdamW([p], lr=1e-4)
+    _drive(opt, p, grad=1.0, steps=2)
+    st = opt.state[p]
+    n = p.numel()
+    assert p.dtype == torch.bfloat16 and st["kahan_comp"].dtype == torch.bfloat16
+    assert st["exp_avg"].dtype == st["exp_avg_sq"].dtype == torch.float32
+    assert st["kahan_comp"].numel() * st["kahan_comp"].element_size() / n == 2.0
+    moments = st["exp_avg"].numel() * 4 + st["exp_avg_sq"].numel() * 4
+    assert moments / n == 8.0
+
+
+def test_kahan_second_moment_follows_a_change_in_gradient_scale() -> None:
+    """fp32 moments: the failure plain bf16 has (frozen at 32 against 100) is absent."""
+    p = _bf16_param()
+    opt = KahanBf16AdamW([p], lr=0.0)
+    _drive(opt, p, grad=1.0, steps=2000)
+    _drive(opt, p, grad=10.0, steps=20000)
+    assert float(opt.state[p]["exp_avg_sq"][0]) == pytest.approx(100.0, rel=1e-2)
+
+
+def test_kahan_slices_do_not_change_the_step() -> None:
+    """The bounded-memory slicing is an implementation detail: any slice size, same bits."""
+    torch.manual_seed(2)
+    grads = [torch.randn(1000).to(torch.bfloat16) for _ in range(30)]
+    out = []
+    for chunk in (7, 1000, 1 << 24):
+        p = torch.nn.Parameter(torch.linspace(-0.05, 0.05, 1000).to(torch.bfloat16))
+        opt = KahanBf16AdamW([p], lr=1e-4, chunk_elems=chunk)
+        for g in grads:
+            p.grad = g.clone()
+            opt.step()
+        out.append((p.detach().clone(), opt.state[p]["kahan_comp"].clone()))
+    for p_k, c_k in out[1:]:
+        assert torch.equal(p_k, out[0][0]) and torch.equal(c_k, out[0][1])
+
+
+def test_kahan_resume_continues_the_trajectory_bit_for_bit() -> None:
+    """The compensation is saved exactly; a resume that rebuilt it from the bf16 weight would
+    throw away the bits the recipe exists for, silently."""
+    grads = [torch.full((64,), 0.3 * ((-1) ** i)) for i in range(40)]
+
+    def drive(opt, p, gs):
+        for g in gs:
+            p.grad = g.to(torch.bfloat16)
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+
+    whole = torch.nn.Parameter(torch.linspace(-0.02, 0.02, 64).to(torch.bfloat16))
+    wo = KahanBf16AdamW([whole], lr=1e-5)
+    drive(wo, whole, grads)
+
+    first = torch.nn.Parameter(torch.linspace(-0.02, 0.02, 64).to(torch.bfloat16))
+    fo = KahanBf16AdamW([first], lr=1e-5)
+    drive(fo, first, grads[:20])
+    saved = fo.state_dict()
+    assert saved["recipe"] == KAHAN_RECIPE
+
+    second = torch.nn.Parameter(first.detach().clone())  # the weights come back via the model
+    so = KahanBf16AdamW([second], lr=1e-5)
+    so.load_state_dict(saved)
+    drive(so, second, grads[20:])
+    assert torch.equal(second.detach(), whole.detach())
+    assert torch.equal(so.state[second]["kahan_comp"], wo.state[whole]["kahan_comp"])
+
+
+def test_kahan_masters_round_to_the_live_weight_even_on_a_tie() -> None:
+    """``ckpt_average --from masters`` matches a master to its weight by bf16(master) == weight.
+    p = 1.0078125 has an odd bf16 mantissa; c = +half a spacing makes p + c an exact tie,
+    which round-half-even sends to the NEXT value. The master must be p there, not p + c."""
+    p = torch.nn.Parameter(torch.tensor([1.0078125, 0.5], dtype=torch.bfloat16))
+    opt = KahanBf16AdamW([p], lr=1e-4)
+    opt.state[p]["kahan_comp"].copy_(torch.tensor([2.0**-8, 2.0**-12]))
+    exact = p.detach().float() + opt.state[p]["kahan_comp"].float()
+    assert exact[0].to(torch.bfloat16) != p[0], "the fixture is not a tie that rounds away"
+    master = opt.state_dict()["masters"][0]
+    assert torch.equal(master.to(torch.bfloat16), p.detach())
+    assert float(master[1]) == float(exact[1]), "a non-tie master must keep its compensation"
+
+
+def test_kahan_refuses_a_state_it_did_not_write_or_that_does_not_match() -> None:
+    p = _bf16_param(n=32)
+    opt = KahanBf16AdamW([p], lr=1e-4)
+    _drive(opt, p, grad=0.5, steps=3)
+    good = opt.state_dict()
+
+    master_state = MasterWeightAdamW([_bf16_param(n=32)], lr=1e-4).state_dict()
+    with pytest.raises(ValueError, match="missing"):
+        KahanBf16AdamW([_bf16_param(n=32)], lr=1e-4).load_state_dict(master_state)
+    with pytest.raises(ValueError, match="recipe"):
+        KahanBf16AdamW([p], lr=1e-4).load_state_dict({**good, "recipe": "master"})
+    for drop in ("state", "masters", "param_groups", "recipe"):
+        with pytest.raises(ValueError, match="missing"):
+            KahanBf16AdamW([p], lr=1e-4).load_state_dict(
+                {k: v for k, v in good.items() if k != drop}
+            )
+    with pytest.raises(ValueError, match="different model"):
+        KahanBf16AdamW([_bf16_param(n=16)], lr=1e-4).load_state_dict(good)
+    with pytest.raises(ValueError, match="different model"):
+        KahanBf16AdamW([_bf16_param(n=32), _bf16_param(n=32)], lr=1e-4).load_state_dict(good)
+    # Weights from another checkpoint: the masters do not round to them.
+    other = _bf16_param(n=32, value=3.0)
+    with pytest.raises(ValueError, match="different checkpoints"):
+        KahanBf16AdamW([other], lr=1e-4).load_state_dict(good)
+
+
+def test_kahan_refuses_what_it_cannot_compensate_or_bound() -> None:
+    from qd_train import optim as optim_mod
+
+    with pytest.raises(ValueError, match="no parameters"):
+        KahanBf16AdamW(
+            [torch.nn.Parameter(torch.ones(4, dtype=torch.bfloat16), requires_grad=False)],
+            lr=1e-4,
+        )
+    with pytest.raises(ValueError, match="only fp32"):
+        KahanBf16AdamW([torch.nn.Parameter(torch.ones(4))], lr=1e-4)
+    with pytest.raises(ValueError, match="bf16 and fp32 parameters only"):
+        KahanBf16AdamW([torch.nn.Parameter(torch.ones(4, dtype=torch.float16))], lr=1e-4)
+    shared = _bf16_param(n=4)
+    with pytest.raises(ValueError, match="more than one group"):
+        KahanBf16AdamW([{"params": [shared]}, {"params": [shared]}], lr=1e-4)
+    strided = torch.nn.Parameter(torch.ones(4, 4, dtype=torch.bfloat16).t())
+    with pytest.raises(ValueError, match="not contiguous"):
+        KahanBf16AdamW([strided], lr=1e-4)
+    for bad in (dict(lr=float("nan")), dict(lr=-1.0), dict(lr=1e-4, eps=0.0),
+                dict(lr=1e-4, betas=(0.9, 1.0)), dict(lr=1e-4, weight_decay=float("inf")),
+                dict(lr=1e-4, chunk_elems=0)):
+        with pytest.raises(ValueError):
+            KahanBf16AdamW([_bf16_param(n=4)], **bad)
+    original = optim_mod.MAX_KAHAN_PARAMS
+    optim_mod.MAX_KAHAN_PARAMS = 512
+    try:
+        with pytest.raises(ValueError, match="MAX_KAHAN_PARAMS"):
+            KahanBf16AdamW([_bf16_param(n=1024)], lr=1e-4)
+    finally:
+        optim_mod.MAX_KAHAN_PARAMS = original
+
+
+def test_kahan_refuses_a_nan_lr_written_into_its_groups_before_it_steps() -> None:
+    """apply_lr validates, but a group can be written directly; a NaN lr would write NaN into
+    every weight. The step checks the values it is about to use."""
+    p = _bf16_param(n=4)
+    opt = KahanBf16AdamW([p], lr=1e-4)
+    opt.param_groups[0]["lr"] = float("nan")
+    p.grad = torch.ones_like(p)
+    before = p.detach().clone()
+    with pytest.raises(ValueError, match="lr"):
+        opt.step()
+    assert torch.equal(p.detach(), before)
+
+
+def test_kahan_skips_parameters_without_a_gradient_and_empty_ones() -> None:
+    a, b = _bf16_param(n=8), _bf16_param(n=8)
+    empty = torch.nn.Parameter(torch.zeros(0, dtype=torch.bfloat16))
+    opt = KahanBf16AdamW([a, b, empty], lr=1e-2)
+    a.grad = torch.ones_like(a)
+    empty.grad = torch.zeros_like(empty)
+    before_b = b.detach().clone()
+    opt.step()
+    assert torch.equal(b.detach(), before_b) and opt.state[b]["step"] == 0
+    assert opt.state[a]["step"] == 1 and not torch.equal(a.detach(), before_b)
+
+
+def test_the_builder_builds_the_kahan_recipe_from_its_spec_and_refuses_a_wrong_one() -> None:
+    opt = build_optimizer([_bf16_param()], spec=ADAMW_KAHAN, lr=1e-4, total_steps=1_000_000)
+    assert isinstance(opt, KahanBf16AdamW), "fp32 moments survive any schedule"
+    with pytest.raises(ValueError, match="fp32-master recipe only"):
+        build_optimizer([_bf16_param()], spec=ADAMW_KAHAN, lr=1e-4, total_steps=10, fused=True)
+    wrong = OptimizerSpec("kahan-with-bf16-moments", 2, 2, compensation_bytes=2)
+    with pytest.raises(ValueError, match="layout nothing builds"):
+        build_optimizer([_bf16_param()], spec=wrong, lr=1e-4, total_steps=10)
+    scaled = build_optimizer(
+        [{"params": [_bf16_param()], "lr_scale": 0.1}, {"params": [_bf16_param()]}],
+        spec=ADAMW_KAHAN, lr=1e-3, total_steps=10,
+    )
+    assert [g["lr"] for g in scaled.param_groups] == pytest.approx([1e-4, 1e-3])
+    from qd_train.optim import apply_lr
+
+    apply_lr(scaled, 2e-3)
+    assert [g["lr"] for g in scaled.param_groups] == pytest.approx([2e-4, 2e-3])
+
+
+def test_a_spec_cannot_hold_both_a_master_and_a_compensation() -> None:
+    with pytest.raises(ValueError, match="both an fp32 master and a compensation"):
+        OptimizerSpec("both", 2, 4, keeps_fp32_master=True, compensation_bytes=2)
+    with pytest.raises(ValueError, match="non-negative"):
+        OptimizerSpec("negative", 2, 4, compensation_bytes=-2)

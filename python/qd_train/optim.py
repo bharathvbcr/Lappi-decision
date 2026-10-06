@@ -32,9 +32,13 @@ keeps_fp32_master=True)`` is 16 B/param all-in against ``ADAMW_BF16``'s 8. That 
 trade, and ``qd_train.memory`` has described it from the start -- this module is what makes
 the description true of something.
 
-**What it is not.** It is not `bf16 optimizer state with stochastic rounding`, and it is not
-Kahan summation over bf16 moments. Both are cheaper and both are real techniques; neither is
-implemented here, and neither should be assumed from the presence of this one.
+**The cheaper alternative, [`KahanBf16AdamW`].** It keeps the weights in bf16 with a bf16
+Kahan compensation buffer beside them (the rounding residual of each weight) and the moments
+in fp32, and no master. That is 14 B/param against the master recipe's 20. Updates smaller
+than a weight's bf16 spacing land in the compensation and accumulate, so they are not lost;
+plain bf16 AdamW loses them (``tests/test_optim.py`` measures both trajectories against the
+master's). Stochastic rounding is not implemented: it is unbiased but not deterministic, and
+this repository pins resumed trajectories bit for bit.
 """
 
 from __future__ import annotations
@@ -48,7 +52,11 @@ from typing import Any
 
 __all__ = [
     "DEFAULT_BETA2",
+    "KAHAN_CHUNK_ELEMS",
+    "KAHAN_RECIPE",
+    "MAX_KAHAN_PARAMS",
     "MAX_MOMENT_RELATIVE_ERROR",
+    "KahanBf16AdamW",
     "MasterWeightAdamW",
     "MomentSettling",
     "apply_lr",
@@ -70,6 +78,23 @@ LR_SCALE_KEY: str = "lr_scale"
 #: run. An fp32 master plus fp32 moments is 12 B/param on top of the live parameters; at
 #: this bound that is 96 GB of optimizer-side memory, which no single device here has.
 MAX_MASTER_PARAMS: int = 8_000_000_000
+
+#: Refused above this, for the same reason. [`KahanBf16AdamW`] keeps 10 B/param beside the
+#: live weights (a 2-byte compensation and two fp32 moments), 14 B/param all-in with the bf16
+#: weight and grad; at this bound that is 224 GB, more than any single device rented here.
+#: It allocates all of it at construction, so a model that cannot fit fails before the first
+#: batch is read, not at the first step.
+MAX_KAHAN_PARAMS: int = 16_000_000_000
+
+#: Elements per slice of [`KahanBf16AdamW.step`]. Each slice casts its grad, weight and
+#: compensation to fp32 and builds a denominator: about four fp32 temporaries, 256 MiB at this
+#: size. Without the bound, the 248,320 x 2,048 embedding alone would make 2 GiB temporaries,
+#: four at once: memory the 14 B/param budget does not count.
+KAHAN_CHUNK_ELEMS: int = 1 << 24
+
+#: What [`KahanBf16AdamW.state_dict`] records itself as. [`KahanBf16AdamW.load_state_dict`]
+#: refuses any other optimizer's state, so a resume cannot silently change the recipe.
+KAHAN_RECIPE: str = "kahan-bf16"
 
 #: How far the settled second moment may sit from the value it is chasing before the run is
 #: refused. A second moment wrong by this fraction mis-scales every AdamW step by
@@ -484,6 +509,334 @@ class MasterWeightAdamW:
                 live.copy_(master)
 
 
+class KahanBf16AdamW:
+    """AdamW over bf16 weights with a bf16 Kahan compensation buffer and fp32 moments.
+
+    **The defect it fixes without a master.** A bf16 weight cannot record an update smaller
+    than half its spacing: at the real tower's lr of 1e-5 and a weight of magnitude 0.02, an
+    Adam step of ~1e-5 is below bf16's half-spacing of ~6e-5, so plain ``torch.optim.AdamW``
+    over bf16 rounds most steps away. On top of that, its bf16 second moment freezes 50% low
+    (:func:`moment_settling`). [`MasterWeightAdamW`] fixes both with an fp32 master and fp32
+    moments, at 20 B/param. This class fixes both at 14:
+    - the moments are fp32, 8 B/param, the same as the master recipe's;
+    - each bf16 weight ``p`` keeps a bf16 compensation ``c``, its rounding residual. The
+      weight the optimizer steps is ``p + c``, which is accurate to about 16 bits of
+      mantissa. After each update the new value is split back into ``p = bf16(w)`` and
+      ``c = bf16(w - p)``.
+
+    **The update rule is torch's AdamW** (decoupled weight decay, bias-corrected moments,
+    ``eps`` added after the bias-corrected root), written out because the master-free layout
+    has no fp32 tensor for ``torch.optim.AdamW`` to own. ``tests/test_optim.py`` pins it to
+    ``torch.optim.AdamW`` on fp32 parameters and to [`MasterWeightAdamW`]'s trajectory on bf16
+    ones.
+
+    **fp32 parameters** (the span head) get the same rule with no compensation: fp32 is
+    already its own master. **fp16 is refused**: a compensated fp16 weight has fp16's range,
+    which this repository has never measured for a tower.
+
+    **Memory.** Every state tensor is allocated at construction. The step walks each tensor in
+    slices of ``chunk_elems``, so its fp32 temporaries are bounded (:data:`KAHAN_CHUNK_ELEMS`).
+
+    **Checkpoints.** :meth:`state_dict` carries the exact compensation, so a resume continues
+    the trajectory bit for bit. It also carries ``masters``: ``p + c`` in fp32 on the host, the
+    same list ``MasterWeightAdamW`` writes, so ``tools/ckpt_average.py --from masters``
+    averages a compensated run's full-precision weights unchanged. Where ``p + c`` is an exact
+    bf16 tie, the master is ``p`` itself, so ``bf16(master) == p`` holds on every element; that
+    identity is how ``ckpt_average`` matches a master to its weight.
+    """
+
+    def __init__(
+        self,
+        params: Any,
+        *,
+        lr: float,
+        betas: tuple[float, float] = (0.9, DEFAULT_BETA2),
+        eps: float = 1e-8,
+        weight_decay: float = 0.01,
+        chunk_elems: int = KAHAN_CHUNK_ELEMS,
+    ) -> None:
+        import torch
+
+        self._torch = torch
+        _check_hyper(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        if isinstance(chunk_elems, bool) or not isinstance(chunk_elems, int) or chunk_elems < 1:
+            raise ValueError(f"chunk_elems must be a positive int, got {chunk_elems!r}")
+        self.chunk_elems = chunk_elems
+        groups = _normalise_groups(params)
+        live = [p for g in groups for p in g["params"]]
+        if not live:
+            raise ValueError(
+                "KahanBf16AdamW was given no parameters with requires_grad=True. An optimizer "
+                "over nothing takes silent no-op steps and a run would report "
+                "optimizer_steps>0 having trained nothing."
+            )
+        if len({id(p) for p in live}) != len(live):
+            raise ValueError(
+                "a parameter appears in more than one group: it would be stepped twice per "
+                "step, at two learning rates"
+            )
+        total = sum(p.numel() for p in live)
+        if total > MAX_KAHAN_PARAMS:
+            raise ValueError(
+                f"{total:,} trainable parameters exceeds MAX_KAHAN_PARAMS "
+                f"({MAX_KAHAN_PARAMS:,}). The compensation and fp32 moments would need "
+                f"{total * 10 / 1024 ** 3:.1f} GiB beside the live weights. Refusing up front "
+                "rather than failing part way through a run."
+            )
+        bad = sorted({str(p.dtype) for p in live} - {"torch.bfloat16", "torch.float32"})
+        if bad:
+            raise ValueError(
+                f"KahanBf16AdamW takes bf16 and fp32 parameters only, got {bad}. A compensated "
+                "fp16 weight keeps fp16's range, which no run here has measured."
+            )
+        if all(p.dtype == torch.float32 for p in live):
+            raise ValueError(
+                "KahanBf16AdamW was given only fp32 parameters, which need no compensation. "
+                "Use torch.optim.AdamW directly, or pass the bf16 parameters this class "
+                "exists for."
+            )
+        for p in live:
+            if not p.is_contiguous():
+                raise ValueError(
+                    f"a parameter of shape {tuple(p.shape)} is not contiguous; the step walks "
+                    "each parameter as one flat view, and a copy would be a second weight "
+                    "nothing writes back"
+                )
+
+        self._params = live
+        self.param_groups: list[dict[str, Any]] = []
+        for g in groups:
+            extra = {k: v for k, v in g.items() if k != "params"}
+            group = {
+                "lr": float(lr), "betas": tuple(betas), "eps": float(eps),
+                "weight_decay": float(weight_decay), **extra, "params": list(g["params"]),
+            }
+            if LR_SCALE_KEY in extra:
+                group["lr"] = float(lr) * _check_lr_scale(
+                    extra[LR_SCALE_KEY], where=f"group {extra.get('name', '?')!r}"
+                )
+            self.param_groups.append(group)
+        self.state: dict[Any, dict[str, Any]] = {}
+        for p in live:
+            entry: dict[str, Any] = {
+                "step": 0,
+                "exp_avg": torch.zeros_like(p, dtype=torch.float32),
+                "exp_avg_sq": torch.zeros_like(p, dtype=torch.float32),
+            }
+            if p.dtype != torch.float32:
+                entry["kahan_comp"] = torch.zeros_like(p)
+            self.state[p] = entry
+
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        for p in self._params:
+            if set_to_none:
+                p.grad = None
+            elif p.grad is not None:
+                p.grad.zero_()
+
+    def step(self) -> None:
+        """One AdamW step on every parameter that has a gradient, in bounded slices."""
+        torch = self._torch
+        f32 = torch.float32
+        with torch.no_grad():
+            for group in self.param_groups:
+                lr = group["lr"]
+                beta1, beta2 = group["betas"]
+                eps, weight_decay = group["eps"], group["weight_decay"]
+                _check_hyper(lr=lr, betas=(beta1, beta2), eps=eps, weight_decay=weight_decay)
+                for p in group["params"]:
+                    grad = p.grad
+                    if grad is None:
+                        continue
+                    if grad.is_sparse:
+                        raise ValueError("KahanBf16AdamW does not take sparse gradients")
+                    if grad.shape != p.shape:
+                        raise ValueError(
+                            f"gradient shape {tuple(grad.shape)} does not match its parameter's "
+                            f"{tuple(p.shape)}"
+                        )
+                    st = self.state[p]
+                    st["step"] += 1
+                    t = st["step"]
+                    # As torch computes them: Python floats, pow for the root.
+                    step_size = lr / (1 - beta1**t)
+                    bias_correction2_sqrt = (1 - beta2**t) ** 0.5
+                    decay = 1 - lr * weight_decay
+                    flat_p = p.view(-1)
+                    flat_g = grad.reshape(-1)
+                    flat_m = st["exp_avg"].view(-1)
+                    flat_v = st["exp_avg_sq"].view(-1)
+                    comp = st.get("kahan_comp")
+                    flat_c = None if comp is None else comp.view(-1)
+                    n = flat_p.numel()
+                    for start in range(0, n, self.chunk_elems):
+                        end = min(n, start + self.chunk_elems)
+                        g = flat_g[start:end].to(f32)
+                        m = flat_m[start:end]
+                        v = flat_v[start:end]
+                        m.lerp_(g, 1 - beta1)
+                        v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                        denom = (v.sqrt() / bias_correction2_sqrt).add_(eps)
+                        if flat_c is None:
+                            w = flat_p[start:end]
+                            w.mul_(decay)
+                            w.addcdiv_(m, denom, value=-step_size)
+                            continue
+                        w = flat_p[start:end].to(f32).add_(flat_c[start:end].to(f32))
+                        w.mul_(decay)
+                        w.addcdiv_(m, denom, value=-step_size)
+                        hi = w.to(p.dtype)
+                        flat_p[start:end].copy_(hi)
+                        # The residual is exact in fp32; copy_ rounds it to the buffer's bf16.
+                        flat_c[start:end].copy_(w.sub_(hi.to(f32)))
+
+    # -- checkpointing --------------------------------------------------------------------
+
+    def state_dict(self) -> dict[str, Any]:
+        """Moments, compensation and step counts by parameter index, plus host ``masters``.
+
+        Shaped like ``torch.optim.Optimizer.state_dict`` (``state`` keyed by index,
+        ``param_groups`` with index lists), because the checkpoint walker in
+        ``qd_train.backbone`` stringifies exactly the ``state`` sub-tree's integer keys.
+        """
+        torch = self._torch
+        index = {id(p): i for i, p in enumerate(self._params)}
+        state = {}
+        for p in self._params:
+            st = self.state[p]
+            state[index[id(p)]] = {
+                "step": st["step"],
+                **{k: v for k, v in st.items() if k != "step"},
+            }
+        groups = []
+        for g in self.param_groups:
+            groups.append(
+                {**{k: v for k, v in g.items() if k != "params"},
+                 "params": [index[id(p)] for p in g["params"]]}
+            )
+        masters = []
+        with torch.no_grad():
+            for p in self._params:
+                host = p.detach().to("cpu")
+                comp = self.state[p].get("kahan_comp")
+                if comp is None:
+                    masters.append(host.clone())
+                    continue
+                exact = host.to(torch.float32) + comp.detach().to("cpu", torch.float32)
+                tie = exact.to(p.dtype) != host
+                masters.append(torch.where(tie, host.to(torch.float32), exact))
+        return {"recipe": KAHAN_RECIPE, "state": state, "param_groups": groups,
+                "masters": masters}
+
+    def load_state_dict(self, saved: dict[str, Any]) -> None:
+        """Restore moments, compensation, step counts and hyper-parameters, or refuse.
+
+        Refused, before anything is written:
+        - a state another optimizer wrote (no ``recipe``, or a different one), because
+          resuming a master or plain run here would silently change the recipe mid-run;
+        - a partial state;
+        - a state for a different model (parameter count, group layout or shape);
+        - a state whose ``masters`` disagree with the live weights, which means the weights
+          and the optimizer came from different checkpoints.
+        """
+        torch = self._torch
+        missing = {"recipe", "state", "param_groups", "masters"} - set(saved)
+        if missing:
+            raise ValueError(
+                f"optimizer state is missing {sorted(missing)}. Refusing to load a partial "
+                "state, or one another optimizer wrote: a resume would change the recipe or "
+                "lose the compensation without saying so."
+            )
+        if saved["recipe"] != KAHAN_RECIPE:
+            raise ValueError(
+                f"optimizer state was written by recipe {saved['recipe']!r}, not "
+                f"{KAHAN_RECIPE!r}. A resume continues the recipe it was cut from."
+            )
+        state, groups, masters = saved["state"], saved["param_groups"], saved["masters"]
+        n = len(self._params)
+        if len(state) != n or len(masters) != n:
+            raise ValueError(
+                f"optimizer state carries {len(state)} state entries and {len(masters)} "
+                f"masters, but this optimizer has {n} parameters. The checkpoint describes a "
+                "different model."
+            )
+        if len(groups) != len(self.param_groups) or any(
+            len(s["params"]) != len(g["params"])
+            for s, g in zip(groups, self.param_groups, strict=True)
+        ):
+            raise ValueError(
+                "optimizer state's parameter groups do not match this optimizer's. The "
+                "checkpoint describes a different model or a different group split."
+            )
+        staged: list[tuple[Any, dict[str, Any]]] = []
+        for i, p in enumerate(self._params):
+            entry = state.get(i)
+            if entry is None:
+                raise ValueError(f"optimizer state has no entry for parameter {i}")
+            want = {"step", "exp_avg", "exp_avg_sq"} | (
+                set() if p.dtype == torch.float32 else {"kahan_comp"}
+            )
+            if set(entry) != want:
+                raise ValueError(
+                    f"parameter {i}'s state holds {sorted(entry)}, expected {sorted(want)}"
+                )
+            for key in want - {"step"}:
+                if tuple(entry[key].shape) != tuple(p.shape):
+                    raise ValueError(
+                        f"parameter {i}'s {key} has shape {tuple(entry[key].shape)}, this "
+                        f"model's is {tuple(p.shape)}. The checkpoint describes a different "
+                        "model."
+                    )
+            if tuple(masters[i].shape) != tuple(p.shape):
+                raise ValueError(f"master {i} has shape {tuple(masters[i].shape)}")
+            host = p.detach().to("cpu")
+            if not torch.equal(masters[i].to(p.dtype), host):
+                raise ValueError(
+                    f"master {i} does not round to the live parameter: the weights and the "
+                    "optimizer state come from different checkpoints"
+                )
+            step = entry["step"]
+            if isinstance(step, bool) or not isinstance(step, int) or step < 0:
+                raise ValueError(f"parameter {i}'s step must be a non-negative int, got {step!r}")
+            staged.append((p, entry))
+        with torch.no_grad():
+            for p, entry in staged:
+                st = self.state[p]
+                st["step"] = entry["step"]
+                st["exp_avg"].copy_(entry["exp_avg"].to(st["exp_avg"].device, torch.float32))
+                st["exp_avg_sq"].copy_(
+                    entry["exp_avg_sq"].to(st["exp_avg_sq"].device, torch.float32)
+                )
+                if "kahan_comp" in st:
+                    st["kahan_comp"].copy_(
+                        entry["kahan_comp"].to(st["kahan_comp"].device, p.dtype)
+                    )
+        for mine, saved_group in zip(self.param_groups, groups, strict=True):
+            for key, value in saved_group.items():
+                if key != "params":
+                    mine[key] = tuple(value) if key == "betas" else value
+
+
+def _check_hyper(
+    *, lr: float, betas: tuple[float, float], eps: float, weight_decay: float
+) -> None:
+    """Refuse a hyper-parameter that would write NaN or a wrong step into every weight."""
+    if not (isinstance(lr, (int, float)) and math.isfinite(lr) and lr >= 0.0):
+        raise ValueError(f"lr must be finite and non-negative, got {lr!r}")
+    if len(betas) != 2 or not all(
+        isinstance(b, (int, float)) and 0.0 <= b < 1.0 for b in betas
+    ):
+        raise ValueError(f"betas must be two numbers in [0, 1), got {betas!r}")
+    if not (isinstance(eps, (int, float)) and math.isfinite(eps) and eps > 0.0):
+        raise ValueError(f"eps must be finite and positive, got {eps!r}")
+    if not (
+        isinstance(weight_decay, (int, float))
+        and math.isfinite(weight_decay)
+        and weight_decay >= 0.0
+    ):
+        raise ValueError(f"weight_decay must be finite and non-negative, got {weight_decay!r}")
+
+
 def build_optimizer(
     params: Any,
     *,
@@ -550,6 +903,18 @@ def build_optimizer(
             f"fused=True is built for the fp32-master recipe only, and spec {spec.name!r} "
             "keeps no master. Refusing rather than recording a fused optimizer that is not"
         )
+    if spec.compensation_bytes:
+        # KahanBf16AdamW keeps exactly two fp32 moments and one bf16 compensation; a spec
+        # that budgets anything else describes a layout this does not build. Its moments are
+        # fp32, so the frozen-moment guard below has nothing to refuse.
+        if (spec.states_per_param, spec.state_bytes, spec.compensation_bytes) != (2, 4, 2):
+            raise ValueError(
+                f"optimizer spec {spec.name!r} budgets {spec.states_per_param} state(s) of "
+                f"{spec.state_bytes} bytes and a {spec.compensation_bytes}-byte compensation, "
+                "but KahanBf16AdamW keeps two fp32 moments and one bf16 compensation. The "
+                "budget would describe a layout nothing builds."
+            )
+        return KahanBf16AdamW(groups, lr=lr, betas=betas)
     if spec.states_per_param != 2:
         raise ValueError(
             f"optimizer spec {spec.name!r} describes {spec.states_per_param} state tensor(s) "

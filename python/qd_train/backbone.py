@@ -498,7 +498,15 @@ def load_text_tower(
     # against the 8 B/param torch actually allocates -- 28.04 GiB predicted, 14.02 GiB
     # measured on a GH200. Over-budgeting never crashes, which is why it survived; a
     # footprint that does not describe the run cannot decide whether the next one fits.
-    if not optimizer.keeps_fp32_master:
+    # A compensated spec (qd_train.optim.KahanBf16AdamW) keeps fp32 moments over bf16 weights
+    # by construction, so the parameter-dtype rule below does not describe it; what it needs
+    # is a bf16 tower, the only dtype it keeps a compensation for.
+    if optimizer.compensation_bytes and dtype != "bf16":
+        raise BackboneContractViolation(
+            f"optimizer spec {optimizer.name!r} keeps a bf16 compensation buffer, but this "
+            f"tower loads as {dtype}. KahanBf16AdamW compensates bf16 weights only."
+        )
+    if not (optimizer.keeps_fp32_master or optimizer.compensation_bytes):
         state_should_be = BYTES_PER_ELEMENT[dtype]
         if optimizer.state_bytes != state_should_be:
             raise BackboneContractViolation(

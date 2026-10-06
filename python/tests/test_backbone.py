@@ -1395,6 +1395,55 @@ def test_the_master_recipe_resumes_too_including_its_fp32_masters(tmp_path):
     )
 
 
+def test_the_kahan_recipe_resumes_through_a_real_checkpoint_file(tmp_path):
+    """The 16-bit recipe's state is a third shape, ``{"recipe", "state", "param_groups",
+    "masters"}``, holding the bf16 compensation that a resume must not rebuild from the
+    weights. Driven through the real step, the real checkpoint writer and a file on disk.
+
+    Its ``masters`` are fp32 ``p + c`` (the list ``ckpt_average --from masters`` reads), and
+    the compensation goes through as bf16.
+    """
+    from qd_train.memory import ADAMW_KAHAN
+    from qd_train.optim import KAHAN_RECIPE, KahanBf16AdamW
+    from qd_train.run_control import Checkpoint, TensorRef
+
+    def leg(where: Path, n: int, resume_from):
+        tower, _ = _tiny_tower(where, dtype="bf16", optimizer=ADAMW_KAHAN)
+        step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=8, max_width=64)
+        assert isinstance(step.optimizer, KahanBf16AdamW)
+        return step, train_ft(
+            (_ft_batch(i) for i in range(n)),
+            epoch=0,
+            step=step,
+            control=_control(8),
+            recorder=_recorder(where / "rec"),
+            resume_from=resume_from,
+        )
+
+    _, whole = leg(tmp_path / "whole", 8, None)
+    first_step, first = leg(tmp_path / "split", 4, None)
+    body = first_step.state()["optimizer"]
+    assert body["recipe"] == KAHAN_RECIPE
+    assert {m.dtype for m in body["masters"]} == {"float32"}
+    comps = [e["kahan_comp"] for e in body["state"].values() if "kahan_comp" in e]
+    assert comps and all(isinstance(c, TensorRef) and c.dtype == "bfloat16" for c in comps)
+
+    path = first.checkpoint.write(tmp_path / "ckpt" / "run.json")
+    _, resumed = leg(tmp_path / "split", 8, Checkpoint.read(path))
+    assert resumed.loss_log.losses() == pytest.approx(
+        whole.loss_log.losses(), rel=1e-6, abs=1e-8
+    )
+
+
+def test_a_kahan_spec_on_an_fp32_tower_is_refused(tmp_path):
+    """The compensation exists for bf16 weights only; an fp32 tower under the kahan spec
+    would budget a buffer nothing allocates."""
+    from qd_train.memory import ADAMW_KAHAN
+
+    with pytest.raises(BackboneContractViolation, match="compensates bf16 weights only"):
+        _tiny_tower(tmp_path, dtype="fp32", optimizer=ADAMW_KAHAN)
+
+
 def test_a_checkpoint_without_its_optimizer_is_refused_rather_than_half_loaded(tmp_path):
     """A weights-only state loads cleanly and resumes a run whose moments are zero, which
     looks like a working resume and is not one. That is the failure this whole pair of

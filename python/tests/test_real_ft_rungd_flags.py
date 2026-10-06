@@ -471,6 +471,21 @@ def test_train_dtype_fp32_trains_an_fp32_tower_on_plain_adamw(corpus, tmp_path):
     assert _value(ft, "train.optimizer_steps") == 2
 
 
+def test_optimizer_kahan_trains_the_bf16_tower_on_the_compensated_recipe(corpus, tmp_path):
+    """``--optimizer kahan`` end to end: the recipe names it, the step builds
+    KahanBf16AdamW over a bf16 tower, and the row is quick (``--max-steps``)."""
+    rows = _run(
+        corpus, tmp_path / "kahan.jsonl", "--optimizer", "kahan", "--max-steps", "2",
+        real=True, short=True,
+    )
+    ft = _only(rows, "ft")
+    assert ft.status == "completed"
+    assert ft.recipe["optimizer_recipe"] == "kahan"
+    path = json.loads(_value(ft, "train.path"))
+    assert path["optimizer"] == "KahanBf16AdamW"
+    assert _value(ft, "train.optimizer_steps") == 2
+
+
 def test_train_dtype_fp32_refuses_an_optimizer_whose_groups_drift(corpus, tmp_path, monkeypatch):
     """The eps/weight-decay check runs on what was BUILT, so a builder that changed them is
     refused before step 0 -- not discovered as a trajectory that does not track."""

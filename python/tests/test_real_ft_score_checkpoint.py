@@ -191,6 +191,23 @@ def test_a_bf16_score_of_a_master_checkpoint_gets_the_master_layout():
         real_ft_run.optimizer_spec("fp16", "master")
 
 
+def test_every_recipe_name_maps_to_one_spec_and_an_unknown_one_is_refused() -> None:
+    """A recipe read back out of a ledger row used to fall through to ADAMW_BF16 whatever it
+    said: a checkpoint trained under a recipe newer than its scorer would be scored on a
+    frozen-moment layout without a word. Every --optimizer choice now names its own spec, and
+    a name outside OPTIMIZER_RECIPES is refused."""
+    from qd_train.memory import ADAMW_BF16, ADAMW_FP32, ADAMW_KAHAN, ADAMW_MASTER
+
+    assert real_ft_run.optimizer_spec("bf16", "master") is ADAMW_MASTER
+    assert real_ft_run.optimizer_spec("bf16", "kahan") is ADAMW_KAHAN
+    assert real_ft_run.optimizer_spec("bf16", "bf16") is ADAMW_BF16
+    assert real_ft_run.optimizer_spec("fp32", "kahan") is ADAMW_FP32
+    assert set(real_ft_run.OPTIMIZER_RECIPES) == {"bf16", "master", "kahan"}
+    for unknown in ("kahan-bf16", "Master", "", "sgd"):
+        with pytest.raises(ValueError, match="no optimizer recipe"):
+            real_ft_run.optimizer_spec("bf16", unknown)
+
+
 # --- an averaged checkpoint (tools/ckpt_average.py), J7 --------------------------------------
 
 STEPS = 1505
@@ -641,13 +658,16 @@ class TinyCheckpoints:
     tokenizer: Path
 
 
-def tiny_master_checkpoints(tmp_path: Path, monkeypatch) -> TinyCheckpoints:
+def tiny_master_checkpoints(
+    tmp_path: Path, monkeypatch, *, recipe: str = "master"
+) -> TinyCheckpoints:
+    """``recipe`` is the ``--optimizer`` name the three checkpoints train and record under;
+    every caller but the compensated-recipe average uses the default."""
     import test_backbone as tb
     from test_real_ft_family_metrics import _tokenizer_json
     from test_real_ft_shuffled_label import REV, _patch
 
     import qd_train.backbone as backbone
-    from qd_train.memory import OptimizerSpec
     from qd_train.run_control import Checkpoint, LossLog, LRSchedule, Position
     from qd_train.shards import ShardReader
 
@@ -665,12 +685,12 @@ def tiny_master_checkpoints(tmp_path: Path, monkeypatch) -> TinyCheckpoints:
     )
 
     steps = 2
-    master = OptimizerSpec(*tb.MASTER_SPEC_ARGS, keeps_fp32_master=True)
+    optimizer = real_ft_run.optimizer_spec("bf16", recipe)
     paths = []
     n_params = 0
     for seed in (0, 1, 2):
         tower = backbone.load_text_tower(
-            snapshot, gradient_checkpointing=True, optimizer=master,
+            snapshot, gradient_checkpointing=True, optimizer=optimizer,
             attn_implementation="sdpa", dtype="bf16", rows=1, width=64,
         )
         n_params = sum(p.numel() for p in tower.model.parameters())
@@ -701,7 +721,7 @@ def tiny_master_checkpoints(tmp_path: Path, monkeypatch) -> TinyCheckpoints:
                 "shard_hash": reader.header.shard_hash(), "backbone_snapshot": snapshot.name,
                 "backbone_params": n_params, "backbone_vocab": vocab,
                 "attn_implementation": "sdpa", "lr": 1e-2, "span_weight": 1.0,
-                "optimizer_recipe": "master", "prompt_format": reader.header.prompt_format,
+                "optimizer_recipe": recipe, "prompt_format": reader.header.prompt_format,
             },
             "protocol": {
                 "seed": s, "recipe_hash": RECIPE_HASH,
@@ -720,6 +740,36 @@ def tiny_master_checkpoints(tmp_path: Path, monkeypatch) -> TinyCheckpoints:
         out=out, train=train, val=val, snapshot=snapshot, paths=paths, ids=ids,
         ft_ledger=ft_ledger, tokenizer=_tokenizer_json(tmp_path / "tokenizer.json"),
     )
+
+
+def test_three_compensated_checkpoints_average_from_their_masters_and_score(
+    tmp_path, monkeypatch
+):
+    """``--optimizer kahan`` checkpoints feed the same release path as v5's: their ``masters``
+    (fp32 ``p + c``, a tie put back on ``p``) are matched to their weights by
+    ``bf16(master) == weight`` and averaged by ``ckpt_average --from masters``, unchanged, and
+    the average is scored by ``--score-checkpoint``."""
+    from test_real_ft_shuffled_label import REV
+
+    from qd_train.ledger import Ledger
+
+    tiny = tiny_master_checkpoints(tmp_path, monkeypatch, recipe="kahan")
+    avg = tmp_path / "avg" / "avg.safetensors"
+    assert ckpt_average.main(
+        [*map(str, tiny.paths), "--out", str(avg), "--from", "masters", "--ft-row-ids",
+         *tiny.ids]
+    ) == 0
+    manifest = json.loads(ckpt_average.manifest_path(avg).read_text(encoding="utf-8"))
+    eval_ledger = tmp_path / "eval.jsonl"
+    assert real_ft_run.main([
+        "--out", str(tiny.out), "--rev", REV, "--devices", "cpu", "--seeds", "0", "1", "2",
+        "--score-val", "--score-checkpoint", str(avg), "--real-backbone", str(tiny.snapshot),
+        "--ft-ledger", str(tiny.ft_ledger), "--ledger", str(eval_ledger),
+        "--tokenizer-json", str(tiny.tokenizer),
+    ]) == 0
+    (row,) = Ledger(eval_ledger).rows()
+    assert row.recipe["averaged"]["source"] == "masters"
+    assert row.recipe["scored_checkpoint"] == f"avg.safetensors:{manifest['safetensors_sha256']}"
 
 
 def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu(

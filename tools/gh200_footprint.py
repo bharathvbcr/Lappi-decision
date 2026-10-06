@@ -63,16 +63,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 import torch
 
 from qd_train.backbone import load_text_tower
-from qd_train.memory import ADAMW_BF16, QWEN3_5_2B_TEXT, OptimizerSpec, estimate_step
+from qd_train.memory import (
+    ADAMW_BF16,
+    ADAMW_KAHAN,
+    ADAMW_MASTER,
+    QWEN3_5_2B_TEXT,
+    OptimizerSpec,
+    estimate_step,
+)
 from qd_train.optim import build_optimizer
 
-#: The fp32-master recipe: bf16 weights and grads, an fp32 master copy, fp32 moments.
-#: 16 B/param against ADAMW_BF16's 8. `qd_train.optim.MasterWeightAdamW` builds it.
-ADAMW_MASTER: OptimizerSpec = OptimizerSpec(
-    "AdamW+master", 2, 4, keeps_fp32_master=True
-)
-
-RECIPES = {"bf16": ADAMW_BF16, "master": ADAMW_MASTER}
+#: The recipes ``real_ft_run.py --optimizer`` trains a bf16 tower with, by that name, from the
+#: one owner of each spec (``qd_train.memory``). 'master' is
+#: `qd_train.optim.MasterWeightAdamW` (20 B/param measured here); 'kahan' is
+#: `qd_train.optim.KahanBf16AdamW` (14 B/param predicted, its compensation counted as state).
+RECIPES = {"bf16": ADAMW_BF16, "master": ADAMW_MASTER, "kahan": ADAMW_KAHAN}
 
 SNAPSHOT = Path(
     "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/"
@@ -106,6 +111,16 @@ def backbone_predicted_bytes(
     return sum(exercised.values()), {**exercised, **excluded}
 
 
+def described_state_bytes(spec: OptimizerSpec) -> int:
+    """Per-parameter bytes of what ``opt.state`` should hold under ``spec``.
+
+    The moments, plus a compensation buffer where the recipe keeps one: it lives in
+    ``opt.state`` beside the moments, and ``memory.estimate_step`` budgets it as optimizer
+    state. Masters are not here; they are counted apart (``state_dict()["masters"]``).
+    """
+    return spec.states_per_param * spec.state_bytes + spec.compensation_bytes
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
@@ -114,8 +129,9 @@ def main(argv: list[str] | None = None) -> int:
         default="bf16",
         help=(
             "which recipe to measure. 'bf16' is what torch.optim.AdamW builds for a bf16 "
-            "tower (8 B/param all-in); 'master' is the fp32-master recipe (16 B/param), "
-            "whose second moment does not freeze -- see tools/moment_precision.py."
+            "tower (8 B/param all-in); 'master' is the fp32-master recipe (20 B/param), "
+            "whose second moment does not freeze -- see tools/moment_precision.py; 'kahan' "
+            "is bf16 weights + bf16 compensation + fp32 moments (14 B/param)."
         ),
     )
     args = ap.parse_args(argv)
@@ -227,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(f"optimizer state actually allocated: {state_bytes / GiB:.2f} GiB "
           f"= {per_param:.2f} B/param over {trainable:,} params")
-    described = spec.states_per_param * spec.state_bytes
+    described = described_state_bytes(spec)
     print(f"{args.optimizer} spec as memory.py describes it: {spec}")
     print(f"  states the spec describes: {described} B/param; measured {per_param:.2f}")
     agrees = abs(per_param - described) < 0.01
@@ -241,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         "optimizer_spec": {
             "name": spec.name, "states_per_param": spec.states_per_param,
             "state_bytes": spec.state_bytes, "keeps_fp32_master": spec.keeps_fp32_master,
+            "compensation_bytes": spec.compensation_bytes,
         },
         "optimizer_state_bytes_measured": state_bytes,
         "optimizer_state_bytes_per_param_measured": per_param,

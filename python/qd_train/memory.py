@@ -48,6 +48,8 @@ from typing import Final
 __all__ = [
     "ADAMW_BF16",
     "ADAMW_FP32",
+    "ADAMW_KAHAN",
+    "ADAMW_MASTER",
     "BYTES_PER_ELEMENT",
     "MAX_SAFETY_FRACTION",
     "MAX_SEARCH_ROWS",
@@ -107,6 +109,11 @@ class OptimizerSpec:
     states_per_param: int
     state_bytes: int
     keeps_fp32_master: bool = False
+    #: Bytes per parameter of a Kahan compensation buffer: the rounding residual of each
+    #: low-precision weight, kept beside it so updates smaller than the weight's spacing
+    #: accumulate instead of rounding away. ``qd_train.optim.KahanBf16AdamW`` keeps one bf16
+    #: buffer, so 2. Zero for every recipe without one.
+    compensation_bytes: int = 0
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -117,6 +124,16 @@ class OptimizerSpec:
             )
         if self.state_bytes <= 0:
             raise ValueError(f"state_bytes must be positive, got {self.state_bytes}")
+        if self.compensation_bytes < 0:
+            raise ValueError(
+                f"compensation_bytes must be non-negative, got {self.compensation_bytes}"
+            )
+        if self.compensation_bytes and self.keeps_fp32_master:
+            raise ValueError(
+                "a spec cannot keep both an fp32 master and a compensation buffer: the master "
+                "already holds the bits the compensation exists to keep, so the budget would "
+                "count a buffer nothing allocates"
+            )
 
     def bytes_per_param(self, *, param_bytes: int, grad_bytes: int) -> int:
         """Weights + gradients + states + any fp32 master copy, per trainable parameter.
@@ -130,6 +147,11 @@ class OptimizerSpec:
         under this recipe are therefore 2+2+4+8+4 = **20** B/param -- 35.05 GiB, which is
         the enumerated total ``tools/master_overhead.py`` measures to the digit -- and not
         the 16 B/param this returned before that run.
+
+        A compensated recipe keeps no master and casts no gradient up for the whole model:
+        bf16 weights, grads and compensation plus fp32 moments are 2+2+2+8 = **14** B/param.
+        Its step casts one bounded chunk at a time (``KahanBf16AdamW.chunk_elems``), which is
+        transient and not counted here.
         """
         master = 4 if self.keeps_fp32_master else 0
         grad_cast = 4 if self.keeps_fp32_master else 0
@@ -138,6 +160,7 @@ class OptimizerSpec:
             + grad_bytes
             + grad_cast
             + self.states_per_param * self.state_bytes
+            + self.compensation_bytes
             + master
         )
 
@@ -164,6 +187,21 @@ ADAMW_FP32: Final[OptimizerSpec] = OptimizerSpec(
 #: so that it becomes the default by being what torch does when nobody chooses.
 ADAMW_BF16: Final[OptimizerSpec] = OptimizerSpec(
     name="torch.optim.AdamW", states_per_param=2, state_bytes=2
+)
+
+#: ``qd_train.optim.MasterWeightAdamW``: fp32 masters and fp32 moments over bf16 weights, 20
+#: B/param measured on a GH200 (see :meth:`OptimizerSpec.bytes_per_param`). v5 ran it on
+#: every row. One constant, because five files each built their own copy of it.
+ADAMW_MASTER: Final[OptimizerSpec] = OptimizerSpec(
+    name="AdamW+master", states_per_param=2, state_bytes=4, keeps_fp32_master=True
+)
+
+#: ``qd_train.optim.KahanBf16AdamW``: bf16 weights with a bf16 Kahan compensation buffer and
+#: fp32 moments, no master: 14 B/param against the master recipe's 20. The 16-bit recipe for
+#: a base that does not fit the master recipe; ``tests/test_optim.py`` measures how closely
+#: it tracks the master trajectory, and against plain bf16, which loses the updates.
+ADAMW_KAHAN: Final[OptimizerSpec] = OptimizerSpec(
+    name="AdamW+kahan-bf16", states_per_param=2, state_bytes=4, compensation_bytes=2
 )
 
 
@@ -569,6 +607,13 @@ def estimate_step(
     p_bytes = _dtype_bytes(param_dtype, what="param_dtype")
     g_bytes = _dtype_bytes(grad_dtype, what="grad_dtype")
     a_bytes = _dtype_bytes(activation_dtype, what="activation_dtype")
+    if optimizer.compensation_bytes and param_dtype != "bf16":
+        raise ValueError(
+            f"optimizer spec {optimizer.name!r} keeps a {optimizer.compensation_bytes}-byte "
+            f"compensation buffer, which only a bf16 tower has (KahanBf16AdamW refuses any "
+            f"other low-precision dtype and gives fp32 parameters none); param_dtype is "
+            f"{param_dtype!r}, so the budget would count a buffer nothing allocates"
+        )
 
     trainable = model.trainable_params(vocab_size=vocab_size)
     positions = rows * width
@@ -611,7 +656,11 @@ def estimate_step(
         # Leaving it out made the budget under-state the master recipe by 49% -- past the
         # 35% safety allowance, in the direction that says a run fits when it does not.
         grad_bytes=trainable * (g_bytes + 4 if optimizer.keeps_fp32_master else g_bytes),
-        optimizer_bytes=trainable * optimizer.states_per_param * optimizer.state_bytes,
+        # The compensation buffer is optimizer state: it exists only for the optimizer, and a
+        # spec that carries one budgets it here rather than under a field of its own.
+        optimizer_bytes=trainable * (
+            optimizer.states_per_param * optimizer.state_bytes + optimizer.compensation_bytes
+        ),
         master_bytes=trainable * 4 if optimizer.keeps_fp32_master else 0,
         activation_bytes=activation_bytes,
         score_matrix_bytes=score_bytes,

@@ -32,12 +32,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
 from qd_train.memory import (
+    ADAMW_BF16,
     ADAMW_FP32,
+    ADAMW_KAHAN,
+    ADAMW_MASTER,
     QWEN3_5_2B_TEXT,
     ActivationModel,
     MemoryRefused,
     ModelSpec,
-    OptimizerSpec,
     StepFootprint,
     estimate_step,
     max_positions_that_fit,
@@ -60,36 +62,39 @@ MENU: tuple[tuple[str, float, int, float], ...] = (
     ("8x A100 40GB", 15.92, 8, 40.0),
 )
 
-#: Recipes worth budgeting, as (label, kwargs for `estimate_step`).
-RECIPES: tuple[tuple[str, dict[str, object]], ...] = (
-    (
-        "fp32 (what this repo's code does today)",
-        {
-            "optimizer": ADAMW_FP32,
-            "param_dtype": "fp32",
-            "grad_dtype": "fp32",
-            "activation_dtype": "fp32",
-        },
+#: The recipes the trainer builds, keyed by the name ``real_ft_run.py --optimizer`` takes
+#: (``fp32`` is ``--train-dtype fp32``), as (label, kwargs for `estimate_step`).
+#:
+#: Only layouts something builds. This table once defaulted its verdict to "bf16
+#: weights+grads, fp32 AdamW states", which no optimizer here builds (``build_optimizer``
+#: refuses ADAMW_FP32 over a bf16 tower). At 12 B/param it was under the 20 that v5's master
+#: recipe measured, so a "fits" from it could OOM. ``tests/test_memory_budget.py`` builds each
+#: row's optimizer to keep it that way.
+RECIPES: dict[str, tuple[str, dict[str, object]]] = {
+    "master": (
+        "bf16 + fp32 master + fp32 AdamW (--optimizer master; v5's recipe)",
+        {"optimizer": ADAMW_MASTER, "param_dtype": "bf16", "grad_dtype": "bf16",
+         "activation_dtype": "bf16"},
     ),
-    (
-        "bf16 weights+grads, fp32 AdamW states",
-        {
-            "optimizer": ADAMW_FP32,
-            "param_dtype": "bf16",
-            "grad_dtype": "bf16",
-            "activation_dtype": "bf16",
-        },
+    "kahan": (
+        "bf16 + bf16 Kahan compensation + fp32 AdamW (--optimizer kahan)",
+        {"optimizer": ADAMW_KAHAN, "param_dtype": "bf16", "grad_dtype": "bf16",
+         "activation_dtype": "bf16"},
     ),
-    (
-        "bf16 + fp32 master + fp32 AdamW (HF bf16 default)",
-        {
-            "optimizer": OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True),
-            "param_dtype": "bf16",
-            "grad_dtype": "bf16",
-            "activation_dtype": "bf16",
-        },
+    "bf16": (
+        "bf16 + bf16 AdamW states (--optimizer bf16; second moment freezes at step 384)",
+        {"optimizer": ADAMW_BF16, "param_dtype": "bf16", "grad_dtype": "bf16",
+         "activation_dtype": "bf16"},
     ),
-)
+    "fp32": (
+        "fp32 tower + fp32 AdamW (--train-dtype fp32)",
+        {"optimizer": ADAMW_FP32, "param_dtype": "fp32", "grad_dtype": "fp32",
+         "activation_dtype": "fp32"},
+    ),
+}
+
+#: The verdict's recipe when ``--recipe`` is not given: the one every v5 row trained with.
+DEFAULT_RECIPE = "master"
 
 
 def safetensors_header(path: Path) -> dict:
@@ -183,9 +188,9 @@ def main() -> int:
     )
     ap.add_argument(
         "--recipe",
-        type=int,
-        default=1,
-        help="index into RECIPES for the pass/fail verdict (default 1: bf16 + fp32 AdamW)",
+        choices=sorted(RECIPES),
+        default=DEFAULT_RECIPE,
+        help=f"the recipe the pass/fail verdict budgets (default {DEFAULT_RECIPE}: v5's)",
     )
     ap.add_argument(
         "--require-fit",
@@ -236,7 +241,7 @@ def main() -> int:
     print("=" * 100)
     print("STATIC STATE (weights + gradients + optimizer), before a single activation")
     print("=" * 100)
-    for label, kw in RECIPES:
+    for label, kw in RECIPES.values():
         f = estimate_step(model, rows=1, width=1, activations=acts, vocab_size=vocab, **kw)
         print(f"  {f.static_bytes / GB:7.2f} GB  ({f.static_bytes / 1024**3:7.2f} GiB)  {label}")
 
@@ -245,7 +250,7 @@ def main() -> int:
         print("\n" + "=" * 100)
         print(f"{dev_label}  --  ONE card")
         print("=" * 100)
-        for label, kw in RECIPES:
+        for label, kw in RECIPES.values():
             one = estimate_step(
                 model, rows=1, width=1, activations=acts, vocab_size=vocab, **kw
             )
@@ -266,6 +271,7 @@ def main() -> int:
 
     # -- the verdict ---------------------------------------------------------
     label, kw = RECIPES[args.recipe]
+    print(f"\nverdict recipe: {args.recipe}")
     print("\n" + "=" * 100)
     print(f"VERDICT under {label!r}")
     print("=" * 100)

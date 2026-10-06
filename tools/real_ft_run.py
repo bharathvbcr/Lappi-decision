@@ -228,7 +228,7 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
-from qd_train.memory import ADAMW_BF16, ADAMW_FP32, OptimizerSpec
+from qd_train.memory import ADAMW_BF16, ADAMW_FP32, ADAMW_KAHAN, ADAMW_MASTER, OptimizerSpec
 from qd_train.needle import (
     NEEDLE_CASES_PER_DEPTH,
     NEEDLE_HIT_RULE,
@@ -745,9 +745,14 @@ REAL_BACKBONE_LR: Final[float] = 1e-5
 #: Neither is the default by accident: `bf16` stays the default because it is what every
 #: row in the ledger so far used, and changing that silently would make new rows
 #: incomparable to old ones without anything saying so.
+#:
+#: `kahan` (qd_train.optim.KahanBf16AdamW) keeps bf16 weights with a bf16 Kahan compensation
+#: and fp32 moments, and no master: 14 B/param. It is the 16-bit recipe for a base that the
+#: master recipe does not fit. tests/test_optim.py measures it against the master trajectory.
 OPTIMIZER_RECIPES: Final[dict[str, str]] = {
     "bf16": "torch.optim.AdamW over the bf16 parameters (8 B/param)",
     "master": "fp32 master weights and fp32 moments (20 B/param)",
+    "kahan": "bf16 weights + bf16 Kahan compensation + fp32 moments, no master (14 B/param)",
 }
 
 #: The recipe keys that say which backbone a run used. One list, because the ft recipe, the
@@ -2566,13 +2571,24 @@ def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
     names. Scoring a checkpoint builds the same step, so it asks here too: on 2026-09-30 a
     bf16 score of a ``master``-trained checkpoint was given ADAMW_BF16, whose moments
     ``build_optimizer`` refuses for the 1,505-step schedule, though scoring takes no step.
+
+    An unknown recipe is refused. It used to fall through to ADAMW_BF16: a scorer older than
+    a recipe would have built a frozen-moment layout for a checkpoint trained under another,
+    without a word. ``--optimizer`` already restricts its choices to OPTIMIZER_RECIPES; this
+    holds the same line for a recipe read back out of a ledger row.
     """
+    if optimizer_recipe not in OPTIMIZER_RECIPES:
+        raise ValueError(
+            f"no optimizer recipe {optimizer_recipe!r}; known: {sorted(OPTIMIZER_RECIPES)}"
+        )
     if dtype == "fp32":
         return ADAMW_FP32
     if dtype != "bf16":
         raise ValueError(f"no optimizer layout for dtype {dtype!r}")
     if optimizer_recipe == "master":
-        return OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+        return ADAMW_MASTER
+    if optimizer_recipe == "kahan":
+        return ADAMW_KAHAN
     return ADAMW_BF16
 
 
@@ -10483,8 +10499,9 @@ def main(argv: list[str] | None = None) -> int:
             "optimizer recipe under --real-backbone. 'bf16' (default) is what "
             "torch.optim.AdamW builds and what every existing ledger row used; its "
             "exp_avg_sq stops moving after 383 steps. 'master' keeps fp32 master weights "
-            "and fp32 moments at 20 B/param against 8. Recorded in the recipe, so two runs "
-            "differing in it are not comparable."
+            "and fp32 moments at 20 B/param against 8. 'kahan' keeps bf16 weights with a "
+            "bf16 Kahan compensation and fp32 moments at 14 B/param, with no master. "
+            "Recorded in the recipe, so two runs differing in it are not comparable."
         ),
     )
     parser.add_argument(
