@@ -51,6 +51,22 @@ fn linfit_and_ngrams_refuse_only_past_their_own_bound() {
 }
 
 #[test]
+fn spancheck_refuses_past_its_own_bound_and_writes_nothing() {
+    let bound = qd_prep::spancheck::MAX_INPUT_BYTES;
+    assert_eq!(bound, 1 << 30);
+    let (ok, stderr, wrote) = run_on_sparse("spancheck", bound + 1);
+    assert!(!ok && !wrote, "{stderr}");
+    assert!(
+        stderr.contains(&format!("{} bytes; the bound is {bound}", bound + 1)),
+        "spancheck refused at another bound: {stderr}"
+    );
+    // At the bound it is read, and refused for what it is: a file of zeros has no magic.
+    let (ok, stderr, wrote) = run_on_sparse("spancheck", 64);
+    assert!(!ok && !wrote, "{stderr}");
+    assert!(stderr.contains("does not start with"), "{stderr}");
+}
+
+#[test]
 fn minhash_takes_the_v5_corpus_and_refuses_only_past_its_own_bound() {
     let bound = qd_prep::wire::MAX_INPUT_BYTES;
     assert_eq!(bound, 16 << 30);

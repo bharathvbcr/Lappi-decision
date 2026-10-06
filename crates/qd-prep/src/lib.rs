@@ -21,6 +21,10 @@
 //!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
 //! - [`team`]: threads started once and reused for every phase of the fit's loop, which
 //!   started them twice an iteration (~3.4 ms an iteration at 52 threads on the H100 box).
+//! - [`spancheck`]: `qd_train.shards._span_token_positions` up to its decode check -- a span
+//!   slot's line starts and gold projected onto token positions, every refusal the reference
+//!   makes before it decodes, and the runs its decode check walks. The per-slot Python of shard
+//!   writing's stage 6 (`AUDIT/perf-pipeline-shards-2026-09-30.md`); decoding stays in Python.
 
 pub mod blake2b;
 pub mod containment;
@@ -35,5 +39,6 @@ pub mod pyunicode;
 #[rustfmt::skip]
 mod pyunicode_tables;
 pub mod sha256;
+pub mod spancheck;
 pub mod team;
 pub mod wire;

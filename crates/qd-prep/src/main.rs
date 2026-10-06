@@ -18,13 +18,17 @@
 //! - `qd-prep decisions --config C --fetch-record R --decider-dir D --target NAME=FILE ...
 //!   --out-dir DIR [--survey]`: the v5 general-decision pool (see `qd_prep::decisions`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, or `texts.jsonl` with `--survey`.
+//! - `qd-prep spancheck --input IN --output OUT`: a `QDPSCIN1` request (see
+//!   `qd_prep::spancheck`) -> `QDPSCOK1`, each span sequence's line-start candidates, gold
+//!   positions or the refusal, as `qd_train.shards._span_token_positions` finds them before it
+//!   decodes.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use qd_prep::{containment, decisions, linwire, lsh, wire};
+use qd_prep::{containment, decisions, linwire, lsh, spancheck, wire};
 
 /// Threads are bounded whatever the host reports.
 const MAX_THREADS: usize = 256;
@@ -73,6 +77,9 @@ enum Command {
     /// The decision pool's cap refresh between two surveys: every all-admitted stratum's cap
     /// becomes its new train availability, the rest are kept (`decisions::refresh_train_caps`).
     DecisionCaps(DecisionCapsIo),
+    /// Span sequences' line starts and gold projected onto token positions, as
+    /// qd_train.shards._span_token_positions does before its decode check.
+    Spancheck(Io),
 }
 
 /// `qd-prep decision-caps`' inputs.
@@ -298,6 +305,7 @@ fn main() -> ExitCode {
         Command::Containment(io) => run_containment(io),
         Command::Decisions(io) => run_decisions(io),
         Command::DecisionCaps(io) => run_decision_caps(io),
+        Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),
     };
     match result {
         Ok(line) => {

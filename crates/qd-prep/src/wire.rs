@@ -101,8 +101,9 @@ impl<'b> Cursor<'b> {
 }
 
 /// The little-endian u32s of a byte range whose length is a multiple of four (`parse` takes
-/// exactly `4 * n` bytes for `n` lengths, so there is never a remainder to drop).
-fn le_u32s(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
+/// exactly `4 * n` bytes for `n` lengths, so there is never a remainder to drop; so does
+/// [`crate::spancheck`] for its line starts).
+pub(crate) fn le_u32s(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
     bytes
         .as_chunks::<4>()
         .0

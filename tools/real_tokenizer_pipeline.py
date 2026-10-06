@@ -55,7 +55,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterable, Iterator, Mapping
+import unicodedata
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -111,6 +112,7 @@ from qd_data.split import HELD_OUT, SplitReport, split
 from qd_train import shards as shards_module
 from qd_train.artifacts import (
     SLOT_SPAN,
+    SPAN_ABSTAIN,
     RemapTable,
     ShardContractViolation,
     ShardHeader,
@@ -144,7 +146,10 @@ from qd_train.shards import (
     SPAN_COLLAPSE_POLICIES,
     SPAN_COLLAPSE_REFUSE_ANY,
     SPAN_COLLAPSE_REFUSE_GOLD,
+    Decode,
+    SequenceSpec,
     ShardReader,
+    TokenOffsets,
     UnencodableGold,
     choose_buckets,
     training_texts,
@@ -617,6 +622,11 @@ class RealTokenizer:
             )
         self._memo[key] = value
         return value
+
+    def encode(self, text: str) -> tuple[list[int], list[tuple[int, int]]]:
+        """Ids and offsets from one encode: what ``build_native_spancheck``'s pre-pass reads,
+        so it does not encode twice per text when the memo is off."""
+        return self._encode(text)
 
     def tokenize(self, text: str) -> list[int]:
         return self._encode(text)[0]
@@ -2327,6 +2337,758 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
     )
 
 
+# -- qd-prep spancheck: stage 6's span projection in Rust, the reference in Python ----------
+
+#: ``qd_train.shards._span_token_positions`` as this module imported it: the reference every
+#: lookup the native table does not settle goes back to, and what an install must find in place.
+_REFERENCE_SPAN_TOKEN_POSITIONS: Final = shards_module._span_token_positions
+_SPANCHECK_REQUEST_MAGIC: Final[bytes] = b"QDPSCIN1"
+_SPANCHECK_REPLY_MAGIC: Final[bytes] = b"QDPSCOK1"
+#: Bytes of one ``qd-prep spancheck`` request. v5's ~386M tokens are ~3 GB of offsets alone, so
+#: the pre-pass cuts its stream at this many; ``spancheck::MAX_INPUT_BYTES`` refuses past 4x it.
+SPANCHECK_REQUEST_BYTES: Final[int] = 256 << 20
+#: ``spancheck::MAX_TEXT_BYTES``: one sequence's UTF-8 text.
+SPANCHECK_MAX_TEXT_BYTES: Final[int] = 1 << 26
+#: Sequences of every ``qd-prep spancheck`` call the reference re-runs -- this many from each end
+#: of the request -- and compares: the refusal class and the value with ``decode=None``, and the
+#: whole answer (value, or exception class and text) with the build's decode.
+NATIVE_SPANCHECK_CANARIES: Final[int] = 4
+#: One sequence's request header: flags, policy, reserved, text bytes, ids, offsets, line starts,
+#: span start, span end (``crates/qd-prep/src/spancheck.rs``).
+_SPANCHECK_SEQ: Final[struct.Struct] = struct.Struct("<BBHIIIIII")
+#: One sequence's reply header (``spancheck::REPLY_SEQ_HEADER_BYTES``).
+_SPANCHECK_REPLY_SEQ: Final = np.dtype([
+    ("status", "u1"), ("flags", "u1"), ("reserved", "<u2"), ("detail", "<u4"),
+    ("start", "<u4"), ("end", "<u4"), ("n_candidates", "<u4"), ("n_runs", "<u4"),
+])
+_U32_MAX: Final[int] = 0xFFFF_FFFF
+#: ``spancheck::Status``, by code.
+SPANCHECK_STATUS: Final[dict[int, str]] = {
+    0: "ok", 1: "offset_count", 2: "reach", 3: "line_in_no_token", 4: "lines_collapse",
+    5: "candidate_past_end", 6: "gold_in_no_token", 7: "gold_reversed", 8: "gold_in_one_token",
+    9: "gold_past_end", 10: "gold_not_candidate", 11: "gold_shares_token",
+}
+_SC_OK: Final[int] = 0
+#: The codes whose reference refusal is ``UnencodableGold``, and ``ShardContractViolation``.
+_SC_UNENCODABLE: Final[frozenset[int]] = frozenset({3, 4, 6, 7, 8, 10, 11})
+_SC_CONTRACT: Final[frozenset[int]] = frozenset({1, 2, 5, 9})
+#: Request flags (``spancheck::FLAG_*``) and reply flags (``spancheck::REPLY_*``).
+_SC_FLAG_ABSTAIN: Final[int] = 1
+_SC_FLAG_NFC_STABLE: Final[int] = 2
+_SC_ABSTAIN: Final[int] = 1
+_SC_NFC_UNSTABLE: Final[int] = 2
+_SC_OFF_GRID: Final[int] = 4
+_SC_RUNS_OVER_BUDGET: Final[int] = 8
+_SC_REPLY_FLAGS: Final[int] = 0xF
+#: Reply flags that send a decode-checked lookup to the reference, and what each is counted as.
+_SC_DECODE_IN_REFERENCE: Final[tuple[tuple[int, str], ...]] = (
+    (_SC_NFC_UNSTABLE, "nfc_unstable"),
+    (_SC_OFF_GRID, "line_start_off_grid"),
+    (_SC_RUNS_OVER_BUDGET, "runs_over_budget"),
+)
+_SC_POLICY: Final[dict[str, int]] = {SPAN_COLLAPSE_REFUSE_ANY: 0, SPAN_COLLAPSE_REFUSE_GOLD: 1}
+
+#: What ``_span_token_positions`` returns for a span slot: ``((start, end), candidates)``.
+SpanAnswer = tuple[tuple[int, int], tuple[int, ...]]
+
+
+@dataclass(frozen=True)
+class SpancheckItem:
+    """One span sequence as ``qd-prep spancheck`` reads it: what the reference's checks read
+    before they decode, in wire form. Built by :func:`spancheck_item`, which refuses anything
+    the wire cannot carry exactly."""
+
+    spec: SequenceSpec
+    policy: str
+    n_ids: int
+    text: bytes
+    #: ``(n, 2)`` ``<u4``: each token's ``(start, end)``, in code points.
+    offsets: np.ndarray
+    #: ``<u4``: the line starts, in code points.
+    lines: np.ndarray
+    #: ``unicodedata.is_normalized("NFC", text)``.
+    nfc_stable: bool
+
+    @property
+    def abstains(self) -> bool:
+        """The reference's own test: ``span_abstains or span_char_starts is None``."""
+        return bool(self.spec.span_abstains or self.spec.span_char_starts is None)
+
+    @property
+    def wire_bytes(self) -> int:
+        return _SPANCHECK_SEQ.size + len(self.text) + self.offsets.nbytes + self.lines.nbytes
+
+    def parts(self) -> list[bytes]:
+        gold = self.spec.span_char_starts
+        start, end = (0, 0) if self.abstains or gold is None else gold
+        flags = (_SC_FLAG_ABSTAIN if self.abstains else 0) | (
+            _SC_FLAG_NFC_STABLE if self.nfc_stable else 0
+        )
+        return [
+            _SPANCHECK_SEQ.pack(
+                flags, _SC_POLICY[self.policy], 0, len(self.text), self.n_ids,
+                len(self.offsets), len(self.lines), start, end,
+            ),
+            self.text,
+            self.offsets.tobytes(),
+            self.lines.tobytes(),
+        ]
+
+
+def spancheck_item(
+    spec: SequenceSpec, *, policy: str, n_ids: int, offsets: Sequence[tuple[int, int]]
+) -> SpancheckItem:
+    """``spec`` with its tokenization's id count and offsets, checked into wire form.
+
+    Refused loudly, never approximated and never quietly left to the reference: a policy that
+    is not one of the two, a spec with no line starts (the reference answers that without
+    offsets, so it is never sent), a text that is not UTF-8 (a lone surrogate), one past
+    :data:`SPANCHECK_MAX_TEXT_BYTES`, offsets that are not integer pairs, and any count or
+    character offset outside u32. numpy wraps a negative into u32 silently, so every range is
+    checked before the conversion.
+    """
+
+    def refuse(why: str) -> SystemExit:
+        return SystemExit(
+            f"qd-prep spancheck cannot carry the span sequence of slot {spec.slot_name!r} "
+            f"({len(spec.text)} characters): {why}. Write it without --native-spancheck, where "
+            "the reference reads it"
+        )
+
+    if policy not in _SC_POLICY:
+        raise refuse(f"span_collapse_policy {policy!r} is not one of {SPAN_COLLAPSE_POLICIES}")
+    if not spec.line_char_starts:
+        raise refuse("it has no line starts, which the reference answers without offsets")
+    try:
+        text = spec.text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise refuse(f"its text is not UTF-8 ({exc.reason} at character {exc.start})") from exc
+    if len(text) > SPANCHECK_MAX_TEXT_BYTES:
+        raise refuse(f"its text is {len(text)} bytes, past {SPANCHECK_MAX_TEXT_BYTES}")
+    pairs = np.asarray(offsets) if len(offsets) else np.zeros((0, 2), dtype=np.int64)
+    if pairs.ndim != 2 or pairs.shape[1] != 2 or not np.issubdtype(pairs.dtype, np.integer):
+        raise refuse(
+            f"its offsets are a {pairs.dtype} array of shape {pairs.shape}, not integer "
+            "(start, end) pairs"
+        )
+    lines = np.asarray(spec.line_char_starts)
+    if lines.ndim != 1 or not np.issubdtype(lines.dtype, np.integer):
+        raise refuse(f"its line starts are a {lines.dtype} array, not integers")
+    gold = spec.span_char_starts
+    span = () if spec.span_abstains or gold is None else tuple(gold)
+    for name, values in (("an offset", pairs), ("a line start", lines)):
+        if values.size and (int(values.min()) < 0 or int(values.max()) > _U32_MAX):
+            raise refuse(f"{name} lies outside [0, 2^32)")
+    if not all(isinstance(v, int) and 0 <= v <= _U32_MAX for v in span):
+        raise refuse(f"its gold {span!r} lies outside [0, 2^32)")
+    if max(n_ids, len(pairs), len(lines)) > _U32_MAX:
+        raise refuse("a count is past 2^32")
+    return SpancheckItem(
+        spec=spec, policy=policy, n_ids=n_ids, text=text,
+        offsets=np.ascontiguousarray(pairs, dtype="<u4"),
+        lines=np.ascontiguousarray(lines, dtype="<u4"),
+        nfc_stable=unicodedata.is_normalized("NFC", spec.text),
+    )
+
+
+@dataclass(frozen=True)
+class SpanReply:
+    """One sequence of a ``qd-prep spancheck`` reply, checked against its request."""
+
+    status: int
+    flags: int
+    detail: int
+    start: int
+    end: int
+    #: ``<u4`` views into the reply: one candidate per line start, and ``(run_end, first,
+    #: last)`` per checked position. Both empty unless ``status`` is ok.
+    candidates: np.ndarray
+    runs: np.ndarray
+
+    @property
+    def status_name(self) -> str:
+        return SPANCHECK_STATUS[self.status]
+
+
+def _prep_spancheck(binary: Path, items: Sequence[SpancheckItem]) -> list[SpanReply]:
+    """``qd-prep spancheck`` over ``items``, as one request; the reply checked in full."""
+    parts: list[bytes] = [_SPANCHECK_REQUEST_MAGIC, struct.pack("<Q", len(items))]
+    for item in items:
+        parts.extend(item.parts())
+    return _spancheck_replies(binary, _run_prep(binary, "spancheck", parts), items)
+
+
+def _spancheck_replies(
+    binary: Path, reply: bytes, items: Sequence[SpancheckItem]
+) -> list[SpanReply]:
+    """The reply to ``items``, refused unless it is exactly that request's.
+
+    Magic, count and exact length; reserved fields zero; known statuses and flags; the request's
+    abstain and NFC bits echoed. An ok sequence has one candidate per line start, every
+    candidate and gold position inside the ids, the gold in order (``(0, 0)`` when it abstains),
+    and one run per checked position -- the gold's two, then the candidates -- whose end lies
+    past its position and within the ids, or no runs and the flag that says so. A refused one
+    carries nothing.
+    """
+
+    def bad(why: str) -> SystemExit:
+        return SystemExit(f"{binary} wrote a spancheck reply that is not this request's: {why}")
+
+    head = len(_SPANCHECK_REPLY_MAGIC) + 8
+    if len(reply) < head or reply[: len(_SPANCHECK_REPLY_MAGIC)] != _SPANCHECK_REPLY_MAGIC:
+        raise SystemExit(f"{binary} wrote a reply that is not a {_SPANCHECK_REPLY_MAGIC!r} file")
+    (n,) = struct.unpack_from("<Q", reply, len(_SPANCHECK_REPLY_MAGIC))
+    if n != len(items):
+        raise bad(f"{n} sequences for the {len(items)} asked")
+    table_end = head + n * _SPANCHECK_REPLY_SEQ.itemsize
+    if len(reply) < table_end:
+        raise bad(f"{len(reply)} bytes cannot hold {n} sequence headers")
+    rows = np.frombuffer(reply, dtype=_SPANCHECK_REPLY_SEQ, count=n, offset=head)
+    n_cands = rows["n_candidates"].astype(np.int64)
+    n_runs = rows["n_runs"].astype(np.int64)
+    total_c, total_r = int(n_cands.sum()), int(n_runs.sum())
+    want = table_end + 4 * total_c + 12 * total_r
+    if len(reply) != want:
+        raise bad(f"{len(reply)} bytes, where its headers describe {want}")
+    cands = np.frombuffer(reply, dtype="<u4", count=total_c, offset=table_end)
+    runs = np.frombuffer(
+        reply, dtype="<u4", count=3 * total_r, offset=table_end + 4 * total_c
+    ).reshape(total_r, 3)
+    c_at = np.concatenate(([0], np.cumsum(n_cands)))
+    r_at = np.concatenate(([0], np.cumsum(n_runs)))
+    out: list[SpanReply] = []
+    for i, item in enumerate(items):
+        row = rows[i]
+        status, flags, reserved = int(row["status"]), int(row["flags"]), int(row["reserved"])
+        start, end = int(row["start"]), int(row["end"])
+        mine_c = cands[int(c_at[i]) : int(c_at[i + 1])]
+        mine_r = runs[int(r_at[i]) : int(r_at[i + 1])]
+        where = f"sequence {i} (slot {item.spec.slot_name!r})"
+        if reserved or status not in SPANCHECK_STATUS or flags & ~_SC_REPLY_FLAGS:
+            raise bad(f"{where}: status {status}, flags {flags:#x}, reserved {reserved}")
+        echo = (_SC_ABSTAIN if item.abstains else 0) | (0 if item.nfc_stable else _SC_NFC_UNSTABLE)
+        if flags & (_SC_ABSTAIN | _SC_NFC_UNSTABLE) != echo:
+            raise bad(f"{where}: flags {flags:#x} do not echo the request's {echo:#x}")
+        if status != _SC_OK:
+            if len(mine_c) or len(mine_r) or flags & (_SC_OFF_GRID | _SC_RUNS_OVER_BUDGET):
+                raise bad(f"{where}: refused ({SPANCHECK_STATUS[status]}) and carries an answer")
+            out.append(SpanReply(status, flags, int(row["detail"]), start, end, mine_c, mine_r))
+            continue
+        gold = () if item.abstains else (start, end)
+        want_runs = 0 if flags & _SC_RUNS_OVER_BUDGET else len(gold) + len(item.lines)
+        if len(mine_c) != len(item.lines) or len(mine_r) != want_runs:
+            raise bad(
+                f"{where}: {len(mine_c)} candidates and {len(mine_r)} runs for "
+                f"{len(item.lines)} line starts and {want_runs} checked positions"
+            )
+        if (item.abstains and (start, end) != (0, 0)) or (
+            not item.abstains and not start <= end < item.n_ids
+        ):
+            raise bad(f"{where}: gold ({start}, {end}) over {item.n_ids} ids")
+        if len(mine_c) and int(mine_c.max()) >= item.n_ids:
+            raise bad(f"{where}: a candidate past the {item.n_ids} ids")
+        if len(mine_r):
+            positions = np.concatenate(
+                (np.asarray(gold, dtype=np.int64), mine_c.astype(np.int64))
+            )
+            ends = mine_r[:, 0].astype(np.int64)
+            if not bool(((ends > positions) & (ends <= item.n_ids)).all()):
+                raise bad(f"{where}: a run that does not end past its position within the ids")
+        out.append(SpanReply(status, flags, int(row["detail"]), start, end, mine_c, mine_r))
+    return out
+
+
+def _spec_key(spec: SequenceSpec, policy: str) -> bytes:
+    """What one table entry answers for: everything ``_span_token_positions`` reads of the spec,
+    and the policy. A digest rather than the spec, so the table does not hold every rendered
+    text alive for the whole write."""
+    head = json.dumps([
+        policy, spec.slot_name, spec.slot_kind, bool(spec.span_abstains),
+        None if spec.span_char_starts is None else list(spec.span_char_starts),
+        None if spec.line_char_starts is None else list(spec.line_char_starts),
+        len(spec.text),
+    ])
+    digest = hashlib.blake2b(head.encode("utf-8"), digest_size=16)
+    digest.update(spec.text.encode("utf-8", "surrogatepass"))
+    return digest.digest()
+
+
+def _ids_digest(ids: Any) -> bytes:
+    """The ids, as ``_tokenize_checked`` hands them over, digested in one dtype."""
+    flat = np.ascontiguousarray(np.asarray(ids), dtype=np.int64)
+    return hashlib.blake2b(flat.tobytes(), digest_size=16).digest()
+
+
+def _reply_value(reply: SpanReply, *, abstains: bool) -> SpanAnswer:
+    """An ok reply as the reference returns it: Python ints, ``SPAN_ABSTAIN`` twice for an
+    abstaining sequence."""
+    span = (SPAN_ABSTAIN, SPAN_ABSTAIN) if abstains else (reply.start, reply.end)
+    return span, tuple(reply.candidates.tolist())
+
+
+def _decodes_as_claimed(
+    reply: SpanReply, *, abstains: bool, text: str, ids: Any, decode: Decode
+) -> bool:
+    """``_assert_spans_decode_to_their_text`` on an ok reply: True only when the reference's
+    decode check would pass.
+
+    The decode calls are the reference's, in its order -- the gold's two pieces, the whole
+    sequence, then every candidate's piece; for an abstaining sequence the candidates' pieces,
+    then the whole -- so a decode that raises raises at the input it would have raised at. A
+    piece is the run qd-prep walked, ``ids[pos:run_end]``, against ``text[first:last]``.
+
+    One call is skipped: the reference decodes the whole sequence a second time, after the
+    candidates, and that answer is taken to be the first's. That is the one assumption this
+    path makes: ``decode`` is a pure function of its argument, as a tokenizer's is. The
+    line-start statement needs no call: with the ids decoding to ``text`` exactly, the decoded
+    text's line grid is ``text``'s, and qd-prep has checked every line start against that grid
+    (a reply with ``_SC_OFF_GRID`` never reaches here).
+    """
+    runs = reply.runs.tolist()
+    candidates = reply.candidates.tolist()
+
+    def pieces(positions: Sequence[int], walked: Sequence[Sequence[int]]) -> bool:
+        for pos, (run_end, first, last) in zip(positions, walked, strict=True):
+            piece = decode([int(i) for i in ids[pos:run_end]])
+            if not isinstance(piece, str) or piece != text[first:last]:
+                return False
+        return True
+
+    def whole() -> bool:
+        decoded = decode([int(i) for i in ids])
+        return isinstance(decoded, str) and decoded == text
+
+    if abstains:
+        return pieces(candidates, runs) and whole()
+    return pieces([reply.start, reply.end], runs[:2]) and whole() and pieces(candidates, runs[2:])
+
+
+def _point_span_projection_at(fn: Callable[..., SpanAnswer | None]) -> None:
+    """``qd_train.shards._span_token_positions`` -- the name ``encode_slot`` calls -- set to
+    ``fn``. The one place this tool rebinds it."""
+    shards_module._span_token_positions = fn  # type: ignore[assignment]
+
+
+@dataclass(frozen=True)
+class _SpanEntry:
+    """One table entry: the reply, and the tokenization it was computed over."""
+
+    reply: SpanReply
+    abstains: bool
+    n_ids: int
+    ids_digest: bytes
+
+
+def _native_answer(
+    entry: _SpanEntry, text: str, ids: Any, decode: Decode | None
+) -> tuple[SpanAnswer | None, str]:
+    """The table's answer when the reference provably returns it, else ``None`` and why not.
+
+    The reference gets every refusal (so its exception is the reference's, text and all), and
+    with ``decode`` every sequence whose decode check the reply does not settle: a text that is
+    not NFC-stable, a line start off the text's grid, runs over qd-prep's budget, or a piece or
+    the whole sequence decoding to anything but what the offsets claim.
+    """
+    reply = entry.reply
+    if reply.status != _SC_OK:
+        return None, f"refused:{reply.status_name}"
+    value = _reply_value(reply, abstains=entry.abstains)
+    if decode is None:
+        return value, "native"
+    for bit, why in _SC_DECODE_IN_REFERENCE:
+        if reply.flags & bit:
+            return None, why
+    if not _decodes_as_claimed(reply, abstains=entry.abstains, text=text, ids=ids, decode=decode):
+        return None, "decode_disagrees"
+    return value, "native"
+
+
+def _outcome(call: Callable[[], Any]) -> tuple[Any, ...]:
+    """``("ok", value)``, or ``("raise", class, text)`` for an exception the reference raises."""
+    try:
+        return ("ok", call())
+    except (UnencodableGold, ShardContractViolation, ValueError) as exc:
+        return ("raise", type(exc), str(exc))
+
+
+def _canary(
+    binary: Path,
+    item: SpancheckItem,
+    ids: np.ndarray,
+    reply: SpanReply,
+    *,
+    token_offsets: TokenOffsets,
+    decode: Decode | None,
+) -> None:
+    """Re-run one sequence of a call in the reference and refuse any disagreement.
+
+    With ``decode=None`` the reference fixes the reply: its value where it returns, a status
+    naming the same exception class where it raises. With the build's ``decode`` the native
+    answer -- the reply, decode-checked here, or the reference where the reply does not settle
+    it -- must be the reference's answer exactly: the same value, or the same exception class
+    and text. The reference reads ``token_offsets`` itself, so this also holds the pre-pass's
+    offsets to the callable the writer will be handed.
+    """
+    spec, policy = item.spec, item.policy
+    where = f"spancheck canary (slot {spec.slot_name!r})"
+
+    def reference(dec: Decode | None) -> tuple[Any, ...]:
+        return _outcome(lambda: _REFERENCE_SPAN_TOKEN_POSITIONS(
+            spec, ids, token_offsets=token_offsets, decode=dec, where=where,
+            span_collapse_policy=policy,
+        ))
+
+    want = reference(None)
+    if want[0] == "ok":
+        agree = reply.status == _SC_OK and _reply_value(reply, abstains=item.abstains) == want[1]
+    elif issubclass(want[1], UnencodableGold):
+        agree = reply.status in _SC_UNENCODABLE
+    elif issubclass(want[1], ShardContractViolation):
+        agree = reply.status in _SC_CONTRACT
+    else:
+        agree = False
+    if not agree:
+        said = f"returns {want[1]!r}"[:300] if want[0] == "ok" else f"raises {want[1].__name__}"
+        raise SystemExit(
+            f"{binary} answered {reply.status_name} for a span sequence (slot "
+            f"{spec.slot_name!r}, {len(spec.text)} characters) where the reference "
+            f"qd_train.shards._span_token_positions {said}; its projection is not the "
+            "reference's"
+        )
+    if decode is None:
+        return
+    entry = _SpanEntry(reply=reply, abstains=item.abstains, n_ids=item.n_ids, ids_digest=b"")
+
+    def native() -> Any:
+        value, _ = _native_answer(entry, spec.text, ids, decode)
+        if value is not None:
+            return value
+        return _REFERENCE_SPAN_TOKEN_POSITIONS(
+            spec, ids, token_offsets=token_offsets, decode=decode, where=where,
+            span_collapse_policy=policy,
+        )
+
+    if _outcome(native) != reference(decode):
+        raise SystemExit(
+            f"{binary}'s answer for a span sequence (slot {spec.slot_name!r}, "
+            f"{len(spec.text)} characters), decode-checked in Python, is not the reference's "
+            "answer with the same decode"
+        )
+
+
+@dataclass
+class NativeSpancheck:
+    """The table one :func:`build_native_spancheck` pre-pass built, and what it answered.
+
+    :meth:`installed` puts the table in place of ``qd_train.shards._span_token_positions`` for
+    one block (one ``write_shards`` call); :meth:`finish` closes it once every block has run,
+    refuses a table nothing read, and returns the metric the pipeline records.
+    """
+
+    binary: Path
+    binary_sha256: str
+    token_offsets: TokenOffsets
+    table: dict[bytes, _SpanEntry]
+    #: The pre-pass: requests, sequences sent, sequences answered ok, canaries compared.
+    calls: int
+    sent: int
+    native_ok: int
+    canaries: int
+    #: Rendering, encoding, the requests, the replies' checks and the canaries.
+    prepass_s: float
+    #: Lookups the table served; of them, answered from the reply; and calls it handed the
+    #: reference without a lookup (no line starts, no offsets, an unknown policy).
+    reads: int = 0
+    native_answers: int = 0
+    passthrough: int = 0
+    to_reference: collections.Counter[str] = dataclasses.field(
+        default_factory=collections.Counter
+    )
+    finished: bool = False
+
+    def lookup(
+        self,
+        spec: SequenceSpec,
+        ids: Any,
+        *,
+        token_offsets: TokenOffsets | None,
+        decode: Decode | None = None,
+        where: str,
+        span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
+    ) -> SpanAnswer | None:
+        """``_span_token_positions``, answered from the table where that is provably the
+        reference's answer, and by the reference everywhere else."""
+
+        def reference() -> SpanAnswer | None:
+            return _REFERENCE_SPAN_TOKEN_POSITIONS(
+                spec, ids, token_offsets=token_offsets, decode=decode, where=where,
+                span_collapse_policy=span_collapse_policy,
+            )
+
+        if (
+            not spec.line_char_starts
+            or token_offsets is None
+            or span_collapse_policy not in SPAN_COLLAPSE_POLICIES
+        ):
+            # Answered (None) or refused before any offset is read; never sent.
+            self.passthrough += 1
+            return reference()
+        if token_offsets != self.token_offsets:
+            raise SystemExit(
+                f"{where}: token_offsets is {token_offsets!r}, not the {self.token_offsets!r} "
+                "the spancheck table was built from, so its projections describe another "
+                "tokenization"
+            )
+        entry = self.table.get(_spec_key(spec, span_collapse_policy))
+        if entry is None:
+            raise SystemExit(
+                f"{where}: this span sequence ({span_collapse_policy}) is not among the "
+                f"{len(self.table)} the spancheck table holds; refusing to project it in "
+                f"Python behind {self.binary}'s back"
+            )
+        if len(ids) != entry.n_ids or _ids_digest(ids) != entry.ids_digest:
+            raise SystemExit(
+                f"{where}: {len(ids)} ids at write time, and the table was computed over "
+                f"{entry.n_ids} {'other ' if len(ids) == entry.n_ids else ''}ids for this "
+                "text: tokenize and the pre-pass's encode disagree"
+            )
+        self.reads += 1
+        value, why = _native_answer(entry, spec.text, ids, decode)
+        if value is None:
+            self.to_reference[why] += 1
+            return reference()
+        self.native_answers += 1
+        return value
+
+    @contextlib.contextmanager
+    def installed(self) -> Iterator[None]:
+        """The table in place of ``qd_train.shards._span_token_positions`` for the block."""
+        if self.finished:
+            raise SystemExit("this spancheck table is finished; build another to install")
+        if shards_module._span_token_positions is not _REFERENCE_SPAN_TOKEN_POSITIONS:
+            raise SystemExit(
+                "qd_train.shards._span_token_positions is not the reference this tool imported "
+                "(another table is installed, or something else replaced it), so the spancheck "
+                "table cannot be installed where write_shards projects spans"
+            )
+        _point_span_projection_at(self.lookup)
+        try:
+            yield
+        finally:
+            _point_span_projection_at(_REFERENCE_SPAN_TOKEN_POSITIONS)
+
+    def finish(self) -> TriState:
+        """Refuse a table nothing read, say what it answered, and return the run's metric."""
+        if self.finished:
+            raise SystemExit("this spancheck table was already finished")
+        self.finished = True
+        if self.table and not self.reads:
+            raise SystemExit(
+                "the spancheck table was built and never read: write_shards no longer projects "
+                "spans through qd_train.shards._span_token_positions, so its spans were "
+                "projected in Python unseen"
+            )
+        if not self.table:
+            return NotRun(
+                reason=(
+                    f"no span sequence reached the pre-pass, so {self.binary} (sha256 "
+                    f"{self.binary_sha256}) projected nothing and the reference answered "
+                    f"all {self.passthrough} call(s)"
+                )
+            )
+        by_reference = sum(self.to_reference.values())
+        counts = dict(sorted(self.to_reference.items()))
+        print(
+            f"spancheck: {self.sent} span sequences sent to {self.binary} in {self.calls} "
+            f"call(s), {self.native_ok} answered ok, {self.canaries} canaries equal to the "
+            f"reference, pre-pass {self.prepass_s:.1f} s; {self.reads} lookups, "
+            f"{self.native_answers} answered from the table and {by_reference} by the reference "
+            f"{counts}; {self.passthrough} handed to the reference without a lookup",
+            file=sys.stderr, flush=True,
+        )
+        return Ran(
+            passed=True,
+            value=self.binary_sha256,
+            n=self.native_answers,
+            n_total=self.reads + self.passthrough,
+            detail=json.dumps({
+                "binary": str(self.binary), "binary_sha256": self.binary_sha256,
+                "calls": self.calls, "sent": self.sent, "native_ok": self.native_ok,
+                "canaries": self.canaries, "prepass_s": round(self.prepass_s, 3),
+                "reads": self.reads, "native_answers": self.native_answers,
+                "to_reference": counts, "passthrough": self.passthrough,
+                "note": (
+                    "value is the qd-prep binary's sha256, which the shard headers cannot "
+                    "show: code_fingerprint covers python/qd_data only. n of n_total "
+                    "_span_token_positions calls were answered from qd-prep spancheck's "
+                    "reply; every other call, and every refusal, ran the reference"
+                ),
+            }, sort_keys=True),
+        )
+
+
+def build_native_spancheck(
+    groups: Sequence[tuple[Sequence[DataRow], str]],
+    *,
+    config: DataConfig,
+    encode: Callable[[str], tuple[Sequence[int], Sequence[tuple[int, int]]]],
+    token_offsets: TokenOffsets,
+    decode: Decode | None,
+    request_bytes: int = SPANCHECK_REQUEST_BYTES,
+) -> NativeSpancheck:
+    """The pre-pass: every span sequence ``write_shards`` will ask about, projected by
+    ``qd-prep spancheck`` (``crates/qd-prep/src/spancheck.rs``).
+
+    ``groups`` pairs the rows of each shard set with the policy it is written under. Each row is
+    rendered as ``write_shards`` renders it (``training_texts(row, seed=config.seed)`` with the
+    default caps) and a row ``training_texts`` refuses is skipped, as the writer skips it. Each
+    span sequence is encoded once (``encode`` returns the ids and offsets ``tokenize`` and
+    ``token_offsets`` would) and sent; requests are cut at ``request_bytes``. After every call
+    :data:`NATIVE_SPANCHECK_CANARIES` sequences from each end are re-run by the reference
+    (:func:`_canary`) and must agree.
+
+    ``qd_train.shards`` is not edited: it stays the oracle, and every lookup the table does not
+    settle is answered by it (:meth:`NativeSpancheck.lookup`). The ``qd-prep`` binary is
+    :data:`PREP_BIN_ENV`'s, never searched for; without it the build refuses.
+    """
+    named = os.environ.get(PREP_BIN_ENV, "")
+    if not named:
+        raise SystemExit(
+            f"{PREP_BIN_ENV} is unset. --native-spancheck projects span slots in crates/qd-prep; "
+            f"{_PREP_BUILD}"
+        )
+    binary = Path(named)
+    if not binary.is_absolute() or not binary.is_file():
+        raise SystemExit(
+            f"{PREP_BIN_ENV}={binary} is not an absolute path to a file; {_PREP_BUILD}"
+        )
+    if request_bytes <= len(_SPANCHECK_REQUEST_MAGIC) + 8 + _SPANCHECK_SEQ.size:
+        raise ValueError(f"request_bytes {request_bytes} cannot hold one sequence's header")
+    if shards_module._span_token_positions is not _REFERENCE_SPAN_TOKEN_POSITIONS:
+        raise SystemExit(
+            "qd_train.shards._span_token_positions is not the reference this tool imported, so "
+            "a spancheck table would not answer where write_shards asks"
+        )
+    started = time.perf_counter()
+    table: dict[bytes, _SpanEntry] = {}
+    counts = collections.Counter[str]()
+    pending: list[tuple[bytes, SpancheckItem, bytes]] = []
+    request_head = len(_SPANCHECK_REQUEST_MAGIC) + 8
+    pending_bytes = request_head
+    #: The ids of the first and of the last NATIVE_SPANCHECK_CANARIES pending sequences.
+    head_ids: dict[int, np.ndarray] = {}
+    tail_ids: collections.deque[tuple[int, np.ndarray]] = collections.deque(
+        maxlen=NATIVE_SPANCHECK_CANARIES
+    )
+
+    def flush() -> None:
+        nonlocal pending_bytes
+        items = [item for _, item, _ in pending]
+        replies = _prep_spancheck(binary, items)
+        for (key, item, digest), reply in zip(pending, replies, strict=True):
+            table[key] = _SpanEntry(
+                reply=reply, abstains=item.abstains, n_ids=item.n_ids, ids_digest=digest
+            )
+        canary_ids = {**head_ids, **dict(tail_ids)}
+        for i in sorted(canary_ids):
+            _canary(
+                binary, items[i], canary_ids[i], replies[i], token_offsets=token_offsets,
+                decode=decode,
+            )
+        counts["calls"] += 1
+        counts["sent"] += len(items)
+        counts["native_ok"] += sum(r.status == _SC_OK for r in replies)
+        counts["canaries"] += len(canary_ids)
+        pending.clear()
+        head_ids.clear()
+        tail_ids.clear()
+        pending_bytes = request_head
+
+    seen: set[bytes] = set()
+    for rows, policy in groups:
+        if policy not in SPAN_COLLAPSE_POLICIES:
+            raise SystemExit(
+                f"span_collapse_policy {policy!r} is not one of {SPAN_COLLAPSE_POLICIES}"
+            )
+        for row in rows:
+            try:
+                specs = training_texts(row, seed=config.seed)
+            except (UnencodableGold, QdRefusal):
+                # write_shards excludes the row at this point too, and asks about none of its
+                # slots; anything else it raises aborts the write, and aborts this as well.
+                continue
+            for spec in specs:
+                if not spec.line_char_starts:
+                    continue
+                key = _spec_key(spec, policy)
+                if key in seen:
+                    continue
+                seen.add(key)
+                raw_ids, offsets = encode(spec.text)
+                ids = np.asarray(raw_ids)
+                if ids.ndim != 1:
+                    # _tokenize_checked refuses this before any projection is asked for.
+                    continue
+                item = spancheck_item(spec, policy=policy, n_ids=int(ids.size), offsets=offsets)
+                if request_head + item.wire_bytes > request_bytes:
+                    raise SystemExit(
+                        f"one span sequence (slot {spec.slot_name!r}, {len(spec.text)} "
+                        f"characters) is {item.wire_bytes} bytes on the wire, past the "
+                        f"{request_bytes}-byte request bound; write it without "
+                        "--native-spancheck"
+                    )
+                if pending and pending_bytes + item.wire_bytes > request_bytes:
+                    flush()
+                index = len(pending)
+                pending.append((key, item, _ids_digest(ids)))
+                pending_bytes += item.wire_bytes
+                if index < NATIVE_SPANCHECK_CANARIES:
+                    head_ids[index] = ids
+                tail_ids.append((index, ids))
+    if pending:
+        flush()
+    return NativeSpancheck(
+        binary=binary,
+        binary_sha256=_sha256_file(binary),
+        token_offsets=token_offsets,
+        table=table,
+        calls=counts["calls"],
+        sent=counts["sent"],
+        native_ok=counts["native_ok"],
+        canaries=counts["canaries"],
+        prepass_s=time.perf_counter() - started,
+    )
+
+
+@contextlib.contextmanager
+def native_spancheck(
+    groups: Sequence[tuple[Sequence[DataRow], str]],
+    *,
+    config: DataConfig,
+    encode: Callable[[str], tuple[Sequence[int], Sequence[tuple[int, int]]]],
+    token_offsets: TokenOffsets,
+    decode: Decode | None,
+    request_bytes: int = SPANCHECK_REQUEST_BYTES,
+) -> Iterator[NativeSpancheck]:
+    """:func:`build_native_spancheck`, installed for the block and finished after it -- the shape
+    :func:`native_minhash` has, for a caller with one block. A block that raises is not
+    finished: its exception is the answer."""
+    built = build_native_spancheck(
+        groups, config=config, encode=encode, token_offsets=token_offsets, decode=decode,
+        request_bytes=request_bytes,
+    )
+    with built.installed():
+        yield built
+    built.finish()
+
+
+def _spancheck_installed(
+    spancheck: NativeSpancheck | None,
+) -> contextlib.AbstractContextManager[None]:
+    """``spancheck.installed()``, or nothing at all without --native-spancheck."""
+    return contextlib.nullcontext() if spancheck is None else spancheck.installed()
+
+
 @dataclass(frozen=True)
 class PostSplit:
     """What :func:`exclusions_then_contrast` did to the split."""
@@ -2392,6 +3154,7 @@ def run(
     decisions_pool: Path | None = None,
     pre_dedupe_drops: Path | None = None,
     dedupe_report_out: Path | None = None,
+    spancheck_in_qd_prep: bool = False,
 ) -> Measured:
     """Build, measure and write one shard set, and return what was measured.
 
@@ -2416,6 +3179,13 @@ def run(
     component: its kept unit and the units it removed) is written there, once, so a val or
     held-out row's absence can be read from the build's own clusters (A7). It names identity
     keys, not text, and is written outside ``out``. Without it nothing here changes.
+
+    With ``spancheck_in_qd_prep`` (``--native-spancheck``) the span slots of every shard set
+    written below are projected by ``qd-prep spancheck`` (:func:`build_native_spancheck`, one
+    pre-pass before stage 6) and ``write_shards`` reads the answers through the table it installs
+    for each write; the census keeps the reference. Every lookup the table does not settle runs
+    the reference, so the sets are the reference's byte for byte, and the ``native_spancheck``
+    metric records the binary's sha256. Without it nothing here changes.
     """
     if dedupe_report_out is not None and dedupe_report_out.exists():
         raise SystemExit(f"--dedupe-report-out {dedupe_report_out} exists; it is written once")
@@ -3024,31 +3794,53 @@ def run(
         print(f"  {split_name}: {json.dumps(unseen[split_name].to_json())[:600]}")
         print(f"  {split_name} byte fallback: {json.dumps(fallback[split_name].to_json())[:600]}")
 
+    spancheck: NativeSpancheck | None = None
+    if spancheck_in_qd_prep:
+        print("\n== stage 5c: span slots projected in qd-prep spancheck ==")
+        spancheck_groups: list[tuple[Sequence[DataRow], str]] = [
+            (train_rows, span_collapse_policy)
+        ]
+        if val_shards:
+            spancheck_groups.append((val_rows, val_policy))
+        if replay_rows:
+            spancheck_groups.append((replay_rows, span_collapse_policy))
+        spancheck = build_native_spancheck(
+            spancheck_groups, config=config, encode=tok.encode, token_offsets=tok.offsets,
+            decode=tok.decode,
+        )
+        print(
+            f"  {len(spancheck.table)} span sequences in {spancheck.calls} call(s), "
+            f"{spancheck.native_ok} answered ok, {spancheck.canaries} canaries, "
+            f"{spancheck.prepass_s:.1f} s; {spancheck.binary} sha256 {spancheck.binary_sha256}"
+        )
+
     print("\n== stage 6: write_shards with tokenize + token_offsets + decode ==")
     shard_dir = out / "shards" / "train"
-    header = write_shards(
-        paths["train"],
-        train_rows,
-        out_dir=shard_dir,
-        remap=remap,
-        tokenize=tok.tokenize,
-        token_offsets=tok.offsets,
-        decode=tok.decode,
-        config=config,
-        repo_root=out,
-        allow_unencodable=True,
-        allow_not_run_snapshot=not_run_snapshot,
-        # The revision the corpus above was read at. Nothing else in the header covers it:
-        # data_snapshot_hash hashes the rows that came out and code_fingerprint hashes the
-        # code that made them, so a set built from the wrong rev is self-consistent in both.
-        # `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header compares
-        # equal to "HEAD" tomorrow, so it would read as verified while naming no commit.
-        corpus_rev=resolved,
-        max_seq_len=max_seq_len,
-        span_collapse_policy=span_collapse_policy,
-        exclusions_sha256=exclusions_sha256,
-        contrast_rows=contrast_header,
-    )
+    with _spancheck_installed(spancheck):
+        header = write_shards(
+            paths["train"],
+            train_rows,
+            out_dir=shard_dir,
+            remap=remap,
+            tokenize=tok.tokenize,
+            token_offsets=tok.offsets,
+            decode=tok.decode,
+            config=config,
+            repo_root=out,
+            allow_unencodable=True,
+            allow_not_run_snapshot=not_run_snapshot,
+            # The revision the corpus above was read at. Nothing else in the header covers it:
+            # data_snapshot_hash hashes the rows that came out and code_fingerprint hashes the
+            # code that made them, so a set built from the wrong rev is self-consistent in
+            # both. `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header
+            # compares equal to "HEAD" tomorrow, so it would read as verified while naming no
+            # commit.
+            corpus_rev=resolved,
+            max_seq_len=max_seq_len,
+            span_collapse_policy=span_collapse_policy,
+            exclusions_sha256=exclusions_sha256,
+            contrast_rows=contrast_header,
+        )
     print(f"  header: n_sequences={header.n_sequences} total_tokens={header.total_tokens} "
           f"max_seq_len={header.max_seq_len} vocab_size={header.vocab_size}")
     print(f"  buckets: {list(header.buckets)}")
@@ -3072,23 +3864,24 @@ def run(
         # reads it without a gradient. Its own buckets, from its own lengths.
         print("\n== stage 6b: the val split, under the same remap ==")
         val_dir = out / "shards" / (REPORT_ONLY_VAL_DIR if report_slice is not None else "val")
-        val_header = write_shards(
-            paths["val"],
-            val_rows,
-            out_dir=val_dir,
-            remap=remap,
-            tokenize=tok.tokenize,
-            token_offsets=tok.offsets,
-            decode=tok.decode,
-            config=config,
-            repo_root=out,
-            allow_unencodable=True,
-            allow_not_run_snapshot=not_run_snapshot,
-            corpus_rev=resolved,
-            max_seq_len=max_seq_len,
-            span_collapse_policy=val_policy,
-            report_only=report_slice is not None,
-        )
+        with _spancheck_installed(spancheck):
+            val_header = write_shards(
+                paths["val"],
+                val_rows,
+                out_dir=val_dir,
+                remap=remap,
+                tokenize=tok.tokenize,
+                token_offsets=tok.offsets,
+                decode=tok.decode,
+                config=config,
+                repo_root=out,
+                allow_unencodable=True,
+                allow_not_run_snapshot=not_run_snapshot,
+                corpus_rev=resolved,
+                max_seq_len=max_seq_len,
+                span_collapse_policy=val_policy,
+                report_only=report_slice is not None,
+            )
         val_reader = ShardReader(val_dir, config=config, repo_root=out)
         val_coverage = val_reader.coverage
         val_slot_coverage = val_reader.slot_coverage
@@ -3112,14 +3905,15 @@ def run(
     if replay_rows:
         print("\n== stage 6c: the replay slice, as its own shard set ==")
         replay_dir = out / "shards" / "replay"
-        write_shards(
-            paths["replay"], replay_rows, out_dir=replay_dir, remap=remap,
-            tokenize=tok.tokenize, token_offsets=tok.offsets, decode=tok.decode,
-            config=config, repo_root=out, allow_unencodable=True,
-            allow_not_run_snapshot=not_run_snapshot, corpus_rev=resolved, replay=True,
-            max_seq_len=max_seq_len, span_collapse_policy=span_collapse_policy,
-            exclusions_sha256=exclusions_sha256,
-        )
+        with _spancheck_installed(spancheck):
+            write_shards(
+                paths["replay"], replay_rows, out_dir=replay_dir, remap=remap,
+                tokenize=tok.tokenize, token_offsets=tok.offsets, decode=tok.decode,
+                config=config, repo_root=out, allow_unencodable=True,
+                allow_not_run_snapshot=not_run_snapshot, corpus_rev=resolved, replay=True,
+                max_seq_len=max_seq_len, span_collapse_policy=span_collapse_policy,
+                exclusions_sha256=exclusions_sha256,
+            )
         replay_reader = ShardReader(replay_dir, config=config, repo_root=out)
         extra_metrics["replay_shard_slots_written"] = replay_reader.slot_coverage
         extra_metrics["replay_shard_padding_waste"] = replay_reader.padding_waste()
@@ -3137,28 +3931,33 @@ def run(
 
     print("\n== stage 8: the same corpus written WITHOUT decode= ==")
     undecoded_dir = out / "shards" / "train-no-decode"
-    write_shards(
-        paths["train"],
-        train_rows,
-        out_dir=undecoded_dir,
-        remap=remap,
-        tokenize=tok.tokenize,
-        token_offsets=tok.offsets,
-        config=config,
-        repo_root=out,
-        allow_unencodable=True,
-        allow_not_run_snapshot=not_run_snapshot,
-        # The revision the corpus above was read at. Nothing else in the header covers it:
-        # data_snapshot_hash hashes the rows that came out and code_fingerprint hashes the
-        # code that made them, so a set built from the wrong rev is self-consistent in both.
-        # `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header compares
-        # equal to "HEAD" tomorrow, so it would read as verified while naming no commit.
-        corpus_rev=resolved,
-        max_seq_len=max_seq_len,
-        span_collapse_policy=span_collapse_policy,
-        exclusions_sha256=exclusions_sha256,
-        contrast_rows=contrast_header,
-    )
+    with _spancheck_installed(spancheck):
+        write_shards(
+            paths["train"],
+            train_rows,
+            out_dir=undecoded_dir,
+            remap=remap,
+            tokenize=tok.tokenize,
+            token_offsets=tok.offsets,
+            config=config,
+            repo_root=out,
+            allow_unencodable=True,
+            allow_not_run_snapshot=not_run_snapshot,
+            # The revision the corpus above was read at. Nothing else in the header covers it:
+            # data_snapshot_hash hashes the rows that came out and code_fingerprint hashes the
+            # code that made them, so a set built from the wrong rev is self-consistent in
+            # both. `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header
+            # compares equal to "HEAD" tomorrow, so it would read as verified while naming no
+            # commit.
+            corpus_rev=resolved,
+            max_seq_len=max_seq_len,
+            span_collapse_policy=span_collapse_policy,
+            exclusions_sha256=exclusions_sha256,
+            contrast_rows=contrast_header,
+        )
+    if spancheck is not None:
+        # Every set above has been written; the table is closed, and refused if nothing read it.
+        extra_metrics["native_spancheck"] = spancheck.finish()
     checked = _artifact_digest(shard_dir)
     unchecked = _artifact_digest(undecoded_dir)
     same = sorted(k for k in checked if checked[k] == unchecked[k])
@@ -3523,6 +4322,18 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--native-spancheck", action="store_true", dest="spancheck_in_qd_prep",
+        help=(
+            "project every shard set's span slots (write_shards' line-start candidates and "
+            f"gold) in qd-prep spancheck (${PREP_BIN_ENV}) instead of qd_train.shards."
+            "_span_token_positions. Every slot it does not answer, and every decode check its "
+            "reply does not settle, runs the reference, so the sets are the reference's byte "
+            "for byte. Off by default. Not recipe: like --memo-limit it changes how the "
+            "projection runs, never what it returns; the binary's sha256 is the "
+            "native_spancheck metric"
+        ),
+    )
+    parser.add_argument(
         "--usd-per-hour", type=float, default=None,
         help="the instance rate from the provider's price page, on a rented box",
     )
@@ -3578,6 +4389,7 @@ def main(argv: list[str] | None = None) -> int:
         "decisions_pool": args.decisions_pool,
         "pre_dedupe_drops": args.pre_dedupe_drops,
         "dedupe_report_out": args.dedupe_report_out,
+        "spancheck_in_qd_prep": args.spancheck_in_qd_prep,
     }
     if args.ledger is None:
         run(**run_kwargs)
