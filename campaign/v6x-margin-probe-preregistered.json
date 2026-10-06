@@ -1,0 +1,14 @@
+{
+  "recorded": "2026-10-06 ~02:20 UTC, before any report of this probe exists: /Users/bharath/qd-campaign/margin-probe-2026-10-06 does not exist. The v5 and v6x eval rows' gate values were read before this was written (HANDOFF/lead-pipeline-2026-10-03.md ~01:55Z); their verdict files' margins were not.",
+  "decision": "The human, 2026-10-06 ~02:17 UTC: 'Run the free calibration measurement on v6x'. Fable (~02:05Z) proposed it as the CPU-only measurement that turns the gate's sentence 'the calibrated-margin half ... can only add abstentions' into a measured trade-off. Fable's ~17:40Z 10-05 ruling: report-only, two-fold, pre-registered first.",
+  "status": "report-only. Nothing is installed: the fitted margin is reported, not chosen (rule 2). No gate, threshold, population or seed moves. Its words feed HANDOFF/v6-plan-proposal-2026-10-06.md only.",
+  "what": "qd-margin-probe (crates/qd-runtime/src/bin/qd_margin_probe.rs, unchanged since 545d417; the 10-04 build at build/v6-startup-wt/target/debug/qd-margin-probe) with --target-precision 0.95 (its default and qd-calib-fit's), run on each of 10 eval rows' verdict pairs (verdicts-sN.jsonl as --val, suite-verdicts-sN.jsonl as --suite), from /Users/bharath/qd-campaign/verdicts-2026-10-05/{v5,v6x-noulw}/ (SHA-256 equal to the box's), each with two split keys: margin-probe-2026-10-06-a and margin-probe-2026-10-06-b. 20 reports, under /Users/bharath/qd-campaign/margin-probe-2026-10-06/. The fit is on val half A; the in-distribution cost is read on half B.",
+  "per_report": "fitted_noul_margin; ood_total.abstained_rule_or_margin minus abstained_rule_only (OOD abstentions the margin adds, of 180) and the same per OOD family; val_half_b.population.below_fitted_margin over n (in-distribution abstentions the margin adds on half B); val_half_b.retained_precision.",
+  "outcomes": {
+    "nothing": "the margin adds 0 OOD abstentions on every one of the 20 reports.",
+    "unstable": "not 'nothing', and for at least one eval row the two split keys disagree on whether the margin adds any OOD abstention (one adds >= 1, the other 0).",
+    "trade": "otherwise: the margin adds OOD abstentions on some reports, consistently across keys. Reported as the per-row OOD gain (of 180) against the half-B in-distribution cost (share of half B), for v5 and v6x side by side."
+  },
+  "not_claimed": "Half B is not the gate's in-distribution population (the gate reads every val choice row); the reports carry this caveat. No number here is a gate result.",
+  "committed_by": "the lead, before the first qd-margin-probe invocation"
+}
