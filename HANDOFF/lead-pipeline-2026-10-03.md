@@ -2025,6 +2025,24 @@ The earlier list, as written:
 
 ## The first command for the next lane
 
+State at 2026-10-06 ~02:35Z:
+- Lappi v0.1 preview is released (see the ~02:30Z section).
+- The H100 box is idle; only the human can shut it down.
+- The GH200 is under MLresearch's hold.
+
+The human's open items (GitPulse `LAPPI-HUMAN-2026-10-05`):
+- shut down the H100 box;
+- merge `preview-export-train-manifest-bound` (a766fcf);
+- decide the two re-specs (`HANDOFF/promotion-respec-proposal-2026-10-05.md`);
+- the v6 plan (`HANDOFF/v6-plan-proposal-2026-10-06.md`).
+
+The next lane's first step is the release's load test. Build the `qd` runtime in a worktree, never
+in main's checkout (`cargo -j 2` under `tools/mac_heavy.sh`), then load it:
+
 ```bash
-ssh -i /Users/bharath/.ssh/bharath_m5_macbook_pro.pem -o BatchMode=yes ubuntu@68.209.74.244 'ls /home/ubuntu/queue; tail -n 5 /home/ubuntu/logs/q-v5lane0.log /home/ubuntu/logs/q-v5lane1.log /home/ubuntu/logs/q-post-queue-launcher.log'
+bash /Users/bharath/Code/research/Lappi-decision/tools/mac_heavy.sh qd-build env CARGO_TARGET_DIR=/Users/bharath/qd-campaign/target-preview-a766fcf cargo build --release -j 2 --manifest-path /Users/bharath/Code/research/Lappi-decision/build/preview-wt/Cargo.toml -p qd-runtime --bin qd
 ```
+
+Then `qd oneshot` against
+`/Users/bharath/qd-campaign/preview-2026-10-05/release-lappi-v0.1-preview/`. Read `qd --help`
+for the current flags, and run it under `tools/mac_heavy.sh`.

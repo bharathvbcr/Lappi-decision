@@ -9,6 +9,37 @@ row stays out. The [V] items were checked on the H100 box's ledger
 `HANDOFF/lead-pipeline-2026-10-03.md`, the top sections (newest first), for anything newer. The
 v6x experiment's verdict lands ~19:30Z or ~02:00Z on 10-06, and its section there will say which.
 
+## Update, 2026-10-06 ~02:35Z (supersedes the lines below where they disagree)
+
+**Lappi v0.1 preview is released, not promoted.** The human chose this; the notes are
+`HANDOFF/lappi-v0.1-preview-release-notes-2026-10-06.md`.
+- **What it is:** the average of v5's five seeds. Score row 6af73bef.
+- **How it scores against the seeds:**
+  - choice 85.7%, better than every seed;
+  - option-order consistency 95.7%, the first to pass the gate;
+  - "I don't know" on normal questions 4.6%, the first under the 5% cap;
+  - unfamiliar input 149/180, below the seeds' 152-162.
+- **What it serves:** choice questions only, at the human's 80% precision target. On held-out folds it answers 91.9% of questions at 87.0% precision; 16-option questions are refused about half the time.
+- **Not load-tested.**
+
+**v6x reads `no_signal`.**
+- "I don't know" on unfamiliar input rose on 4 of 5 seeds (+6 to +16 of 180).
+- Two guards lost: choice accuracy, and over-hedging on normal questions.
+- It is report-only; nothing moved.
+
+**Other findings:**
+- **Shuffled-label control:** seed 3 now passes too (0.2183, deaf6717), so 4 of 5 seeds are covered.
+- **A free calibration probe** showed that a confidence threshold cannot fix "I don't know" on unfamiliar input. It adds at most 8 of 180, at the cost of 30-39% of normal questions.
+- **Averaging five seeds blurred the span head.** The seeds' span heads point in near-independent directions, so span accuracy fell to 77%. Span is not served.
+
+**Cost:** the H100 box was ~$459 at shutdown-ready (02:29Z). The human chose to spend no more tonight.
+
+**Weights:** the release, v5 seed 1 and v6x seed 3 are on the Mac; the box's other checkpoints go with the box.
+
+**Rust and Python:** the "Rust cut Python bottlenecks" angle stays limited to what was measured
+earlier. Tonight's two newly measured Python/CPU stalls (the GH200 post-training tail, and the
+linear-control phase) are v6 targets, not done.
+
 ## What Lappi is
 
 - One typed decision model derived from **Qwen3.5-2B-Base**. Any app calls it through a schema;
