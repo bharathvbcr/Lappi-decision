@@ -18,6 +18,9 @@
 #   free.
 # - It sets CARGO_BUILD_JOBS=2 unless the caller set it (4 until the second panic on 2026-10-02;
 #   the human then chose "resume, gentler": cargo at -j 2).
+# - It exports MAC_HEAVY_LABEL=<label> to the job, so the job can tell it runs under the lock:
+#   python/tests/conftest.py runs cargo on darwin only when it is set
+#   (GAP-PYTEST-QD-PREP-FIXTURE-BUILDS-OUTSIDE-THE-MAC-LOCK-2026-10-06).
 # - It releases the lock on every exit path, and only a lock it owns.
 # - It exits with the command's own status.
 #
@@ -190,6 +193,8 @@ while :; do
 done
 
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
+# This job's own label, replacing any the caller inherited from an outer mac_heavy.sh.
+export MAC_HEAVY_LABEL=$LABEL
 echo "mac_heavy: $(now) '$LABEL' holds the lock (waited ${waited}s; load $load, $procs processes); running: $*" >&2
 "$@" &
 JOB=$!
