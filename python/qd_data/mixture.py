@@ -101,7 +101,12 @@ from .schema import (
     SpanSlot,
     canonical_json,
 )
-from .sources import PINNED_SPLIT_KEY, source_by_id, task_family_by_id
+from .sources import (
+    BENCHMARK_TARGET_SPLITS,
+    PINNED_SPLIT_KEY,
+    source_by_id,
+    task_family_by_id,
+)
 from .split import SQUAD_TITLE_FAMILIES, squad_title_family, squad_title_repo_key
 
 if TYPE_CHECKING:
@@ -128,6 +133,7 @@ __all__ = [
     "check_prompt_consistency",
     "clinc_keys",
     "drop_contradictory_prompts",
+    "refuse_benchmark_target_row",
     "rewrite_clinc",
     "rewrite_commitpackft",
     "rewrite_defect_class",
@@ -146,6 +152,34 @@ class RowRefused(QdRefusal):
                  detail: str = "") -> None:
         self.reason_code = reason_code
         super().__init__(expected=expected, actual=actual, detail=f"[{reason_code}] {detail}")
+
+
+def refuse_benchmark_target_row(
+    source_id: str, upstream_split: str | None, *, config: DataConfig
+) -> None:
+    """v6's benchmark re-pin, for every rewriter of a source in ``BENCHMARK_TARGET_SPLITS``.
+
+    Under ``config.benchmark_eval_splits_are_targets`` a row read from one of its source's
+    evaluation splits is refused as ``benchmark_eval_split_is_a_target`` (that split is a
+    decontamination target, never a row), and a row whose upstream split is unstated is refused
+    as ``upstream_split_unstated``: it cannot be shown not to be one. Both are counted by
+    ``build_mixture`` like every refusal. Without the opt-in (v5) this does nothing.
+    """
+    if not config.benchmark_eval_splits_are_targets:
+        return
+    targets = BENCHMARK_TARGET_SPLITS.get(source_id, ())
+    if upstream_split is None:
+        raise RowRefused(
+            reason_code="upstream_split_unstated",
+            expected="the upstream split the row was read from", actual=None,
+            detail=f"{source_id}: under v6 a row that names no file may be from {targets}",
+        )
+    if upstream_split in targets:
+        raise RowRefused(
+            reason_code="benchmark_eval_split_is_a_target",
+            expected=f"an upstream split other than {targets}", actual=upstream_split,
+            detail=f"{source_id}: a decontamination target under v6, never a row",
+        )
 
 
 #: Ordinal bins for ``code.change_scope``, in changed lines. Fixed edges rather than
@@ -512,6 +546,7 @@ def rewrite_clinc(
     """One CLINC150 utterance. Out-of-scope becomes an abstention, not a class."""
     source = source_by_id("clinc/clinc_oos")
     admit_licence(source.declared_licence, config=config.licence, source=source.source_id)
+    refuse_benchmark_target_row(source.source_id, raw.upstream_split, config=config)
 
     utterance = raw.utterance.strip()
     if not utterance:

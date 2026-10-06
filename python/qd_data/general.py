@@ -46,7 +46,7 @@ from typing import Final
 from .config import DataConfig
 from .licences import admit_licence
 from .loaders import ClincRow, CsqaRow, MmluRow
-from .mixture import RowRefused, _request, _row, clinc_keys
+from .mixture import RowRefused, _request, _row, clinc_keys, refuse_benchmark_target_row
 from .render import DEFAULT_CAPS, DeterministicRng
 from .rows import DataRow, GoldAnswer
 from .schema import MAX_CHOICE_OPTIONS, NOUL, ChoiceSlot
@@ -187,6 +187,7 @@ def rewrite_mmlu(raw: MmluRow, *, family_id: str, index: int, config: DataConfig
             reason_code="unknown_family_for_source", expected=MMLU_FAMILY,
             actual=family_id, detail=source.source_id,
         )
+    refuse_benchmark_target_row(source.source_id, raw.upstream_split, config=config)
     subject = _require_key(raw.subject, reason_code="missing_subject", what="subject")
     question = raw.question.strip()
     if not question:
@@ -410,6 +411,7 @@ def rewrite_clinc_two_stage(
     """
     source = source_by_id("clinc/clinc_oos")
     admit_licence(source.declared_licence, config=config.licence, source=source.source_id)
+    refuse_benchmark_target_row(source.source_id, raw.upstream_split, config=config)
     utterance = raw.utterance.strip()
     if not utterance:
         raise RowRefused(

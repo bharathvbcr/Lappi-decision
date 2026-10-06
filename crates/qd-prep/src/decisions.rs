@@ -193,6 +193,11 @@ pub struct Config {
     pub seed: u64,
     pub val_fraction: f64,
     pub mode_threshold: f64,
+    /// v6's pairwise length balance, `(low, high)`: per split, P(the gold response is the
+    /// longer one) among ordered `pairwise.helpfulness` rows must lie in it, or the build is
+    /// refused. `None` (no `pairwise_length_balance` key, as in every v5 config) is v5's
+    /// selection, byte for byte. See [`balance_pairwise_length`].
+    pub pairwise_length_band: Option<(f64, f64)>,
     pub ngram_n: u32,
     pub containment_threshold: f64,
     pub fetch_record_sha256: String,
@@ -271,6 +276,10 @@ impl Config {
             seed: get_u64(&v, "seed", "config")?,
             val_fraction: unit(get_f64(&v, "val_fraction", "config")?, "val_fraction", true)?,
             mode_threshold: unit(get_f64(&v, "mode_threshold", "config")?, "mode_threshold", false)?,
+            pairwise_length_band: match v.get("pairwise_length_balance") {
+                None => None,
+                Some(b) => Some(parse_length_band(b)?),
+            },
             ngram_n,
             containment_threshold: unit(
                 get_f64(&v, "containment_threshold", "config")?,
@@ -502,12 +511,16 @@ pub type Tallies = BTreeMap<&'static str, SourceTally>;
 pub type Digests = BTreeMap<String, String>;
 /// A decontamination target set: its name and its `(id, text)` rows.
 pub type TargetSet = (String, Vec<(String, String)>);
+/// Pairwise candidate id -> the two responses' lengths in characters, `(A, B)` as displayed.
+pub type PairLengths = BTreeMap<String, (usize, usize)>;
 
 struct Ctx<'a> {
     cfg: &'a Config,
     questions: usize,
     out: Vec<Candidate>,
     tallies: BTreeMap<&'static str, SourceTally>,
+    /// Per pairwise candidate: the two responses' lengths, recorded by [`helpsteer`].
+    pair_lengths: PairLengths,
 }
 
 impl Ctx<'_> {
@@ -878,7 +891,10 @@ fn synth(ctx: &mut Ctx<'_>, r: &Value) -> Result<(), String> {
 }
 
 /// HelpSteer2 prompts with exactly two responses become one pairwise question each. The
-/// displayed order is a seeded coin per prompt, so position carries no signal.
+/// displayed order is a seeded coin per prompt, so position carries no signal. Length can
+/// (audit 2.6: v0.1 picks the longer program on 37 of 55 calls), so each question's two
+/// response lengths are recorded in `ctx.pair_lengths` for [`balance_pairwise_length`] and the
+/// row's `len_ratio`; recording them changes no candidate.
 fn helpsteer(ctx: &mut Ctx<'_>, rows: Vec<Value>) -> Result<(), String> {
     let mut by_prompt: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for r in rows {
@@ -886,6 +902,7 @@ fn helpsteer(ctx: &mut Ctx<'_>, rows: Vec<Value>) -> Result<(), String> {
         by_prompt.entry(p).or_default().push(r);
     }
     for (prompt, rs) in by_prompt {
+        let mut lengths: Option<(usize, usize)> = None;
         let made = (|| -> Result<Candidate, &'static str> {
             if rs.len() != 2 {
                 return Err("not_two_responses");
@@ -900,6 +917,7 @@ fn helpsteer(ctx: &mut Ctx<'_>, rows: Vec<Value>) -> Result<(), String> {
             let digest = sha256_hex(prompt.as_bytes());
             let flip = keyed(ctx.cfg.seed, &["helpsteer-ab", &digest])[0] & 1 == 1;
             let (a, b) = if flip { (r1, r0) } else { (r0, r1) };
+            lengths = Some((a.0.chars().count(), b.0.chars().count()));
             let gold = match a.1.cmp(&b.1) {
                 std::cmp::Ordering::Greater => 0,
                 std::cmp::Ordering::Less => 1,
@@ -927,6 +945,9 @@ fn helpsteer(ctx: &mut Ctx<'_>, rows: Vec<Value>) -> Result<(), String> {
                 split,
             })
         })();
+        if let (Ok(c), Some(l)) = (&made, lengths) {
+            ctx.pair_lengths.insert(c.id.clone(), l);
+        }
         ctx.offer(HELPSTEER, made)?;
     }
     Ok(())
@@ -1125,7 +1146,7 @@ fn fetched(record: &Value, dataset: &str, file: &str) -> Result<(PathBuf, String
 pub fn read_sources(
     cfg: &Config,
     inputs: &Inputs,
-) -> Result<(Vec<Candidate>, Tallies, Digests), String> {
+) -> Result<(Vec<Candidate>, Tallies, Digests, PairLengths), String> {
     let record_bytes =
         std::fs::read(&inputs.fetch_record).map_err(|e| format!("{}: {e}", inputs.fetch_record.display()))?;
     let record_sha = sha256_hex(&record_bytes);
@@ -1135,7 +1156,13 @@ pub fn read_sources(
     let record: Value = serde_json::from_slice(&record_bytes).map_err(|e| format!("fetch record: {e}"))?;
     let mut digests = BTreeMap::new();
     digests.insert("fetch_record".to_owned(), record_sha);
-    let mut ctx = Ctx { cfg, questions: 0, out: Vec::new(), tallies: BTreeMap::new() };
+    let mut ctx = Ctx {
+        cfg,
+        questions: 0,
+        out: Vec::new(),
+        tallies: BTreeMap::new(),
+        pair_lengths: PairLengths::new(),
+    };
     let mut helpsteer_rows = Vec::new();
     for (dataset, file) in FETCHED {
         let (path, want) = fetched(&record, dataset, file)?;
@@ -1167,7 +1194,7 @@ pub fn read_sources(
         check_pin(&path, &got, want, "the config")?;
         digests.insert(format!("{DECIDER}/{file}"), got);
     }
-    let Ctx { mut out, mut tallies, .. } = ctx;
+    let Ctx { mut out, mut tallies, pair_lengths, .. } = ctx;
     out.sort_by(|a, b| a.id.cmp(&b.id));
     let mut unique: Vec<Candidate> = Vec::with_capacity(out.len());
     for c in out {
@@ -1179,7 +1206,7 @@ pub fn read_sources(
         }
         unique.push(c);
     }
-    Ok((unique, tallies, digests))
+    Ok((unique, tallies, digests, pair_lengths))
 }
 
 fn put_str(out: &mut Vec<u8>, s: &str) {
@@ -1455,6 +1482,289 @@ pub fn refresh_train_caps(
     Ok((out, moved))
 }
 
+/// The pairwise family whose length prior [`balance_pairwise_length`] bounds.
+pub const PAIRWISE_FAMILY: &str = "pairwise.helpfulness";
+/// The splits the pool draws ([`Ctx::split_of`]), in the order reports name them.
+const POOL_SPLITS: [&str; 2] = ["train", "val"];
+
+/// `pairwise_length_balance` as a config states it: `{"low": L, "high": H}` with
+/// `0 < L <= 0.5 <= H < 1`, so the balanced point is always inside the band.
+fn parse_length_band(v: &Value) -> Result<(f64, f64), String> {
+    let what = "config: pairwise_length_balance";
+    let low = get_f64(v, "low", what)?;
+    let high = get_f64(v, "high", what)?;
+    if !(low > 0.0 && low <= 0.5 && (0.5..1.0).contains(&high)) {
+        return Err(format!("{what}: [{low}, {high}] must satisfy 0 < low <= 0.5 <= high < 1"));
+    }
+    Ok((low, high))
+}
+
+/// Where a pairwise row's gold stands on length: `Some(true)` when the more helpful response is
+/// the longer one, `Some(false)` when it is the shorter, `None` for a tie verdict or for two
+/// responses of equal length (neither is "the longer"). Length is in characters.
+pub fn gold_is_longer(c: &Candidate, (len_a, len_b): (usize, usize)) -> Option<bool> {
+    let (gold, other) = match c.gold {
+        Gold::Option(0) => (len_a, len_b),
+        Gold::Option(1) => (len_b, len_a),
+        _ => return None,
+    };
+    (gold != other).then_some(gold > other)
+}
+
+/// A pairwise row's `len_ratio`: response A's length over response B's, in characters, as the
+/// row displays them. `None` (written `null`) when B is empty, which has no finite ratio.
+pub fn len_ratio((len_a, len_b): (usize, usize)) -> Option<f64> {
+    (len_b > 0).then(|| len_a as f64 / len_b as f64)
+}
+
+/// One split's pairwise rows, by where the gold stands on length.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct LengthTally {
+    pub gold_longer: usize,
+    pub gold_shorter: usize,
+    pub equal_length: usize,
+    pub tie_verdict: usize,
+}
+
+impl LengthTally {
+    /// P(the gold response is the longer one) over the ordered rows of unequal length; `None`
+    /// when there are none, which is not a P of 0.
+    pub fn p_gold_longer(&self) -> Option<f64> {
+        let n = self.gold_longer + self.gold_shorter;
+        (n > 0).then(|| self.gold_longer as f64 / n as f64)
+    }
+
+    fn json(&self) -> Value {
+        json!({"gold_longer": self.gold_longer, "gold_shorter": self.gold_shorter,
+               "equal_length": self.equal_length, "tie_verdict": self.tie_verdict,
+               "p_gold_longer": self.p_gold_longer()})
+    }
+}
+
+/// Per pool split, the [`LengthTally`] of the `pairwise.helpfulness` rows among `idx`. A pairwise
+/// row whose lengths were not recorded, or whose gold is not A, B or the tie, is refused.
+pub fn length_tallies(
+    candidates: &[Candidate],
+    idx: &[usize],
+    lengths: &PairLengths,
+) -> Result<BTreeMap<&'static str, LengthTally>, String> {
+    let mut out: BTreeMap<&'static str, LengthTally> =
+        POOL_SPLITS.iter().map(|s| (*s, LengthTally::default())).collect();
+    for &i in idx {
+        let c = &candidates[i];
+        if c.family_id != PAIRWISE_FAMILY {
+            continue;
+        }
+        let lens = *lengths
+            .get(&c.id)
+            .ok_or_else(|| format!("{}: a pairwise row with no recorded response lengths", c.id))?;
+        let t = out
+            .get_mut(c.split)
+            .ok_or_else(|| format!("{}: split {:?} is not a pool split", c.id, c.split))?;
+        match c.gold {
+            Gold::Option(2) => t.tie_verdict += 1,
+            Gold::Option(0) | Gold::Option(1) => match gold_is_longer(c, lens) {
+                Some(true) => t.gold_longer += 1,
+                Some(false) => t.gold_shorter += 1,
+                None => t.equal_length += 1,
+            },
+            ref g => return Err(format!("{}: pairwise gold {g:?} is not A, B or the tie", c.id)),
+        }
+    }
+    Ok(out)
+}
+
+/// What [`balance_pairwise_length`] did to one split.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplitBalance {
+    pub before: LengthTally,
+    pub after: LengthTally,
+    pub dropped: usize,
+}
+
+/// Per pool split, what [`balance_pairwise_length`] did to it.
+pub type BalanceReport = BTreeMap<&'static str, SplitBalance>;
+
+/// v6's pairwise length balance (data-clean plan section 3 item 9; training audit 2.6): within
+/// each split, the selected `pairwise.helpfulness` rows are thinned so that P(the gold response
+/// is the longer one) lies in `[low, high]`.
+///
+/// Only the majority side of a split is thinned, by the fewest rows that bring P into the band,
+/// in seeded order (`keyed(seed, ["pairwise-length-balance", split, id])`). Tie verdicts and
+/// equal-length pairs are kept and are not in P. Every dropped row is counted per split.
+///
+/// Refused, never thinned to nothing: a split whose ordered rows all sit on one side (P is
+/// either 0 or 1) cannot be balanced without dropping every one of them; a split the thinning
+/// cannot bring into the band is refused; and P is measured again on the rows kept, so a band
+/// the result misses is refused rather than written. Returns the kept indices, in `chosen`'s
+/// order.
+pub fn balance_pairwise_length(
+    band: (f64, f64),
+    seed: u64,
+    candidates: &[Candidate],
+    chosen: &[usize],
+    lengths: &PairLengths,
+) -> Result<(Vec<usize>, BalanceReport), String> {
+    let (low, high) = band;
+    let before = length_tallies(candidates, chosen, lengths)?;
+    let mut drop: BTreeSet<usize> = BTreeSet::new();
+    let mut dropped: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for split in POOL_SPLITS {
+        let t = &before[split];
+        dropped.insert(split, 0);
+        let Some(p) = t.p_gold_longer() else { continue };
+        if (low..=high).contains(&p) {
+            continue;
+        }
+        let longer_leads = p > high;
+        let (major, minor) =
+            if longer_leads { (t.gold_longer, t.gold_shorter) } else { (t.gold_shorter, t.gold_longer) };
+        let side = if longer_leads { "longer" } else { "shorter" };
+        if minor == 0 {
+            return Err(format!(
+                "pairwise length balance: every one of {split}'s {major} ordered pairwise row(s) \
+                 has the {side} response as gold (P(gold is longer) = {p}); [{low}, {high}] \
+                 cannot be reached without dropping all of them. Refused, not thinned to nothing"
+            ));
+        }
+        // The leading side's share k / (k + minor): at most `cap` and at least `floor`. With the
+        // longer side leading that share is P itself; with the shorter leading it is 1 - P.
+        let (cap, floor) = if longer_leads { (high, low) } else { (1.0 - low, 1.0 - high) };
+        let share = |k: usize| k as f64 / (k + minor) as f64;
+        let mut keep = major;
+        while keep > 0 && share(keep) > cap {
+            keep -= 1;
+        }
+        if share(keep) < floor {
+            return Err(format!(
+                "pairwise length balance: {split} cannot be brought into [{low}, {high}]: \
+                 {minor} row(s) with the other side as gold, and keeping {keep} of {major} \
+                 leaves the {side} side a share of {}",
+                share(keep)
+            ));
+        }
+        let mut leading: Vec<usize> = chosen
+            .iter()
+            .copied()
+            .filter(|&i| {
+                let c = &candidates[i];
+                c.family_id == PAIRWISE_FAMILY
+                    && c.split == split
+                    && lengths.get(&c.id).and_then(|l| gold_is_longer(c, *l)) == Some(longer_leads)
+            })
+            .collect();
+        if leading.len() != major {
+            return Err(format!(
+                "pairwise length balance: {split} counted {major} {side}-gold row(s) but found {}",
+                leading.len()
+            ));
+        }
+        leading.sort_by_key(|&i| keyed(seed, &["pairwise-length-balance", split, &candidates[i].id]));
+        let n_drop = major - keep;
+        drop.extend(leading.iter().take(n_drop).copied());
+        dropped.insert(split, n_drop);
+    }
+    let kept: Vec<usize> = chosen.iter().copied().filter(|i| !drop.contains(i)).collect();
+    let after = length_tallies(candidates, &kept, lengths)?;
+    let mut report = BTreeMap::new();
+    for split in POOL_SPLITS {
+        if let Some(p) = after[split].p_gold_longer()
+            && !(low..=high).contains(&p)
+        {
+            return Err(format!(
+                "pairwise length balance: {split}'s rows as kept have P(gold is longer) = {p}, \
+                 outside [{low}, {high}]"
+            ));
+        }
+        report.insert(
+            split,
+            SplitBalance { before: before[split].clone(), after: after[split].clone(), dropped: dropped[split] },
+        );
+    }
+    Ok((kept, report))
+}
+
+/// The val floor on the balance (Fable's ruling of 2026-10-06 on item 9: val is balanced too,
+/// with a floor). Refused when the balance dropped val rows of `pairwise.helpfulness` and the
+/// family's val rows as kept (every verdict, ties and equal lengths included) are fewer than
+/// `val_floor` -- the config's existing `val_floor_per_family`, not a knob of its own. A val set
+/// already under the floor that the balance did not thin is not this check's to refuse.
+pub fn check_balance_val_floor(
+    report: &BalanceReport,
+    val_floor: usize,
+) -> Result<(), String> {
+    let Some(v) = report.get("val") else { return Ok(()) };
+    let a = &v.after;
+    let kept = a.gold_longer + a.gold_shorter + a.equal_length + a.tie_verdict;
+    if v.dropped > 0 && kept < val_floor {
+        return Err(format!(
+            "pairwise length balance: dropping {} of {PAIRWISE_FAMILY}'s val rows left {kept}, \
+             under val_floor_per_family {val_floor}. Refused rather than measured on a val set \
+             thinner than the floor",
+            v.dropped
+        ));
+    }
+    Ok(())
+}
+
+/// The balance report as the manifest's `pairwise_length_balance`.
+fn balance_json(band: (f64, f64), report: &BalanceReport) -> Value {
+    let by_split: serde_json::Map<String, Value> = report
+        .iter()
+        .map(|(s, b)| {
+            ((*s).to_owned(), json!({"before": b.before.json(), "after": b.after.json(),
+                                     "dropped_for_balance": b.dropped}))
+        })
+        .collect();
+    json!({"low": band.0, "high": band.1, "length_unit": "characters",
+           "by_split": by_split,
+           "dropped_for_balance_total": report.values().map(|b| b.dropped).sum::<usize>()})
+}
+
+/// Strata with val rows and no train rows, with their val counts
+/// (GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05): a val row there
+/// measures a stratum the model never trained on. `select` keeps such a stratum's val rows when
+/// its cap is non-zero, because the cap check asks for candidates, not train candidates.
+/// REPORT ONLY: removing val rows is a re-spec the human makes (rule 2), so nothing drops here.
+pub fn val_strata_without_train(by_stratum: &BTreeMap<String, Avail>) -> BTreeMap<String, usize> {
+    by_stratum
+        .iter()
+        .filter(|(_, a)| a.train == 0 && a.val > 0)
+        .map(|(s, a)| (s.clone(), a.val))
+        .collect()
+}
+
+/// [`val_strata_without_train`] at the family level: families (a stratum's first segment) with
+/// val rows and no train row in any of their strata.
+pub fn val_families_without_train(by_stratum: &BTreeMap<String, Avail>) -> BTreeMap<String, usize> {
+    let mut fam: BTreeMap<String, Avail> = BTreeMap::new();
+    for (s, a) in by_stratum {
+        let f = fam.entry(s.split('/').next().unwrap_or(s).to_owned()).or_default();
+        f.train += a.train;
+        f.val += a.val;
+    }
+    val_strata_without_train(&fam)
+}
+
+/// The manifest's `val_without_train` block over one availability table.
+fn val_without_train_json(by_stratum: &BTreeMap<String, Avail>) -> Value {
+    json!({"strata": val_strata_without_train(by_stratum),
+           "families": val_families_without_train(by_stratum)})
+}
+
+/// The summary's report line for [`val_strata_without_train`]; empty when there are none.
+fn val_without_train_line(by_stratum: &BTreeMap<String, Avail>) -> String {
+    let strata = val_strata_without_train(by_stratum);
+    if strata.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\nREPORT val stratum(s) with no train rows (report only; GAP-PAIRED-MARGIN-POOL-INCLUDES-\
+         A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05): {}",
+        strata.iter().map(|(s, n)| format!("{s} (val {n})")).collect::<Vec<_>>().join(", ")
+    )
+}
+
 /// What the run writes, before it is written.
 pub struct Built {
     pub examples: Vec<u8>,
@@ -1481,7 +1791,7 @@ fn example_json(c: &Candidate) -> Value {
 pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     let config_bytes = std::fs::read(&inputs.config).map_err(|e| format!("{}: {e}", inputs.config.display()))?;
     let cfg = Config::parse(&config_bytes)?;
-    let (candidates, tallies, mut digests) = read_sources(&cfg, inputs)?;
+    let (candidates, tallies, mut digests, pair_lengths) = read_sources(&cfg, inputs)?;
     digests.insert("config".to_owned(), sha256_hex(&config_bytes));
     let (targets, target_digests) = read_targets(&cfg, inputs)?;
     digests.extend(target_digests);
@@ -1540,21 +1850,44 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
                 .map_err(|e| e.to_string())?;
             texts.push(b'\n');
         }
-        let manifest = json!({
+        let mut manifest = json!({
             "schema": MANIFEST_SCHEMA, "mode": "survey", "inputs": digests, "sources": source_json,
             "decontamination": decontam, "available": avail_json,
             "noul_gold_available": noul_gold_available,
             "upstream_files_not_opened": UPSTREAM_NOT_OPENED,
+            "val_without_train": {"available": val_without_train_json(&avail)},
         });
+        if cfg.pairwise_length_band.is_some() {
+            // The prior over every surviving candidate, before any cap or balance: whether a
+            // build under this band can balance at all.
+            let all: Vec<usize> = (0..clean.len()).collect();
+            let prior: serde_json::Map<String, Value> = length_tallies(&clean, &all, &pair_lengths)?
+                .iter()
+                .map(|(s, t)| ((*s).to_owned(), t.json()))
+                .collect();
+            manifest["pairwise_length_prior"] = Value::Object(prior);
+        }
         return Ok(Built {
             examples: Vec::new(),
             manifest,
             texts: Some(texts),
             containment: written,
-            summary: format!("qd-prep decisions --survey: {} candidates after decontamination", clean.len()),
+            summary: format!(
+                "qd-prep decisions --survey: {} candidates after decontamination{}",
+                clean.len(),
+                val_without_train_line(&avail)
+            ),
         });
     }
     let chosen = select(&cfg, &clean)?;
+    let (chosen, balance) = match cfg.pairwise_length_band {
+        Some(band) => {
+            let (kept, report) = balance_pairwise_length(band, cfg.seed, &clean, &chosen, &pair_lengths)?;
+            check_balance_val_floor(&report, cfg.val_floor_per_family)?;
+            (kept, Some((band, report)))
+        }
+        None => (chosen, None),
+    };
     let mut examples = Vec::new();
     let mut selected: BTreeMap<String, Avail> = BTreeMap::new();
     let mut val_by_family: BTreeMap<String, usize> = BTreeMap::new();
@@ -1562,7 +1895,15 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     let mut chars_by_family: BTreeMap<String, usize> = BTreeMap::new();
     for &i in &chosen {
         let c = &clean[i];
-        serde_json::to_writer(&mut examples, &example_json(c)).map_err(|e| e.to_string())?;
+        let mut row = example_json(c);
+        // Under the v6 balance only, so a v5 config writes the bytes it always wrote.
+        if balance.is_some() && c.family_id == PAIRWISE_FAMILY {
+            let lens = pair_lengths
+                .get(&c.id)
+                .ok_or_else(|| format!("{}: a pairwise row with no recorded response lengths", c.id))?;
+            row["len_ratio"] = json!(len_ratio(*lens));
+        }
+        serde_json::to_writer(&mut examples, &row).map_err(|e| e.to_string())?;
         examples.push(b'\n');
         let s = selected.entry(c.stratum.clone()).or_default();
         if c.split == "val" {
@@ -1580,7 +1921,7 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
         .iter()
         .map(|(k, a)| (k.clone(), json!({"train": a.train, "val": a.val})))
         .collect();
-    let manifest = json!({
+    let mut manifest = json!({
         "schema": MANIFEST_SCHEMA, "mode": "build", "tool_version": env!("CARGO_PKG_VERSION"),
         "inputs": digests, "sources": source_json, "decontamination": decontam,
         "available": avail_json, "noul_gold_available": noul_gold_available,
@@ -1588,9 +1929,26 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
         "noul_gold_selected": noul_gold, "text_bytes_by_family": chars_by_family,
         "examples": chosen.len(), "examples_sha256": sha256_hex(&examples),
         "upstream_files_not_opened": UPSTREAM_NOT_OPENED,
+        "val_without_train": {
+            "available": val_without_train_json(&avail),
+            "selected": val_without_train_json(&selected),
+        },
     });
+    let mut balance_line = String::new();
+    if let Some((band, report)) = &balance {
+        manifest["pairwise_length_balance"] = balance_json(*band, report);
+        balance_line = format!(
+            "; pairwise length balance dropped {} row(s)",
+            report.values().map(|b| b.dropped).sum::<usize>()
+        );
+    }
     Ok(Built {
-        summary: format!("qd-prep decisions: {} examples of {} candidates", chosen.len(), clean.len()),
+        summary: format!(
+            "qd-prep decisions: {} examples of {} candidates{balance_line}{}",
+            chosen.len(),
+            clean.len(),
+            val_without_train_line(&selected)
+        ),
         examples,
         manifest,
         texts: None,
@@ -1638,6 +1996,7 @@ mod tests {
             mode_threshold: 0.6,
             ngram_n: 8,
             containment_threshold: 0.5,
+            pairwise_length_band: None,
             fetch_record_sha256: String::new(),
             decider_sha256: BTreeMap::new(),
             target_sha256: BTreeMap::new(),
@@ -1649,7 +2008,13 @@ mod tests {
     }
 
     fn ctx(c: &Config) -> Ctx<'_> {
-        Ctx { cfg: c, questions: 0, out: Vec::new(), tallies: BTreeMap::new() }
+        Ctx {
+            cfg: c,
+            questions: 0,
+            out: Vec::new(),
+            tallies: BTreeMap::new(),
+            pair_lengths: PairLengths::new(),
+        }
     }
 
     #[test]
@@ -2181,5 +2546,210 @@ mod tests {
         assert_eq!(train, 300);
         assert_eq!(val, 1000, "val is capped at val_cap_per_family");
         assert_eq!(select(&c, &cands).unwrap(), chosen, "deterministic");
+    }
+
+    /// HelpSteer2 rows for `n` prompts. `longer_wins(i)` decides whether prompt `i`'s more
+    /// helpful response is the longer one; every 10th prompt is a tie when `ties` is set.
+    fn helpsteer_rows(n: usize, ties: bool, longer_wins: impl Fn(usize) -> bool) -> Vec<Value> {
+        (0..n)
+            .flat_map(|i| {
+                let p = format!("prompt {i}");
+                let (good, bad) = if longer_wins(i) {
+                    (format!("a long and careful answer number {i} with detail"), format!("short {i}"))
+                } else {
+                    (format!("terse {i}"), format!("a rambling unhelpful answer number {i} that goes on"))
+                };
+                let bad_score = if ties && i % 10 == 0 { 4 } else { 1 };
+                [json!({"prompt": p, "response": good, "helpfulness": 4}),
+                 json!({"prompt": p, "response": bad, "helpfulness": bad_score})]
+            })
+            .collect()
+    }
+
+    /// Every candidate of `rows` as one pool split, through `helpsteer`, with its lengths.
+    fn pairwise_pool(c: &Config, rows: Vec<Value>, split: &'static str) -> (Vec<Candidate>, PairLengths) {
+        let mut x = ctx(c);
+        helpsteer(&mut x, rows).unwrap();
+        let Ctx { mut out, pair_lengths, .. } = x;
+        for cand in &mut out {
+            cand.split = split;
+        }
+        (out, pair_lengths)
+    }
+
+    #[test]
+    fn helpsteer_records_both_response_lengths_as_displayed_and_changes_no_candidate() {
+        let c = cfg();
+        let rows = helpsteer_rows(50, true, |i| i % 3 != 0);
+        let mut plain = ctx(&c);
+        helpsteer(&mut plain, rows.clone()).unwrap();
+        let (cands, lengths) = pairwise_pool(&c, rows, "train");
+        assert_eq!(lengths.len(), 50);
+        for (a, b) in plain.out.iter().zip(&cands) {
+            assert_eq!((&a.id, &a.context, &a.gold), (&b.id, &b.context, &b.gold));
+            let (la, lb) = lengths[&b.id];
+            let shown_a = b.context.split("\n\nresponse_B:\n").next().unwrap();
+            let shown_a = shown_a.split("response_A:\n").nth(1).unwrap();
+            assert_eq!(la, shown_a.chars().count());
+            assert_eq!(len_ratio((la, lb)), Some(la as f64 / lb as f64));
+        }
+        assert_eq!(len_ratio((3, 0)), None, "an empty B has no finite ratio");
+    }
+
+    #[test]
+    fn a_pool_where_the_longer_answer_always_wins_is_refused_not_thinned_to_nothing() {
+        let c = cfg();
+        let (cands, lengths) = pairwise_pool(&c, helpsteer_rows(200, true, |_| true), "train");
+        let all: Vec<usize> = (0..cands.len()).collect();
+        // v5 (no band): the prior is untouched, P(gold is longer) is 1.
+        let t = &length_tallies(&cands, &all, &lengths).unwrap()["train"];
+        assert_eq!((t.gold_longer, t.gold_shorter, t.tie_verdict), (180, 0, 20));
+        assert_eq!(t.p_gold_longer(), Some(1.0));
+        let err = balance_pairwise_length((0.45, 0.55), c.seed, &cands, &all, &lengths).unwrap_err();
+        assert!(err.contains("train") && err.contains("Refused"), "{err}");
+        // And the mirror image: the shorter answer always wins.
+        let (cands, lengths) = pairwise_pool(&c, helpsteer_rows(40, false, |_| false), "val");
+        let all: Vec<usize> = (0..cands.len()).collect();
+        let err = balance_pairwise_length((0.45, 0.55), c.seed, &cands, &all, &lengths).unwrap_err();
+        assert!(err.contains("val") && err.contains("shorter"), "{err}");
+    }
+
+    #[test]
+    fn a_skewed_split_is_thinned_into_the_band_and_every_drop_is_counted() {
+        let c = cfg();
+        // 300 train prompts: 3 in 4 have the longer response as gold, and every 10th is a tie.
+        let (mut cands, lengths) = pairwise_pool(&c, helpsteer_rows(300, true, |i| i % 4 != 0), "train");
+        // A second family in the same chosen set must pass through untouched.
+        cands.push(Candidate {
+            id: "other".into(), source_id: SYNTH, family_id: "synth.general".into(),
+            stratum: "synth.general/choice".into(), group_key: "g".into(), licence: "mit".into(),
+            context: "c".into(), question: "q".into(), slot_name: "answer".into(),
+            options: vec!["a".into(), "b".into()], gold: Gold::Option(0), label_basis: "hard",
+            split: "train",
+        });
+        let all: Vec<usize> = (0..cands.len()).collect();
+        let before = length_tallies(&cands, &all, &lengths).unwrap()["train"].clone();
+        assert!(before.p_gold_longer().unwrap() > 0.7, "{before:?}");
+        let (kept, report) = balance_pairwise_length((0.45, 0.55), c.seed, &cands, &all, &lengths).unwrap();
+        let r = &report["train"];
+        let p = r.after.p_gold_longer().unwrap();
+        assert!((0.45..=0.55).contains(&p), "P after balance {p}");
+        assert_eq!(r.dropped, all.len() - kept.len(), "every dropped row is counted");
+        assert_eq!(r.dropped, before.gold_longer - r.after.gold_longer, "only the leading side is thinned");
+        assert_eq!(r.after.gold_shorter, before.gold_shorter);
+        assert_eq!(r.after.tie_verdict, before.tie_verdict);
+        // The fewest drops: one more longer-gold row would leave the band.
+        let k = r.after.gold_longer + 1;
+        assert!(k as f64 / (k + r.after.gold_shorter) as f64 > 0.55);
+        assert!(kept.contains(&(cands.len() - 1)), "another family's row is never dropped");
+        assert_eq!(report["val"].dropped, 0);
+        assert_eq!(report["val"].before.p_gold_longer(), None, "no val rows: no P, not P = 0");
+        let again = balance_pairwise_length((0.45, 0.55), c.seed, &cands, &all, &lengths).unwrap();
+        assert_eq!(again.0, kept, "deterministic");
+        // A split already in the band is left alone.
+        let (kept2, report2) = balance_pairwise_length((0.45, 0.55), c.seed, &cands, &kept, &lengths).unwrap();
+        assert_eq!((kept2, report2["train"].dropped), (kept, 0));
+    }
+
+    #[test]
+    fn a_skewed_val_split_whose_balance_falls_under_the_val_floor_is_refused() {
+        let c = cfg();
+        // 200 val prompts: 140 longer-gold, 40 shorter-gold, 20 ties. The band keeps 48 of the
+        // 140 (48 / 88 = 0.545), so the family's val rows as kept are 48 + 40 + 20 = 108.
+        let (cands, lengths) = pairwise_pool(&c, helpsteer_rows(200, true, |i| i % 4 != 0), "val");
+        let all: Vec<usize> = (0..cands.len()).collect();
+        let (kept, report) = balance_pairwise_length((0.45, 0.55), c.seed, &cands, &all, &lengths).unwrap();
+        let v = &report["val"];
+        assert_eq!((v.before.gold_longer, v.before.gold_shorter, v.before.tie_verdict), (140, 40, 20));
+        assert_eq!((v.after.gold_longer, v.dropped, kept.len()), (48, 92, 108));
+        // The floor is the config's val_floor_per_family (cfg(): 100), not a knob of its own.
+        assert_eq!(c.val_floor_per_family, 100);
+        check_balance_val_floor(&report, c.val_floor_per_family).unwrap();
+        check_balance_val_floor(&report, 108).unwrap();
+        let err = check_balance_val_floor(&report, 109).unwrap_err();
+        assert!(err.contains("val_floor_per_family 109") && err.contains("left 108"), "{err}");
+        assert!(check_balance_val_floor(&report, 150).is_err());
+        // A val set already under the floor that the balance did not thin is not refused here.
+        let (small, small_lengths) = pairwise_pool(&c, helpsteer_rows(30, false, |i| i % 2 == 0), "val");
+        let idx: Vec<usize> = (0..small.len()).collect();
+        let (_, r) = balance_pairwise_length((0.45, 0.55), c.seed, &small, &idx, &small_lengths).unwrap();
+        assert_eq!(r["val"].dropped, 0);
+        check_balance_val_floor(&r, 100).unwrap();
+    }
+
+    #[test]
+    fn a_pairwise_row_without_recorded_lengths_is_refused() {
+        let c = cfg();
+        let (cands, mut lengths) = pairwise_pool(&c, helpsteer_rows(20, false, |i| i % 2 == 0), "train");
+        lengths.remove(&cands[3].id);
+        let all: Vec<usize> = (0..cands.len()).collect();
+        let err = balance_pairwise_length((0.45, 0.55), c.seed, &cands, &all, &lengths).unwrap_err();
+        assert!(err.contains("no recorded response lengths"), "{err}");
+    }
+
+    #[test]
+    fn the_length_band_is_opt_in_and_validated() {
+        let base = json!({
+            "schema": CONFIG_SCHEMA, "seed": 1, "val_fraction": 0.1, "mode_threshold": 0.6,
+            "ngram_n": 8, "containment_threshold": 0.5, "fetch_record_sha256": "x",
+            "decider_sha256": {"routing_messages.jsonl": "a", "routing_terse.jsonl": "b",
+                               "commands.jsonl": "c"},
+            "target_sha256": {}, "val_cap_per_family": 10, "val_floor_per_family": 1,
+            "val_cap_total": 100, "train_caps": {}});
+        let parse = |v: &Value| Config::parse(v.to_string().as_bytes());
+        assert_eq!(parse(&base).unwrap().pairwise_length_band, None, "absent: v5's selection");
+        let mut v6 = base.clone();
+        v6["pairwise_length_balance"] = json!({"low": 0.45, "high": 0.55});
+        assert_eq!(parse(&v6).unwrap().pairwise_length_band, Some((0.45, 0.55)));
+        for bad in [json!({"low": 0.6, "high": 0.7}), json!({"low": 0.0, "high": 0.55}),
+                    json!({"low": 0.45, "high": 1.0}), json!({"low": 0.45})] {
+            let mut v = base.clone();
+            v["pairwise_length_balance"] = bad.clone();
+            assert!(parse(&v).is_err(), "{bad} accepted");
+        }
+    }
+
+    #[test]
+    fn a_val_only_stratum_is_reported_and_its_val_rows_are_kept() {
+        let mut c = cfg();
+        c.val_fraction = 0.5;
+        let mk = |id: String, stratum: &str, split: &'static str| Candidate {
+            id, source_id: SYNTH, family_id: stratum.split('/').next().unwrap().into(),
+            stratum: stratum.into(), group_key: "g".into(), licence: "mit".into(),
+            context: "c".into(), question: "q".into(), slot_name: "answer".into(),
+            options: vec!["a".into(), "b".into()], gold: Gold::Option(0), label_basis: "hard",
+            split,
+        };
+        let mut cands = Vec::new();
+        for i in 0..40 {
+            cands.push(mk(format!("t{i:03}"), "synth.general/choice", if i % 2 == 0 { "train" } else { "val" }));
+            // A stratum of a trained family with val candidates and no train candidate.
+            cands.push(mk(format!("a{i:03}"), "synth.general/access_route", "val"));
+            // A whole family with val rows only.
+            cands.push(mk(format!("o{i:03}"), "orphan.family/yesno", "val"));
+        }
+        for s in ["synth.general/choice", "synth.general/access_route", "orphan.family/yesno"] {
+            c.train_caps.insert(s.into(), 100);
+        }
+        let chosen = select(&c, &cands).unwrap();
+        let mut selected: BTreeMap<String, Avail> = BTreeMap::new();
+        for &i in &chosen {
+            let a = selected.entry(cands[i].stratum.clone()).or_default();
+            if cands[i].split == "val" { a.val += 1 } else { a.train += 1 }
+        }
+        let strata = val_strata_without_train(&selected);
+        assert_eq!(strata.keys().collect::<Vec<_>>(), ["orphan.family/yesno", "synth.general/access_route"]);
+        assert!(strata.values().all(|n| *n > 0), "report only: the val rows are still selected");
+        let families = val_families_without_train(&selected);
+        assert_eq!(families.keys().collect::<Vec<_>>(), ["orphan.family"], "synth.general trains");
+        let line = val_without_train_line(&selected);
+        assert!(line.contains("REPORT") && line.contains("synth.general/access_route (val "), "{line}");
+        let block = val_without_train_json(&selected);
+        assert_eq!(block["families"]["orphan.family"], json!(families["orphan.family"]));
+        // Nothing to report: no line, empty maps.
+        let mut trained = selected.clone();
+        trained.retain(|s, _| s == "synth.general/choice");
+        assert_eq!(val_without_train_line(&trained), "");
+        assert_eq!(val_without_train_json(&trained), json!({"strata": {}, "families": {}}));
     }
 }

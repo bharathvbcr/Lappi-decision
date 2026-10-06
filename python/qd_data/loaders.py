@@ -183,11 +183,18 @@ class CommitPackFtRow:
 
 @dataclass(frozen=True, slots=True)
 class ClincRow:
-    """``clinc/clinc_oos``. Its out-of-scope class is a free ``noul``."""
+    """``clinc/clinc_oos``. Its out-of-scope class is a free ``noul``.
+
+    ``upstream_split`` is the file the row was read from (``train``, ``validation``, ``test``),
+    or ``None`` when the reader did not say. v5 never reads it: every CLINC row splits by intent
+    whatever its file. A v6 build (``DataConfig.benchmark_eval_splits_are_targets``) refuses a
+    ``test`` row and, failing closed, a row whose file is unstated.
+    """
 
     utterance: str
     intent: str
     is_oos: bool
+    upstream_split: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,6 +420,7 @@ def parse_clinc(
     index: int,
     oos_label: str = "oos",
     label_names: Sequence[str] | None = None,
+    split_name: str | None = None,
 ) -> ClincRow:
     """One CLINC150 row. ``intent`` arrives as a name or as a ``ClassLabel`` index.
 
@@ -422,6 +430,9 @@ def parse_clinc(
     An index is resolved through ``label_names`` -- the ``ClassLabel.names`` list
     from the same ``/info`` response -- and an index with no names to resolve it
     against is refused rather than stringified, because ``"42"`` is not an intent.
+
+    ``split_name`` is the upstream file the row was read from, carried as
+    :attr:`ClincRow.upstream_split`; a v6 build refuses a row without one.
     """
     where = f"clinc/clinc_oos row {index}"
     if "intent" not in raw:
@@ -452,6 +463,7 @@ def parse_clinc(
         utterance=_req_str(raw, "text", where=where),
         intent=intent,
         is_oos=intent == oos_label,
+        upstream_split=split_name,
     )
 
 

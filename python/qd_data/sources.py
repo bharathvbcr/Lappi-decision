@@ -32,6 +32,8 @@ from .licences import (
 )
 
 __all__ = [
+    "BENCHMARK_TARGET_PREFIX",
+    "BENCHMARK_TARGET_SPLITS",
     "DECISION_EXACT_CONTENT_FAMILIES",
     "DECISION_FAMILIES",
     "DECISION_POOL_OPT_INS",
@@ -57,6 +59,21 @@ __all__ = [
 #: the bottom of the import graph, so the splitter can read it without importing a
 #: rewriter.
 PINNED_SPLIT_KEY: Final[str] = "pinned_split"
+
+#: v6's benchmark re-pin (data-clean plan section 3 item 6;
+#: GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03): the
+#: upstream evaluation splits a build under ``DataConfig.benchmark_eval_splits_are_targets``
+#: never reads as rows. The Decision Index scores MMLU's test split (14,042) and CLINC150+OOS's
+#: test split (5,500); MMLU's dev split is its few-shot exemplar set. Each is a decontamination
+#: target of the in-corpus scan instead (``tools/containment_scan.py --v6-benchmark-targets``,
+#: target sets ``<prefix>-<split>`` below). A v5 build ignores this table: v5 pins MMLU test and
+#: dev to train and splits CLINC test by intent, and v5 rebuilds must re-derive v5's rows.
+BENCHMARK_TARGET_SPLITS: Final[dict[str, tuple[str, ...]]] = {
+    "cais/mmlu": ("dev", "test"),
+    "clinc/clinc_oos": ("test",),
+}
+#: The target-set name prefix of each source in :data:`BENCHMARK_TARGET_SPLITS`.
+BENCHMARK_TARGET_PREFIX: Final[dict[str, str]] = {"cais/mmlu": "mmlu", "clinc/clinc_oos": "clinc"}
 
 #: The human's own repositories under ``/Users/bharath/Code`` (a remote naming github owner
 #: ``bharathvbcr``), the source of v5's own-prose noul rows. Rows from it are
