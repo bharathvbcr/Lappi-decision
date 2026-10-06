@@ -128,9 +128,28 @@ This section was added after Fable's ruling; its parts are labelled.
   - the null (a random `+` line, per GAP-THE-DIFF-MARKS-ITS-OWN-ANSWER-FOR-THE-SPAN-HEAD).
 - **Before any result is read,** a pre-registration goes into `campaign/`. Any run goes through
   `tools/mac_heavy.sh` and is marked `quick` (rule 8).
-- **Pre-registered:** `campaign/span-refit-mac-preregistered.json`, sha256
-  `87c02014e34dec619e536a221447bbffd80a724e7afe5a7c5b1598fcb5bd347c (corrected citation heads.py:357-358 before any result; the first draft hashed 836c5cf9…)`. It was written before any
-  span feature was extracted or any arm scored, and it is uncommitted.
+- **Pre-registered:** `campaign/span-refit-mac-preregistered.json`, written before any span
+  feature was extracted or any arm scored. Its hashes, in order:
+  - `836c5cf9…`: the first draft.
+  - `87c02014…`: the citation corrected to `heads.py:357-358`, before any result; committed in
+    ee1dfab.
+  - `b4a370ff133587bf1d8f090aae50a9cbbd09bd4dd207385dcb0e628afd1778a1`: amendment 1, appended
+    (Fable's ruling) after a tokenizer-only census and before any tower load or score. The
+    original wording stays in ee1dfab.
+- **Amendment 1, arm (e)'s last-line derivation:**
+  - **The failure:** on 1,448 of 7,238 val span rows, all `code.defect_class` (1,256 pointing,
+    192 abstain; qa 0), the context's whitespace-only last line merges with the delimiter's
+    newline into one token. Census:
+    `build/needle-span-mac-2026-10-06/cache/avg-val/census.json`, sha256 `b05069fd…`.
+  - **The rule now:** `end_last = start_last`, confirmed per row by the next token starting
+    `<|qd_context_end|>`.
+  - **The void rule** is scoped to the qa pointing cell.
+- **Two notes for v6 [I]:**
+  1. This is the line-start-collapse family again, now at the boundary between the context and
+     the delimiter. It is a third place where the candidate-position scheme bends under BPE, so
+     it is evidence for the v6 contract question.
+  2. Composed defect rows often end in a whitespace-only line (23.4% of defect pointing rows
+     here). Anyone building file-mode span rows for v6 should handle that case.
   - **Arms:**
     - (a) the shipped mean head on the averaged tower; this arm is the validity gate;
     - (b) seed 1's head on the averaged tower;
@@ -139,8 +158,9 @@ This section was added after Fable's ruling; its parts are labelled.
     - (e) a head refit on each line's last token. This arm is not servable; it is a probe of
       "has the candidate state read the line".
   - **Population pin:** `bdd571b6…` (7,238 val span rows).
-  - **Blocked on:** the Mac heavy lock. The merge-and-bench lane holds it, with two jobs queued.
-    The extraction script is not yet written.
+  - **Blocked on:** the Mac heavy lock. The merge-and-bench lane holds it, with decider-2b on
+    CPU queued (about 2-3 h). The scripts are being written in
+    `build/needle-span-mac-2026-10-06/` (one lane).
 
 ## Open
 
