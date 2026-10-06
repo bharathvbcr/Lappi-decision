@@ -332,12 +332,19 @@ footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: 0.8
         <tr><td>Qwen3.5-2B, chat judge</td><td class="num">2B</td><td class="num">0.522</td><td class="num">0.646</td><td class="num">0.523</td></tr>
         <tr><td>Qwen3.5-2B-Base, chat judge</td><td class="num">2B</td><td class="num">0.468</td><td class="num">0.569</td><td class="num">0.531</td></tr>
         <tr><td>Gemma 4 E4B, no reasoning</td><td class="num">8.0B</td><td class="num">0.632</td><td class="num">0.812</td><td class="num">0.801</td></tr>
+        <tr><td>decider-2b v11, same base model, on CPU</td><td class="num">2B</td><td class="num">0.612</td><td class="num">0.719</td><td class="num">0.749</td></tr>
       </tbody>
     </table>
   </div>
   <ul>
     <li>Against Qwen3.5-2B it ties: the difference is +0.035 in Qwen's favour, interval [−0.039, +0.094].</li>
     <li>Gemma 4 E4B, about four times larger, is clearly better: +0.200 [+0.133, +0.257].</li>
+    <li>decider-2b, the same size on the same base model, is better too: +0.110 [+0.071, +0.157],
+    every pair answered in both orders. Judging which of two answers is better is one of its trained
+    tasks, and the harness asks it in its own request format with its own calibration; for Lappi it
+    is neither. It ran on the CPU in float32 because its Mac GPU path returned NaN, so its speed is
+    not compared. Only differences against Lappi were computed: decider-2b and Gemma are not ranked
+    against each other.</li>
     <li>Outside RewardBench 2's Ties domain, Lappi is near chance.</li>
     <li><strong>On RM-Bench's code pairs it scores 0.111.</strong> Of 108 calls it said "tie" on 53,
     chose the broken program on 43 and the correct one on 12. Those pairs reach it as a "which answer
@@ -365,12 +372,13 @@ footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: 0.8
   <p>On a 191-pair subset with no tie answers, scored against the other judges on the same pairs:
   Gemma 4 E4B reaches 0.816 with reasoning and 0.721 without, against 0.571 for Lappi (with
   reasoning minus Lappi: +0.245 [+0.122, +0.347]). With reasoning it takes about 14 s per verdict
-  in the harness; Lappi takes about 0.24 s.</p>
+  in the harness; Lappi takes about 0.24 s. decider-2b scores 0.707 on the same pairs (minus Lappi:
+  +0.136 [+0.048, +0.226]).</p>
   <p><a href="https://claude.ai/artifact/Hdq9CDPFQrqN6DJLnkKNEd">The full JevArena results</a></p>
   <p class="note">Other small typed-decision models appeared the week this started: TypeSafe's Jev,
-  Bespoke's Nimble, and decider-2b on the same base model. Their published numbers use other tasks
-  and metrics and were not run head to head here (a decider-2b run through the same harness has no
-  result yet), so they are not ranked against Lappi.</p>
+  Bespoke's Nimble, and decider-2b on the same base model. Only decider-2b was run head to head,
+  above. Jev's and Nimble's published numbers use other tasks and metrics, so they are not ranked
+  against Lappi.</p>
 </section>
 
 <section aria-labelledby="next">

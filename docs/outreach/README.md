@@ -60,9 +60,11 @@ Paths are relative to this repository unless they name the campaign directory.
 | 215 overlapping validation rows | `docs/lappi.md`, "What the 2B campaign has taught" |
 | 1,087 commits, 1,060 with a Claude co-author trailer; commits by day | `git log` at 6d265c0 |
 | two kernel panics on 10-02 | `AUDIT/mac-stability-2026-10-02/report.md` |
-| peers' figures | `AUDIT/prior-art-jev-nimble-2026-09-19.md`, `docs/build-order-2026-09-19.md` (README-level claims; none measured here) |
+| peers' figures | `AUDIT/prior-art-jev-nimble-2026-09-19.md`, `docs/build-order-2026-09-19.md` (README-level claims, not measured here; decider-2b's JevArena run below is the one peer measurement) |
 | prompt format 2 text, the 21 trained questions | rendered by `python/qd_data/render.py` from load-test request r023; `python/qd_data/sources.py:716-770` |
 | Gemma 4 E4B reasoning pilot: 191 pairs; 0.708 / 0.816 / 0.853 / 14.0 s; Lappi 0.529 / 0.571 / 0.639 / 0.24 s on the same pairs; +0.245 [+0.122, +0.347] | campaign `lappi-bench-2026-10-06/jev-compare-pilot.txt` (`compare_all.sh`); the run's status `complete`, 382 calls, in `logs/jev-gemma4-think-pilot-run2.log` |
+| decider-2b v11 (rev 533964da) on JevArena, CPU float32: 849 pairs, 0 failed calls; macro 0.612, micro 0.719 [0.661, 0.767], consistency 0.749, median 5.7 s; minus Lappi +0.110 [+0.071, +0.157]; RM-Bench code 0.546 (6 groups); on the 191-pair pilot 0.625 / 0.707 [0.590, 0.796] / 0.764 / 6.9 s, minus Lappi +0.136 [+0.048, +0.226] | `external/jevarena/runs/decider-2b-v11-cpu-test-g6` (status `complete`, 1,698 calls, `implementation_sha256` `d39ba018…`; the harness's own `report.md` agrees on pairs, consistency, latency and the code slice). Scored by this lane with the bench lane's `compare.py` and `compare_all.sh`'s run list, into this lane's scratch space, not the bench folder; every other row reproduced the committed `jev-compare-*.txt` files line for line. Not yet in `HANDOFF/merge-and-bench-2026-10-06.md` section 6, which says its row "lands in a follow-up commit" |
+| decider-2b trains pairwise response preference and the Jev API's input shapes; holds out (the first) RewardBench; one temperature per answer type | its model card (`README.md`, Training and Evaluation) and `decider_config.json` in the snapshot; the request shape the harness sends it: `lappi-bench-2026-10-06/decider_stdio.py` docstring |
 | RM-Bench code pairs reach Lappi through `pairwise.helpfulness` (2% of training, weakest family) | GitPulse card `ft-882ed8fcd29cfacd3e1cf14748a0e9de` (Fable's diagnosis, revision 2) |
 | Defect probe: C1 0.956 on 2,304 val rows; C2 0.906 [0.835, 0.965] of 85 (logic 0.960, stub 1.000, cosmetic 0.708); RM-Bench 0.536 [0.448, 0.624] of 125; 206 programs refused by language | campaign `lappi-bench-2026-10-06/defect-probe/`: `report-c1full.txt` (C1, PASS), `report.txt` (C2 and A, first pass, primary), `REREGISTRATION-c1full.md`, design in `build_requests.py`'s docstring |
 | MMLU test and dev trained on; CLINC150 test utterances of training intents trained on; CommonsenseQA val is a curated internal val | `python/qd_data/sources.py:196-204`, `:219-227`, `:486-493`; GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03 |
@@ -99,14 +101,26 @@ What the new results changed in the drafts:
 - **The abstain row** is described as a design choice, not a measured advantage (the literature in
   `AUDIT/training-audit-2026-10-06.md` 4.1 says a reserved abstain class adds no separating
   information, matching the OOD miss).
+- **decider-2b's full JevArena run finished** (14:49Z to 17:44Z, CPU, every call answered). It is
+  better than Lappi: +0.110 [+0.071, +0.157] on the 849 pairs, +0.136 on the pilot's 191. The card
+  carries its rows in both tables, the story page its 849-pair row and its pilot score, and the
+  README, article and Portfolio branch the 849-pair result;
+  the "not run head to head" paragraph in the article and story page now says only Jev and Nimble
+  are unmeasured. Each surface states the asymmetry once, as fact, not as an excuse: pairwise
+  preference is one of decider-2b's trained tasks, asked in its own request format, and for Lappi it
+  is neither. Each also says its time is a CPU time, so speed is not compared. Left out on purpose:
+  - any ranking of decider-2b against Gemma (0.612 against 0.632 macro): `compare.py` computes
+    paired intervals against Lappi only;
+  - "decider-2b handles the code pairs Lappi cannot": its 0.546 on RM-Bench code is 6 prompt groups,
+    as exploratory as Lappi's 0.111;
+  - any contamination claim about decider-2b: its README holds out the first RewardBench, not
+    RewardBench 2, JudgeBench or RM-Bench, and whether its training data overlaps those three was
+    not checked. Lappi's decision pool was checked (8-gram containment, above).
 
 Unchanged, and re-confirmed:
-- the 849-pair JevArena numbers (`jev-compare-all-test-g6.txt`, regenerated 09:29, same values);
+- the 849-pair JevArena numbers (`jev-compare-all-test-g6.txt`, regenerated 09:29, same values;
+  re-run with decider-2b added, every other row is identical);
 - the served-families split (the training audit, 2.5, cites this lane's evidence file);
-- "no head-to-head with a peer", for now: decider-2b's MPS smoke run failed (NaN probabilities in
-  fp16), its CPU smoke run passed, and its full 849-pair CPU run started at 14:49Z (about 7.7 s per
-  call, so about 3.5 hours). When it lands, the "not ranking them" paragraph in the article, card,
-  README and story page goes stale and needs the result;
 - 487,407 training rows: the data-clean plan's "558,790" counts shard sequences, which are not 1:1
   with rows (`HANDOFF/v6-startup-2026-10-04.md:360-361`).
 
@@ -128,9 +142,9 @@ Each is separate; a yes to one is not a yes to another.
 
 1. **Post the LinkedIn article** (`linkedin-article.md`), after you edit it.
 2. **Use the derived served-families numbers in public text** (0.842; ~91% at ~86%), or drop them
-   for the release notes' all-families figures. The same question applies to the defect-probe and
-   reasoning-pilot results: both sit in the campaign bench directory, and their owning lane has not
-   written them up in a handoff yet.
+   for the release notes' all-families figures. The same question applies to the defect-probe,
+   reasoning-pilot and decider-2b results: all three sit in the campaign bench directory or the
+   harness's run directory, and their owning lane has not written them up in a handoff yet.
 3. **Make `bharathvbcr/Lappi-decision` public.** The README, card and article point at it.
 4. **Push the `outreach-2026-10-06` branch,** or merge it into main (resolving the `README.md`
    conflict above).

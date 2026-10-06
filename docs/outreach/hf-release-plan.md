@@ -33,10 +33,11 @@ The card is `docs/outreach/hf-model-card.md`; it becomes the Hugging Face repo's
    them (CLINC, MMLU and CommonsenseQA-derived) were never sent through the runtime. The card says
    all of this. An alternative is to tell callers to use only the 15 tested families.
 5. **Re-run the card's claims against the files** if anything is re-scored or re-exported first.
-6. **[decide] The defect-probe and reasoning-pilot results.** The card reports both from the
-   campaign bench directory (`defect-probe/report-c1full.txt` and `report.txt`;
-   `jev-compare-pilot.txt`). Their owning lane has not written them up in a handoff. Keep them, or
-   wait for that write-up.
+6. **[decide] The defect-probe, reasoning-pilot and decider-2b results.** The card reports them
+   from the campaign bench directory (`defect-probe/report-c1full.txt` and `report.txt`;
+   `jev-compare-pilot.txt`) and, for decider-2b, from the harness's run directory, scored by the
+   outreach lane with the bench lane's `compare.py`. Their owning lane has not written them up in a
+   handoff. Keep them, or wait for that write-up.
 
 ## What to upload
 

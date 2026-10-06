@@ -162,10 +162,18 @@ only.
 | Qwen3.5-2B (post-trained), as a chat judge | 2B | 0.522 | 0.646 | 0.523 |
 | Qwen3.5-2B-Base, as a chat judge | 2B | 0.468 | 0.569 | 0.531 |
 | Gemma 4 E4B, no reasoning | 8.0B | 0.632 | 0.812 | 0.801 |
+| decider-2b v11 (same base model), on CPU | 2B | 0.612 | 0.719 | 0.749 |
 
 - **Against Qwen3.5-2B it ties:** the paired difference is +0.035 in Qwen's favour, 95% interval
   [-0.039, +0.094].
 - **Gemma 4 E4B is clearly better:** +0.200 [+0.133, +0.257].
+- **decider-2b is better:** +0.110 [+0.071, +0.157], all 849 pairs answered in both orders.
+  Pairwise response preference is one of decider-2b's trained tasks, and the harness asks it in its
+  own request format with its own calibration. Neither holds for Lappi. Its README holds out the
+  first RewardBench; whether its training data overlaps these three benchmarks was not checked
+  here. It ran on the CPU (float32, 6 threads) because its Mac GPU path returned NaN, so its time
+  per call (median 5.7 s) is not comparable with the others. Only differences against Lappi were
+  computed, so decider-2b and Gemma are not ranked against each other.
 - **Outside RewardBench 2's Ties domain, Lappi is near chance.**
 - **On RM-Bench's code pairs it scores 0.111** (54 pairs, 6 prompt groups, exploratory). Of 108
   calls it answered "tie" on 53, picked the broken program on 43 and the correct one on 12. These
@@ -206,10 +214,12 @@ not the serving runtime, which does not serve this family.
 | Qwen3.5-2B, as a chat judge | 0.547 | 0.616 [0.512, 0.709] | 0.484 | 0.37 s |
 | Gemma 4 E4B, no reasoning | 0.635 | 0.721 [0.599, 0.815] | 0.729 | 0.59 s |
 | Gemma 4 E4B, reasoning on | 0.708 | 0.816 [0.728, 0.882] | 0.853 | 14.0 s |
+| decider-2b v11, on CPU | 0.625 | 0.707 [0.590, 0.796] | 0.764 | 6.9 s (CPU) |
 
-- Gemma with reasoning minus Lappi, paired: **+0.245** [+0.122, +0.347].
+- Gemma with reasoning minus Lappi, paired: **+0.245** [+0.122, +0.347]; decider-2b minus Lappi:
+  +0.136 [+0.048, +0.226].
 - Times are the harness's wall clock per call over different transports, not a kernel
-  measurement.
+  measurement. decider-2b's is a CPU time in float32.
 
 Full results: [JevArena results page](https://claude.ai/artifact/Hdq9CDPFQrqN6DJLnkKNEd)
 <!-- private until the author shares it; remove the link otherwise -->

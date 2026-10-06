@@ -121,9 +121,15 @@ for.
 | Lappi v0.1 | 2B | 0.534 | 0.716 |
 | Qwen3.5-2B, as a chat judge | 2B | 0.522 | 0.523 |
 | Gemma 4 E4B, no reasoning | 8B | 0.632 | 0.801 |
+| decider-2b, on the same base model | 2B | 0.612 | 0.749 |
 
 - **Against Qwen3.5-2B it is a tie.** The interval on the difference includes zero.
 - **Gemma 4 E4B, about four times larger, is clearly better.**
+- **decider-2b, the same size and the same base model, is also better.** Compared pair by pair,
+  its accuracy over the 849 pairs is 0.110 higher than Lappi's (95% interval 0.071 to 0.157).
+  Judging which of two answers is better is one of the tasks decider-2b was trained on, and the
+  harness asks it in its own format. For Lappi it is neither. It ran on the CPU, because its Mac
+  GPU path returned NaN, so I am not comparing speed.
 - **Outside one domain (deciding when two answers are equally good), Lappi is near chance.**
 - **On RM-Bench's code pairs it scored 0.111.** It called most pairs a tie or picked the broken
   program. JevArena asks "which answer is better", and that reaches Lappi through its weakest
@@ -137,9 +143,9 @@ for.
   pairs. With reasoning it took about 14 s per verdict, where Lappi took about 0.24 s.
 
 Other small "typed decision" models appeared the same week I started: TypeSafe's Jev, Bespoke's
-Nimble, and decider-2b, which uses the same base model. Their published numbers are on different
-tasks and metrics. I have not run them head to head (a run of decider-2b through the same harness
-has no result yet), so I am not ranking them against Lappi.
+Nimble, and decider-2b, which uses the same base model. Of the three, only decider-2b has been run
+head to head, on JevArena above. Jev's and Nimble's published numbers are on different tasks and
+metrics, so I am not ranking them against Lappi.
 By their own documentation, none of them returns a span (which line is the evidence), and where
 abstention is documented it is a catch-all answer.
 
