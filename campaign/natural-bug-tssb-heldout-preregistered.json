@@ -1,0 +1,38 @@
+{
+  "name": "natural-bug-tssb-heldout",
+  "recorded": "2026-10-06, before any TSSB-3M row value was read and before any row was selected or built. The only reads so far: the zip's member list (37 entries: one directory and 36 file-N.jsonl.gz members) and the key names and JSON types of one row (project, commit_sha, parent_sha, file_path, project_url, likely_bug, comodified, in_function, diff, before, after, sstub_pattern, edit_script). No model has read any TSSB-3M row.",
+  "status": "report-only measurement set. It does not bind: transfer_gate_definition stays 'retired as a promotion requirement for v5' (docs/promotion-decisions.json, decided 2026-10-03), and whether this set binds v6 is a separate decision (AUDIT/training-audit-2026-10-06.md section 7 item 4). A score on it never promotes anything until that decision is recorded.",
+  "design_by": "Fable's ruling, 2026-10-06 (relayed in HANDOFF/data-clean-v6-plan-2026-10-06.md, lane 3): the own-repos miner yields 0 rows under the v1 single-statement rule at any cutoff, so more held-out own repos is refused (it would change the holdout after reading the probe), a statement-level v2 is dead (about 2 rows), and TSSB-3M becomes the natural-bug eval set, held out, pre-registered before rows are built.",
+  "why_this_set": "docs/teacher-plan.md:126: 'a model trained on mutations only must beat the char-n-gram baseline on the natural held-out set'. Lappi's defect rows are mutations by construction; GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA records that no natural set existed. He et al. (arXiv 2204.10049, fetched for the training audit, section 4.7) report over 90% accuracy on synthetic bugs and under 10% precision on real repositories.",
+  "source": {
+    "dataset": "zenodo/TSSB-3M",
+    "revision": "5845439",
+    "file": "~/qd-campaign/v6-data-2026-10-06/heldout/tssb-3m/5845439/tssb_data_3M.zip",
+    "sha256": "11ca0f8cc82fc3ebb1d0f88740514dfe1f1cd4b410cfd8ba799f634981b8e459",
+    "dataset_licence": "cc-by-4.0 (dataset metadata, per the fetch record)",
+    "moved_by": "~/qd-campaign/v6-data-2026-10-06/fetch-record-v6-2026-10-06.addendum-tssb-heldout.json: use train -> held-out-only; the path carries a `heldout` segment, which qd-train's path-marker layer refuses (crates/qd-train/src/held_out.rs)."
+  },
+  "selection": {
+    "order": "the steps run in this order; each counts what it removes, by reason, in the build manifest",
+    "steps": [
+      "1. Row filter: likely_bug == true AND comodified == false AND in_function == true. A row missing any of these keys, or with a non-bool value, is an error, not a skip.",
+      "2. Language: file_path ends in `.py` (Python is a Lappi-admitted language; crates/qd-lang decides admission, and a row it refuses is counted, not kept).",
+      "3. Project licence: resolved per project_url through GitHub's licenseInfo, with the same method, statuses and caveat as csn_licences.py (today's default-branch licence, not the licence at the commit). Admitted only when status is `found` and qd_data.licences classifies the key as `allow`. Every other outcome is a refusal, counted by status and key.",
+      "4. Train-side decontamination, per project: a project whose repository is in any v6 train pool's source list (CodeSearchNet python/go train repositories by name; the own-repos manifest's 23 train repos) is dropped. Then word 8-gram containment (qd-prep's scan, threshold 0.5) of each row's `before` and `after` against every v6 train pool; a contained row is dropped.",
+      "5. One row per project, to maximise distinct repositories (SWE-smith, arXiv 2504.21798v2, in the training audit section 4.7): within a project, the row with the smallest sha256 of `seed|project|commit_sha|file_path` is kept, seed 20261006.",
+      "6. Size: projects are ranked by sha256 of `seed|project_url` and the first 500 that survive steps 1-5 are kept. Fewer than 500 survivors are reported as the count they are; no step is relaxed to reach 500 (rule 2)."
+    ],
+    "recorded_per_row": ["project_url", "commit_sha", "parent_sha", "file_path", "sstub_pattern", "licence key", "the selection hash"],
+    "reported": "counts removed at each step by reason; survivors per sstub_pattern; distinct projects"
+  },
+  "caveats": [
+    "Pretraining exposure is assumed (fetch record note): TSSB-3M's commits predate 2022 and the base model may have seen them. The set measures natural-bug skill under possible exposure; a score on it is reported with that line.",
+    "The licence is today's detected licence, not the licence at the commit."
+  ],
+  "output": {
+    "path": "~/qd-campaign/v6-data-2026-10-06/heldout/natural-bugs/tssb-v1/",
+    "rule": "rule 3: never read by a training process. The path carries a `heldout` segment; no train pool, shard or fit may name it."
+  },
+  "builder": "a qd-prep subcommand (Rust, per the language policy), reading the zip's gzip members as a stream; the licence lookup reuses csn_licences.py's method as fetch tooling beside the data. It is not written yet.",
+  "scoring_protocol": "not fixed by this record. It is fixed by an amendment to this file, recorded before any model reads any selected row, naming: the rendering of a row into Lappi's defect task (context window, whether the diff or only the post-fix-reverted file is shown, so the answer is not marked by the diff itself: AUDIT/span-in-diff.md), the metric, the char-n-gram baseline it is compared with (teacher-plan.md:126), and the seeds."
+}

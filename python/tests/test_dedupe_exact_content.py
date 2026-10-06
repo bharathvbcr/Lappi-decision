@@ -130,6 +130,51 @@ def test_marked_rows_with_one_digest_are_one_problem_in_any_repo() -> None:
     assert report.dropped_row_ids == frozenset({"a2", "b2"})
 
 
+def _twins_train_key_first() -> list[DataRow]:
+    """The first v5 build's knock-out on this path: a val decision row and a train row of exactly
+    its text in another group, the train key sorting first ("-train:" before "-val:")."""
+    text = f"{PROSE} {_facts(4)}"
+    return [
+        _row("v", repo="openjev.policy-val:g1", text=text, pinned="val"),
+        _row("t", repo="openjev.policy-train:g0", text=text, pinned="train"),
+    ]
+
+
+def test_the_v5_rule_drops_the_val_copy_of_identical_content_when_train_sorts_first() -> None:
+    """Characterization, kept under the default config: v5's recorded knock-out."""
+    assert [r.row_id for r in dedupe(_twins_train_key_first(), config=DataConfig()).kept] == ["t"]
+
+
+def test_the_v6_rule_keeps_the_val_copy_of_identical_content_in_any_order() -> None:
+    """GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND-2026-10-03 on the exact-content path, where
+    v5's knock-out actually happened (test_pre_dedupe_drops)."""
+    config = DataConfig().with_v6_dedupe_rules()
+    rows = _twins_train_key_first()
+    for order in (rows, rows[::-1]):
+        report = dedupe(order, config=config)
+        assert [r.row_id for r in report.kept] == ["v"]
+        [cluster] = report.exact_content_clusters
+        assert cluster.kept_unit_key is not None and cluster.kept_unit_key.startswith(
+            "openjev.policy-val:"
+        )
+
+
+def test_a_scoped_copy_outranking_the_searched_owner_of_its_text_is_refused_under_v6() -> None:
+    """A searched train row owns its text; a scoped val row with the same text would be dropped
+    in its favour (v5) or would need the owner dropped after the MinHash path decided it (v6).
+    v6 refuses rather than choose either silently."""
+    text = f"{PROSE} {_facts(5)}"
+    rows = [_row("owner", repo="scene/train", text=text, policy=None, pinned="train"),
+            _row("scoped", repo="scene/val", text=text, pinned="val")]
+    assert [r.row_id for r in dedupe(rows, config=DataConfig()).kept] == ["owner"]
+    with pytest.raises(ValueError, match="already decided"):
+        dedupe(rows, config=DataConfig().with_v6_dedupe_rules())
+    lower = [dataclasses.replace(rows[0], metadata={PINNED_SPLIT_KEY: "val"}), rows[1]]
+    assert [r.row_id for r in dedupe(lower, config=DataConfig().with_v6_dedupe_rules()).kept] == [
+        "owner"
+    ], "an owner at least as protected keeps its text, as in v5"
+
+
 def test_which_identical_row_survives_does_not_depend_on_input_order() -> None:
     text = f"{PROSE} {_facts(3)}"
     rows = [_row(f"x{i}", repo=f"scene/{i}", text=text) for i in range(4)]

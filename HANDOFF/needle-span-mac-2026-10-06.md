@@ -158,9 +158,18 @@ This section was added after Fable's ruling; its parts are labelled.
     - (e) a head refit on each line's last token. This arm is not servable; it is a probe of
       "has the candidate state read the line".
   - **Population pin:** `bdd571b6…` (7,238 val span rows).
-  - **Blocked on:** the Mac heavy lock. The merge-and-bench lane holds it, with decider-2b on
-    CPU queued (about 2-3 h). The scripts are being written in
-    `build/needle-span-mac-2026-10-06/` (one lane).
+  - **Scripts written** in `build/needle-span-mac-2026-10-06/`: `span_refit_{common,extract,fit,score,test}.py`
+    and `README.md`.
+    - Tests: 19 passed in 1.66 s [V, re-run by this session]. They run on synthetic hidden
+      states; no tower has been loaded.
+    - Amendment 1 is implemented. The derivation fails on 0 of 7,238 val rows and 0 of 12,000
+      train rows. Census: `cache/avg-{val,train}/census-amendment1.json`.
+    - The scorer copies `_decode`'s correctness rule (`tools/real_ft_run.py:1541-1579`).
+    - Each arm's ledger row is drafted by the scorer. This session writes the rows (`ledger/` was
+      outside the script lane's write scope).
+  - **Queued:** the smoke run, `tools/mac_heavy.sh span-refit-smoke ... span_refit_extract.py
+    --tower avg --split val --device mps --limit 32`. It waits on the lock, which the
+    merge-and-bench lane's decider-2b CPU run holds (about 2-3 h).
 
 ## Open
 

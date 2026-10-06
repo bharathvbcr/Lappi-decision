@@ -1,0 +1,27 @@
+{
+  "schema": "qd-convert-config/v1",
+  "seed": 20261006,
+  "val_fraction": 0.05,
+  "ngram_n": 8,
+  "containment_threshold": 0.5,
+  "fetch_record_sha256": "72be4cdf4307d792edcfd3b46a4cf11fbf19850910569b70517c09e24221a702",
+  "pools": {
+    "tools": {
+      "toolace_irrelevance_fraction": 0.15
+    },
+    "mnli": {},
+    "scirepeval": {
+      "query_fraction": 0.35,
+      "max_positives_per_query": 1,
+      "negatives_per_positive": 1
+    },
+    "csn": {
+      "max_functions_per_repo": 40,
+      "max_queries_per_repo": 8,
+      "negatives_per_query": 1,
+      "licence_cache_sha256": "a8d125c3c94deda24695755239175f552ccdcd6bdb22982834ade7158a4f0b87"
+    },
+    "swe-rebench-filter": {},
+    "injections": {}
+  }
+}

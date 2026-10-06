@@ -19,26 +19,58 @@
 //!   complete pair list, the v5 decontamination scan (the Python gold-side scan of 2026-10-02
 //!   peaked at 17.4 GB). [`pyunicode`] is Python's `\w` and `str.lower()`, from tables read
 //!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
+//! - [`own_repos`] and [`natural_bugs`]: the human's own repositories admitted and split once
+//!   (the canonical v6 own-repo enumerator), and the natural-bug held-out set mined from the
+//!   held-out ones through the git CLI ([`gitcli`]). Not a port: no Python reference exists, so
+//!   their tests pin the rules and run against git repositories built in a temp directory.
 //! - [`team`]: threads started once and reused for every phase of the fit's loop, which
 //!   started them twice an iteration (~3.4 ms an iteration at 52 threads on the H100 box).
 //! - [`spancheck`]: `qd_train.shards._span_token_positions` up to its decode check -- a span
 //!   slot's line starts and gold projected onto token positions, every refusal the reference
 //!   makes before it decodes, and the runs its decode check walks. The per-slot Python of shard
 //!   writing's stage 6 (`AUDIT/perf-pipeline-shards-2026-09-30.md`); decoding stays in Python.
+//! - [`synth`], [`synth_email`], [`synth_jarvis`] and [`synth_tools`]: decision rows synthesised
+//!   by rule for callers with no licensable or shareable data (the human's "Synthetic only"
+//!   ruling of 2026-10-06). Not a port: there is no Python reference, so its tests pin the
+//!   rules directly. [`pool`] is the seam every v6 pool producer writes through.
+//! - [`dedupe`]: `qd_data.dedupe.dedupe`'s MinHash path end to end -- sign, band, confirm,
+//!   union across repos, and the keep rule (v5's lexical or v6's split priority) -- over
+//!   [`minhash`], [`wire`] and [`lsh`].
+//! - [`convert`] (with [`convert_licence`], [`convert_tools`], [`convert_text`],
+//!   [`convert_code`] and [`convert_inject`]): the downloaded v6 datasets made into decision
+//!   pools through the [`pool`] seam, with licence filters. Not a port: its licence table is a
+//!   mirror of `qd_data.licences`, and `tests/convert_licence_parity.rs` holds it to Python.
 
 pub mod blake2b;
 pub mod containment;
+pub mod convert;
+pub mod convert_code;
+pub mod convert_inject;
+pub mod convert_licence;
+pub mod convert_text;
+pub mod convert_tools;
 pub mod decisions;
+pub mod dedupe;
+pub mod files;
+pub mod gitcli;
+pub mod heldout;
 pub mod linfit;
 pub mod linwire;
 pub mod lsh;
 pub mod minhash;
+pub mod natural_bugs;
 pub mod ngram;
+pub mod own_repos;
 pub mod pairwise;
+pub mod pool;
 pub mod pyunicode;
 #[rustfmt::skip]
 mod pyunicode_tables;
 pub mod sha256;
 pub mod spancheck;
+pub mod synth;
+pub mod synth_email;
+pub mod synth_jarvis;
+pub mod synth_tools;
 pub mod team;
 pub mod wire;

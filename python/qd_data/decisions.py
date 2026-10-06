@@ -43,6 +43,7 @@ from .sources import (
 __all__ = [
     "DECISION_POOL_SCHEMA",
     "MAX_POOL_ROWS",
+    "POOL_ALLOCATION_APPLIED",
     "DecisionPool",
     "DecisionPoolError",
     "load_decision_pool",
@@ -52,6 +53,12 @@ __all__ = [
 
 #: ``manifest.json``'s ``schema``, as ``qd_prep::decisions::MANIFEST_SCHEMA`` writes it.
 DECISION_POOL_SCHEMA: Final[str] = "qd-decisions/v1"
+#: ``manifest.json``'s ``allocation.state`` when a cap table chose the rows, as
+#: ``qd_prep::pool::ALLOCATION_APPLIED`` writes it. A manifest that names another state, or
+#: names a producing ``tool`` and no allocation, is a candidate pool and is refused; one that
+#: names neither predates v6, when only ``qd-prep decisions`` (which applies its cap table)
+#: wrote pools.
+POOL_ALLOCATION_APPLIED: Final[str] = "applied"
 #: A pool is read whole or refused: a capped pool would be a sample presented as the pool.
 MAX_POOL_ROWS: Final[int] = 400_000
 #: A context of at most 131,072 bytes plus 16 options of at most 512, with JSON escaping.
@@ -108,6 +115,17 @@ def _read_lines(path: Path) -> tuple[list[dict[str, object]], str]:
 
 def load_decision_pool(pool_dir: Path) -> DecisionPool:
     """The pool at ``pool_dir``, checked against its manifest. Refuses rather than caps."""
+    # Rule 3 at the pool door: a decision pool is training data, so one under a held-out path
+    # marker is refused, as spelled and as resolved (a symlink into a held-out directory).
+    markers = {m.casefold() for m in DataConfig().held_out_path_markers}
+    for spelling in (Path(pool_dir), Path(pool_dir).expanduser().resolve(strict=False)):
+        held = [seg for seg in spelling.parts if seg.casefold() in markers]
+        if held:
+            raise DecisionPoolError(
+                f"{pool_dir}: path segment {held[0]!r} marks held-out data ({spelling}); a "
+                "decision pool is training data and is never read from a held-out path "
+                "(CLAUDE.md rule 3)"
+            )
     manifest_path = pool_dir / "manifest.json"
     examples_path = pool_dir / "examples.jsonl"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -118,6 +136,21 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
             f"{manifest_path}: schema {manifest.get('schema')!r} mode {manifest.get('mode')!r};"
             f" a {DECISION_POOL_SCHEMA!r} build pool is required (a survey has no rows)"
         )
+    # A pre-v6 pool names neither an allocation nor a producing tool: only `qd-prep decisions`
+    # wrote pools then. A manifest naming a tool must state its allocation, so a candidate pool
+    # built before producers wrote the block (a convert run from the lane worktree) is refused
+    # too, not admitted as pre-v6.
+    if "allocation" in manifest or "tool" in manifest:
+        allocation = manifest.get("allocation")
+        state = allocation.get("state") if isinstance(allocation, dict) else None
+        if state != POOL_ALLOCATION_APPLIED:
+            raise DecisionPoolError(
+                f"{manifest_path}: allocation state {state!r}, not {POOL_ALLOCATION_APPLIED!r}: "
+                "no cap table has drawn from this candidate pool (qd-prep synth or convert), so "
+                "its families would enter a mixture weighted by how many rows a generator or "
+                "source yields; run the v6 allocation over every pool first "
+                "(GAP-V6-THREE-POOL-PRODUCERS-CAPS-APPLIED-IN-DECISIONS-ONLY-2026-10-06)"
+            )
     recorded = manifest.get("examples_sha256")
     lines, actual = _read_lines(examples_path)
     if actual != recorded:

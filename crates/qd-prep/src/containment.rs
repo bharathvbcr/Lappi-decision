@@ -54,7 +54,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
-use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -1056,39 +1055,14 @@ impl Request<'_> {
     }
 }
 
-fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    f.write_all(bytes)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    f.sync_all().map_err(|e| format!("{}: {e}", path.display()))
-}
-
 /// Write the three files into `out_dir`, which must not exist: into `out_dir.partial` first,
 /// then renamed, so a reader never sees a directory with some of them.
 pub fn write_dir(out_dir: &Path, w: &Written) -> Result<(), String> {
-    if out_dir.exists() {
-        return Err(format!(
-            "{} exists; refusing to overwrite it",
-            out_dir.display()
-        ));
-    }
-    // DIR.partial beside DIR: appended, not `with_extension`, which would turn `scan.v5`
-    // into `scan.partial` and let two out dirs share one.
-    let mut partial_name = out_dir
-        .file_name()
-        .ok_or_else(|| format!("{} names no directory", out_dir.display()))?
-        .to_os_string();
-    partial_name.push(".partial");
-    let partial = out_dir.with_file_name(partial_name);
-    std::fs::create_dir(&partial).map_err(|e| format!("{}: {e}", partial.display()))?;
-    write_file(&partial.join(PAIRS_NAME), &w.pairs_tsv)?;
-    write_file(&partial.join(EXCLUSIONS_NAME), &w.exclusions)?;
-    write_file(&partial.join(ATTESTATION_NAME), &w.attestation)?;
-    std::fs::rename(&partial, out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))
+    crate::files::write_new_dir(out_dir, |partial| {
+        crate::files::write_synced_new(&partial.join(PAIRS_NAME), &w.pairs_tsv)?;
+        crate::files::write_synced_new(&partial.join(EXCLUSIONS_NAME), &w.exclusions)?;
+        crate::files::write_synced_new(&partial.join(ATTESTATION_NAME), &w.attestation)
+    })
 }
 
 /// `qd-prep containment`: request bytes in, the three files and a summary line out.

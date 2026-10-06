@@ -22,6 +22,13 @@
 //!         | signatures n_keys x (bands * rows) u64, key-major (only the banded prefix)
 //! ```
 //!
+//! A `QDPLSIN2` request is the same with `| min_agreement_permille u32` after `rows`: v6's
+//! prefilter (`BandConfig.min_agreement_permille`, GAP-DEDUPE-LSH-BAND-CANDIDATES-NOT-
+//! DUPLICATES-2026-10-03). A pair a band proposes is then added only if the two keys' banded
+//! values agree on `agree * 1000 >= permille * (bands * rows)` positions -- the reference's
+//! integer comparison -- and a rejected pair never counts toward `max_pairs`. A `QDPLSIN1`
+//! request is a permille of zero: no prefilter, v5's search exactly.
+//!
 //! Reply (`QDPLSOK1`): `magic 8 | truncated u8 | n_pairs u64 | n_pairs x (lo u32, hi u32)`, key
 //! indices in the order the reference added the pairs, `key[lo] < key[hi]` bytewise.
 //!
@@ -37,7 +44,11 @@ use crate::blake2b::Keyed;
 use crate::wire::Cursor;
 
 pub const INPUT_MAGIC: &[u8; 8] = b"QDPLSIN1";
+/// The request with the agreement prefilter (see the module docs).
+pub const INPUT_MAGIC_V2: &[u8; 8] = b"QDPLSIN2";
 pub const OUTPUT_MAGIC: &[u8; 8] = b"QDPLSOK1";
+/// A per-mille prefilter cannot ask for more than every position.
+pub const MAX_AGREEMENT_PERMILLE: u32 = 1000;
 /// The phase-4 rebuild's largest call is ~280 thousand keys of 128 values, ~290 MB; J1's is
 /// about twice that. 4 GiB is far past either: ~4.2 million keys of 128 u64 values. (It was
 /// the MinHash request's bound too until that one went to 16 GiB for v5's shingle bytes.)
@@ -60,6 +71,8 @@ pub struct Request<'b> {
     pub keys: Vec<&'b [u8]>,
     /// `keys.len() x (bands * rows)` values, key-major.
     pub values: Vec<u64>,
+    /// The agreement prefilter in per mille of `bands * rows`; 0 is none.
+    pub min_agreement_permille: u32,
 }
 
 /// Parse and validate a request. Nothing is hashed until all of it has been read.
@@ -72,12 +85,17 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
     }
     let mut c = Cursor::new(buf);
     let magic = c.take(8, "the magic")?;
-    if &buf[magic] != INPUT_MAGIC {
-        return Err(format!(
-            "input does not start with {:?}",
-            String::from_utf8_lossy(INPUT_MAGIC)
-        ));
-    }
+    let prefiltered = match &buf[magic] {
+        m if m == INPUT_MAGIC => false,
+        m if m == INPUT_MAGIC_V2 => true,
+        _ => {
+            return Err(format!(
+                "input does not start with {:?} or {:?}",
+                String::from_utf8_lossy(INPUT_MAGIC),
+                String::from_utf8_lossy(INPUT_MAGIC_V2)
+            ));
+        }
+    };
     let bands = c.u32("bands")? as u64;
     let rows = c.u32("rows")? as u64;
     if bands > MAX_BANDED_VALUES || rows > MAX_BANDED_VALUES || bands * rows > MAX_BANDED_VALUES {
@@ -86,6 +104,17 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
              {MAX_BANDED_VALUES}"
         ));
     }
+    let min_agreement_permille = if prefiltered {
+        let p = c.u32("min_agreement_permille")?;
+        if p > MAX_AGREEMENT_PERMILLE {
+            return Err(format!(
+                "min_agreement_permille {p}; the bound is {MAX_AGREEMENT_PERMILLE}"
+            ));
+        }
+        p
+    } else {
+        0
+    };
     let max_pairs = c.u64("max_pairs")?;
     if max_pairs > MAX_PAIRS {
         return Err(format!("max_pairs {max_pairs}; the bound is {MAX_PAIRS}"));
@@ -132,6 +161,7 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
         max_pairs,
         keys,
         values,
+        min_agreement_permille,
     })
 }
 
@@ -169,11 +199,25 @@ impl Request<'_> {
         out
     }
 
+    /// Whether keys `a` and `b` pass the agreement prefilter: their banded values agree on
+    /// `agree * 1000 >= permille * width` positions, in integers, as the reference compares.
+    fn agrees(&self, a: u32, b: u32) -> bool {
+        let width = self.bands * self.rows;
+        let (sa, sb) = (
+            &self.values[a as usize * width..(a as usize + 1) * width],
+            &self.values[b as usize * width..(b as usize + 1) * width],
+        );
+        let agree = sa.iter().zip(sb).filter(|(x, y)| x == y).count() as u64;
+        agree * 1000 >= u64::from(self.min_agreement_permille) * width as u64
+    }
+
     /// The reference's pairs, in the order it added them, and whether it stopped at
     /// `max_pairs`. The result does not depend on `threads`.
     pub fn candidate_pairs(&self, threads: usize) -> Result<(Vec<(u32, u32)>, bool), String> {
         let hasher = Keyed::new(&[], 16)?;
         let mut seen: HashSet<(u32, u32)> = HashSet::new();
+        // Pairs the prefilter turned down, so a pair two bands propose is compared once.
+        let mut rejected: HashSet<(u32, u32)> = HashSet::new();
         let mut order: Vec<(u32, u32)> = Vec::new();
         for band in 0..self.bands {
             let digests = self.band_digests(band, threads, &hasher);
@@ -195,6 +239,15 @@ impl Request<'_> {
                 for i in 0..members.len() {
                     for j in i + 1..members.len() {
                         let pair = (members[i], members[j]);
+                        if self.min_agreement_permille > 0 && !seen.contains(&pair) {
+                            if rejected.contains(&pair) {
+                                continue;
+                            }
+                            if !self.agrees(pair.0, pair.1) {
+                                rejected.insert(pair);
+                                continue;
+                            }
+                        }
                         if seen.insert(pair) {
                             order.push(pair);
                             if order.len() as u64 > self.max_pairs {
@@ -229,10 +282,18 @@ pub fn run_lsh(buf: &[u8], threads: usize) -> Result<(Vec<u8>, String), String> 
     Ok((
         encode_output(&pairs, truncated),
         format!(
-            "qd-prep lsh: {} keys x {} bands of {} rows -> {} pairs{} on {threads} thread(s)",
+            "qd-prep lsh: {} keys x {} bands of {} rows{} -> {} pairs{} on {threads} thread(s)",
             request.keys.len(),
             request.bands,
             request.rows,
+            if request.min_agreement_permille > 0 {
+                format!(
+                    " (agreement >= {} per mille)",
+                    request.min_agreement_permille
+                )
+            } else {
+                String::new()
+            },
             pairs.len(),
             if truncated { " (truncated)" } else { "" },
         ),
@@ -263,8 +324,96 @@ mod tests {
         out
     }
 
+    /// A `QDPLSIN2` request: `request`'s bytes with the permille after `rows`.
+    fn request_v2(
+        bands: u32,
+        rows: u32,
+        permille: u32,
+        max_pairs: u64,
+        keys: &[&str],
+        sigs: &[Vec<u64>],
+    ) -> Vec<u8> {
+        let v1 = request(bands, rows, max_pairs, keys, sigs);
+        let mut out = INPUT_MAGIC_V2.to_vec();
+        out.extend_from_slice(&v1[8..16]);
+        out.extend_from_slice(&permille.to_le_bytes());
+        out.extend_from_slice(&v1[16..]);
+        out
+    }
+
     fn pairs(buf: &[u8], threads: usize) -> (Vec<(u32, u32)>, bool) {
         parse(buf).unwrap().candidate_pairs(threads).unwrap()
+    }
+
+    /// `test_minhash._low_jaccard_band_twins`: band 0 shared, 38 of 128 positions agreeing.
+    fn low_jaccard_band_twins() -> Vec<Vec<u64>> {
+        let a: Vec<u64> = (0..128).collect();
+        let b: Vec<u64> = (0..38).chain((0..90).map(|i| 10_000 + i)).collect();
+        vec![a, b]
+    }
+
+    #[test]
+    fn a_band_collision_at_low_jaccard_is_not_a_candidate_under_the_prefilter() {
+        let sigs = low_jaccard_band_twins();
+        assert_eq!(
+            pairs(&request(16, 8, 10, &["a", "b"], &sigs), 2),
+            (vec![(0, 1)], false)
+        );
+        assert_eq!(
+            pairs(&request_v2(16, 8, 0, 10, &["a", "b"], &sigs), 2),
+            (vec![(0, 1)], false),
+            "a permille of zero is v5's search"
+        );
+        assert_eq!(
+            pairs(&request_v2(16, 8, 650, 10, &["a", "b"], &sigs), 2),
+            (vec![], false)
+        );
+    }
+
+    #[test]
+    fn the_prefilter_compares_whole_counts_at_the_boundary() {
+        for (agree, want) in [(83u64, false), (84, true)] {
+            let a: Vec<u64> = (0..128).collect();
+            let b: Vec<u64> = (0..agree)
+                .chain((0..128 - agree).map(|i| 10_000 + i))
+                .collect();
+            let got = pairs(&request_v2(16, 8, 650, 5, &["a", "b"], &[a, b]), 1);
+            assert_eq!(!got.0.is_empty(), want, "{agree} of 128 agreeing");
+        }
+    }
+
+    #[test]
+    fn a_pair_the_prefilter_rejects_does_not_count_toward_the_bound() {
+        // test_minhash.test_a_pair_the_prefilter_rejects_does_not_count_toward_the_bound.
+        let mut keys: Vec<String> = (0..6).map(|i| format!("low{i}")).collect();
+        let mut sigs: Vec<Vec<u64>> = (0..6u64)
+            .map(|i| {
+                (0..8)
+                    .chain((0..120).map(|j| 1_000 * (i + 1) + j))
+                    .collect()
+            })
+            .collect();
+        let hi0: Vec<u64> = (0..128).map(|j| 5_000_000 + j).collect();
+        let hi1: Vec<u64> = hi0[..100]
+            .iter()
+            .copied()
+            .chain((0..28).map(|j| 9_000_000 + j))
+            .collect();
+        keys.extend(["hi0".to_string(), "hi1".to_string()]);
+        sigs.extend([hi0, hi1]);
+        let names: Vec<&str> = keys.iter().map(String::as_str).collect();
+        assert!(pairs(&request(16, 8, 3, &names, &sigs), 1).1);
+        assert_eq!(
+            pairs(&request_v2(16, 8, 650, 3, &names, &sigs), 3),
+            (vec![(6, 7)], false)
+        );
+    }
+
+    #[test]
+    fn a_permille_past_a_thousand_is_refused() {
+        let bad = request_v2(1, 1, 1001, 3, &["a"], &[vec![1]]);
+        assert!(parse(&bad).unwrap_err().contains("min_agreement_permille"));
+        assert!(parse(&request_v2(1, 1, 1000, 3, &["a"], &[vec![1]])).is_ok());
     }
 
     #[test]

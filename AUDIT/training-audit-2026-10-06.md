@@ -311,7 +311,7 @@ Each entry gives:
   - **Use permutation agreement as a score, not a refusal.**
     - PriDe, ICLR'24, arXiv 2309.03882 [fetched]: estimates a per-option-ID prior and removes it.
     - Average probabilities over k cyclic permutations and calibrate the averaged margin.
-    - The basis is GAP-ABSTAIN-GATE-IN-DIST-EQUALS-PERMUTATION-DISAGREEMENT.
+    - The basis is GAP-ABSTAIN-GATE-IN-DIST-EQUALS-PERMUTATION-DISAGREEMENT-2026-10-02.
   - **Arm B's in-distribution hard-positive data** (the v6 plan).
 - **Cost:** plumbing (the score change), then GPU (Arm B).
 - **Decides:** changing what "abstain" means on disagreement is a contract change for the human.
@@ -390,7 +390,7 @@ Each entry gives:
     resolved 8.6% vs 9.2% for PR-mirrored bugs, and performance grew roughly with the log of the
     number of distinct repositories.
 - **Cost:** CPU (mining) and human labelling time.
-- **Decides:** the human specifies the transfer gate (GAP-TRANSFER-GATE).
+- **Decides:** the human specifies the transfer gate (GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA).
 
 ### 4.8 Decontamination: MinHash/LSH covers exact and near-exact copies only
 

@@ -9,6 +9,8 @@ over unrelated strings proves only that unrelated strings are not duplicates.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from data_fixtures import (
     clinc_row,
@@ -169,17 +171,138 @@ def test_a_truncated_candidate_search_is_not_run_not_a_clean_dedupe() -> None:
     assert "hit its bound" in report.status.reason
 
 
-def test_dedupe_keeps_the_lexicographically_smallest_unit_whatever_the_input_order() -> None:
+def _v6() -> DataConfig:
+    """The v6 dedupe rules (split-aware keep, LSH agreement prefilter) on the default config."""
+    return DataConfig().with_v6_dedupe_rules()
+
+
+def _repos_by_split(config: DataConfig, prefix: str) -> dict[str, list[str]]:
+    """Repo keys ``{prefix}{i:03d}`` grouped by the split ``assign_repo`` gives them, each list
+    in key order -- so a test can pick a train repo whose key sorts before a val one."""
+    out: dict[str, list[str]] = {"train": [], "val": [], HELD_OUT: []}
+    for i in range(600):
+        repo = f"{prefix}{i:03d}"
+        out[assign_repo(repo, seed=config.seed, train_fraction=config.train_fraction,
+                        val_fraction=config.val_fraction)].append(repo)
+    assert all(out.values()), "the search must reach every split"
+    return out
+
+
+def test_dedupe_keeps_the_eval_member_whatever_the_input_order() -> None:
+    """GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND-2026-10-03, under the v6 rule.
+
+    The v5 rule kept the lexicographically smallest unit of a component whatever its split, so
+    a train copy whose key sorted first removed its val twin. Under the v6 rule the survivor is
+    the member the split protects most -- held-out, then val, then train -- and only then the
+    smallest key. The fixture puts the train key first, which is the case the v5 rule got wrong.
+    """
+    config = _v6()
     text = code_body("same", lines=40)
+    by_split = _repos_by_split(config, "org/k")
+    train, val = by_split["train"][0], by_split["val"][-1]
+    assert train < val, "the fixture must sort the train key first"
+    rows = [_row("t", repo=train, text=text, path="p.py"),
+            _row("v", repo=val, text=text, path="p.py")]
+    for order in (rows, list(reversed(rows))):
+        report = dedupe(order, config=config)
+        assert [r.row_id for r in report.kept] == ["v"], "the val member must survive"
+        [cluster] = report.clusters
+        assert cluster.kept_unit_key.startswith(f"{val}::")
+        assert report.to_json()["dedupe_keep_rule"] == "split_priority"
+
+
+def test_dedupe_keeps_a_held_out_member_over_val_and_train() -> None:
+    config = _v6()
+    text = code_body("trio", lines=40)
+    by_split = _repos_by_split(config, "org/h")
+    train, val, held = by_split["train"][0], by_split["val"][0], by_split[HELD_OUT][-1]
+    assert max(train, val) < held, "the held-out key must sort last"
+    rows = [_row("t", repo=train, text=text), _row("v", repo=val, text=text),
+            _row("h", repo=held, text=text)]
+    assert [r.row_id for r in dedupe(rows, config=config).kept] == ["h"]
+
+
+def test_a_unit_holding_a_held_out_family_row_outranks_a_val_twin() -> None:
+    """The unit is not the row: one file can carry a held-out-family example, and then the unit
+    is held-out evidence whatever its repo hashes to."""
+    config = _v6()
+    text = code_body("family", lines=40)
+    by_split = _repos_by_split(config, "org/f")
+    train, val = by_split["train"][0], by_split["val"][-1]
     rows = [
-        _row("z", repo="org/zzz", text=text, path="p.py"),
-        _row("a", repo="org/aaa", text=text, path="p.py"),
-        _row("m", repo="org/mmm", text=text, path="p.py"),
+        _row("t-intent", repo=train, text=text),
+        _row("t-lang", repo=train, text=text, family="code.language_id"),
+        _row("v-intent", repo=val, text=text),
     ]
-    first = dedupe(rows, config=DataConfig())
-    second = dedupe(list(reversed(rows)), config=DataConfig())
-    assert {r.row_id for r in first.kept} == {r.row_id for r in second.kept}
-    assert len(first.kept) == 1
+    assert config.is_held_out_family("code.language_id")
+    kept = {r.row_id for r in dedupe(rows, config=config).kept}
+    assert kept == {"t-intent", "t-lang"}
+
+
+def test_the_v5_rule_keeps_the_lexicographically_smallest_unit_whatever_the_input_order() -> None:
+    """v5's recorded rule, which the default config still applies so a v5 rebuild re-derives v5's
+    rows: the smallest key survives, train or not (test_pre_dedupe_drops pins its knock-out)."""
+    config = DataConfig()
+    text = code_body("same", lines=40)
+    by_split = _repos_by_split(config, "org/k")
+    train, val = by_split["train"][0], by_split["val"][-1]
+    assert train < val, "the fixture must sort the train key first"
+    rows = [_row("v", repo=val, text=text), _row("t", repo=train, text=text),
+            _row("z", repo="org/zzz", text=text)]
+    first = dedupe(rows, config=config)
+    second = dedupe(list(reversed(rows)), config=config)
+    assert [r.row_id for r in first.kept] == [r.row_id for r in second.kept] == ["t"]
+    assert "dedupe_keep_rule" not in first.to_json()
+
+
+def test_a_unit_whose_rows_disagree_on_their_repo_split_is_refused_under_the_v6_rule() -> None:
+    """One text in one repo sits on one side of the split; rows of one unit pinned to two splits
+    are a rewriter's error, and ranking them would pick a side silently."""
+    from qd_data.sources import PINNED_SPLIT_KEY
+
+    text = code_body("pinned", lines=40)
+    rows = [
+        dataclasses.replace(_row(rid, repo="org/p", text=text), metadata={PINNED_SPLIT_KEY: s})
+        for rid, s in (("a", "train"), ("b", "val"))
+    ]
+    with pytest.raises(ValueError, match="holds rows in repo splits"):
+        dedupe(rows, config=_v6())
+    assert len(dedupe(rows, config=DataConfig()).kept) == 2, "v5's rule never asked"
+
+
+def test_the_v6_rules_reach_the_fingerprint_and_v5_fingerprints_as_it_did() -> None:
+    """``data_snapshot_hash`` covers ``DataConfig.fingerprint()``. A v5 config must hash byte for
+    byte as before the rules existed (test_decisions_pool pins v5-era snapshot hashes); a v6
+    config must not hash like a v5 one."""
+    v5_keys = {"seed", "held_out_families", "dedupe_threshold", "shingle_size", "num_perm",
+               "train_fraction", "val_fraction", "admitted_by_human"}
+    assert set(DataConfig().fingerprint()) == v5_keys
+    v6 = _v6().fingerprint()
+    assert set(v6) - v5_keys == {"dedupe_keep_rule", "lsh_min_agreement_permille"}
+    assert (v6["dedupe_keep_rule"], v6["lsh_min_agreement_permille"]) == ("split_priority", 650)
+    for bad in ({"dedupe_keep_rule": "newest"}, {"lsh_min_agreement_permille": 1001},
+                {"lsh_min_agreement_permille": True}):
+        with pytest.raises(ValueError):
+            DataConfig(**bad)  # type: ignore[arg-type]
+
+
+def test_a_vendored_copy_is_still_removed_under_the_v6_prefilter() -> None:
+    """The prefilter thins the candidate set below the threshold; the population dedupe exists
+    for -- vendored copies far above it -- still pairs, and the report says what ran."""
+    config = _v6()
+    a, b = vendored_pair()
+    corpus = {"bigcode/commitpackft": [a, b, commitpackft_row(50), commitpackft_row(51)]}
+    mixture = build_mixture(corpus, config=config)
+    report = dedupe(list(mixture.rows), config=config)
+    assert report.n_dropped_units == 1 and report.n_cross_repo_pairs >= 1
+    blob = report.to_json()
+    assert blob["lsh_min_agreement_permille"] == 650
+    v5 = dedupe(list(mixture.rows), config=DataConfig())
+    assert 0.0 < v5.lsh_recall_at_threshold - report.lsh_recall_at_threshold < 1e-4
+    assert isinstance(report.status, Ran) and "LSH prefilter" in report.status.detail
+    split_report = split(report, config=config)
+    assert isinstance(split_report.near_duplicate_disjoint, Ran)
+    assert "LSH prefilter" in split_report.near_duplicate_disjoint.detail
 
 
 # -- the split ---------------------------------------------------------------

@@ -83,6 +83,31 @@ def test_every_file_the_record_vouches_for_is_read_and_a_refused_split_is_counte
     assert load.clinc_domain_map is None and load.capped == ()
 
 
+def test_every_clinc_row_carries_the_split_of_the_file_it_was_read_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GAP-PIPELINE-PARSE-CLINC-NO-SPLIT-NAME-2026-10-06: ``general_rows`` called
+    ``parse_clinc`` without ``split_name``, so every CLINC row's ``upstream_split`` was None and
+    a v6 build refused all of them as ``upstream_split_unstated``. MMLU and CommonsenseQA were
+    already passed theirs; this pins CLINC to the same rule. The domain map is stubbed: it is
+    checked against its own pinned sha256 elsewhere and is not what this test is about."""
+    names = ["oos", "greeting"]
+    entries = []
+    for split_name in ("train", "validation", "test"):
+        path = _file(tmp_path, f"clinc__clinc_oos/rev/{split_name}.jsonl",
+                     [{"text": f"hello there {split_name}", "intent": 1},
+                      {"text": f"what is the weather {split_name}", "intent": 0}])
+        (path.parent / "intent_names.json").write_text(json.dumps(names), encoding="utf-8")
+        entries.append(_entry("clinc/clinc_oos", path, 2) | {"n_intent_names": len(names)})
+    monkeypatch.setattr(pipeline, "load_clinc_domains", lambda _path: "stub-domain-map")
+    load = pipeline.general_rows(_record(tmp_path, entries))
+    rows = load.raw["clinc/clinc_oos"]
+    assert len(rows) == 6
+    assert sorted(r.upstream_split for r in rows) == [  # type: ignore[union-attr]
+        "test", "test", "train", "train", "validation", "validation"
+    ]
+
+
 def test_a_file_that_does_not_hash_to_the_record_stops_the_run(tmp_path: Path) -> None:
     entries = _cache(tmp_path)
     Path(entries[0]["jsonl"]).write_text(

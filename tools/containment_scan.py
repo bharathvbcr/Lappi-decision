@@ -22,7 +22,16 @@ what it removed and the per-set ``key_ii_blind`` keys are in the attestation's
 * report-only: ``val`` against every held-out target;
 * keys (i) and (iii) are the splitter's own tri-states (``identity_disjoint``,
   ``near_duplicate_disjoint``, ``repo_disjoint``), carried into the attestation, which is
-  clean only when every one ran and passed.
+  clean only when every one ran and passed;
+* external target sets (v6, data-clean plan section 3 item 6), each ``target:<name>``:
+  ``--target NAME=FILE`` takes a ``{"id", "text"}`` JSONL set in the format ``qd-prep decisions
+  --target`` reads (the jevjudge pairs -- RM-Bench, RewardBench 2, JudgeBench -- are one such
+  set, so the code families are scanned against them too, not only the decision pool), and
+  ``--v6-benchmark-targets`` builds under ``DataConfig.with_v6_benchmark_targets()`` and adds
+  MMLU test and dev and CLINC test (``qd_data.sources.BENCHMARK_TARGET_SPLITS``), read from the
+  sha-checked ``--general-record`` caches. ``train`` against each is enforced; ``val`` against
+  each is report-only. Target texts are not template-stripped: they are external text, not
+  rendered rows. Without any target the request is the bytes it was.
 
 The binary writes ``OUT_DIR/{pairs.tsv, exclusions.txt, attestation.json}``; the pipeline's
 and the trainer's ``--exclude-identity-keys OUT_DIR/exclusions.txt`` read them through
@@ -36,6 +45,7 @@ Usage (the corpus flags exactly as the pipeline was given them)::
         [--defect-class DIR --defect-download DIR --defect-max-rows N --defect-noul DIR] \\
         [--general-record FILE --general-max-rows N] [--decisions-pool DIR] \\
         [--request-out FILE] [--threads N] \\
+        [--target NAME=FILE ...] [--v6-benchmark-targets] \\
         [--no-template-strip]
 
 ``--no-template-strip`` is for measurement only (the pre-strip definition, to report rates
@@ -65,6 +75,7 @@ from repo_git import resolve_rev
 
 from qd_data.config import DataConfig
 from qd_data.errors import QdRefusal
+from qd_data.loaders import MmluRow
 from qd_data.render import render
 from qd_data.rows import DataRow
 from qd_data.split import HELD_OUT, SplitReport
@@ -94,6 +105,17 @@ DEFAULT_TIMEOUT_S: Final[float] = 4 * 3600.0
 #: ``crates/qd-prep/src/containment.rs``'s bounds, refused here before a byte is written.
 MAX_STR_BYTES: Final[int] = 64 << 20
 MAX_ROWS_PER_SET: Final[int] = 2_000_000
+#: An external target set's name in the request: ``target:<name>``. Its rows' family is the set
+#: name too, so the same-family scope (``decisions_pool_same_family_not_enforced``) never
+#: matches a target pair: every pair against a target set is enforced.
+TARGET_PREFIX: Final[str] = "target:"
+#: A target name: what ``qd-prep decisions --target`` accepts as a config key, kept to a
+#: conservative alphabet because it is a set name, a key prefix and an attestation field.
+_TARGET_NAME_CHARS: Final[frozenset[str]] = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+)
+#: One target line; the longest jevjudge pair is well under this.
+MAX_TARGET_LINE_BYTES: Final[int] = 8 << 20
 
 
 @dataclass(frozen=True)
@@ -110,6 +132,155 @@ class ScanSpec:
     source: str
     target: str
     enforced: bool
+
+
+@dataclass(frozen=True)
+class TargetSet:
+    """An external decontamination target: ``(id, text)`` rows and where they came from."""
+
+    name: str
+    rows: tuple[tuple[str, str], ...]
+    #: sha256 of the bytes read (a file) or of the record entry's cache (a benchmark split).
+    sha256: str
+    source: str
+    #: Items whose text could not be built through the row funnel and were taken as their raw
+    #: question and options instead (:func:`mmlu_target_text`); 0 for a target file.
+    raw_fallback: int = 0
+
+
+def mmlu_target_text(row: MmluRow) -> tuple[str, bool]:
+    """``(text, fell back)``: what this MMLU item scans as when it is a train row -- built
+    through the row funnel (``rewrite_mmlu`` under v5's config, so a test-split item is not
+    refused; ``render`` at ``seed=None``; ``slot_parts``), less the question line the template
+    strip removes: the question, then each option value, one per line. An exact copy of the
+    item in train therefore contains every one of its 8-grams. An item the funnel refuses (it
+    was never a row, e.g. two equal options) is taken as its stripped question and options,
+    and counted."""
+    from qd_data.general import MMLU_FAMILY, rewrite_mmlu
+
+    try:
+        built = rewrite_mmlu(row, family_id=MMLU_FAMILY, index=0, config=DataConfig())
+        rendered = render(built.request, seed=None)
+    except QdRefusal:
+        return "\n".join((row.question.strip(), *(c.strip() for c in row.choices))), True
+    (slot,) = rendered.slots
+    return slot_parts(rendered.prompt_for(slot.name)).joined(question=False), False
+
+
+def _target_name(name: str) -> str:
+    if not name or len(name) > 64 or not set(name) <= _TARGET_NAME_CHARS:
+        raise SystemExit(
+            f"target name {name!r}: 1-64 characters of [A-Za-z0-9._-]; it names a set and "
+            "prefixes every key in it"
+        )
+    return name
+
+
+def _target_rows(
+    name: str, lines: Iterable[tuple[int, bytes]], where: str,
+) -> list[tuple[str, str]]:
+    """``(id, text)`` per non-blank JSONL line, each an object with string ``id`` and ``text``;
+    ids distinct. Refused, never skipped: a target line that is not one would be a target
+    nobody scanned against."""
+    rows: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for lineno, line in lines:
+        if not line.strip():
+            continue
+        if len(line) > MAX_TARGET_LINE_BYTES:
+            raise SystemExit(f"{where}:{lineno}: a line over {MAX_TARGET_LINE_BYTES} bytes")
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"{where}:{lineno}: not JSON ({exc})") from exc
+        if not isinstance(obj, dict) or not isinstance(obj.get("id"), str) \
+                or not isinstance(obj.get("text"), str):
+            raise SystemExit(
+                f"{where}:{lineno}: a target line is an object with string id and text"
+            )
+        if obj["id"] in seen:
+            raise SystemExit(f"{where}:{lineno}: target id {obj['id']!r} repeats")
+        seen.add(obj["id"])
+        rows.append((obj["id"], obj["text"]))
+        if len(rows) > MAX_ROWS_PER_SET:
+            raise SystemExit(f"{where}: more than {MAX_ROWS_PER_SET} target rows")
+    if not rows:
+        raise SystemExit(f"{where}: target set {name!r} has no rows; a scan against nothing is "
+                         "not a check")
+    return rows
+
+
+def read_target_file(name: str, path: Path) -> TargetSet:
+    """A ``{"id", "text"}`` JSONL target set, as ``qd-prep decisions --target`` reads one, with
+    the sha256 of the bytes it was read from (recorded in the attestation's ``export``)."""
+    name = _target_name(name)
+    raw = path.read_bytes()
+    lines = enumerate(raw.splitlines(keepends=True), start=1)
+    rows = _target_rows(name, lines, str(path))
+    return TargetSet(name=name, rows=tuple(rows), sha256=hashlib.sha256(raw).hexdigest(),
+                     source=str(path))
+
+
+def benchmark_target_sets(record: Path) -> list[TargetSet]:
+    """The v6 benchmark targets (``qd_data.sources.BENCHMARK_TARGET_SPLITS``) from a general
+    fetch record: one set per target split, named ``<prefix>-<split>`` (``mmlu-test``,
+    ``mmlu-dev``, ``clinc-test``). Each cache must sit under the record's directory and hash to
+    the record's ``jsonl_sha256``, as ``real_tokenizer_pipeline.general_rows`` requires of the
+    rows it reads. The text is what the item scans as when it is a row: MMLU's through
+    :func:`mmlu_target_text`; CLINC's utterance, which is all a stripped intent row keeps."""
+    from real_tokenizer_pipeline import fetch_record_entries
+
+    from qd_data.defect_class import sha256_file
+    from qd_data.loaders import parse_mmlu
+    from qd_data.sources import BENCHMARK_TARGET_PREFIX, BENCHMARK_TARGET_SPLITS
+
+    _raw, entries = fetch_record_entries(record)
+    root = record.parent.resolve()
+    out: list[TargetSet] = []
+    for entry in entries:
+        dataset = str(entry["dataset"])
+        path = Path(str(entry["jsonl"])).resolve()
+        split_name = path.stem
+        if split_name not in BENCHMARK_TARGET_SPLITS.get(dataset, ()):
+            continue
+        if not path.is_relative_to(root):
+            raise SystemExit(f"{record}: {path} is outside the cache root {root}")
+        found = sha256_file(path)
+        if found != entry["jsonl_sha256"]:
+            raise SystemExit(f"{path}: sha256 {found} but the fetch record says "
+                             f"{entry['jsonl_sha256']}; the cache is not the approved download")
+        name = f"{BENCHMARK_TARGET_PREFIX[dataset]}-{split_name}"
+        texts: list[str] = []
+        fallback = 0
+        with path.open("r", encoding="utf-8") as fh:
+            for i, line in enumerate(fh):
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                if dataset == "cais/mmlu":
+                    text, fell_back = mmlu_target_text(
+                        parse_mmlu(obj, index=i, split_name=split_name)
+                    )
+                    texts.append(text)
+                    fallback += fell_back
+                else:
+                    text = obj.get("text") if isinstance(obj, dict) else None
+                    if not isinstance(text, str) or not text.strip():
+                        raise SystemExit(f"{path}:{i + 1}: a CLINC row with no text")
+                    texts.append(text)
+        if len(texts) != int(entry["rows"]):
+            raise SystemExit(f"{path}: {len(texts)} rows but the fetch record says {entry['rows']}")
+        if any(t.name == name for t in out):
+            raise SystemExit(f"{record}: target {name} named twice")
+        out.append(TargetSet(
+            name=name, rows=tuple((f"{split_name}-{i}", t) for i, t in enumerate(texts)),
+            sha256=found, source=f"{dataset} {split_name} ({path})", raw_fallback=fallback,
+        ))
+    want = sorted(f"{BENCHMARK_TARGET_PREFIX[d]}-{s}" for d, ss in BENCHMARK_TARGET_SPLITS.items()
+                  for s in ss)
+    if sorted(t.name for t in out) != want:
+        raise SystemExit(f"{record} supplies targets {sorted(t.name for t in out)}, not {want}")
+    return out
 
 
 def _rendered(rows: Iterable[DataRow]) -> tuple[list[PartsRow], dict[str, str]]:
@@ -132,13 +303,38 @@ def _rendered(rows: Iterable[DataRow]) -> tuple[list[PartsRow], dict[str, str]]:
     return out, refused
 
 
+def check_benchmark_sources_built(report: SplitReport, record: Path) -> None:
+    """Under ``--v6-benchmark-targets``, refuse a corpus in which a ``BENCHMARK_TARGET_SPLITS``
+    source the record supplies built no row at all. v6 refuses a CLINC row whose upstream split
+    is unstated, and ``real_tokenizer_pipeline.general_rows`` does not yet pass ``split_name`` to
+    ``parse_clinc``, so until it does every CLINC row is refused and the scan would attest a
+    corpus with no CLINC val or held-out set -- clean only because nothing was there."""
+    from real_tokenizer_pipeline import fetch_record_entries
+
+    from qd_data.sources import BENCHMARK_TARGET_SPLITS
+
+    _raw, entries = fetch_record_entries(record)
+    supplied = {str(e["dataset"]) for e in entries} & set(BENCHMARK_TARGET_SPLITS)
+    built = {r.source_id for rows in report.rows_by_split.values() for r in rows}
+    missing = sorted(supplied - built)
+    if missing:
+        raise SystemExit(
+            f"--v6-benchmark-targets: {missing} supplied by {record} built no row. For "
+            "clinc/clinc_oos this is every row refused upstream_split_unstated: "
+            "real_tokenizer_pipeline.general_rows must call parse_clinc(..., "
+            "split_name=split_name) before a v6 build can read CLINC"
+        )
+
+
 def scan_sets(
     report: SplitReport, *, config: DataConfig, template_strip: bool = True,
+    targets: Sequence[TargetSet] = (),
 ) -> tuple[list[ScanSet], dict[str, object]]:
     """``(sets, strip record)``: train, val, the repo-disjoint held-out split and one set per
     task-holdout family, their texts stripped of constant template text by
     ``strip_template`` over the union of all of them (``template_strip=False`` only to measure
-    the pre-strip definition). The record is the attestation's ``export.template_strip``."""
+    the pre-strip definition), then one ``target:<name>`` set per external target, last and
+    unstripped. The record is the attestation's ``export.template_strip``."""
     by_split = report.rows_by_split
     heldout = by_split.get(HELD_OUT, ())
     # Each set's rows are materialised in its own iteration: a generator closing over the
@@ -163,19 +359,41 @@ def scan_sets(
         ScanSet(name=name, rows=tuple(texts.pop(name)), unrenderable=refused[name])
         for name, _rows in chosen
     ]
+    for t in targets:
+        name = f"{TARGET_PREFIX}{_target_name(t.name)}"
+        if any(s.name == name for s in sets):
+            raise SystemExit(f"target {t.name!r} named twice")
+        sets.append(ScanSet(
+            name=name,
+            rows=tuple((f"{t.name}:{i}", f"{t.name}:{i}", name, text) for i, text in t.rows),
+            unrenderable={},
+        ))
     return sets, record
 
 
 def scan_specs(sets: Sequence[ScanSet]) -> list[ScanSpec]:
-    """The rule's scans over ``sets`` (as :func:`scan_sets` names them)."""
+    """The rule's scans over ``sets`` (as :func:`scan_sets` names them). External targets come
+    after the rule's own scans, so a request without one is the bytes it was."""
     families = [s.name for s in sets if s.name.startswith(HELDOUT_FAMILY_PREFIX)]
+    targets = [s.name for s in sets if s.name.startswith(TARGET_PREFIX)]
     return [
         ScanSpec(TRAIN, VAL, True),
         ScanSpec(TRAIN, HELD_OUT, True),
         *(ScanSpec(TRAIN, f, False) for f in families),
         ScanSpec(VAL, HELD_OUT, False),
         *(ScanSpec(VAL, f, False) for f in families),
+        *(ScanSpec(TRAIN, t, True) for t in targets),
+        *(ScanSpec(VAL, t, False) for t in targets),
     ]
+
+
+def targets_block(targets: Sequence[TargetSet]) -> dict[str, object]:
+    """The attestation's ``export.targets``: per set, its row count, sha256 and source."""
+    return {
+        f"{TARGET_PREFIX}{t.name}": {"rows": len(t.rows), "sha256": t.sha256, "source": t.source,
+                                     "raw_fallback": t.raw_fallback}
+        for t in targets
+    }
 
 
 def splitter_checks(report: SplitReport) -> list[tuple[str, int, str]]:
@@ -219,10 +437,14 @@ def _str(fh: BinaryIO, value: str, what: str) -> int:
 
 def export_block(
     sets: Sequence[ScanSet], *, engine: Path, strip: Mapping[str, object],
+    targets: Sequence[TargetSet] = (),
 ) -> dict[str, object]:
-    """What the exporter left out, which engine scanned, and what the template strip removed
-    (``strip``, :func:`scan_sets`'s record): the attestation's ``export``."""
+    """What the exporter left out, which engine scanned, what the template strip removed
+    (``strip``, :func:`scan_sets`'s record) and, when there are any, the external targets
+    (:func:`targets_block`): the attestation's ``export``."""
+    extra: dict[str, object] = {"targets": targets_block(targets)} if targets else {}
     return {
+        **extra,
         "tool": TOOL,
         "engine_sha256": engine_sha256(engine),
         "render": (
@@ -345,6 +567,18 @@ def main(argv: list[str] | None = None) -> int:
         help="as the pipeline's --drop-before-dedupe: the listed train rows leave the corpus "
              "before dedupe here too, and the corpus identity names the list by its sha256",
     )
+    parser.add_argument(
+        "--target", action="append", default=[], metavar="NAME=FILE",
+        help="an external {\"id\", \"text\"} JSONL target set (repeat per set), scanned as "
+             "target:NAME: train against it enforced, val against it report-only. The jevjudge "
+             "pairs that qd-prep decisions --target jevjudge=FILE reads are one",
+    )
+    parser.add_argument(
+        "--v6-benchmark-targets", action="store_true",
+        help="build under DataConfig.with_v6_benchmark_targets() (MMLU test/dev and CLINC test "
+             "are not rows) and scan against those splits, read from --general-record, as "
+             "targets mmlu-test, mmlu-dev and clinc-test; the corpus names the opt-in",
+    )
     parser.add_argument("--no-repo-history", dest="repo_history", action="store_false")
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
@@ -370,10 +604,24 @@ def main(argv: list[str] | None = None) -> int:
     if request.exists():
         raise SystemExit(f"{request} exists; refusing to overwrite it")
     engine = prep_binary()  # before the rebuild: a missing engine costs nothing to find
+    # Every target is read and checked before the rebuild, so a bad one costs nothing.
+    targets: list[TargetSet] = []
+    for spec in args.target:
+        name, sep, file = spec.partition("=")
+        if not sep or not file:
+            raise SystemExit(f"--target {spec!r}: expected NAME=FILE")
+        targets.append(read_target_file(name, Path(file)))
+    if args.v6_benchmark_targets:
+        if args.general_record is None:
+            raise SystemExit("--v6-benchmark-targets reads the benchmark splits from "
+                             "--general-record; without it there is nothing to scan against")
+        targets.extend(benchmark_target_sets(args.general_record))
 
     from real_ft_run import ft_split_report, replay_corpus_identity
 
     config = DataConfig()
+    if args.v6_benchmark_targets:
+        config = config.with_v6_benchmark_targets()
     rev = resolve_rev(REPO, args.rev)
     started = time.monotonic()
     report = ft_split_report(
@@ -385,7 +633,10 @@ def main(argv: list[str] | None = None) -> int:
         pre_dedupe_drops=args.pre_dedupe_drops,
     )
     built = time.monotonic()
-    sets, strip = scan_sets(report, config=config, template_strip=args.template_strip)
+    if args.v6_benchmark_targets:
+        check_benchmark_sources_built(report, args.general_record)
+    sets, strip = scan_sets(report, config=config, template_strip=args.template_strip,
+                            targets=targets)
     rendered = time.monotonic()
     scans = scan_specs(sets)
     # The name ft_splits and the pipeline check an exclusion list against.
@@ -396,10 +647,14 @@ def main(argv: list[str] | None = None) -> int:
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
         decisions_pool=args.decisions_pool, drop_before_dedupe=args.pre_dedupe_drops,
     ))
+    if config.benchmark_eval_splits_are_targets:
+        # A v6 corpus holds other rows than the v5 corpus of the same inputs, so it is named
+        # apart: a build that does not name the opt-in refuses this list (read_exclusions).
+        corpus = {**corpus, "benchmark_eval_splits_are_targets": True}
     with request.open("xb") as fh:
         size = write_request(
             fh, sets, scans, corpus=corpus,
-            export=export_block(sets, engine=engine, strip=strip),
+            export=export_block(sets, engine=engine, strip=strip, targets=targets),
             checks=splitter_checks(report),
         )
     exported = time.monotonic()

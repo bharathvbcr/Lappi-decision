@@ -1,0 +1,2978 @@
+{
+ "schema": "qd-tool-phrasings/v1",
+ "tools": [
+  {
+   "tool": "devmap_status",
+   "complete": [
+    "Is the code graph for ~/code/demo-app actually built, or is it empty?",
+    "before I trust these answers: is the graph running in some reduced mode?",
+    "quick sanity check that the indexer has finished chewing through the project",
+    "How many functions and call links does the graph hold right now for this checkout?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devmap_search",
+   "complete": [
+    "Where is parse_header defined?",
+    "jump me to the definition of RetryPolicy",
+    "Which module declares the struct SessionCache?",
+    "I only remember it starts with load_conf — where does that live?"
+   ],
+   "underspecified": [
+    {
+     "text": "Where is it declared? I forget which module.",
+     "missing": "query"
+    },
+    {
+     "text": "jump me to the definition of that thing again",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_ask",
+   "complete": [
+    "Which code is responsible for throttling outgoing webhooks?",
+    "where does the app decide that a login session has expired?",
+    "what handles retrying failed uploads in this project?",
+    "I don't know any function names — what part of the codebase works out shipping costs?"
+   ],
+   "underspecified": [
+    {
+     "text": "Which code is responsible for that behaviour?",
+     "missing": "query"
+    },
+    {
+     "text": "I don't know the function names — which part of the project does it?",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_ask_evidence",
+   "complete": [
+    "Show me the actual source for how password resets get emailed, plus the specs covering it",
+    "I'm new here: pull up the implementation of rate limiting along with its tests so I can study it",
+    "Give me the relevant function bodies for CSV export and which spec files exercise them",
+    "dump the code that enforces upload size limits with any related tests, inline please"
+   ],
+   "underspecified": [
+    {
+     "text": "Show me the source and the specs covering that feature, inline",
+     "missing": "query"
+    },
+    {
+     "text": "pull up the implementation plus tests for how it works so I can study it",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_dependencies",
+   "complete": [
+    "What does build_invoice call or pull in?",
+    "Which other functions does src/billing/tax.rs rely on?",
+    "show me everything OrderService reaches out to",
+    "what would I need to stub to unit-test normalize_email in isolation?"
+   ],
+   "underspecified": [
+    {
+     "text": "What does this function rely on?",
+     "missing": "target"
+    },
+    {
+     "text": "Which helpers does it reach out to?",
+     "missing": "target"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_impact",
+   "complete": [
+    "If I alter the signature of validate_token, what else breaks?",
+    "Who ends up relying on CurrencyFormatter, directly or a few hops out?",
+    "I want to rename parse_header — what upstream code would feel that?",
+    "what calls into ledger::post_entry, transitively?"
+   ],
+   "underspecified": [
+    {
+     "text": "If I alter that function's signature, what else breaks?",
+     "missing": "target"
+    },
+    {
+     "text": "who relies on it, a few hops out?",
+     "missing": "target"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_trace",
+   "complete": [
+    "How does handle_request end up reaching write_audit_log?",
+    "Walk me through the chain from main() down to open_db_pool",
+    "what route does control take starting at Checkout.submit?",
+    "Starting from cli::run, what sequence of invocations happens?"
+   ],
+   "underspecified": [
+    {
+     "text": "How does it end up getting to write_audit_log?",
+     "missing": "from"
+    },
+    {
+     "text": "what sequence of invocations happens from there?",
+     "missing": "from"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_neighbors",
+   "complete": [
+    "For parse_header and encode_frame: who uses each, and what does each use?",
+    "one hop each way around Session::refresh — above and below",
+    "Give me both directions for these three: retry_send, backoff_ms, jitter",
+    "What's immediately around TokenStore: what it invokes and what invokes it"
+   ],
+   "underspecified": [
+    {
+     "text": "Who uses each of these, and what does each use?",
+     "missing": "targets"
+    },
+    {
+     "text": "give me one hop each way around them",
+     "missing": "targets"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_dead_symbols",
+   "complete": [
+    "What in ~/code/demo-app is never used anymore?",
+    "Find functions nobody invokes so I can prune them",
+    "Any orphaned helpers lying around that we could remove?",
+    "which routines have zero references and look safe-ish to drop?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devmap_skeleton",
+   "complete": [
+    "Outline src/net/client.rs for me — just the function headers, no implementations",
+    "what's declared in lib/parser.py? headers only please",
+    "Give me a table of contents for pkg/store/store.go",
+    "which functions and types live in app/models/user.rb, without their insides?"
+   ],
+   "underspecified": [
+    {
+     "text": "Outline that module for me — headers only",
+     "missing": "file"
+    },
+    {
+     "text": "which functions and types live in there, without their insides?",
+     "missing": "file"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_clones",
+   "complete": [
+    "Where have we copy-pasted the same logic in more than one place?",
+    "are there near-identical functions I could merge?",
+    "spot repeated blocks across the project, even if variable names differ",
+    "Show me any twin implementations worth consolidating"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devmap_preview",
+   "complete": [
+    "Here's my proposed new version of src/util/strings.rs: `pub fn trim_all(s: &str, keep: bool) -> String { todo() }` — before I save it, who stops compiling?",
+    "If I swap lib/geo.py for this: `def haversine(a, b, unit='km'): ...` — whose code goes red?",
+    "Dry-run this rewrite of pkg/queue/queue.go against its users: `func Push(ctx context.Context, item Item) error { return nil }`",
+    "Would this draft of api/routes.ts upset anything that uses it? `export function mount(app, opts) {}`"
+   ],
+   "underspecified": [
+    {
+     "text": "If I rewrite src/util/strings.rs, who stops compiling?",
+     "missing": "content"
+    },
+    {
+     "text": "Before I save this rewrite — `pub fn trim_all(s: &str) -> String {}` — who stops compiling?",
+     "missing": "file"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_explore",
+   "complete": [
+    "Tell me everything about anything named Invoice — the implementation, who uses it, what it uses, how far edits would spread",
+    "I'm about to work on the reconcile stuff: give me the full picture around it in a single shot",
+    "full lay of the land for PaymentIntent: implementation, users, upstream and ripple",
+    "Orient me around retry_with_backoff, all at once"
+   ],
+   "underspecified": [
+    {
+     "text": "Give me the full picture around it in a single shot",
+     "missing": "query"
+    },
+    {
+     "text": "Orient me around that thing, all at once",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_affected_tests",
+   "complete": [
+    "I touched slugify and parse_date — which specs should I kick off before pushing?",
+    "what's the minimal CI subset to re-execute after editing RateLimiter::acquire?",
+    "Which suites exercise money::round_half_even? I don't want to wait for all of them.",
+    "edited src/api/pagination.ts — which spec files should I re-check?"
+   ],
+   "underspecified": [
+    {
+     "text": "Which specs should I kick off for the functions I mentioned?",
+     "missing": "targets"
+    },
+    {
+     "text": "what's the minimal CI subset to re-execute after my edit to that helper?",
+     "missing": "targets"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_suspects",
+   "complete": [
+    "compute_total started returning negatives; it was fine at v1.8 — which commit did it?",
+    "render_chart broke somewhere after tag 2024-q3; who's the likely culprit?",
+    "load_settings has been flaky since abc1234 shipped — narrow down what landed after that",
+    "After last Friday's release-22 something made session_timeout misbehave. Which commits could be responsible?"
+   ],
+   "underspecified": [
+    {
+     "text": "compute_total started returning negatives — which commit did it?",
+     "missing": "since"
+    },
+    {
+     "text": "something broke after v1.8, which commit is to blame?",
+     "missing": "symptom"
+    }
+   ]
+  },
+  {
+   "tool": "devmap_blast",
+   "complete": [
+    "Everything I've committed since v2.3.0 — what does it ripple into?",
+    "What sits on top of lines 40-75 in src/cache/evict.go and would feel an edit there?",
+    "Since tag release-14, which parts of the codebase did my work put at risk?",
+    "compared with commit 3f2a9c1, how far does the current work spread?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "gitpulse_insights",
+   "complete": [
+    "Give me the lay of the land in ~/code/demo-app before I start: checkouts, who's working, what's unsaved, everything",
+    "Big-picture rundown of ~/src/shop-api — parallel copies, running bots, pending edits, all in one go",
+    "What's the overall situation in ~/work/ledger-svc right now?",
+    "full situational report for /srv/repos/inventory please"
+   ],
+   "underspecified": [
+    {
+     "text": "Give me the lay of the land before I start: checkouts, who's working, what's unsaved",
+     "missing": "repo_path"
+    },
+    {
+     "text": "What's the overall situation right now, everything at once?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_status",
+   "complete": [
+    "Quick health line for ~/src/shop-api: is it tracked and is the symbol map up?",
+    "Basic setup check on ~/work/ledger-svc — history store present, map present?",
+    "short summary for /srv/repos/inventory, just whether everything is hooked up",
+    "~/code/demo-app: lightweight overview please, skip the per-bot detail"
+   ],
+   "underspecified": [
+    {
+     "text": "Quick setup check — is everything hooked up properly?",
+     "missing": "repo_path"
+    },
+    {
+     "text": "lightweight overview please, skip the per-bot detail",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_active_changes",
+   "complete": [
+    "Which files have I modified but not committed in ~/code/demo-app?",
+    "in ~/src/shop-api, what's edited in the copy at ~/src/shop-api-wt2, with line counts?",
+    "What's unsaved to git over in ~/work/ledger-svc — which paths, and is any of it mid-conflict?",
+    "show me the touched paths under /srv/repos/inventory, at most 50"
+   ],
+   "underspecified": [
+    {
+     "text": "Which files have I modified but not committed?",
+     "missing": "repo_path"
+    },
+    {
+     "text": "show me the touched paths, at most 50",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_collision_risk",
+   "complete": [
+    "Are two of my checkouts of ~/code/demo-app stepping on the same files?",
+    "In ~/src/shop-api, is any path being modified by more than one copy at once?",
+    "Before I launch a second bot on ~/work/ledger-svc, will they fight over anything already?",
+    "any clash between the parallel clones of /srv/repos/inventory?"
+   ],
+   "underspecified": [
+    {
+     "text": "Are two of my working copies stepping on the same paths?",
+     "missing": "repo_path"
+    },
+    {
+     "text": "will the bots fight over anything already?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_change_context",
+   "complete": [
+    "In ~/code/demo-app, for the copy at ~/code/demo-app-feature: which branch, is a rebase half-done, and which ticket is it tied to?",
+    "~/src/shop-api: what's the story with this one copy — branch, mid-merge, linked ticket?",
+    "Before I edit anything in ~/work/ledger-svc, brief me on that single checkout",
+    "is /srv/repos/inventory stuck halfway through a rebase, and what is it attached to?"
+   ],
+   "underspecified": [
+    {
+     "text": "Brief me on this checkout before I edit anything",
+     "missing": "repo_path"
+    },
+    {
+     "text": "is it stuck halfway through a rebase, and which ticket is attached?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_ledger_events",
+   "complete": [
+    "Replay the recorded audit trail for ~/code/demo-app from the start — who did what and what came of it",
+    "In ~/src/shop-api, what's been logged after entry 120?",
+    "show the subsequent 50 recorded actions in ~/work/ledger-svc",
+    "who has acted on /srv/repos/inventory and what were the outcomes, earliest onward?"
+   ],
+   "underspecified": [
+    {
+     "text": "Replay the audit trail from the start",
+     "missing": "repo_path"
+    },
+    {
+     "text": "what's been logged after entry 120?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_task_view",
+   "complete": [
+    "In ~/code/demo-app, who's holding which work items, and what proof has been gathered so far?",
+    "Show the hold and audit history for item DC-77 in ~/src/shop-api without grabbing it",
+    "~/work/ledger-svc: what holds are out, and which outstanding issues did the auditor flag?",
+    "peek at the hold records and audit outcomes for /srv/repos/inventory"
+   ],
+   "underspecified": [
+    {
+     "text": "Who's holding which work items right now, and what proof exists?",
+     "missing": "repo_path"
+    },
+    {
+     "text": "peek at the hold records for DC-77 without grabbing it",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_add_task",
+   "complete": [
+    "Put a new card up for ~/code/demo-app titled 'Flaky login spec on CI'",
+    "Track this for ~/src/shop-api: 'Cache TTL ignores config override', priority high",
+    "Can you open a ticket in ~/work/ledger-svc called 'Rounding drift in monthly totals'?",
+    "jot down a to-do on /srv/repos/inventory: 'Migrate barcode parser to v2'"
+   ],
+   "underspecified": [
+    {
+     "text": "Put a new card up for ~/code/demo-app about the thing we just found",
+     "missing": "title"
+    },
+    {
+     "text": "open a ticket called 'Rounding drift in monthly totals'",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_import_tasks",
+   "complete": [
+    "Sync the .md write-ups under ~/code/demo-app/todo into kanban cards",
+    "~/src/shop-api has a directory of written-up specs — turn each into a card",
+    "Bulk-load the planning docs stored in ~/work/ledger-svc onto the kanban",
+    "Bring every spec document in /srv/repos/inventory/plans over as cards, overwriting older copies"
+   ],
+   "underspecified": [
+    {
+     "text": "Turn each write-up in the planning directory into a card",
+     "missing": "repo_path"
+    },
+    {
+     "text": "Bulk-load the planning docs onto the kanban",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_list_tasks",
+   "complete": [
+    "What's queued up for ~/code/demo-app?",
+    "Show me every card in the inbox lane for ~/src/shop-api",
+    "enumerate the open work items logged against ~/work/ledger-svc",
+    "what's on the to-do wall for /srv/repos/inventory, first 20"
+   ],
+   "underspecified": [
+    {
+     "text": "What's queued up right now?",
+     "missing": "repo_path"
+    },
+    {
+     "text": "Show me every card in the inbox lane",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_get_task",
+   "complete": [
+    "Open the card gp-auth-flow in ~/code/demo-app and show me its full write-up",
+    "~/src/shop-api: what exactly does item gp-cache-ttl ask for?",
+    "Pull the bot instructions for ticket gp-ledger-rounding in ~/work/ledger-svc",
+    "details on gp-import-csv over in /srv/repos/inventory"
+   ],
+   "underspecified": [
+    {
+     "text": "Open that card in ~/code/demo-app and show me its full write-up",
+     "missing": "task_id"
+    },
+    {
+     "text": "what exactly does item gp-cache-ttl ask for?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_complete_task",
+   "complete": [
+    "I'm finished with gp-auth-flow in ~/code/demo-app — mark it finished; I fixed the token refresh and the suite passes",
+    "~/src/shop-api: shift gp-cache-ttl over to review so someone can look",
+    "close out card gp-ledger-rounding in ~/work/ledger-svc as wrapped up",
+    "flip gp-import-csv in /srv/repos/inventory to in-progress, I'm starting now"
+   ],
+   "underspecified": [
+    {
+     "text": "I'm finished in ~/code/demo-app — mark my card as wrapped up",
+     "missing": "task_id"
+    },
+    {
+     "text": "shift gp-cache-ttl over to review so someone can look",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_delete_task",
+   "complete": [
+    "Remove card gp-dup-login from ~/code/demo-app; it duplicates gp-auth-flow",
+    "Get rid of gp-old-spike in ~/src/shop-api — we abandoned that idea last sprint",
+    "~/work/ledger-svc has a bogus ticket gp-test-123 I made by mistake, trash it",
+    "drop gp-legacy-export from /srv/repos/inventory since the feature was cut"
+   ],
+   "underspecified": [
+    {
+     "text": "Remove card gp-dup-login from ~/code/demo-app.",
+     "missing": "reason"
+    },
+    {
+     "text": "Get rid of that bogus ticket in ~/src/shop-api, I made it by mistake",
+     "missing": "task_id"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_merge_tasks",
+   "complete": [
+    "In ~/code/demo-app, fold gp-login-bug-2 and gp-login-bug-3 into gp-login-bug — same root cause",
+    "~/src/shop-api: gp-cache-a repeats gp-cache-main; combine them, keeping gp-cache-main",
+    "Collapse gp-rounding-x into gp-ledger-rounding in ~/work/ledger-svc, they're one problem",
+    "unify gp-scan-1 and gp-scan-2 under gp-barcode in /srv/repos/inventory because they describe the same parser bug"
+   ],
+   "underspecified": [
+    {
+     "text": "In ~/code/demo-app, fold gp-login-bug-2 and gp-login-bug-3 together — same root cause",
+     "missing": "into_task_id"
+    },
+    {
+     "text": "~/src/shop-api: combine the repeated cards into gp-cache-main, they're one issue",
+     "missing": "sources"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_codeintel_search",
+   "complete": [
+    "Where's PriceCalculator declared in ~/code/demo-app?",
+    "in ~/src/shop-api, locate anything beginning with fetch_inv",
+    "jump to apply_coupon's definition, project ~/work/ledger-svc",
+    "which module has the BarcodeReader type? (/srv/repos/inventory)"
+   ],
+   "underspecified": [
+    {
+     "text": "Where's PriceCalculator declared?",
+     "missing": "repo_path"
+    },
+    {
+     "text": "in ~/src/shop-api, where's that function declared again?",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_codeintel_impact",
+   "complete": [
+    "In ~/code/demo-app, what relies on PriceCalculator.total if I alter it?",
+    "~/src/shop-api: who'd be hurt by renaming fetch_inventory?",
+    "what upstream code leans on src/ledger/post.rs in ~/work/ledger-svc?",
+    "if BarcodeReader's interface shifts, what in /srv/repos/inventory feels it?"
+   ],
+   "underspecified": [
+    {
+     "text": "In ~/code/demo-app, what relies on it if I alter it?",
+     "missing": "target"
+    },
+    {
+     "text": "who'd be hurt by renaming fetch_inventory?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_codeintel_dependencies",
+   "complete": [
+    "In ~/code/demo-app, what does src/cart/checkout.ts import or pull in?",
+    "~/src/shop-api: which modules does api/handlers/orders.go lean on?",
+    "what is ledger/rounding.py built on top of, in ~/work/ledger-svc?",
+    "Which other modules does lib/scan.rb reach into? (/srv/repos/inventory)"
+   ],
+   "underspecified": [
+    {
+     "text": "In ~/code/demo-app, what does that module pull in?",
+     "missing": "file_path"
+    },
+    {
+     "text": "which modules does api/handlers/orders.go lean on?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_codeintel_trace",
+   "complete": [
+    "In ~/code/demo-app, how does main get to save_order?",
+    "~/src/shop-api: quickest chain from handle_webhook to send_email",
+    "Connect the dots between Router.dispatch and AuditLog.write in ~/work/ledger-svc",
+    "/srv/repos/inventory: what links scan_item to update_stock?"
+   ],
+   "underspecified": [
+    {
+     "text": "~/src/shop-api: how does execution get to send_email?",
+     "missing": "from"
+    },
+    {
+     "text": "Connect the dots between Router.dispatch and AuditLog.write",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_codeintel_dead_symbols",
+   "complete": [
+    "What's never referenced anywhere in ~/code/demo-app?",
+    "cleanup hunt in ~/src/shop-api: functions nothing uses",
+    "~/work/ledger-svc — any orphaned definitions?",
+    "Which routines in /srv/repos/inventory could I delete because nobody uses them?"
+   ],
+   "underspecified": [
+    {
+     "text": "What's never referenced anywhere?",
+     "missing": "repo_path"
+    },
+    {
+     "text": "cleanup hunt: functions nothing uses",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_codeintel_suspects",
+   "complete": [
+    "~/code/demo-app: total_price went wrong after v3.1 — which commits are to blame?",
+    "In ~/src/shop-api, sync_stock misbehaves after tag rel-9; find the culprit commits",
+    "something after 7c9e2d1 broke reconcile_month in ~/work/ledger-svc — who did it?",
+    "/srv/repos/inventory: scan_item regressed after a1b2c3d; narrow it down"
+   ],
+   "underspecified": [
+    {
+     "text": "~/code/demo-app: total_price went wrong recently — which commits are to blame?",
+     "missing": "since"
+    },
+    {
+     "text": "In ~/src/shop-api, something regressed after tag rel-9; find the culprit commits",
+     "missing": "symptom"
+    }
+   ]
+  },
+  {
+   "tool": "gitpulse_provenance",
+   "complete": [
+    "Was 9f3c2ab in ~/code/demo-app ever vetted, and how much should I still trust it?",
+    "~/src/shop-api, sha 4e1d77a: what attestations are attached and have they gone stale?",
+    "How trustworthy is a81b0c2 in ~/work/ledger-svc these days, relative to main?",
+    "pull the sign-off stamps on 12ab34c of /srv/repos/inventory"
+   ],
+   "underspecified": [
+    {
+     "text": "Was that change in ~/code/demo-app ever vetted, and can I still trust it?",
+     "missing": "commit_sha"
+    },
+    {
+     "text": "What attestations are attached to sha 4e1d77a?",
+     "missing": "repo_path"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_get_diff",
+   "complete": [
+    "What have I modified so far?",
+    "Let me see my pending edits for T-31 as a patch",
+    "show the queued-up edits line by line",
+    "which lines differ from the last snapshot in src/app.ts?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_checkout_task",
+   "complete": [
+    "I'll take T-142 — lock it to me, client id cli-7",
+    "Reserve work item T-88 for client builder-3 so nobody else grabs it",
+    "Begin T-205 as client laptop-2 and tell me what I'm permitted to touch",
+    "put my name on ticket T-19 (client ws-4) before I start editing"
+   ],
+   "underspecified": [
+    {
+     "text": "Lock it to me so nobody else grabs it, client id cli-7",
+     "missing": "task_id"
+    },
+    {
+     "text": "Reserve that item for me before I start editing",
+     "missing": "task_id"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_renew_lease",
+   "complete": [
+    "Keep my hold on T-142 alive a while longer; token lt-9c1e",
+    "Don't let T-88 slip away from me — token lt-55ab",
+    "push out the deadline on my T-205 reservation, token lt-0f3d",
+    "I'm still on T-19 (lt-7a7a), keep it reserved for me"
+   ],
+   "underspecified": [
+    {
+     "text": "Keep my hold alive a while longer, token lt-55ab",
+     "missing": "task_id"
+    },
+    {
+     "text": "don't let my reservation lapse, I'm still on it",
+     "missing": "task_id"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_release_task",
+   "complete": [
+    "I'm finished with T-142, let go of it (token lt-9c1e) so others can pick it up",
+    "Drop my hold on T-88, token lt-55ab — I'm giving up on it",
+    "unlock T-205 for the rest of the team; token lt-0f3d",
+    "hand T-19 back to the pool, my token is lt-7a7a"
+   ],
+   "underspecified": [
+    {
+     "text": "I'm finished here, let go of my hold so others can pick it up",
+     "missing": "task_id"
+    },
+    {
+     "text": "Hand the item back to the pool",
+     "missing": "task_id"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_next_task",
+   "complete": [
+    "What should I pick up now?",
+    "Is there anything up for grabs that nobody's on?",
+    "I'm idle — what's available?",
+    "suggest the following item in the queue I could work, without locking it"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_verify_task",
+   "complete": [
+    "Before I say T-142 is finished, confirm my edits stay within what it permits (token lt-9c1e)",
+    "Did my work on T-88 stay in bounds? token lt-55ab",
+    "give T-205 a pass/fail on whether everything I touched was planned, token lt-0f3d",
+    "audit T-19 against its plan before I report back; lt-7a7a"
+   ],
+   "underspecified": [
+    {
+     "text": "Did my edits stay in bounds? I want a pass/fail before I report back",
+     "missing": "task_id"
+    },
+    {
+     "text": "confirm my edits stay within what the item permits",
+     "missing": "task_id"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_get_gaps",
+   "complete": [
+    "What's still outstanding on T-142 according to the last auditor pass?",
+    "Why didn't T-88 pass? Show me the open problems from the most recent audit",
+    "what's holding T-205 back from being accepted?",
+    "unresolved findings for T-19 please"
+   ],
+   "underspecified": [
+    {
+     "text": "What's still outstanding according to the last auditor pass?",
+     "missing": "task_id"
+    },
+    {
+     "text": "what's holding it back from being accepted?",
+     "missing": "task_id"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_policy_check_write",
+   "complete": [
+    "Am I permitted to modify src/config/settings.yaml?",
+    "Would editing migrations/0042_add_index.sql get blocked?",
+    "Before I touch .github/workflows/ci.yml — is that fair game?",
+    "can I save edits to docs/README.md or will the guard stop me?"
+   ],
+   "underspecified": [
+    {
+     "text": "Am I permitted to modify this one?",
+     "missing": "path"
+    },
+    {
+     "text": "Would editing that get blocked?",
+     "missing": "path"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_get_task",
+   "complete": [
+    "What does T-142 let me do — which paths, which shell lines, which specs are expected?",
+    "Show me the brief for T-88: what's in bounds and what's forbidden",
+    "remind me of T-205's plan and its no-go areas",
+    "what am I supposed to deliver for T-19?"
+   ],
+   "underspecified": [
+    {
+     "text": "What does this item let me do — which paths and shell lines?",
+     "missing": "task_id"
+    },
+    {
+     "text": "remind me what's forbidden on it",
+     "missing": "task_id"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_read_file",
+   "complete": [
+    "Show me src/main.rs",
+    "What's inside config/app.toml?",
+    "open package.json and let me see it",
+    "print the contents of internal/auth/jwt.go"
+   ],
+   "underspecified": [
+    {
+     "text": "Show me what's in it",
+     "missing": "path"
+    },
+    {
+     "text": "open that config and let me see it",
+     "missing": "path"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_write_file",
+   "complete": [
+    "Make notes/todo.md containing '- ship v2'",
+    "save this as scripts/setup.sh: `#!/bin/sh` then `echo hi`",
+    "Replace everything in config/defaults.ini with `port = 8080`",
+    "start docs/CHANGELOG.md with the text '## 1.0.0 - initial release'"
+   ],
+   "underspecified": [
+    {
+     "text": "Make notes/todo.md for me",
+     "missing": "content"
+    },
+    {
+     "text": "save this somewhere: `#!/bin/sh` then `echo hi`",
+     "missing": "path"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_patch_file",
+   "complete": [
+    "In src/server.go swap `port := 8080` for `port := cfg.Port`",
+    "Change 'timeout=30' to 'timeout=60' in config/http.ini",
+    "in lib/math.py, turn `return a+b` into `return a + b`",
+    "README.md: the line 'Install with pip' should say 'Install with uv'"
+   ],
+   "underspecified": [
+    {
+     "text": "In src/server.go, swap out `port := 8080`",
+     "missing": "replacement_content"
+    },
+    {
+     "text": "Change 'timeout=30' to 'timeout=60'",
+     "missing": "path"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_delete_file",
+   "complete": [
+    "Get rid of tmp/debug.log",
+    "remove scripts/old_migrate.py, it's obsolete",
+    "please trash src/legacy/v1_handler.go",
+    "nuke build/cache.json"
+   ],
+   "underspecified": [
+    {
+     "text": "Get rid of that leftover log",
+     "missing": "path"
+    },
+    {
+     "text": "remove the obsolete migration helper",
+     "missing": "path"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_exec_command",
+   "complete": [
+    "Run `make test`",
+    "kick off `cargo build --release` for me",
+    "can you do `npm run lint` and tell me what it says",
+    "invoke `go vet ./...`"
+   ],
+   "underspecified": [
+    {
+     "text": "Kick off that script we talked about",
+     "missing": "command"
+    },
+    {
+     "text": "run the thing that rebuilds everything",
+     "missing": "command"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_list_dir",
+   "complete": [
+    "What's in the src folder?",
+    "show me the top level of the project",
+    "Everything under internal/, recursively, but honour gitignore",
+    "what sits inside docs/?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_find_files",
+   "complete": [
+    "Which *.proto sources exist?",
+    "locate every Dockerfile in the tree",
+    "where do all the *_spec.rb sources live?",
+    "anything like `src/**/*.sql`?"
+   ],
+   "underspecified": [
+    {
+     "text": "Which ones have the extension I mentioned?",
+     "missing": "pattern"
+    },
+    {
+     "text": "locate every one of those in the tree",
+     "missing": "pattern"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_grep",
+   "complete": [
+    "Where does the string 'TODO(security)' appear?",
+    "every place we call `os.Exit(` — show me the lines",
+    "occurrences of /v[0-9]+/api/ in the sources",
+    "which lines mention deprecated_flag, ignoring capitalisation?"
+   ],
+   "underspecified": [
+    {
+     "text": "Where does that string appear?",
+     "missing": "pattern"
+    },
+    {
+     "text": "show me every line containing it",
+     "missing": "pattern"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_search_tools",
+   "complete": [
+    "Do I have anything that can work with subagents?",
+    "what's on offer for artifacts?",
+    "is there some utility here for git history?",
+    "which helpers relate to plugin servers?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_activate_tools",
+   "complete": [
+    "Turn on the subagent group",
+    "enable the nav and artifact families for this session",
+    "load the mcp bundle so I can use it",
+    "bring the question-asking helper into play"
+   ],
+   "underspecified": [
+    {
+     "text": "Turn those on for me",
+     "missing": "tools"
+    },
+    {
+     "text": "enable the bundle I need for this",
+     "missing": "tools"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_spawn_subagents",
+   "complete": [
+    "Fan out three helpers in parallel: one audits src/auth, one documents api/, one profiles the cache layer",
+    "kick off two background workers: 'linter' to fix lint in pkg/, and 'reviewer' to look over the diff, read-only",
+    "Spin up parallel jobs labelled bench and docs with instructions 'benchmark the parser' and 'draft the README'",
+    "split this into concurrent helpers: label 'a' handles migrations, label 'b' handles seeds"
+   ],
+   "underspecified": [
+    {
+     "text": "Fan out a few helpers in parallel for this",
+     "missing": "tasks"
+    },
+    {
+     "text": "spin up background workers for the pieces",
+     "missing": "tasks"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_request_override",
+   "complete": [
+    "I got blocked by rule scope.unplanned_file on src/helpers/fmt.go — it's a small utility the outline missed, get me a waiver",
+    "Petition for a waiver of cmd.network for `curl https://example.com/schema.json`; the build needs that schema",
+    "can we get scope.test_dir lifted for tests/fixtures/big.json? the planner forgot that fixture",
+    "seek a one-off waiver of scope.unplanned_file for pkg/util/time.go — it's needed to share a parser"
+   ],
+   "underspecified": [
+    {
+     "text": "I got blocked by rule scope.unplanned_file on src/helpers/fmt.go — sort me out a one-off pass",
+     "missing": "reason"
+    },
+    {
+     "text": "the guard stopped my edit to pkg/util/time.go, it's needed to share a parser — get me a waiver",
+     "missing": "rule"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_get_next_actions",
+   "complete": [
+    "What do I do to fix what's failing — as structured instructions I can route on?",
+    "what's my remediation plan for the open findings?",
+    "categorized fix-it instructions for what the auditor flagged",
+    "How do I get from failing to green here, as an actionable plan?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_graph_query",
+   "complete": [
+    "Where is OrderRepository defined?",
+    "locate parse_flags — which module and which line range",
+    "anything called render_ something?",
+    "which declarations live under pkg/billing/?"
+   ],
+   "underspecified": [
+    {
+     "text": "Where is that defined?",
+     "missing": "query"
+    },
+    {
+     "text": "locate it — which module and which line range",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_code_dead",
+   "complete": [
+    "Which functions does nobody call?",
+    "track down unused functions",
+    "what's lying around unreferenced?",
+    "are there routines nothing invokes, and why might some only look unused?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_graph_context",
+   "complete": [
+    "Before I touch src/db.go and src/cache.go, what do they lean on and what leans on them?",
+    "how is api/routes.ts wired into everything else, both ways?",
+    "for lib/a.py and lib/b.py: upstream and downstream connections",
+    "who imports web/src/store.ts and what does it import?"
+   ],
+   "underspecified": [
+    {
+     "text": "Before I touch these, what do they lean on and what leans on them?",
+     "missing": "files"
+    },
+    {
+     "text": "how is it wired into everything else, both ways?",
+     "missing": "files"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_define_subagent",
+   "complete": [
+    "Set up a new helper type called 'sql-auditor', blurb 'looks over migrations', instructions 'You only hunt for locking hazards in SQL'",
+    "Register 'doc-writer' — purpose: writes reference docs — standing orders: 'Be concise.'",
+    "a reusable worker kind named perf-hunter, summary 'hunts hot loops', guidance 'Profile before suggesting edits'",
+    "add a specialist 'i18n-checker' (checks translation keys) whose standing orders are 'flag any hard-coded user-facing string'"
+   ],
+   "underspecified": [
+    {
+     "text": "Set up a new helper type called 'sql-auditor' that looks over migrations",
+     "missing": "system_prompt"
+    },
+    {
+     "text": "Register a specialist that checks translation keys, with standing orders 'flag hard-coded strings'",
+     "missing": "name"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_invoke_subagent",
+   "complete": [
+    "Have the sql-auditor look over migrations/0042.sql",
+    "send doc-writer off to document pkg/api, and perf-hunter to the parser, both at once",
+    "ask our i18n-checker to scan web/src for raw strings",
+    "get the security-reviewer persona on src/auth/session.rs"
+   ],
+   "underspecified": [
+    {
+     "text": "Get one of our predefined helpers on this",
+     "missing": "subagents"
+    },
+    {
+     "text": "send the specialists off on it at once",
+     "missing": "subagents"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_send_message",
+   "complete": [
+    "Tell conv-81f2 to stop touching tests and focus on the parser",
+    "ping c-0042: 'use the v2 API instead'",
+    "Let helper c-77 know the deadline moved to Thursday",
+    "relay to c-19: skip the docs, they're finished"
+   ],
+   "underspecified": [
+    {
+     "text": "Tell the helper to stop touching tests",
+     "missing": "recipient"
+    },
+    {
+     "text": "Ping c-0042 for me",
+     "missing": "message"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_manage_subagents",
+   "complete": [
+    "Which helpers are still going?",
+    "stop c-81f2 and c-77",
+    "kill every background worker",
+    "what are my sub-agents doing at the moment?"
+   ],
+   "underspecified": [
+    {
+     "text": "Take care of the sub-agents for me",
+     "missing": "action"
+    },
+    {
+     "text": "deal with the background workers",
+     "missing": "action"
+    }
+   ]
+  },
+  {
+   "tool": "mcp_list_tools",
+   "complete": [
+    "What can the connected plugin servers do?",
+    "show me the operations exposed by the 'jira' server",
+    "which external capabilities have I got hooked up?",
+    "enumerate everything the docs-search server offers"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "mcp_call_tool",
+   "complete": [
+    "On the jira server, run create_issue with {\"title\": \"Fix login\"}",
+    "invoke forecast on the 'wx' server, args {\"city\": \"Lisbon\"}",
+    "use the docs-search server's lookup with {\"q\": \"retry policy\"}",
+    "fire translate on server 'lingo' passing {\"text\": \"hello\", \"to\": \"fr\"}"
+   ],
+   "underspecified": [
+    {
+     "text": "Run create_issue with {\"title\": \"Fix login\"}",
+     "missing": "server_name"
+    },
+    {
+     "text": "invoke forecast on the 'wx' server",
+     "missing": "arguments"
+    }
+   ]
+  },
+  {
+   "tool": "mcp_list_resources",
+   "complete": [
+    "What documents does the 'wiki' server expose?",
+    "show what data the docs-search server makes available",
+    "which URIs can I pull from 'confluence-mirror'?",
+    "browse the readable items on server 'kb'"
+   ],
+   "underspecified": [
+    {
+     "text": "What documents does that server expose?",
+     "missing": "server_name"
+    },
+    {
+     "text": "browse the readable items over there",
+     "missing": "server_name"
+    }
+   ]
+  },
+  {
+   "tool": "mcp_read_resource",
+   "complete": [
+    "Fetch wiki://runbooks/deploy from the 'wiki' server",
+    "open kb://faq/billing on server kb",
+    "pull docs://api/v2/auth from docs-search",
+    "Show me what's at notes://shared/standup via the 'notes' server"
+   ],
+   "underspecified": [
+    {
+     "text": "Open the deploy runbook from the 'wiki' server",
+     "missing": "uri"
+    },
+    {
+     "text": "open kb://faq/billing",
+     "missing": "server_name"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_create_artifact",
+   "complete": [
+    "Save a new plan doc called migration_plan.md with this body: '1. freeze writes 2. copy 3. flip' — summary: DB cutover steps",
+    "Keep a write-up named auth_walkthrough.md, contents '# Login flow', summary 'how login works'",
+    "start a doc 'perf_notes.md' saying 'p99 dropped after cache fix', summary line 'perf findings'",
+    "keep a design note cache_design.md: body 'LRU, 10k entries', summary 'cache layout'"
+   ],
+   "underspecified": [
+    {
+     "text": "Save a new plan doc called migration_plan.md",
+     "missing": "content"
+    },
+    {
+     "text": "Keep this write-up for later: '# Login flow', summary 'how login works'",
+     "missing": "name"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_update_artifact",
+   "complete": [
+    "Revise migration_plan.md: new body '1. freeze 2. copy 3. verify 4. flip'",
+    "the saved auth_walkthrough.md should now say '# Login flow v2'",
+    "bump perf_notes.md to say 'p99 now 40ms'",
+    "cache_design.md should now read 'ARC, 50k entries'"
+   ],
+   "underspecified": [
+    {
+     "text": "Revise migration_plan.md",
+     "missing": "content"
+    },
+    {
+     "text": "make the saved note say 'p99 now 40ms'",
+     "missing": "name"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_list_artifacts",
+   "complete": [
+    "What saved docs do we have so far?",
+    "show me every plan and note kept for this project",
+    "which write-ups exist?",
+    "inventory of stored design docs please"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_ask_question",
+   "complete": [
+    "Pop up a choice for me: 'Which database — Postgres, SQLite or MySQL?'",
+    "Put a multi-select in front of me: 'Which platforms should v2 support? macOS, Windows, Linux'",
+    "show me a dialog with two options, 'ship now' vs 'wait for sign-off', and let me click one",
+    "Poll me with a picker: 'Dark mode on by default? yes/no'"
+   ],
+   "underspecified": [
+    {
+     "text": "Pop up a choice dialog for me",
+     "missing": "questions"
+    },
+    {
+     "text": "show me an interactive picker before you continue",
+     "missing": "questions"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_git_status",
+   "complete": [
+    "Which branch am I on, and is anything uncommitted?",
+    "what's the state of my checkout — new files nobody's added yet?",
+    "anything queued up for the next snapshot?",
+    "quick look at where my working copy stands"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_git_log",
+   "complete": [
+    "What were the last 5 things committed?",
+    "who touched things lately and when?",
+    "show the history, latest 20 entries",
+    "newest few check-ins with their messages"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_git_branches",
+   "complete": [
+    "What lines of development exist on this machine?",
+    "which ones besides main do I have here?",
+    "enumerate the refs I can switch to",
+    "what heads exist in this clone?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_git_show",
+   "complete": [
+    "What did 4e1d77a actually do, line by line?",
+    "details of the snapshot two before the tip",
+    "what went into v1.4.0, with the edits?",
+    "explain the latest check-in to me with its full contents"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_git_stage",
+   "complete": [
+    "Queue src/api.go and src/api_test.go up to be included",
+    "include docs/guide.md in what I'm about to record",
+    "mark lib/util.py as ready to go in",
+    "put migrations/0042.sql and migrations/0043.sql in the index"
+   ],
+   "underspecified": [
+    {
+     "text": "Queue those up to be included",
+     "missing": "paths"
+    },
+    {
+     "text": "mark the ones I edited as ready to go in",
+     "missing": "paths"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_git_commit",
+   "complete": [
+    "Record what's queued with the message 'fix: handle empty cart'",
+    "seal it: 'docs: clarify install steps'",
+    "save what's queued as 'refactor: split parser module'",
+    "make a checkpoint titled 'chore: bump deps'"
+   ],
+   "underspecified": [
+    {
+     "text": "Record what's queued up now",
+     "missing": "message"
+    },
+    {
+     "text": "make a checkpoint of the queued edits",
+     "missing": "message"
+    }
+   ]
+  },
+  {
+   "tool": "devcouncil_dev_inspect",
+   "complete": [
+    "What does the external council program say about the repo's overall health?",
+    "Pull the whole-repo report from the bundled audit program, outstanding-issues view for T-12",
+    "give me the out-of-process overview for the entire codebase",
+    "standalone reviewer program: repo-wide summary please"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "devcouncil_fetch_url",
+   "complete": [
+    "Grab https://docs.example.com/api/retries and tell me what it says",
+    "read the page at https://pkg.example.org/serde/derive",
+    "pull down the text from https://wiki.example.net/runbooks/deploy",
+    "what does https://example.com/changelog say about 2.0?"
+   ],
+   "underspecified": [
+    {
+     "text": "Grab that reference page and tell me what it says",
+     "missing": "url"
+    },
+    {
+     "text": "pull down the text of the link I mentioned earlier",
+     "missing": "url"
+    }
+   ]
+  },
+  {
+   "tool": "wisdevSearchPapers",
+   "complete": [
+    "Find literature on graph neural networks for drug-target binding",
+    "what's been published about intermittent fasting and sleep quality since 2020?",
+    "studies on retrieval-augmented generation for clinical notes",
+    "I need sources about coral reef bleaching recovery rates"
+   ],
+   "underspecified": [
+    {
+     "text": "Find literature on that topic for me",
+     "missing": "query"
+    },
+    {
+     "text": "what's been published about it since 2020?",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "wisdevPaperLookup",
+   "complete": [
+    "Tell me about preprint 2405.11873 — who, where, any free copy?",
+    "where and when did 10.5555/demo.2023.014 come out?",
+    "pull the record for corpus 248756123",
+    "Who wrote 2312.00451 and is there a free copy?"
+   ],
+   "underspecified": [
+    {
+     "text": "Get me the details of that preprint",
+     "missing": "paperId"
+    },
+    {
+     "text": "where and when did the one I cited come out?",
+     "missing": "paperId"
+    }
+   ]
+  },
+  {
+   "tool": "wisdevEvidenceSearch",
+   "complete": [
+    "What could back up the statement 'mindfulness reduces cortisol in adults'?",
+    "I'm asserting that sparse attention halves memory use — give me things to read on that",
+    "Gather potential support for: microplastics impair zebrafish larval development",
+    "who might corroborate that remote work boosts productivity?"
+   ],
+   "underspecified": [
+    {
+     "text": "What could back up the statement I just made?",
+     "missing": "claim"
+    },
+    {
+     "text": "Gather potential support for my hypothesis",
+     "missing": "claim"
+    }
+   ]
+  },
+  {
+   "tool": "wisdevAuthorSearch",
+   "complete": [
+    "Show everything by researcher A-5023888391",
+    "what has scholar 1741101 put out?",
+    "works from OpenAlex researcher A123456789",
+    "bibliography of researcher id 2109876543"
+   ],
+   "underspecified": [
+    {
+     "text": "Show everything by that researcher",
+     "missing": "authorId"
+    },
+    {
+     "text": "what has she put out lately?",
+     "missing": "authorId"
+    }
+   ]
+  },
+  {
+   "tool": "wisdevInspectPassages",
+   "complete": [
+    "Pull the quoted window I saved from 10.5555/demo.2023.014, chunk c-17",
+    "show me the verbatim cited text for 2405.11873 in dossier d-42",
+    "what are the stored excerpts I quoted from 248756123?",
+    "byte-exact snippet I kept from arXiv 2312.00451"
+   ],
+   "underspecified": [
+    {
+     "text": "Show me the verbatim excerpt I saved from that source",
+     "missing": "paperId"
+    },
+    {
+     "text": "what are the stored excerpts in dossier d-42?",
+     "missing": "paperId"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmPaperclipSearch",
+   "complete": [
+    "Which preprints describe CRISPRi screens in their methods for T-cell exhaustion?",
+    "dig into the body text of the biomedical record for organoid culture protocols using Matrigel substitutes",
+    "Look inside the results of trials for semaglutide and kidney outcomes",
+    "studies whose methods describe single-nucleus RNA-seq of human cortex"
+   ],
+   "underspecified": [
+    {
+     "text": "Dig into the body text of the biomedical record for that protocol",
+     "missing": "query"
+    },
+    {
+     "text": "Look inside the results of trials for it",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmPaperclipGrep",
+   "complete": [
+    "Which documents contain the literal string 'CAS 9002-93-1'?",
+    "match /rs\\d{6,}/ variant IDs inside PMC10791696",
+    "every occurrence of 'Mann-Whitney U' in the biomedical body texts",
+    "where does 'HEK293T' literally appear, ignoring capitalisation?"
+   ],
+   "underspecified": [
+    {
+     "text": "Which documents contain that literal catalogue number?",
+     "missing": "pattern"
+    },
+    {
+     "text": "every occurrence of the cell line I mentioned",
+     "missing": "pattern"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmPaperclipRead",
+   "complete": [
+    "Give me the Methods of PMC10791696",
+    "open the complete body of bio_4f78753a6feb",
+    "the Results part of med_77aa12, please",
+    "the Introduction of arx_2401_01234"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "wisdevGenerateManuscript",
+   "complete": [
+    "Draft a survey article on federated learning for hospitals, about 4000 words",
+    "write me an overview piece on microbiome and depression",
+    "compose a narrative overview of soil carbon sequestration methods grounded in 40 sources",
+    "I need a long-form scholarly summary of LLM hallucination detection, APA style"
+   ],
+   "underspecified": [
+    {
+     "text": "Draft a survey article for me, about 4000 words",
+     "missing": "query"
+    },
+    {
+     "text": "compose a long scholarly overview grounded in 40 sources",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmSynthesizePaper",
+   "complete": [
+    "Combine these three into one integrated piece on attention sparsity: 2405.11873, 2312.00451, 10.5555/demo.2023.014",
+    "weave together the findings of 10.5555/x.1 and 10.5555/x.2 on soil microbes",
+    "fuse arXiv 2401.01234 and 2402.04321 into a single write-up on diffusion distillation",
+    "integrate what PMID 31234567 and PMID 32345678 say about statins and dementia"
+   ],
+   "underspecified": [
+    {
+     "text": "Combine 2405.11873 and 2312.00451 into one integrated write-up",
+     "missing": "query"
+    },
+    {
+     "text": "weave together the sources I gave you earlier",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmExportPaper",
+   "complete": [
+    "Give me run sd-7781 as a .tex file",
+    "turn sd-1203 into a .md document, Vancouver style",
+    "I need sd-4410 rendered as a web page",
+    "hand over the output of sd-9002 for Overleaf"
+   ],
+   "underspecified": [
+    {
+     "text": "Give me the finished manuscript as a .tex file",
+     "missing": "jobId"
+    },
+    {
+     "text": "turn my last run into a web page",
+     "missing": "jobId"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmExecuteWorkflow",
+   "complete": [
+    "Here's my plan object {\"query\": \"urban heat islands\", \"outline\": [\"intro\", \"methods\"]} — produce the document from it",
+    "use this structured spec to drive generation: {\"query\": \"edge TPU benchmarks\", \"coverageMap\": {}}",
+    "build the manuscript straight from this definition: {\"query\": \"wetland restoration\", \"options\": {\"words\": 3000}}",
+    "I've written out the outline as an object, {\"query\": \"sleep and memory\", \"outline\": [\"background\"]}; go from that"
+   ],
+   "underspecified": [
+    {
+     "text": "Produce the document from my structured plan object",
+     "missing": "flow"
+    },
+    {
+     "text": "drive generation from the outline spec I prepared",
+     "missing": "flow"
+    }
+   ]
+  },
+  {
+   "tool": "wisdevGetConfig",
+   "complete": [
+    "What settings exist and what are they set to right now?",
+    "show me the search.limit setting",
+    "which parameters of the research engine are adjustable?",
+    "what's search.defaultSources currently?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "wisdevTuneConfig",
+   "complete": [
+    "Set search.limit to 25",
+    "make openalex and arxiv the go-to sources",
+    "make manuscript.genre 'systematic review' from now on",
+    "raise search.limit to 40"
+   ],
+   "underspecified": [
+    {
+     "text": "Raise the result cap",
+     "missing": "settings"
+    },
+    {
+     "text": "adjust the engine's preferences the way I described",
+     "missing": "settings"
+    }
+   ]
+  },
+  {
+   "tool": "wisdevResetConfig",
+   "complete": [
+    "Put all preferences back to factory values",
+    "undo my tweaks to search.limit",
+    "restore the original preferences",
+    "revert search.defaultSources to how it shipped"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "wisdevListProviders",
+   "complete": [
+    "Which literature backends are hooked up, and are any of them down?",
+    "what backends can I target, and what fields do they cover?",
+    "is PubMed healthy here at the moment?",
+    "valid backend names I can target?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "wisdevCapabilities",
+   "complete": [
+    "Summarize what this research service can do, all of it",
+    "full menu of operations and adjustable areas",
+    "what's the complete feature set here?",
+    "give me the big picture of everything exposed by this research server"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "scholarlmSignIn",
+   "complete": [
+    "How do I log in to this?",
+    "what credentials does the research service expect, and where?",
+    "help me get logged in",
+    "where do I put my access key for the research server?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "scholarlmGetAuthStatus",
+   "complete": [
+    "Am I logged in, and what plan am I on?",
+    "do I have permission to produce long-form documents?",
+    "What level of plan does my login carry?",
+    "do I have elevated privileges on this research login?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "scholarlmListScripts",
+   "complete": [
+    "What canned operations can I invoke remotely?",
+    "which routines may execute on the server versus only locally?",
+    "show the catalogue of runnable routines",
+    "what paper.* operations are on offer?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "scholarlmRunScript",
+   "complete": [
+    "How is sd-7781 doing? use paper.status",
+    "invoke paper.watch for sd-1203",
+    "do a quick 'search' routine for 'protein folding'",
+    "trigger paper.start with the topic 'deep sea mining impacts'"
+   ],
+   "underspecified": [
+    {
+     "text": "Invoke that routine for me",
+     "missing": "script"
+    },
+    {
+     "text": "trigger the operation I mentioned on sd-1203",
+     "missing": "script"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmListSkills",
+   "complete": [
+    "What workflow guides are bundled?",
+    "which how-to playbooks can you load?",
+    "show me the recipes you ship with",
+    "are there coding playbooks I can pull up?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "scholarlmGetSkillInstructions",
+   "complete": [
+    "Open the complete playbook for scholardoc-lifecycle",
+    "show me the how-to for literature-review",
+    "load the guide named citation-management",
+    "what does the 'manuscript-revision' recipe say?"
+   ],
+   "underspecified": [
+    {
+     "text": "Open the complete playbook for that one",
+     "missing": "skillName"
+    },
+    {
+     "text": "load the guide we discussed",
+     "missing": "skillName"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmGetAppDocs",
+   "complete": [
+    "Pull up the built-in architecture write-up before I change anything",
+    "show the agents doc",
+    "I'd like to read through the mcp_guide page before wiring up my client",
+    "open the workflows page so I can see how the stages chain together"
+   ],
+   "underspecified": [
+    {
+     "text": "Pull up the built-in docs page",
+     "missing": "docName"
+    },
+    {
+     "text": "show me that internal write-up",
+     "missing": "docName"
+    }
+   ]
+  },
+  {
+   "tool": "scholarlmGetSystemStatus",
+   "complete": [
+    "Is the research server up, and which spec revisions does it speak?",
+    "how many literature backends are counted, and is document generation hooked up?",
+    "what release of the research endpoint is this?",
+    "quick diagnostic of the research endpoint"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "engine_status",
+   "complete": [
+    "How's the draft doing — which round are we on and how does each part score?",
+    "where's the writer at right now?",
+    "word totals and grades for every chapter so far",
+    "is the drafting machine alive, and on which pass?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "list_sections",
+   "complete": [
+    "What parts does the manuscript have, and which sources feed each?",
+    "outline of the chapters with their citation bundles",
+    "enumerate the headings and their supporting key sets",
+    "which chapters exist right now?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "get_section",
+   "complete": [
+    "Show me what the discussion part says now",
+    "what's the text of 'methods' at the moment, and what issues are unresolved?",
+    "let me read the intro as it stands",
+    "pull up the 'related_work' chapter"
+   ],
+   "underspecified": [
+    {
+     "text": "Show me what that part says now",
+     "missing": "id"
+    },
+    {
+     "text": "let me read it as it stands, with unresolved issues",
+     "missing": "id"
+    }
+   ]
+  },
+  {
+   "tool": "set_section_goal",
+   "complete": [
+    "For the methods part, the aim should be 'explain sampling without jargon'",
+    "retarget 'discussion' to focus on limitations",
+    "change the purpose of intro: hook clinicians, not engineers",
+    "the related_work chapter should now aim to contrast symbolic and neural approaches"
+   ],
+   "underspecified": [
+    {
+     "text": "Retarget the discussion chapter before it's redone",
+     "missing": "goal"
+    },
+    {
+     "text": "the aim should be 'explain sampling without jargon'",
+     "missing": "id"
+    }
+   ]
+  },
+  {
+   "tool": "set_genre",
+   "complete": [
+    "Treat this as a meta-analysis from now on",
+    "We're writing a grant proposal — grade it like one",
+    "switch the style category to perspective piece",
+    "make it a thesis chapter"
+   ],
+   "underspecified": [
+    {
+     "text": "Change what kind of document this is",
+     "missing": "genre"
+    },
+    {
+     "text": "grade it as a different type of piece from now on",
+     "missing": "genre"
+    }
+   ]
+  },
+  {
+   "tool": "load_spec",
+   "complete": [
+    "Swap over to the project defined in briefs/coral.json",
+    "switch projects: use setups/sleep_paper.json now",
+    "move on to the edge-AI piece described at plans/edge_ai.json",
+    "I want to work on drafts/wetlands.json next"
+   ],
+   "underspecified": [
+    {
+     "text": "Switch projects to the other brief",
+     "missing": "path"
+    },
+    {
+     "text": "move on to the next piece, it's described in a separate setup",
+     "missing": "path"
+    }
+   ]
+  },
+  {
+   "tool": "spec_template",
+   "complete": [
+    "What format should a brief be in so the engine can execute it? Show an example",
+    "give me the blank form for describing a new writing project",
+    "what fields does a project definition need?",
+    "sample skeleton of a setup I can fill in"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "set_spec",
+   "complete": [
+    "Use this definition directly: {\"title\": \"Sleep and memory\", \"sections\": [\"intro\", \"methods\"]}",
+    "here's the project inline — {\"title\": \"Coral recovery\", \"genre\": \"narrative\"} — drive from it, no saving",
+    "take this object as the brief: {\"title\": \"Edge AI\", \"sections\": [\"background\"]}",
+    "feed it {\"title\": \"Wetlands\", \"words\": 3000} straight in"
+   ],
+   "underspecified": [
+    {
+     "text": "Use a brief I paste in rather than one stored on disk",
+     "missing": "spec"
+    },
+    {
+     "text": "take my object as the brief, no saving",
+     "missing": "spec"
+    }
+   ]
+  },
+  {
+   "tool": "reset_state",
+   "complete": [
+    "Wipe progress and begin fresh from the current brief",
+    "start over from zero",
+    "throw away the saved progress",
+    "forget all accumulated progress and go back to zero"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "generate_all",
+   "complete": [
+    "Write every chapter from scratch now",
+    "produce first versions of all parts",
+    "fill in the whole thing using the gathered sources",
+    "go ahead and compose the entire document"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "generate_section",
+   "complete": [
+    "Write the methods part again from scratch",
+    "redo 'discussion' entirely",
+    "compose the intro now",
+    "produce a fresh version of related_work"
+   ],
+   "underspecified": [
+    {
+     "text": "Write that part again from scratch",
+     "missing": "id"
+    },
+    {
+     "text": "redo just one chapter entirely",
+     "missing": "id"
+    }
+   ]
+  },
+  {
+   "tool": "review_manuscript",
+   "complete": [
+    "Critique the whole thing and give me a score",
+    "how good is the draft overall? itemize problems per part",
+    "grade everything",
+    "referee pass across all chapters"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "fact_check_section",
+   "complete": [
+    "Are all the claims in 'results' backed by the sources?",
+    "which statements in the discussion lack backing?",
+    "verify the intro against its citations",
+    "any assertions in methods that the references don't bear out?"
+   ],
+   "underspecified": [
+    {
+     "text": "Are all the claims in that part backed by the sources?",
+     "missing": "id"
+    },
+    {
+     "text": "verify one chapter against its citations",
+     "missing": "id"
+    }
+   ]
+  },
+  {
+   "tool": "coordinate_dedupe",
+   "complete": [
+    "We repeat ourselves a lot — consolidate the duplicated arguments",
+    "remove repetition between chapters",
+    "make sure each idea only shows up once in the document",
+    "trim echoes across parts"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "inject_guidance",
+   "complete": [
+    "For discussion, notes for when it's redone: 'mention sample size', 'cite 2023 trial'",
+    "queue feedback on methods: 'define acronyms'",
+    "leave these notes on intro for its rewrite: 'shorter hook'",
+    "related_work should get these remarks: 'add symbolic AI history', 'drop the blog citations'"
+   ],
+   "underspecified": [
+    {
+     "text": "Queue some feedback on methods for when it's redone",
+     "missing": "findings"
+    },
+    {
+     "text": "notes for later: 'mention sample size', 'cite 2023 trial'",
+     "missing": "section_id"
+    }
+   ]
+  },
+  {
+   "tool": "revise_section",
+   "complete": [
+    "Polish 'discussion' using the feedback it got",
+    "work the pending notes into methods",
+    "fix the intro based on the critique: 'too long', 'missing citations'",
+    "touch up related_work with the raised issues"
+   ],
+   "underspecified": [
+    {
+     "text": "Polish that part using the feedback it got",
+     "missing": "id"
+    },
+    {
+     "text": "work the pending notes into it",
+     "missing": "id"
+    }
+   ]
+  },
+  {
+   "tool": "run_iteration",
+   "complete": [
+    "Do two complete improvement loops",
+    "keep cycling until the score hits 8.5",
+    "one more round of draft-critique-fix across everything",
+    "loop three times max"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "generate_abstract",
+   "complete": [
+    "Write the summary paragraph at the top",
+    "draft the opening summary using smith2020 and lee2021",
+    "compose the 200-word overview that precedes the intro",
+    "I need the blurb that goes before everything"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "metrics",
+   "complete": [
+    "Is it converging? How many model invocations have we burned?",
+    "How many rewrites has each part had so far?",
+    "show me the trend of quality over passes and the API spend",
+    "has improvement plateaued yet?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "export_draft",
+   "complete": [
+    "Dump the finished parts for the TeX assembler",
+    "hand the chapters off to the typesetting build",
+    "write the typesetter's input bundle to out/parts.json",
+    "prepare the output the TeX pipeline consumes"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "save_state",
+   "complete": [
+    "Checkpoint progress so I can pick up tomorrow",
+    "snapshot where we are to disk",
+    "store this run so it can continue later",
+    "bookmark progress to state/run1.pkl"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "career_search_kb",
+   "complete": [
+    "Have I ever done anything with Kubernetes?",
+    "pull up my experience related to pricing experiments",
+    "what do I have on record about mentoring juniors?",
+    "anything in my history mentioning GraphQL?"
+   ],
+   "underspecified": [
+    {
+     "text": "Have I ever done anything with that?",
+     "missing": "query"
+    },
+    {
+     "text": "What do I have on record about it?",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "career_get_profile",
+   "complete": [
+    "Show me my whole background",
+    "pull my full CV data — jobs, schooling, side projects, everything",
+    "what's on file about me overall?",
+    "dump everything you know about my work history"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "career_upsert_block",
+   "complete": [
+    "Add my 2021–2023 role at Acme Robotics as Senior Engineer with bullets 'cut latency 40%' and 'led 4 people'",
+    "revise the Beta Labs entry: stack is Rust and Postgres, outcome 'shipped v1'",
+    "record my MSc at Northfield University, 2019",
+    "put in a leadership item: chaired the platform guild in 2022"
+   ],
+   "underspecified": [
+    {
+     "text": "Add my latest job to my history",
+     "missing": "block"
+    },
+    {
+     "text": "revise that side-gig entry for me",
+     "missing": "block"
+    }
+   ]
+  },
+  {
+   "tool": "career_delete_block",
+   "complete": [
+    "Remove experience entry blk-221 entirely",
+    "drop blk-007, that internship isn't relevant anymore",
+    "get rid of entry blk-090",
+    "erase blk-314 and everything under it"
+   ],
+   "underspecified": [
+    {
+     "text": "Remove that old internship from my history",
+     "missing": "block_id"
+    },
+    {
+     "text": "erase the entry we talked about",
+     "missing": "block_id"
+    }
+   ]
+  },
+  {
+   "tool": "career_distill_facts",
+   "complete": [
+    "Turn these notes into clean points: 'Q3: migrated billing to Stripe, saved 12% fees, mentored 2 interns'",
+    "pull crisp wins out of: 'rewrote search, p95 from 900ms to 120ms'",
+    "break this retro into single-claim achievements with numbers: 'shipped offline mode in 6 weeks'",
+    "boil down 'led hiring for 5 roles, cut time-to-hire 30%' into tidy points"
+   ],
+   "underspecified": [
+    {
+     "text": "Turn my notes into clean points",
+     "missing": "text"
+    },
+    {
+     "text": "pull crisp wins out of the retro I wrote",
+     "missing": "text"
+    }
+   ]
+  },
+  {
+   "tool": "career_add_facts",
+   "complete": [
+    "Attach 'cut AWS spend 18%' to entry blk-221",
+    "tack on two proven wins to blk-007: 'launched in 3 markets', 'NPS +12'",
+    "blk-090 should also mention 'on-call lead for 2 years'",
+    "staple 'built eval harness' onto blk-314"
+   ],
+   "underspecified": [
+    {
+     "text": "Attach 'cut AWS spend 18%' to that job",
+     "missing": "block_id"
+    },
+    {
+     "text": "tack some proven wins onto blk-007",
+     "missing": "facts"
+    }
+   ]
+  },
+  {
+   "tool": "career_list_personas",
+   "complete": [
+    "What angles do I have for presenting myself?",
+    "show my configured self-presentations, like the ML one versus the people-leader one",
+    "which audience variants exist?",
+    "the different modes I've set up for pitching myself"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "career_upsert_persona",
+   "complete": [
+    "Set up a 'Data Platform Lead' angle that leads with infrastructure, crisp voice",
+    "tweak the people-leader variant to put leadership ahead of side projects",
+    "add an 'Applied Research' presentation mode emphasizing publications",
+    "define a fintech-focused angle with a formal voice"
+   ],
+   "underspecified": [
+    {
+     "text": "Set up a new angle for me",
+     "missing": "persona"
+    },
+    {
+     "text": "tweak one of my variants",
+     "missing": "persona"
+    }
+   ]
+  },
+  {
+   "tool": "career_ingest_knowledge",
+   "complete": [
+    "Keep this write-up titled 'Platform retro 2023': 'we moved to k8s, cut deploys to 5 min'",
+    "store my old CV text for later lookup, call it 'CV 2019': 'Software Engineer at Initech'",
+    "save these meeting notes as 'Q2 OKR wrap': 'hit 3 of 4 goals'",
+    "index the design note 'Search rewrite design' with body 'BM25 plus rerank'"
+   ],
+   "underspecified": [
+    {
+     "text": "Keep this write-up for later lookup: 'we moved to k8s'",
+     "missing": "title"
+    },
+    {
+     "text": "store something called 'CV 2019' for later lookup",
+     "missing": "text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_analyze_jd",
+   "complete": [
+    "Break down this posting: 'Senior Backend Engineer, Go, Kafka, 5+ years, fintech'",
+    "what level and core requirements does this ad want? 'Staff ML Engineer — PyTorch, distributed training'",
+    "dissect 'Data Engineer: Spark, Airflow, SQL, healthcare'",
+    "pull the key requirements out of: 'Product Designer, Figma, B2B SaaS'"
+   ],
+   "underspecified": [
+    {
+     "text": "Break down this posting for me",
+     "missing": "jd_text"
+    },
+    {
+     "text": "what does the ad I'm looking at want?",
+     "missing": "jd_text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_gap_analysis",
+   "complete": [
+    "Which requirements of 'Senior Backend Engineer, Go, Kafka, fintech' am I thin on or lacking?",
+    "how well do I match 'Staff ML Engineer — PyTorch, distributed training'? where are the holes?",
+    "where do I fall short for 'Data Engineer: Spark, Airflow'?",
+    "do my credentials satisfy 'Product Designer, Figma, B2B' or not?"
+   ],
+   "underspecified": [
+    {
+     "text": "Which requirements am I lacking for this role?",
+     "missing": "jd_text"
+    },
+    {
+     "text": "where do I fall short?",
+     "missing": "jd_text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_score_and_select",
+   "complete": [
+    "Pick which of my experiences fit on one page for 'Senior Backend Engineer, Go, Kafka'",
+    "rank my entries for 'Staff ML Engineer — PyTorch' and choose the best two pages' worth",
+    "what should make the cut for 'Data Engineer: Spark, Airflow', one page?",
+    "prioritize my history against 'Product Designer, Figma' within 2 pages"
+   ],
+   "underspecified": [
+    {
+     "text": "Pick which experiences fit on one page",
+     "missing": "jd_text"
+    },
+    {
+     "text": "rank my entries and choose the best two pages' worth",
+     "missing": "jd_text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_rewrite_bullets",
+   "complete": [
+    "For blk-221 I reworded two lines aiming at 'Senior Backend, Go': make sure they don't lose the real numbers",
+    "vet my new lines for blk-007 against 'Staff ML Engineer' — keep the true figures",
+    "validate fresh wording for blk-090 aimed at 'Data Engineer, Spark' against the original stats",
+    "do my reworded points on blk-314 for 'Product Designer' still carry the proven stats?"
+   ],
+   "underspecified": [
+    {
+     "text": "vet my new lines against 'Staff ML Engineer' — keep the true figures",
+     "missing": "block_id"
+    },
+    {
+     "text": "validate fresh wording for blk-090 against the original stats",
+     "missing": "jd_text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_synthesize",
+   "complete": [
+    "Build me a tailored CV for 'Senior Backend Engineer, Go, Kafka, fintech'",
+    "assemble a full one-pager aimed at 'Staff ML Engineer — PyTorch'",
+    "produce the end-to-end tailored version for 'Data Engineer: Spark, Airflow'",
+    "start to finish: make my CV fit 'Product Designer, Figma'"
+   ],
+   "underspecified": [
+    {
+     "text": "Build me a tailored CV",
+     "missing": "jd_text"
+    },
+    {
+     "text": "assemble the full one-pager for the role",
+     "missing": "jd_text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_compile",
+   "complete": [
+    "Render this to PDF: `= Experience` then `- Built things`",
+    "does this .typ source build without errors? `#set text(size: 10pt)`",
+    "turn the markup I'm pasting into a printable: `= Skills`",
+    "build check for `#heading[Projects]`"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "resume_finetune_bullet",
+   "complete": [
+    "Critique this line for 'Senior Backend, Go': 'worked on payments system'",
+    "how strong is 'Led migration to Kafka, cutting lag 70%' for a 'Data Engineer' role?",
+    "does 'helped with ML stuff' land for 'Staff ML Engineer'? what's off about it?",
+    "assess 'Designed onboarding flow' against 'Product Designer, B2B SaaS'"
+   ],
+   "underspecified": [
+    {
+     "text": "Critique this line: 'worked on payments system'",
+     "missing": "jd_text"
+    },
+    {
+     "text": "how strong is my line for that role?",
+     "missing": "bullet_text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_ats_check",
+   "complete": [
+    "Would hiring software read this right? 'PROFILE / WORK HISTORY / STUDIES / TOOLKIT'",
+    "can Workday find the headings in my CV: 'Background — Toolkit — Highlights'",
+    "is this robot-friendly for screening bots? 'Profile / Work History / Skills: Go, Rust'",
+    "how would an automated screener interpret: 'Objective, Employment, Certifications'?"
+   ],
+   "underspecified": [
+    {
+     "text": "Would hiring software read my CV right?",
+     "missing": "text"
+    },
+    {
+     "text": "is my document robot-friendly for screening bots?",
+     "missing": "text"
+    }
+   ]
+  },
+  {
+   "tool": "resume_doc_list_projects",
+   "complete": [
+    "Which CV folders are you allowed into?",
+    "which CV folders have been hooked up with you?",
+    "show me the CV homes you can see",
+    "where are my CV folders?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "resume_doc_list_files",
+   "complete": [
+    "What's in ~/cv/core?",
+    "show me the sources inside ~/docs/cv with sizes",
+    "inventory of ~/cv/academic",
+    "which documents make up ~/cv/core?"
+   ],
+   "underspecified": [
+    {
+     "text": "What's in the workspace?",
+     "missing": "project_root"
+    },
+    {
+     "text": "show me the sources with sizes",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_doc_read",
+   "complete": [
+    "Open main.typ in ~/cv/core",
+    "show me parts/experience.typ from ~/docs/cv",
+    "what's inside refs.bib in ~/cv/academic?",
+    "print ~/cv/core's style.typ"
+   ],
+   "underspecified": [
+    {
+     "text": "Open a document in ~/cv/core",
+     "missing": "file_path"
+    },
+    {
+     "text": "show me parts/experience.typ",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_doc_write",
+   "complete": [
+    "Make notes.md in ~/cv/core containing '# Target roles'",
+    "replace ~/docs/cv/summary.txt with 'Backend engineer, 8 years'",
+    "start a header.typ in ~/cv/academic holding `#let tagline = [Systems engineer]`",
+    "put 'Skills: Go, Rust' into ~/cv/core/skills.txt"
+   ],
+   "underspecified": [
+    {
+     "text": "Make notes.md in ~/cv/core",
+     "missing": "content"
+    },
+    {
+     "text": "save 'Backend engineer, 8 years' into ~/docs/cv",
+     "missing": "file_path"
+    }
+   ]
+  },
+  {
+   "tool": "resume_doc_edit",
+   "complete": [
+    "In ~/cv/core/main.typ swap 'Senior Engineer' for 'Staff Engineer' and '2022' for '2023' — the copy I opened hashed to 3f7a9c",
+    "In ~/docs/cv/summary.txt swap 'Python' for 'Rust' (hash from my last look: a1b2c3d4)",
+    "~/cv/academic/cv.typ: turn 'Lecturer' into 'Senior Lecturer' everywhere, sha 9e8d7c",
+    "two substitutions in ~/cv/core/skills.typ, all or nothing — 'Go' to 'Go 1.22', 'K8s' to 'Kubernetes' — hash 55aa66bb"
+   ],
+   "underspecified": [
+    {
+     "text": "Make some substitutions in ~/cv/core/main.typ, hash 3f7a9c",
+     "missing": "edits"
+    },
+    {
+     "text": "In ~/docs/cv swap 'Python' for 'Rust', hash a1b2c3d4",
+     "missing": "file_path"
+    }
+   ]
+  },
+  {
+   "tool": "resume_variant_list",
+   "complete": [
+    "Which tailored copies exist for ~/cv/core?",
+    "what editions have I spun off from ~/docs/cv?",
+    "show the job-specific forks of ~/cv/academic",
+    "how many custom editions does ~/cv/core have?"
+   ],
+   "underspecified": [
+    {
+     "text": "Which custom copies exist?",
+     "missing": "project_root"
+    },
+    {
+     "text": "what editions have I spun off?",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_variant_create",
+   "complete": [
+    "Fork ~/cv/core into a new copy called 'acme-backend'",
+    "spin off 'ml-staff' from ~/docs/cv for the PyTorch role",
+    "make a job-specific edition 'data-eng' of ~/cv/core",
+    "branch ~/cv/academic as 'postdoc-2025'"
+   ],
+   "underspecified": [
+    {
+     "text": "Fork ~/cv/core into a new copy",
+     "missing": "name"
+    },
+    {
+     "text": "spin off 'ml-staff' for the PyTorch role",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_variant_update",
+   "complete": [
+    "Rename v-acme in ~/cv/core to 'acme-platform'",
+    "mark v-ml-staff in ~/docs/cv as submitted",
+    "attach the new posting text 'Data Engineer, Spark' to v-data-eng in ~/cv/core",
+    "~/cv/academic v-postdoc: relabel it 'postdoc-eu'"
+   ],
+   "underspecified": [
+    {
+     "text": "Rename my tailored copy in ~/cv/core to 'acme-platform'",
+     "missing": "variant_id"
+    },
+    {
+     "text": "mark v-ml-staff as submitted",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_variant_delete",
+   "complete": [
+    "Remove the v-acme copy from ~/cv/core for good",
+    "trash v-ml-staff in ~/docs/cv",
+    "get rid of tailored edition v-data-eng under ~/cv/core",
+    "~/cv/academic: drop v-postdoc, no undo needed"
+   ],
+   "underspecified": [
+    {
+     "text": "Remove a tailored copy from ~/cv/core for good",
+     "missing": "variant_id"
+    },
+    {
+     "text": "trash v-ml-staff",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_variant_diff",
+   "complete": [
+    "How does v-acme differ from the original in ~/cv/core?",
+    "what did I alter in v-ml-staff versus the base, ~/docs/cv?",
+    "compare v-data-eng against its source in ~/cv/core",
+    "~/cv/academic: what's distinct about v-postdoc?"
+   ],
+   "underspecified": [
+    {
+     "text": "How does my tailored copy differ from the original in ~/cv/core?",
+     "missing": "variant_id"
+    },
+    {
+     "text": "what did I alter in v-ml-staff?",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_compile_file",
+   "complete": [
+    "Turn ~/cv/core into a printable",
+    "render ~/docs/cv and keep the printable on disk",
+    "make a printable out of ~/cv/core/alt.typ",
+    "does ~/cv/academic come out cleanly as a printable?"
+   ],
+   "underspecified": [
+    {
+     "text": "Turn my CV folder into a printable",
+     "missing": "project_root"
+    },
+    {
+     "text": "does it come out cleanly as a printable?",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "resume_save_synthesis",
+   "complete": [
+    "Keep this markup as a fresh edition 'acme-backend' of ~/cv/core: `#set page(margin: 1in)`",
+    "store the output under ~/cv/core as 'ml-staff-2025': `= Projects`",
+    "put that layout into project ~/docs/cv as 'data-eng' with this code: `#heading[Skills]`",
+    "lodge `= Summary` in ~/cv/core as a copy called 'designer-b2b'"
+   ],
+   "underspecified": [
+    {
+     "text": "Keep this markup as a fresh edition in ~/cv/core: `= Experience`",
+     "missing": "version_name"
+    },
+    {
+     "text": "store this as 'acme-backend': `#set page(margin: 1in)`",
+     "missing": "project_root"
+    }
+   ]
+  },
+  {
+   "tool": "get_task",
+   "complete": [
+    "What am I supposed to be working on?",
+    "What's my assignment — summary, checklist items, where it sits?",
+    "remind me what this job is about and its checklist",
+    "orient me: my assignment and the lanes it could move through"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "update_status",
+   "complete": [
+    "Shift my item into 'In Progress'",
+    "I'm starting — flip me to In Progress",
+    "set my lane to 'Blocked'",
+    "park my item in 'Needs Review'"
+   ],
+   "underspecified": [
+    {
+     "text": "Shift my item to a different lane",
+     "missing": "status"
+    },
+    {
+     "text": "change where my item sits",
+     "missing": "status"
+    }
+   ]
+  },
+  {
+   "tool": "complete_task",
+   "complete": [
+    "I'm finished — wrap this up: added retry logic and specs",
+    "All set. Summary: fixed the null guard; nothing left open",
+    "This needed no edits at all — the config was already right; close it out",
+    "I've wrapped up, mark it finished with a note that the migration landed"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "get_worktree_state",
+   "complete": [
+    "Is my sandbox clean, and how far past the base am I?",
+    "what's the latest thing I recorded in my private copy?",
+    "did my edits get saved into my sandbox properly?",
+    "how much unsaved stuff is sitting in my private copy?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "post_comment",
+   "complete": [
+    "Leave a note: 'starting the DB migration'",
+    "log on the item that specs are flaky on CI",
+    "tell the watchers 'found a race in the scheduler'",
+    "drop an update: halfway through the refactor"
+   ],
+   "underspecified": [
+    {
+     "text": "Leave a note on the item",
+     "missing": "comment"
+    },
+    {
+     "text": "drop an update for the watchers",
+     "missing": "comment"
+    }
+   ]
+  },
+  {
+   "tool": "create_subtask",
+   "complete": [
+    "Add a checklist item 'write migration'",
+    "break out 'update docs' as its own sub-item",
+    "new child item: 'benchmark the parser'",
+    "put 'remove feature flag' under what I'm doing"
+   ],
+   "underspecified": [
+    {
+     "text": "Add a checklist item",
+     "missing": "title"
+    },
+    {
+     "text": "break out a sub-item for the following piece",
+     "missing": "title"
+    }
+   ]
+  },
+  {
+   "tool": "toggle_subtask",
+   "complete": [
+    "Tick off 'write migration'",
+    "mark 'update docs' as finished",
+    "un-tick 'benchmark the parser'",
+    "flip sub-item st-4"
+   ],
+   "underspecified": [
+    {
+     "text": "Tick that one off",
+     "missing": "subtask"
+    },
+    {
+     "text": "un-tick the sub-item",
+     "missing": "subtask"
+    }
+   ]
+  },
+  {
+   "tool": "report_blocker",
+   "complete": [
+    "I'm stuck: 'staging DB credentials expired' — raise it",
+    "raise an impediment: 'waiting on API key from vendor'",
+    "can't proceed until 'schema sign-off' — record that as a dependency item",
+    "flag 'CI runners down' as something stopping me"
+   ],
+   "underspecified": [
+    {
+     "text": "I'm stuck — raise it as an impediment",
+     "missing": "title"
+    },
+    {
+     "text": "flag what's stopping me",
+     "missing": "title"
+    }
+   ]
+  },
+  {
+   "tool": "get_user_guidance",
+   "complete": [
+    "Has the human left any new instructions for me?",
+    "any direction from the person watching since I began?",
+    "look for fresh steering before I refactor",
+    "did anyone drop hints while I was busy?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "board_list",
+   "complete": [
+    "What's sitting in the Review lane?",
+    "show everything across all lanes",
+    "which items are in progress right now?",
+    "overview of the whole kanban"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "board_show",
+   "complete": [
+    "Open LT-42",
+    "what's recorded against run j-9f1?",
+    "what's the item starting 'Fix login'?",
+    "pull up LT-7"
+   ],
+   "underspecified": [
+    {
+     "text": "Open that item",
+     "missing": "task"
+    },
+    {
+     "text": "pull up the one we talked about",
+     "missing": "task"
+    }
+   ]
+  },
+  {
+   "tool": "board_create",
+   "complete": [
+    "New item 'Add dark mode' in p-web",
+    "make an entry 'Migrate to Postgres 16' under p-db",
+    "spin up 'Write API docs' in p-docs for scribe",
+    "add 'Load test checkout' to p-shop"
+   ],
+   "underspecified": [
+    {
+     "text": "New item 'Add dark mode'",
+     "missing": "projectId"
+    },
+    {
+     "text": "make a fresh entry under p-db",
+     "missing": "title"
+    }
+   ]
+  },
+  {
+   "tool": "board_assign",
+   "complete": [
+    "Give LT-42 to coder-2",
+    "hand LT-7 to reviewer-bot",
+    "LT-19 belongs to scribe now",
+    "put planner-1 on LT-88"
+   ],
+   "underspecified": [
+    {
+     "text": "Hand LT-7 off",
+     "missing": "assignee"
+    },
+    {
+     "text": "put planner-1 on it",
+     "missing": "task"
+    }
+   ]
+  },
+  {
+   "tool": "board_dispatch",
+   "complete": [
+    "Get someone working on LT-42 now",
+    "launch LT-7 with coder-2",
+    "fire up execution for LT-19",
+    "set LT-88 in motion"
+   ],
+   "underspecified": [
+    {
+     "text": "Get someone working on it now",
+     "missing": "task"
+    },
+    {
+     "text": "set it in motion",
+     "missing": "task"
+    }
+   ]
+  },
+  {
+   "tool": "board_reservations",
+   "complete": [
+    "Which paths are claimed right now?",
+    "who's holding which parts of the tree?",
+    "any exclusive locks on directories at the moment?",
+    "what's off-limits because another worker has it?"
+   ],
+   "underspecified": []
+  },
+  {
+   "tool": "permission_prompt",
+   "complete": [
+    "Approve or reject call tu_01AB that wants Bash",
+    "rule on invocation tu_77 for the Edit capability",
+    "gatekeep invocation tu_42 of WebFetch",
+    "is invocation toolu_9x of Write okay to go ahead?"
+   ],
+   "underspecified": [
+    {
+     "text": "Approve or reject the call that wants Bash",
+     "missing": "tool_use_id"
+    },
+    {
+     "text": "rule on invocation tu_77",
+     "missing": "tool_name"
+    }
+   ]
+  },
+  {
+   "tool": "resolveDate",
+   "complete": [
+    "What day is next Friday?",
+    "what's the calendar day three weeks out, ISO style",
+    "when does this month end?",
+    "which day falls two Mondays from now?"
+   ],
+   "underspecified": [
+    {
+     "text": "What day would that be?",
+     "missing": "phrase"
+    },
+    {
+     "text": "When is it, spelled out in full?",
+     "missing": "phrase"
+    }
+   ]
+  },
+  {
+   "tool": "runMacro",
+   "complete": [
+    "Uppercase 'hello world'",
+    "sort these lines: banana, apple, cherry (one per line)",
+    "base64-encode 'demo-token-123'",
+    "lowercase 'SHOUTING VOICE'"
+   ],
+   "underspecified": [
+    {
+     "text": "base64-encode it",
+     "missing": "text"
+    },
+    {
+     "text": "transform 'hello world' with one of the built-ins",
+     "missing": "operation"
+    }
+   ]
+  },
+  {
+   "tool": "findSnippet",
+   "complete": [
+    "Which shortcut expands to my signature block?",
+    "what's the abbreviation for the standard bug-report template?",
+    "which keyword pops out the 'thanks for reaching out' reply?",
+    "do I have a shortcut for the meeting-notes boilerplate?"
+   ],
+   "underspecified": [
+    {
+     "text": "Which shortcut expands to that?",
+     "missing": "query"
+    },
+    {
+     "text": "do I have an abbreviation for it?",
+     "missing": "query"
+    }
+   ]
+  },
+  {
+   "tool": "bank.balance",
+   "complete": [
+    "How much does customer 44718 have?",
+    "funds on file for customer M-2093?",
+    "what's account holder 88120's amount in dollars?",
+    "how much money is available to customer 30551?"
+   ],
+   "underspecified": [
+    {
+     "text": "How much does that customer have?",
+     "missing": "member_id"
+    },
+    {
+     "text": "how much money is available to the account holder?",
+     "missing": "member_id"
+    }
+   ]
+  },
+  {
+   "tool": "bank.create-subaccount",
+   "complete": [
+    "Open a sub-account named 'Vacation' for customer 44718",
+    "for account holder 88120 set up a savings pot called 'Emergency'",
+    "add a child account 'College fund' under customer M-2093",
+    "new pocket 'Taxes 2026' for customer 30551"
+   ],
+   "underspecified": [
+    {
+     "text": "Open a sub-account for customer 44718",
+     "missing": "subaccount_name"
+    },
+    {
+     "text": "set up a savings pot called 'Emergency'",
+     "missing": "member_id"
+    }
+   ]
+  }
+ ],
+ "direct": [
+  "What's the difference between a mutex and a semaphore?",
+  "How many bytes are in a kibibyte?",
+  "Why is the sky blue?",
+  "Explain big-O notation in one paragraph.",
+  "What does the CAP theorem say?",
+  "What's the boiling point of water at sea level in Fahrenheit?",
+  "How does TCP's three-way handshake work?",
+  "What is the capital of Australia?",
+  "Explain the difference between processes and threads.",
+  "What's a closure in programming?",
+  "Is a tomato botanically a fruit?",
+  "What does idempotent mean for an HTTP method?",
+  "How does public-key cryptography work, at a high level?",
+  "Why does 0.1 + 0.2 not equal exactly 0.3 in floating point?",
+  "What is the Pythagorean theorem?",
+  "What's the difference between latency and throughput?",
+  "What causes the seasons on Earth?",
+  "Explain what a hash table is.",
+  "What does eventual consistency mean?",
+  "Why does ice float on water?",
+  "What's the difference between TCP and UDP?",
+  "What is a Bloom filter good for?",
+  "Explain recursion to a beginner.",
+  "What's the time complexity of binary search?",
+  "How does garbage collection differ from reference counting?",
+  "What is photosynthesis?",
+  "Why is division by zero undefined?",
+  "What does a load balancer do?",
+  "how many bits does an IPv6 address have?",
+  "what's the difference between a stack and a queue?"
+ ]
+}

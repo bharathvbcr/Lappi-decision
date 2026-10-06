@@ -1,0 +1,38 @@
+{
+  "schema": "qd-preregistration/v1",
+  "written": "2026-10-06T21:50Z, before runner 6c built the email pool against heldout/synth-email-v2",
+  "author": "data-clean-v6 session (integration); bands asked for by the advisor",
+  "what": "How the exclusion rate of the email synth pool against its own generator-held-out target set (heldout/synth-email-v2) is read.",
+  "measure": {
+    "rate": "decontamination.excluded_total / the candidates scanned (manifest rows_too_short_by_set.synth-candidates.rows), from pool/synth-email-v1/manifest.json",
+    "also_reported": "the rate per class (excluded_by_target ids mapped to their stratum), and the targets checkable at n=8 (rows minus too_short)"
+  },
+  "fixed": {
+    "ngram_n": 8,
+    "containment_threshold": 0.5,
+    "note": "Rule 2: neither moves to change how the rate reads."
+  },
+  "bands": [
+    {
+      "rate": "0",
+      "reading": "The template partition yields held-out emails whose text no training row contains at 0.5 of 8-grams. Read with the scan's positive control (synth::tests::a_held_out_target_is_its_rows_content_so_the_scan_still_tells_rows_apart): without it, 0 is indistinguishable from a scan that cannot hit."
+    },
+    {
+      "rate": "(0, 0.05]",
+      "reading": "Shared slot fillers make a few training rows near-copies of a held-out email; the partition holds and the scan removed them, as designed. The held-out set stands as a test of unseen templates."
+    },
+    {
+      "rate": "(0.05, 0.25]",
+      "reading": "Substantial overlap through shared fillers and phrasing: the partition is weak. The pool may train (the excluded rows are gone), but email held-out scores partly measure phrasing seen in training; a gap is recorded and partitioning the filler vocabulary as well as the templates goes to the advisor before email held-out numbers are used."
+    },
+    {
+      "rate": "(0.25, 1.0)",
+      "reading": "The template partition does not separate the text. Email held-out results are not admitted as evidence of generalization until the generator partitions content, not only templates."
+    },
+    {
+      "rate": "1.0 (pool refused)",
+      "reading": "The target-text defect persists or another scaffolding path exists; the fix is wrong."
+    }
+  ],
+  "per_class": "Any class whose own rate passes 0.5 is named, whatever the overall band."
+}

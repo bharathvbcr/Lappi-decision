@@ -15,7 +15,7 @@ been trained on, or holding it out means nothing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Final
 
@@ -23,17 +23,38 @@ from .licences import DEFAULT_LICENCE_CONFIG, LicenceConfig
 from .sources import TASK_FAMILIES, admitted_task_families
 
 __all__ = [
+    "DEDUPE_KEEP_LEXICAL",
+    "DEDUPE_KEEP_RULES",
+    "DEDUPE_KEEP_SPLIT_PRIORITY",
     "DEFAULT_HELD_OUT_FAMILIES",
     "DEFAULT_MAX_CANDIDATE_PAIRS",
     "N_HELD_OUT_FAMILIES",
     "POOL_MAX_CANDIDATE_PAIRS",
     "SPLITS",
+    "V6_LSH_MIN_AGREEMENT_PERMILLE",
     "DataConfig",
     "Split",
 ]
 
 Split = str
+#: In ascending order of protection: the split-aware dedupe keep rule ranks a split by its index.
 SPLITS: Final[tuple[str, ...]] = ("train", "val", "heldout")
+
+#: v5's keep rule: the lexicographically smallest unit key of a near-duplicate component
+#: survives, whatever its split, so a train copy whose key sorts first removes its val twin
+#: (GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND-2026-10-03; v5 worked around it with a
+#: named pre-dedupe drop list). The default, so a v5 rebuild re-derives v5's rows and hashes.
+DEDUPE_KEEP_LEXICAL: Final[str] = "lexical"
+#: v6's keep rule: the unit its split protects most survives -- held-out, then val, then train
+#: (:data:`SPLITS` order) -- and only among equals the smallest key.
+DEDUPE_KEEP_SPLIT_PRIORITY: Final[str] = "split_priority"
+DEDUPE_KEEP_RULES: Final[tuple[str, ...]] = (DEDUPE_KEEP_LEXICAL, DEDUPE_KEEP_SPLIT_PRIORITY)
+#: v6's LSH prefilter: a banded pair is a candidate only if its banded signatures agree on at
+#: least this many positions per mille (estimated Jaccard >= 0.65), so one shared band at J
+#: ~0.3-0.6 no longer counts toward the candidate bound
+#: (GAP-DEDUPE-LSH-BAND-CANDIDATES-NOT-DUPLICATES-2026-10-03). Per mille, so Python and
+#: ``qd-prep lsh`` compare the same integers and cannot round a boundary pair differently.
+V6_LSH_MIN_AGREEMENT_PERMILLE: Final[int] = 650
 
 #: The near-duplicate searches' candidate-pair bound (dedupe and the split's re-derivation).
 #: At 0.8 Jaccard on a code corpus the candidate set is a small multiple of the unit count, so
@@ -100,8 +121,20 @@ class DataConfig:
     #: search that completes finds the same pairs under any bound, so it does not change the
     #: data. A search that hits it reports ``NotRun``, and the build refuses.
     max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
+    #: Which unit of a near-duplicate component survives (:data:`DEDUPE_KEEP_RULES`). In
+    #: :meth:`fingerprint` only when it is not v5's, so a v5 config hashes as it always did.
+    dedupe_keep_rule: str = DEDUPE_KEEP_LEXICAL
+    #: The LSH agreement prefilter, per mille of the banded signature; 0 is v5's (none). In
+    #: :meth:`fingerprint` only when set: it can drop a confirmed pair whose estimate fell under
+    #: it, so unlike the bound it can change the data.
+    lsh_min_agreement_permille: int = 0
 
     metadata: dict[str, str] = field(default_factory=dict)
+    #: v6's benchmark re-pin (:meth:`with_v6_benchmark_targets`): the upstream evaluation splits
+    #: in ``qd_data.sources.BENCHMARK_TARGET_SPLITS`` are never rows, only decontamination
+    #: targets. False is v5's (MMLU test and dev train, CLINC test is split by intent); in
+    #: :meth:`fingerprint` only when set, so a v5 config hashes as it always did.
+    benchmark_eval_splits_are_targets: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.seed, int) or isinstance(self.seed, bool):
@@ -163,10 +196,24 @@ class DataConfig:
                 f"max_candidate_pairs must be >= 1, got {self.max_candidate_pairs}: a bound "
                 "of 0 makes every near-duplicate search report NotRun"
             )
+        if self.dedupe_keep_rule not in DEDUPE_KEEP_RULES:
+            raise ValueError(
+                f"dedupe_keep_rule is {self.dedupe_keep_rule!r}; known: {DEDUPE_KEEP_RULES}"
+            )
+        permille = self.lsh_min_agreement_permille
+        if not isinstance(permille, int) or isinstance(permille, bool) or not 0 <= permille <= 1000:
+            raise ValueError(
+                f"lsh_min_agreement_permille must be an int in [0, 1000], got {permille!r}"
+            )
         if not self.held_out_roots:
             raise ValueError(
                 "held_out_roots is empty: the training-time path check would then have "
                 "nothing to refuse, which is the check silently disabled"
+            )
+        if not isinstance(self.benchmark_eval_splits_are_targets, bool):
+            raise TypeError(
+                "benchmark_eval_splits_are_targets must be bool, got "
+                f"{type(self.benchmark_eval_splits_are_targets).__name__}"
             )
 
     @property
@@ -178,9 +225,20 @@ class DataConfig:
     def is_held_out_family(self, family_id: str) -> bool:
         return family_id in set(self.held_out_families)
 
+    def with_v6_dedupe_rules(self) -> DataConfig:
+        """This config under v6's dedupe rules: the split-aware keep and the LSH prefilter."""
+        return replace(
+            self,
+            dedupe_keep_rule=DEDUPE_KEEP_SPLIT_PRIORITY,
+            lsh_min_agreement_permille=V6_LSH_MIN_AGREEMENT_PERMILLE,
+        )
+
     def fingerprint(self) -> dict[str, object]:
-        """The config fields that change the data. Feeds ``data_snapshot_hash``."""
-        return {
+        """The config fields that change the data. Feeds ``data_snapshot_hash``.
+
+        The two dedupe rules are named only when they are not v5's, so every config that
+        existed before them fingerprints byte for byte as it did."""
+        body: dict[str, object] = {
             "seed": self.seed,
             "held_out_families": sorted(self.held_out_families),
             "dedupe_threshold": self.dedupe_threshold,
@@ -190,3 +248,17 @@ class DataConfig:
             "val_fraction": self.val_fraction,
             "admitted_by_human": dict(sorted(self.licence.admitted_by_human.items())),
         }
+        if self.dedupe_keep_rule != DEDUPE_KEEP_LEXICAL:
+            body["dedupe_keep_rule"] = self.dedupe_keep_rule
+        if self.lsh_min_agreement_permille:
+            body["lsh_min_agreement_permille"] = self.lsh_min_agreement_permille
+        if self.benchmark_eval_splits_are_targets:
+            body["benchmark_eval_splits_are_targets"] = True
+        return body
+
+    def with_v6_benchmark_targets(self) -> DataConfig:
+        """This config under v6's benchmark re-pin (data-clean plan section 3 item 6;
+        GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03):
+        MMLU test and dev and CLINC test are refused as rows (``benchmark_eval_split_is_a_target``)
+        and scanned as targets by ``tools/containment_scan.py --v6-benchmark-targets``."""
+        return replace(self, benchmark_eval_splits_are_targets=True)

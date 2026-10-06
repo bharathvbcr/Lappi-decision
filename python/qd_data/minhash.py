@@ -38,6 +38,11 @@ protocol a fiction:
    it against a brute-force pairwise baseline at exactly J = 0.80, so the bound in
    the report is checked rather than quoted.
 
+   v6's agreement prefilter (``BandConfig.min_agreement_permille``) trades a little more
+   of that recall for a candidate set that is not swamped by one-band collisions far below
+   the threshold; what it can cost at the threshold is subtracted from the stated recall
+   (:meth:`BandConfig.prefilter_miss_at`), and the error stays one-sided.
+
 The estimator itself is the standard one: ``P[min_h(A) == min_h(B)] = J(A, B)``, so
 the fraction of agreeing signature positions is an unbiased estimate of Jaccard with
 standard error ``sqrt(J(1-J)/num_perm)`` -- about 4% at ``num_perm=128``, J=0.8.
@@ -48,6 +53,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import math
 import re
 from dataclasses import dataclass
 from typing import Final
@@ -225,6 +231,18 @@ class BandConfig:
     bands: int
     rows: int
     threshold: float
+    #: The agreement prefilter (``DataConfig.lsh_min_agreement_permille``): a pair that shares
+    #: a band is a candidate only if its first ``bands * rows`` signature values agree on at
+    #: least this many positions per mille. 0, v5's, is no prefilter.
+    #: GAP-DEDUPE-LSH-BAND-CANDIDATES-NOT-DUPLICATES-2026-10-03: at b=16, r=8 one shared band
+    #: proposes a J=0.6 pair with probability 0.24, and v5's templated decision rows proposed
+    #: millions of pairs at J 0.5-0.8 that the exact confirmation then rejected.
+    min_agreement_permille: int = 0
+
+    def __post_init__(self) -> None:
+        p = self.min_agreement_permille
+        if not isinstance(p, int) or isinstance(p, bool) or not 0 <= p <= 1000:
+            raise ValueError(f"min_agreement_permille must be an int in [0, 1000], got {p!r}")
 
     @property
     def num_perm_used(self) -> int:
@@ -235,9 +253,26 @@ class BandConfig:
         candidate."""
         return 1.0 - (1.0 - jaccard**self.rows) ** self.bands
 
+    def prefilter_miss_at(self, jaccard: float) -> float:
+        """The chance a pair at this Jaccard fails the agreement prefilter: each of the
+        ``bands * rows`` positions agrees independently with probability ``J``, so this is
+        ``P(Binomial(width, J) * 1000 < permille * width)``. 0.0 with no prefilter."""
+        width = self.bands * self.rows
+        if not self.min_agreement_permille or width == 0:
+            return 0.0
+        need = -(-self.min_agreement_permille * width // 1000)  # the least passing count
+        return math.fsum(
+            math.comb(width, k) * jaccard**k * (1.0 - jaccard) ** (width - k)
+            for k in range(need)
+        )
+
     @property
     def recall_at_threshold(self) -> float:
         """Per-pair recall at exactly ``threshold`` -- the bound, stated.
+
+        With the agreement prefilter it is the union-bound floor ``P(band) - P(prefilter
+        fails)`` (:meth:`prefilter_miss_at`), never the unfiltered S-curve: the two events are
+        correlated, so their product would be a guess, and the difference is a floor.
 
         ``GAP-DATA-LSH-RECALL-BOUND``. Banded LSH is a probabilistic filter and this
         is the number that says so. It is a **floor** for the population above the
@@ -250,7 +285,10 @@ class BandConfig:
         cause without telling them the effect, and every reader then has to
         re-derive the S-curve or assume the filter was exhaustive. It is not.
         """
-        return self.probability_at(self.threshold)
+        banded = self.probability_at(self.threshold)
+        if not self.min_agreement_permille:
+            return banded
+        return max(0.0, banded - self.prefilter_miss_at(self.threshold))
 
 
 #: The banding objective is **deliberately not balanced**. A false positive costs one
@@ -329,12 +367,28 @@ def candidate_pairs(
     the second element -- it never returns a short list that looks complete. The
     caller (``qd_data.dedupe``) turns a truncated candidate set into a ``NotRun``
     rather than into a clean dedupe report.
+
+    With ``config.min_agreement_permille`` set, a pair two keys' band proposes is added only if
+    their first ``bands * rows`` values agree on ``agree * 1000 >= permille * width`` positions
+    -- integers, so ``qd-prep lsh`` decides every boundary pair the same way -- and a pair it
+    rejects never counts toward ``max_pairs``. Every signature must then hold the whole banded
+    prefix before any band is read, since the prefilter reads all of it.
     """
     if max_pairs < 0:
         raise ValueError(f"max_pairs must be >= 0, got {max_pairs}")
     band_rows = config.rows
     pairs: set[tuple[str, str]] = set()
     truncated = False
+    permille = config.min_agreement_permille
+    width = config.bands * band_rows
+    rejected: set[tuple[str, str]] = set()
+    if permille:
+        for key, sig in signatures.items():
+            if len(sig) < width:
+                raise ValueError(
+                    f"signature for {key!r} has {len(sig)} permutations, but the band "
+                    f"configuration needs {width}"
+                )
 
     for band in range(config.bands):
         buckets: dict[bytes, list[str]] = {}
@@ -355,7 +409,22 @@ def candidate_pairs(
             members.sort()
             for i in range(len(members)):
                 for j in range(i + 1, len(members)):
-                    pairs.add((members[i], members[j]))
+                    pair = (members[i], members[j])
+                    if permille and pair not in pairs:
+                        if pair in rejected:
+                            continue
+                        agree = sum(
+                            1
+                            for x, y in zip(
+                                signatures[pair[0]][:width], signatures[pair[1]][:width],
+                                strict=True,
+                            )
+                            if x == y
+                        )
+                        if agree * 1000 < permille * width:
+                            rejected.add(pair)
+                            continue
+                    pairs.add(pair)
                     if len(pairs) > max_pairs:
                         return frozenset(pairs), True
         if truncated:

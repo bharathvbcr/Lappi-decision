@@ -140,6 +140,7 @@ __all__ = [
     "own_prose_words",
     "prose_defect_row",
     "second_pass_permutation",
+    "sha256_file",
     "with_permuted_options",
 ]
 
@@ -430,7 +431,8 @@ def prose_defect_row(
     )
 
 
-def _sha256_file(path: Path) -> str:
+def sha256_file(path: Path) -> str:
+    """The sha256 hex digest of the file at ``path``, read in 1 MiB blocks."""
     h = hashlib.sha256()
     with path.open("rb") as fh:
         for block in iter(lambda: fh.read(1 << 20), b""):
@@ -439,7 +441,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def _check_sha(path: Path, expected: str, *, recorded_in: Path) -> None:
-    actual = _sha256_file(path)
+    actual = sha256_file(path)
     if actual != expected:
         raise DefectCorpusError(
             f"{path} hashes to {actual} but {recorded_in} records {expected}: the file "
@@ -1701,12 +1703,12 @@ def noul_allowlist(
         },
         "invisible_format_ranges": [[lo, hi] for lo, hi in INVISIBLE_FORMAT_RANGES],
         "squad": {
-            "file": Path(squad).name, "sha256": _sha256_file(Path(squad)),
+            "file": Path(squad).name, "sha256": sha256_file(Path(squad)),
             "licence": normalise_licence(source_by_id(_SQUAD_SOURCE_ID).declared_licence),
             "titles": allowed_titles, "excluded": dict(sorted(title_excluded.items())),
         },
         "pool": {
-            "file": Path(pool).name, "sha256": _sha256_file(Path(pool)),
+            "file": Path(pool).name, "sha256": sha256_file(Path(pool)),
             "records": len(pool_ids), "files": files,
             "excluded": dict(sorted(pool_excluded.items())),
         },
@@ -1752,7 +1754,7 @@ def noul_v5_allowlist(
     for lang in G6_LANGUAGES:
         path = Path(g6_root) / lang / "data.jsonl"
         assert_path_not_held_out(path, config=config, repo_root=Path(repo_root))
-        sha = _sha256_file(path)
+        sha = sha256_file(path)
         if sha != g6_pins[lang]:
             raise DefectCorpusError(
                 f"{path} hashes to {sha}; the download record pins {g6_pins[lang]}: these are "
