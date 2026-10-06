@@ -6,6 +6,21 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~03:10Z 2026-10-06: the H100 box is deleted
+
+**The H100 box is gone.**
+- **Deleted:** the human deleted the 2× H100 box (68.209.74.244), ~03:05Z.
+- **Verified:** ssh timed out at 03:08:18Z (exit 255).
+- **Saved first** (SHA-256 checked, on the Mac):
+  - the ledgers;
+  - the verdicts;
+  - 188 run-log files, in `/Users/bharath/qd-campaign/box-logs-h100-2026-10-06/`;
+  - the kept weights: v5 s1, v6x s3, and the 5-seed average in the release.
+- **Spend:** billed from 19:45Z on 10-03 to ~03:05Z on 10-06 at $8.38/h, ≈ $463. The Lambda invoice is authoritative.
+- **Board:** GitPulse task `lappi-h100-shutdown` is done.
+
+The GH200 is MLresearch's under their hold. Lappi has no GPU running.
+
 ## ~02:30Z 2026-10-06: Lappi v0.1 preview released (the human's choice past a 2-of-6 bar miss); the H100 box can be shut down
 
 **The average's row** is 6af73bef (`h100x2-v5avg-2026-10-05.jsonl`, scored 01:52:58-02:23:25Z on
