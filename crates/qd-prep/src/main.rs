@@ -18,6 +18,8 @@
 //! - `qd-prep decisions --config C --fetch-record R --decider-dir D --target NAME=FILE ...
 //!   --out-dir DIR [--survey]`: the v5 general-decision pool (see `qd_prep::decisions`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, or `texts.jsonl` with `--survey`.
+//! - `qd-prep dedupe --input IN --output OUT`: a `QDPDDIN1` request (see `qd_prep::dedupe`) ->
+//!   `QDPDDOK1`, the near-duplicate clusters and survivors `qd_data.dedupe.dedupe` finds.
 //! - `qd-prep own-repos --code-root ROOT --out FILE`: the human's own repositories, admitted
 //!   and split by the v6 holdout rule (see `qd_prep::own_repos`), written before any commit is
 //!   read.
@@ -38,7 +40,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use qd_prep::{containment, decisions, linwire, lsh, spancheck, wire};
+use qd_prep::{containment, decisions, dedupe, linwire, lsh, spancheck, wire};
 use qd_prep::{natural_bugs, own_repos};
 
 /// Threads are bounded whatever the host reports.
@@ -88,6 +90,8 @@ enum Command {
     /// The decision pool's cap refresh between two surveys: every all-admitted stratum's cap
     /// becomes its new train availability, the rest are kept (`decisions::refresh_train_caps`).
     DecisionCaps(DecisionCapsIo),
+    /// Near-duplicate clusters and survivors, as qd_data.dedupe.dedupe's MinHash path finds them.
+    Dedupe(Io),
     /// The human's own repositories under a code root, admitted and split by the v6 holdout
     /// rule; the manifest every own-repo family reads before it reads a commit.
     OwnRepos(OwnReposIo),
@@ -400,6 +404,7 @@ fn main() -> ExitCode {
         Command::Containment(io) => run_containment(io),
         Command::Decisions(io) => run_decisions(io),
         Command::DecisionCaps(io) => run_decision_caps(io),
+        Command::Dedupe(io) => run(io, dedupe::MAX_INPUT_BYTES, dedupe::run_dedupe),
         Command::OwnRepos(io) => own_repos::run(&io.code_root, &io.out),
         Command::NaturalBugs(io) => run_natural_bugs(io),
         Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),

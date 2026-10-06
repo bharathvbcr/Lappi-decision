@@ -33,10 +33,14 @@
 //!   by rule for callers with no licensable or shareable data (the human's "Synthetic only"
 //!   ruling of 2026-10-06). Not a port: there is no Python reference, so its tests pin the
 //!   rules directly. [`pool`] is the seam every v6 pool producer writes through.
+//! - [`dedupe`]: `qd_data.dedupe.dedupe`'s MinHash path end to end -- sign, band, confirm,
+//!   union across repos, and the keep rule (v5's lexical or v6's split priority) -- over
+//!   [`minhash`], [`wire`] and [`lsh`].
 
 pub mod blake2b;
 pub mod containment;
 pub mod decisions;
+pub mod dedupe;
 pub mod gitcli;
 pub mod linfit;
 pub mod linwire;

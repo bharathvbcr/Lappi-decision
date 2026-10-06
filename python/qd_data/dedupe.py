@@ -33,10 +33,17 @@ one passage and sit at Jaccard ~0.85 by construction. Within-repo near-duplicate
 are therefore **counted and reported**, never silently deleted; the count is in the
 manifest so the redundancy is visible rather than assumed away.
 
-**Which of a cross-repo pair survives is deterministic**: the lexicographically
-smallest unit key in each connected component. "Whichever came first" would depend
-on iteration order and would move ``data_snapshot_hash`` between runs over the same
-corpus.
+**Which of a cross-repo pair survives is deterministic**, and ``config.dedupe_keep_rule``
+says how. v5's rule (``lexical``, the default) keeps the lexicographically smallest unit key
+in each connected component, whatever its split -- so a train copy whose key sorts first
+removes its val twin, and no later exclusion can bring that twin back
+(GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND-2026-10-03). v6's rule (``split_priority``)
+keeps the unit its split protects most -- held-out, then val, then train -- and only among
+equals the smallest key. A unit's split is the most protected split of any of its rows
+(``qd_data.split.planned_split``): one file can carry a held-out-family example beside
+trained ones, and then the unit is held-out evidence. Either way the survivor is a pure
+function of the component; "whichever came first" would depend on iteration order and would
+move ``data_snapshot_hash`` between runs over the same corpus.
 
 **Every stage reports a tri-state.** A candidate-pair set that hit its bound is
 ``NotRun`` with the bound in the reason, never a clean dedupe over a partial pair
@@ -59,12 +66,19 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import Any, Final
 
 from qd_train.tristate import NotRun, Ran, TriState
 
-from .config import DEFAULT_MAX_CANDIDATE_PAIRS, DataConfig
+from .config import (
+    DEDUPE_KEEP_LEXICAL,
+    DEDUPE_KEEP_SPLIT_PRIORITY,
+    DEFAULT_MAX_CANDIDATE_PAIRS,
+    SPLITS,
+    DataConfig,
+)
 from .minhash import (
     BandConfig,
     MinHasher,
@@ -84,10 +98,13 @@ __all__ = [
     "DedupeReport",
     "DuplicateCluster",
     "ExactContentCluster",
+    "band_config_for",
     "content_unit_key",
     "dedupe",
+    "lsh_prefilter_note",
     "near_duplicate_policy",
     "text_digest",
+    "unit_split_ranks",
 ]
 
 #: Row metadata naming how a row's duplicates are found. Absent: MinHash at
@@ -117,6 +134,28 @@ def near_duplicate_policy(row: DataRow) -> str | None:
             f"policy is {EXACT_CONTENT!r} ({NEAR_DUPLICATE_RULING}), or the key is absent"
         )
     return value
+
+
+def band_config_for(config: DataConfig) -> BandConfig:
+    """The banding dedupe and the split's re-derivation both search with: ``choose_bands`` at
+    the config's threshold, carrying its LSH agreement prefilter when one is set."""
+    banding = choose_bands(num_perm=config.num_perm, threshold=config.dedupe_threshold)
+    if not config.lsh_min_agreement_permille:
+        return banding
+    return replace(banding, min_agreement_permille=config.lsh_min_agreement_permille)
+
+
+def lsh_prefilter_note(band_config: BandConfig) -> str:
+    """The clause a report adds when the search ran under the prefilter; empty without one, so
+    a v5 report reads as it did."""
+    if not band_config.min_agreement_permille:
+        return ""
+    return (
+        f"; LSH prefilter: a banded pair was a candidate only when its signatures agreed on >= "
+        f"{band_config.min_agreement_permille} per mille of {band_config.num_perm_used} "
+        f"positions, which a pair at the threshold fails with probability "
+        f"{band_config.prefilter_miss_at(band_config.threshold):.2e}"
+    )
 
 
 def text_digest(text: str) -> str:
@@ -231,6 +270,8 @@ class DedupeReport:
     #: :data:`DEFAULT_MAX_CANDIDATE_PAIRS`, so a pass under a raised bound is distinguishable
     #: from a pass under the default and an unraised build's manifest is unchanged.
     max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
+    #: ``config.dedupe_keep_rule``. Reported only when it is not v5's, as the bound is.
+    keep_rule: str = DEDUPE_KEEP_LEXICAL
 
     @property
     def n_exact_content_rows(self) -> int:
@@ -263,6 +304,10 @@ class DedupeReport:
         body = self._base_json()
         if self.max_candidate_pairs != DEFAULT_MAX_CANDIDATE_PAIRS:
             body["max_candidate_pairs"] = self.max_candidate_pairs
+        if self.keep_rule != DEDUPE_KEEP_LEXICAL:
+            body["dedupe_keep_rule"] = self.keep_rule
+        if self.band_config.min_agreement_permille:
+            body["lsh_min_agreement_permille"] = self.band_config.min_agreement_permille
         if self.exact_content_rows_by_family:
             # Only when a row was scoped out, so an unscoped corpus's manifest is unchanged.
             body["near_duplicate_scope"] = {
@@ -314,10 +359,45 @@ class _UnionFind:
         ra, rb = self.find(a), self.find(b)
         if ra == rb:
             return
-        # Deterministic: the lexicographically smaller key always becomes the root,
-        # so the surviving unit does not depend on the order edges arrived in.
+        # Deterministic: the lexicographically smaller key always becomes the root, so a
+        # component's root (and the order clusters are reported in) does not depend on the
+        # order edges arrived in. Which member survives is the keep rule's, not the root's.
         lo, hi = (ra, rb) if ra < rb else (rb, ra)
         self._parent[hi] = lo
+
+
+def unit_split_ranks(
+    rows: Sequence[DataRow], units: dict[str, ContentUnit], *, config: DataConfig
+) -> dict[str, int]:
+    """Each unit's split rank for the v6 keep rule: the index in :data:`SPLITS` (train 0, val
+    1, heldout 2) of the most protected split any of its rows would be assigned
+    (``qd_data.split.planned_split``). Rows of one unit share a repo and an identity, so they
+    must share a repo split; a unit whose rows disagree is refused rather than ranked."""
+    # qd_data.split imports this module (it splits a DedupeReport), so the rule's one owner is
+    # imported where it is used rather than at the top.
+    from .split import planned_split, repo_split_of
+
+    by_id = {r.row_id: r for r in rows}
+    ranks: dict[str, int] = {}
+    for key, unit in units.items():
+        members = [by_id[rid] for rid in unit.row_ids]
+        repo_splits = {repo_split_of(m, config=config) for m in members}
+        if len(repo_splits) > 1:
+            raise ValueError(
+                f"content unit {key!r} holds rows in repo splits {sorted(repo_splits)}: one "
+                "text in one repo is on one side of the split, so a rewriter pinned its rows "
+                "inconsistently"
+            )
+        ranks[key] = max(SPLITS.index(planned_split(m, config=config)) for m in members)
+    return ranks
+
+
+def _keeper(members: list[str], ranks: dict[str, int] | None) -> str:
+    """The surviving key of ``members`` (sorted): the smallest (v5), or under the v6 rule the
+    most protected split's smallest."""
+    if ranks is None:
+        return members[0]
+    return min(members, key=lambda k: (-ranks[k], k))
 
 
 def _build_units(rows: tuple[DataRow, ...]) -> dict[str, ContentUnit]:
@@ -366,7 +446,7 @@ def dedupe(
             "downstream map, so a collision would silently drop a row rather than dedupe it"
         )
 
-    band_config = choose_bands(num_perm=config.num_perm, threshold=config.dedupe_threshold)
+    band_config = band_config_for(config)
 
     if not rows:
         return DedupeReport(
@@ -378,6 +458,7 @@ def dedupe(
                 reason="dedupe received zero rows; nothing was compared, so nothing was cleared"
             ),
             max_candidate_pairs=bound,
+            keep_rule=config.dedupe_keep_rule,
         )
 
     policies = {r.row_id: near_duplicate_policy(r) for r in rows}
@@ -396,6 +477,11 @@ def dedupe(
     # The MinHash path, over the units the ruling did not scope out. With no scoped unit this
     # is every unit, and everything below reads exactly as it did before the ruling.
     searched = {k: u for k, u in units.items() if k not in exact_keys}
+    ranks = (
+        unit_split_ranks(rows, units, config=config)
+        if config.dedupe_keep_rule == DEDUPE_KEEP_SPLIT_PRIORITY
+        else None
+    )
 
     hasher = MinHasher(num_perm=config.num_perm, seed=config.seed)
     shingled: dict[str, frozenset[bytes]] = {}
@@ -441,7 +527,8 @@ def dedupe(
     for members in (sorted(v) for _, v in sorted(components.items())):
         if len(members) < 2:
             continue
-        keep, drop = members[0], tuple(members[1:])
+        keep = _keeper(members, ranks)
+        drop = tuple(k for k in members if k != keep)
         member_set = set(members)
         edges = [j for (a, b), j in edge_j.items() if a in member_set and b in member_set]
         rows_dropped = [rid for k in drop for rid in units[k].row_ids]
@@ -461,7 +548,7 @@ def dedupe(
     # states what MinHash did, and the scope note states the rest.
     n_minhash_dropped_rows, n_minhash_dropped_units = len(dropped_rows), len(dropped_units)
     exact_clusters, exact_units_dropped, exact_rows_dropped = _exact_content_clusters(
-        units, exact_keys
+        units, exact_keys, ranks
     )
     dropped_units.update(exact_units_dropped)
     dropped_rows.update(exact_rows_dropped)
@@ -480,6 +567,12 @@ def dedupe(
             f"{len(rows) - n_exact_rows} of {len(rows)} rows"
         )
     )
+    scope_note += lsh_prefilter_note(band_config)
+    if ranks is not None:
+        scope_note += (
+            "; keep rule split_priority: each component kept its held-out, else val, else "
+            "train member, the smallest key among equals"
+        )
 
     kept = tuple(r for r in rows if r.row_id not in dropped_rows)
 
@@ -541,26 +634,30 @@ def dedupe(
         max_candidate_pairs=bound,
         exact_content_rows_by_family=exact_by_family,
         exact_content_clusters=tuple(exact_clusters),
+        keep_rule=config.dedupe_keep_rule,
     )
 
 
 def _exact_content_clusters(
-    units: dict[str, ContentUnit], exact_keys: set[str]
+    units: dict[str, ContentUnit], exact_keys: set[str], ranks: dict[str, int] | None
 ) -> tuple[list[ExactContentCluster], set[str], set[str]]:
     """The exact-content path: scoped units grouped by the digest of their text alone.
 
-    In each group the lexicographically smallest unit key survives (as in the MinHash path,
-    so the survivor does not depend on input order) -- unless a searched unit has the same
-    text, in which case every scoped unit of the group is dropped in its favour: the MinHash
-    path stays the one owner of a text it searched.
+    In each group the keep rule's unit survives (as in the MinHash path, so the survivor does
+    not depend on input order) -- unless a searched unit has the same text, in which case every
+    scoped unit of the group is dropped in its favour: the MinHash path stays the one owner of
+    a text it searched. Under the v6 rule (``ranks``) that owner is the most protected searched
+    unit of the text, and a scoped unit that outranks it is refused: keeping it would mean
+    dropping a unit the MinHash path already decided, after the fact.
     """
     by_digest: dict[str, list[str]] = {}
     for key in sorted(exact_keys):
         by_digest.setdefault(text_digest(units[key].text), []).append(key)
-    searched_owner: dict[str, str] = {}
+    searched_by_digest: dict[str, list[str]] = {}
     for key in sorted(units):
         if key not in exact_keys:
-            searched_owner.setdefault(text_digest(units[key].text), key)
+            searched_by_digest.setdefault(text_digest(units[key].text), []).append(key)
+    searched_owner = {d: _keeper(keys, ranks) for d, keys in searched_by_digest.items()}
     clusters: list[ExactContentCluster] = []
     dropped_units: set[str] = set()
     dropped_rows: set[str] = set()
@@ -568,8 +665,18 @@ def _exact_content_clusters(
         owner = searched_owner.get(digest)
         if owner is None and len(members) < 2:
             continue
-        keep = None if owner is not None else members[0]
-        drop = tuple(members) if owner is not None else tuple(members[1:])
+        if owner is not None and ranks is not None:
+            outranking = [m for m in members if ranks[m] > ranks[owner]]
+            if outranking:
+                raise ValueError(
+                    f"exact-content unit {outranking[0]!r} (split rank {ranks[outranking[0]]}) "
+                    f"has the text of searched unit {owner!r} (split rank {ranks[owner]}): the "
+                    "v6 keep rule would keep the scoped unit and drop a unit the MinHash path "
+                    "already decided, which this dedupe does not do; refused rather than "
+                    "dropping the more protected copy"
+                )
+        keep = None if owner is not None else _keeper(members, ranks)
+        drop = tuple(members) if owner is not None else tuple(m for m in members if m != keep)
         rows_dropped = [rid for k in drop for rid in units[k].row_ids]
         involved = [*members, *([owner] if owner is not None else [])]
         clusters.append(

@@ -15,6 +15,7 @@ The binary is built by ``conftest.qd_prep_bin``; without cargo these are SKIPPED
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import struct
@@ -66,6 +67,7 @@ def _band(binary: Path, sigs: dict[str, tuple[int, ...]], config: BandConfig,
     return pipeline._prep_candidate_pairs(
         binary, list(sigs), banded.reshape(len(sigs), width), bands=config.bands,
         rows=config.rows, max_pairs=max_pairs,
+        min_agreement_permille=config.min_agreement_permille,
     )
 
 
@@ -76,17 +78,20 @@ def _band(binary: Path, sigs: dict[str, tuple[int, ...]], config: BandConfig,
                   unique=True),
     bands=st.integers(min_value=0, max_value=4),
     rows=st.integers(min_value=0, max_value=3),
+    permille=st.sampled_from([0, 1, 333, 500, 650, 999, 1000]),
 )
 def test_pairs_and_truncation_match_the_reference_on_adversarial_keys(
-    qd_prep_bin: Path, data: st.DataObject, keys: list[str], bands: int, rows: int
+    qd_prep_bin: Path, data: st.DataObject, keys: list[str], bands: int, rows: int,
+    permille: int,
 ) -> None:
     """A three-value pool forces bucket collisions; every bound from 0 to past the pair count
     is reachable, so the truncated prefix -- which depends on the order the reference adds
-    pairs in -- is compared as often as the full set."""
+    pairs in -- is compared as often as the full set. The agreement prefilter is drawn too
+    (0 is v5's QDPLSIN1 request), at per-mille values on and between whole agreement counts."""
     values = st.sampled_from([0, 1, 2**64 - 1])
     sigs = {k: tuple(data.draw(st.lists(values, min_size=bands * rows,
                                         max_size=bands * rows))) for k in keys}
-    config = BandConfig(bands=bands, rows=rows, threshold=0.8)
+    config = BandConfig(bands=bands, rows=rows, threshold=0.8, min_agreement_permille=permille)
     max_pairs = data.draw(st.integers(min_value=0, max_value=len(keys) ** 2 // 2 + 2))
     got = _band(qd_prep_bin, sigs, config, max_pairs)
     assert (got.pairs, got.truncated) == candidate_pairs(sigs, config=config, max_pairs=max_pairs)
@@ -116,14 +121,36 @@ def _real_signatures(binary: Path) -> dict[str, tuple[int, ...]]:
     return {k: signed[s] for k, s in shingled.items()}
 
 
-def test_real_signatures_band_like_the_reference_at_every_bound(qd_prep_bin: Path) -> None:
+@pytest.mark.parametrize("permille", [0, 650])
+def test_real_signatures_band_like_the_reference_at_every_bound(
+    qd_prep_bin: Path, permille: int
+) -> None:
+    bands = dataclasses.replace(BANDS, min_agreement_permille=permille)
     sigs = _real_signatures(qd_prep_bin)
-    full, truncated = candidate_pairs(sigs, config=BANDS, max_pairs=10**9)
+    full, truncated = candidate_pairs(sigs, config=bands, max_pairs=10**9)
     assert not truncated
     assert len(full) > 20, "near-duplicates must exist or the comparison is vacuous"
+    if permille:
+        unfiltered, _ = candidate_pairs(sigs, config=BANDS, max_pairs=10**9)
+        assert full <= unfiltered, "the prefilter only ever removes candidates"
     for bound in (0, 1, 7, len(full) // 2, len(full) - 1, len(full), len(full) + 1):
-        got = _band(qd_prep_bin, sigs, BANDS, bound)
-        assert (got.pairs, got.truncated) == candidate_pairs(sigs, config=BANDS, max_pairs=bound)
+        got = _band(qd_prep_bin, sigs, bands, bound)
+        assert (got.pairs, got.truncated) == candidate_pairs(sigs, config=bands, max_pairs=bound)
+
+
+def test_v6_dedupe_and_split_decide_identically_inside_the_native_block(qd_prep: Path) -> None:
+    """The prefilter reaches qd-prep lsh through ``native_minhash`` (a QDPLSIN2 request), and
+    every v6 dedupe and split decision is the reference's."""
+    config = DataConfig().with_v6_dedupe_rules()
+    rows = _corpus_rows()
+    want = dedupe(list(rows), config=config)
+    want_split = split(want, config=config)
+    with pipeline.native_minhash(rows, config=config):
+        got = dedupe(list(rows), config=config)
+        got_split = split(got, config=config)
+    assert want.n_dropped_rows > 0 and got == want
+    assert got_split.assignments == want_split.assignments
+    assert got_split.near_duplicate_disjoint == want_split.near_duplicate_disjoint
 
 
 def _corpus_rows():

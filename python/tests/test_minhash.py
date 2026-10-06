@@ -352,3 +352,77 @@ def test_the_recall_bound_holds_above_the_threshold_which_is_where_it_is_quoted(
     for jaccard in (0.80, 0.85, 0.90, 0.95, 0.99):
         assert config.probability_at(jaccard) >= floor
     assert config.probability_at(0.95) == pytest.approx(1.0, abs=1e-6)
+
+
+# -- the agreement prefilter: GAP-DEDUPE-LSH-BAND-CANDIDATES-NOT-DUPLICATES-2026-10-03 ---------
+
+
+def _low_jaccard_band_twins(width: int = 128, rows: int = 8) -> dict[str, tuple[int, ...]]:
+    """Two signatures that share band 0 exactly and agree nowhere else past it: 38 of 128
+    positions agree (estimated J 0.297), a pair at true J ~0.3 that one band proposed."""
+    a = tuple(range(width))
+    b = a[:38] + tuple(10_000 + i for i in range(width - 38))
+    assert a[:rows] == b[:rows] and sum(x == y for x, y in zip(a, b, strict=True)) == 38
+    return {"a": a, "b": b}
+
+
+def test_a_band_collision_at_low_jaccard_is_not_a_candidate_under_the_prefilter() -> None:
+    """At b=16, r=8 one shared band makes a pair a candidate whatever its other 120 positions
+    say, and v5's pool proposed millions of such pairs at J 0.5-0.8. With the prefilter a pair
+    is a candidate only if its banded signatures agree on at least 650 per mille."""
+    sigs = _low_jaccard_band_twins()
+    plain = BandConfig(bands=16, rows=8, threshold=0.8)
+    assert candidate_pairs(sigs, config=plain, max_pairs=10) == (frozenset({("a", "b")}), False)
+    filtered = BandConfig(bands=16, rows=8, threshold=0.8, min_agreement_permille=650)
+    assert candidate_pairs(sigs, config=filtered, max_pairs=10) == (frozenset(), False)
+
+
+def test_a_pair_the_prefilter_rejects_does_not_count_toward_the_bound() -> None:
+    """The prefilter runs before the bound: rejected collisions cannot truncate the search."""
+    width = 128
+    sigs = {f"low{i}": tuple(range(8)) + tuple(1_000 * (i + 1) + j for j in range(width - 8))
+            for i in range(6)}
+    sigs["hi0"] = tuple(5_000_000 + j for j in range(width))
+    sigs["hi1"] = sigs["hi0"][:100] + tuple(9_000_000 + j for j in range(width - 100))
+    plain = BandConfig(bands=16, rows=8, threshold=0.8)
+    assert candidate_pairs(sigs, config=plain, max_pairs=3)[1], "unfiltered, the bound is hit"
+    filtered = BandConfig(bands=16, rows=8, threshold=0.8, min_agreement_permille=650)
+    assert candidate_pairs(sigs, config=filtered, max_pairs=3) == (
+        frozenset({("hi0", "hi1")}), False
+    )
+
+
+def test_the_prefilter_compares_whole_counts_at_the_boundary() -> None:
+    """``agree * 1000 >= permille * width``, in integers, so Python and qd-prep cannot round a
+    boundary pair differently: 83 of 128 is 648.4 per mille and fails 650; 84 is 656.25."""
+    for agree, want in ((83, False), (84, True)):
+        a = tuple(range(128))
+        b = a[:agree] + tuple(10_000 + i for i in range(128 - agree))
+        config = BandConfig(bands=16, rows=8, threshold=0.8, min_agreement_permille=650)
+        assert bool(candidate_pairs({"a": a, "b": b}, config=config, max_pairs=5)[0]) is want
+
+
+def test_the_prefilter_refuses_a_signature_shorter_than_the_banding_up_front() -> None:
+    config = BandConfig(bands=2, rows=2, threshold=0.8, min_agreement_permille=650)
+    with pytest.raises(ValueError, match="needs 4"):
+        candidate_pairs({"a": (1, 2, 3, 4), "b": (1, 2, 3)}, config=config, max_pairs=5)
+
+
+@pytest.mark.parametrize("permille", [-1, 1001])
+def test_a_permille_outside_its_range_is_refused(permille: int) -> None:
+    with pytest.raises(ValueError, match="min_agreement_permille"):
+        BandConfig(bands=16, rows=8, threshold=0.8, min_agreement_permille=permille)
+
+
+def test_the_recall_floor_subtracts_what_the_prefilter_can_cost_at_the_threshold() -> None:
+    """A pair at exactly J=0.8 fails the prefilter when fewer than 84 of 128 positions agree:
+    P(Binomial(128, 0.8) <= 83), computed here independently. The stated recall is the union
+    bound ``P(band) - P(prefilter fails)``, a floor, never the unfiltered number."""
+    plain = choose_bands(num_perm=128, threshold=0.8)
+    filtered = BandConfig(bands=plain.bands, rows=plain.rows, threshold=0.8,
+                          min_agreement_permille=650)
+    miss = sum(math.comb(128, k) * 0.8**k * 0.2 ** (128 - k) for k in range(84))
+    assert filtered.prefilter_miss_at(0.8) == pytest.approx(miss, rel=1e-9)
+    assert 0.0 < miss < 1e-4
+    assert filtered.recall_at_threshold == pytest.approx(plain.recall_at_threshold - miss)
+    assert plain.prefilter_miss_at(0.8) == 0.0
