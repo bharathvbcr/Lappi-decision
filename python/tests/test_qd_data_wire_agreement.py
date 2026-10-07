@@ -436,14 +436,16 @@ DATA_LANE_ONLY = {
 #: ``test_an_empty_task_is_refused_here_the_way_the_runtime_refuses_it`` is what looked.
 #:
 #: ``context_not_unified_diff`` and ``context_language_not_in_pool`` are serving-time
-#: admission (``crates/qd-runtime/src/admission.rs``): a ``code.defect_class`` context that
-#: is not the trained ``file: <path>`` + blank line + unified-diff-hunks shape, or whose
-#: path's language (``qd_lang::language_from_path``) is not in
+#: admission (``crates/qd-runtime/src/admission.rs``): a ``code.defect_class`` context in
+#: neither trained shape (single-file: ``file: <path>`` + blank line + unified-diff hunks;
+#: composed: ``file: <repo>`` + blank line + ``diff --git``/``---``/``+++`` file blocks), or
+#: with a file whose language (``qd_lang::language_from_path``) is not in
 #: ``qd_lang::DEFECT_CLASS_POOL_LANGUAGES``, is refused before the model is asked. This
-#: lane asks neither question of a request: the defect rewriter *produces* that shape
+#: lane asks neither question of a request: the defect rewriter *produces* those shapes
 #: (``mixture.py::rewrite_defect_class``), and it deliberately builds rows of this family the
-#: admission check refuses -- composed rows open every file block with ``diff --git`` /
-#: ``---`` / ``+++``, and the noul corpus holds Kotlin and C# diffs. Its nearest checks are
+#: admission check refuses -- the noul corpus holds Kotlin and C# diffs, and the prose routes
+#: hold no hunk. (Composed rows were in that list until 2026-10-07, when admission learned
+#: their shape: GAP-ADMISSION-REFUSES-COMPOSED-DEFECT-CLASS-ROWS.) Its nearest checks are
 #: other questions: ``pool_builder.py`` skips files outside ``POOL_EXTENSIONS``, the reader's
 #: five languages including Swift, as a counter rather than a refusal; ``defect_class.py``
 #: returns a ``diff_is_not_a_hunk`` reason code for a noul row. Neither is a ``QdRefusal``.
@@ -617,13 +619,12 @@ _DEFECT_CLASS_TASK_DECL = re.compile(
     [
         (b"file: app/src/Foo.kt\n\n@@ -1 +1 @@\n-a\n+b", "context_language_not_in_pool"),
         (
-            b"file: src/lib.rs\n\ndiff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n"
-            b"+++ b/src/lib.rs\n@@ -1 +1 @@\n-a\n+b",
+            b"file: src/lib.rs\n\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-a\n+b",
             "context_not_unified_diff",
         ),
         (b"file: src/lib.rs\n\nfn add(a: i32) -> i32 { a + 1 }", "context_not_unified_diff"),
     ],
-    ids=["language outside the pool", "diff --git preamble", "no hunk at all"],
+    ids=["language outside the pool", "bare ---/+++ preamble", "no hunk at all"],
 )
 def test_the_admission_shapes_are_built_here_rather_than_refused(
     context: bytes, runtime_kind: str

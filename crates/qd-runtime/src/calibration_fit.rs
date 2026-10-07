@@ -42,6 +42,7 @@
 //! real data; on anything else it is the runtime's view of the number, not the file's.
 
 use crate::calibration::{CalibrationEntry, calibrate};
+use crate::schema::RESERVED_NOUL_ROWS;
 
 /// `fit_temperature`'s lower search bound (`calibration_fit.py`, `lo`).
 pub const TEMPERATURE_LO: f64 = 0.05;
@@ -207,6 +208,16 @@ pub struct TemperatureFit {
     pub at_upper_bound: bool,
 }
 
+/// Rows of logits for the NLL, each with its own width: a letter entry's rows are all one width,
+/// a span entry's pointer rows are as wide as each context has lines.
+struct NllRows<'a> {
+    /// Every row's logits, widened, back to back.
+    z: Vec<f64>,
+    /// `(offset into z, width)` per row.
+    bounds: Vec<(usize, usize)>,
+    gold: &'a [usize],
+}
+
 /// Reused buffers for [`nll`], so 400 evaluations allocate once.
 struct NllScratch {
     shifted: Vec<f64>,
@@ -215,52 +226,52 @@ struct NllScratch {
 }
 
 /// `fit_temperature`'s `nll(t)`, operation for operation:
-/// `s = z / t; s = s - s.max(axis=1); -(s[rows, y] - log(exp(s).sum(axis=1))).mean()`.
-fn nll(z: &[f64], width: usize, gold: &[usize], t: f64, s: &mut NllScratch) -> f64 {
-    for (i, row) in z.chunks_exact(width).enumerate() {
+/// `s = z / t; s = s - s.max(axis=1); -(s[rows, y] - log(exp(s).sum(axis=1))).mean()`. Per row
+/// it is the same arithmetic whatever the row's width, which is what lets one search serve the
+/// span entry's ragged rows (`fit_span_temperature`).
+fn nll(rows: &NllRows<'_>, t: f64, s: &mut NllScratch) -> f64 {
+    for (i, &(offset, width)) in rows.bounds.iter().enumerate() {
+        let row = &rows.z[offset..offset + width];
         // `np.maximum.reduce` keeps the earlier element on a tie, which only matters for the
         // sign of a zero; `d = s - max` then equals for both signs, and exp(+-0) is 1. Every
-        // logit is finite (`LetterRows::push`), so `>` is the whole comparison.
+        // logit is finite (`LetterRows::push`, `SpanRows::push`), so `>` is the whole comparison.
         let mut max = row[0] / t;
-        for (shifted, z) in s.shifted.iter_mut().zip(row) {
+        for (shifted, z) in s.shifted[..width].iter_mut().zip(row) {
             let v = z / t;
             *shifted = v;
             if v > max {
                 max = v;
             }
         }
-        for (shifted, e) in s.shifted.iter_mut().zip(s.exps.iter_mut()) {
+        for (shifted, e) in s.shifted[..width].iter_mut().zip(s.exps.iter_mut()) {
             *shifted -= max;
             *e = shifted.exp();
         }
         let log_sum = pairwise_sum(&s.exps[..width]).ln();
-        s.per_row[i] = s.shifted[gold[i]] - log_sum;
+        s.per_row[i] = s.shifted[rows.gold[i]] - log_sum;
     }
     -(pairwise_sum(&s.per_row) / s.per_row.len() as f64)
 }
 
-/// The temperature minimising held-out NLL: ternary search on `log T` over
-/// `[TEMPERATURE_LO, TEMPERATURE_HI]`, [`TEMPERATURE_ITERS`] iterations — `fit_temperature`.
-pub fn fit_temperature(rows: &LetterRows) -> Result<TemperatureFit> {
+/// The ternary search on `log T` over `[TEMPERATURE_LO, TEMPERATURE_HI]`,
+/// [`TEMPERATURE_ITERS`] iterations, minimising [`nll`].
+fn search_temperature(rows: &NllRows<'_>) -> Result<TemperatureFit> {
     ensure!(
-        !rows.is_empty(),
+        !rows.bounds.is_empty(),
         "logits must be 2-D and non-empty, got 0 rows"
     );
-    let width = rows.width;
-    let z: Vec<f64> = rows.logits.iter().map(|v| f64::from(*v)).collect();
+    let widest = rows.bounds.iter().map(|(_, w)| *w).max().unwrap_or(0);
     let mut scratch = NllScratch {
-        shifted: vec![0.0; width],
-        exps: vec![0.0; width],
-        per_row: vec![0.0; rows.len()],
+        shifted: vec![0.0; widest],
+        exps: vec![0.0; widest],
+        per_row: vec![0.0; rows.bounds.len()],
     };
     let (lo, hi) = (TEMPERATURE_LO.ln(), TEMPERATURE_HI.ln());
     let (mut a, mut b) = (lo, hi);
     for _ in 0..TEMPERATURE_ITERS {
         let m1 = a + (b - a) / 3.0;
         let m2 = b - (b - a) / 3.0;
-        if nll(&z, width, &rows.gold, m1.exp(), &mut scratch)
-            < nll(&z, width, &rows.gold, m2.exp(), &mut scratch)
-        {
+        if nll(rows, m1.exp(), &mut scratch) < nll(rows, m2.exp(), &mut scratch) {
             b = m2;
         } else {
             a = m1;
@@ -271,11 +282,22 @@ pub fn fit_temperature(rows: &LetterRows) -> Result<TemperatureFit> {
         temperature.is_finite() && temperature > 0.0,
         "the temperature search produced {temperature}"
     );
-    let at_fit = nll(&z, width, &rows.gold, temperature, &mut scratch);
+    let at_fit = nll(rows, temperature, &mut scratch);
     Ok(TemperatureFit {
         temperature,
-        at_lower_bound: nll(&z, width, &rows.gold, TEMPERATURE_LO, &mut scratch) <= at_fit,
-        at_upper_bound: nll(&z, width, &rows.gold, TEMPERATURE_HI, &mut scratch) <= at_fit,
+        at_lower_bound: nll(rows, TEMPERATURE_LO, &mut scratch) <= at_fit,
+        at_upper_bound: nll(rows, TEMPERATURE_HI, &mut scratch) <= at_fit,
+    })
+}
+
+/// The temperature minimising held-out NLL: ternary search on `log T` over
+/// `[TEMPERATURE_LO, TEMPERATURE_HI]`, [`TEMPERATURE_ITERS`] iterations — `fit_temperature`.
+pub fn fit_temperature(rows: &LetterRows) -> Result<TemperatureFit> {
+    let width = rows.width;
+    search_temperature(&NllRows {
+        z: rows.logits.iter().map(|v| f64::from(*v)).collect(),
+        bounds: (0..rows.len()).map(|i| (i * width, width)).collect(),
+        gold: &rows.gold,
     })
 }
 
@@ -535,6 +557,23 @@ pub fn fit_entry(rows: &LetterRows, alpha: f64, target_precision: f64) -> Result
     let noul_margin = fit_noul_margin(&margins, &correct, target_precision)?;
     let nonconformity_quantile = split_conformal_nonconformity(&p_gold, alpha)?;
     let conformal_quantile = probability_cutoff_from_nonconformity(nonconformity_quantile)?;
+    entry_fit(
+        rows.len(),
+        temperature,
+        nonconformity_quantile,
+        conformal_quantile,
+        noul_margin,
+    )
+}
+
+/// The checks every fitted entry passes, and the [`EntryFit`] they describe.
+fn entry_fit(
+    n: usize,
+    temperature: TemperatureFit,
+    nonconformity_quantile: f64,
+    conformal_quantile: f64,
+    noul_margin: f64,
+) -> Result<EntryFit> {
     ensure!(
         temperature.temperature.is_finite() && temperature.temperature > 0.0,
         "temperature must be finite and > 0, got {}",
@@ -550,12 +589,234 @@ pub fn fit_entry(rows: &LetterRows, alpha: f64, target_precision: f64) -> Result
         );
     }
     Ok(EntryFit {
-        n: rows.len(),
+        n,
         temperature,
         nonconformity_quantile,
         conformal_quantile,
         noul_margin,
     })
+}
+
+/// The span rows of the table's one span entry: per row, the start and end pointers' scores over
+/// the runtime's rows (`answer.rs::span_rows`: one per line start, the abstention last) and each
+/// pointer's gold row. Rows differ in width, because contexts differ in line count.
+///
+/// What a span verdict line carries since 2026-10-07 (`tools/real_ft_run.py::_decode`:
+/// `start_logits`, `end_logits`, `gold_start`, `gold_end`) —
+/// `GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SpanRows {
+    start: Vec<Vec<f32>>,
+    end: Vec<Vec<f32>>,
+    gold_start: Vec<usize>,
+    gold_end: Vec<usize>,
+}
+
+impl SpanRows {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append one row. Refuses what the runtime's pointer decode could not produce: unequal or
+    /// fewer than two rows (a context has at least one line, plus the abstention), a non-finite
+    /// score, a gold row outside the rows, one pointer's gold abstaining without the other's, and
+    /// a gold span that runs backwards.
+    pub fn push(
+        &mut self,
+        start: &[f32],
+        end: &[f32],
+        gold_start: usize,
+        gold_end: usize,
+    ) -> Result<()> {
+        let rows = start.len();
+        ensure!(
+            end.len() == rows,
+            "{rows} start scores and {} end scores: both pointers range over one context's rows",
+            end.len()
+        );
+        ensure!(
+            rows >= 2,
+            "a span row needs at least 2 pointer rows (a line and the abstention), got {rows}"
+        );
+        ensure!(
+            start.iter().chain(end).all(|v| v.is_finite()),
+            "a pointer score is non-finite; a fit over it would fit nothing the runtime serves"
+        );
+        ensure!(
+            gold_start < rows && gold_end < rows,
+            "gold rows ({gold_start}, {gold_end}) are outside {rows} pointer rows"
+        );
+        let noul = rows - RESERVED_NOUL_ROWS;
+        ensure!(
+            (gold_start == noul) == (gold_end == noul),
+            "gold rows ({gold_start}, {gold_end}): one pointer abstains (row {noul}) and the other \
+             does not, which no span gold is"
+        );
+        ensure!(
+            gold_start <= gold_end,
+            "gold span ({gold_start}, {gold_end}) runs backwards"
+        );
+        self.start.push(start.to_vec());
+        self.end.push(end.to_vec());
+        self.gold_start.push(gold_start);
+        self.gold_end.push(gold_end);
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        self.gold_start.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.gold_start.is_empty()
+    }
+
+    /// Row `i`'s pointer rows, abstention included.
+    pub fn width(&self, i: usize) -> usize {
+        self.start[i].len()
+    }
+
+    /// The rows at `indices`, in the order given — order is part of the fit, as for
+    /// [`LetterRows::subset`].
+    pub fn subset(&self, indices: &[usize]) -> Result<Self> {
+        let mut out = Self::new();
+        for &i in indices {
+            ensure!(
+                i < self.len(),
+                "row index {i} is outside {} rows",
+                self.len()
+            );
+            out.start.push(self.start[i].clone());
+            out.end.push(self.end[i].clone());
+            out.gold_start.push(self.gold_start[i]);
+            out.gold_end.push(self.gold_end[i]);
+        }
+        Ok(out)
+    }
+}
+
+/// The span entry's temperature: one, because `answer.rs` reads both pointers through the one
+/// span entry. The NLL is over `2n` pointer rows interleaved `start_0, end_0, start_1, ...`, each
+/// at its own gold — `calibration_fit.py::fit_span_temperature`.
+pub fn fit_span_temperature(rows: &SpanRows) -> Result<TemperatureFit> {
+    let mut z = Vec::new();
+    let mut bounds = Vec::with_capacity(2 * rows.len());
+    let mut gold = Vec::with_capacity(2 * rows.len());
+    for i in 0..rows.len() {
+        for (scores, g) in [
+            (&rows.start[i], rows.gold_start[i]),
+            (&rows.end[i], rows.gold_end[i]),
+        ] {
+            bounds.push((z.len(), scores.len()));
+            z.extend(scores.iter().map(|v| f64::from(*v)));
+            gold.push(g);
+        }
+    }
+    search_temperature(&NllRows {
+        z,
+        bounds,
+        gold: &gold,
+    })
+}
+
+/// One span row read through [`calibrate`] at one entry, by `answer.rs`'s span rule.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpanScore {
+    /// Each pointer's winning row, first maximum.
+    pub start: usize,
+    pub end: usize,
+    /// `min(start.margin, end.margin)`: the span's reported `score`, against `noul_margin`.
+    pub margin: f64,
+    /// The span abstains whatever the margin: a pointer chose the abstention, or the end is
+    /// before the start (`answer.rs`: "it is not a span").
+    pub abstains_by_rule: bool,
+    /// The verdict before the margin: right when it abstains by rule on a gold abstention, or
+    /// points at exactly the gold span. What `noul_margin` is fitted against, as a letter row's
+    /// `correct` is.
+    pub correct: bool,
+    /// The gold is the abstention.
+    pub gold_abstains: bool,
+    /// Each pointer's `p(gold)`, and whether its conformal set holds the gold.
+    pub p_gold_start: f64,
+    pub p_gold_end: f64,
+    pub gold_in_set_start: bool,
+    pub gold_in_set_end: bool,
+}
+
+impl SpanScore {
+    /// `answer.rs`'s span answer at `noul_margin`: answered iff no rule abstains and the margin
+    /// reaches it.
+    pub fn answered(&self, noul_margin: f64) -> bool {
+        !self.abstains_by_rule && self.margin >= noul_margin
+    }
+
+    /// Whether what the runtime serves at `noul_margin` is right: the gold span when it answers,
+    /// a gold abstention when it abstains.
+    pub fn served_correct(&self, noul_margin: f64) -> bool {
+        if self.answered(noul_margin) {
+            self.correct
+        } else {
+            self.gold_abstains
+        }
+    }
+}
+
+/// Every span row through [`calibrate`] at `entry`, by `answer.rs`'s span rule.
+pub fn score_span_rows(rows: &SpanRows, entry: &CalibrationEntry) -> Result<Vec<SpanScore>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for i in 0..rows.len() {
+        let noul = rows.width(i) - RESERVED_NOUL_ROWS;
+        let (gs, ge) = (rows.gold_start[i], rows.gold_end[i]);
+        let start =
+            calibrate("calibration-fit", &rows.start[i], entry).map_err(|e| e.to_string())?;
+        let end = calibrate("calibration-fit", &rows.end[i], entry).map_err(|e| e.to_string())?;
+        let abstains_by_rule = start.top == noul || end.top == noul || end.top < start.top;
+        let gold_abstains = gs == noul;
+        out.push(SpanScore {
+            start: start.top,
+            end: end.top,
+            margin: start.margin.min(end.margin),
+            abstains_by_rule,
+            correct: if abstains_by_rule {
+                gold_abstains
+            } else {
+                (start.top, end.top) == (gs, ge)
+            },
+            gold_abstains,
+            p_gold_start: start.probs[gs],
+            p_gold_end: end.probs[ge],
+            gold_in_set_start: start.set.contains(&gs),
+            gold_in_set_end: end.set.contains(&ge),
+        });
+    }
+    Ok(out)
+}
+
+/// Fit the span entry: the temperature on both pointers' NLL ([`fit_span_temperature`]); then, on
+/// the rows read at that temperature, `noul_margin` on `min(start.margin, end.margin)` against
+/// each row's verdict ([`SpanScore::correct`]) at `target_precision`, as a letter entry's is on
+/// its margin; and the conformal cutoff as `1 - q̂` at `alpha` over both pointers' `p(gold)`,
+/// interleaved as the NLL is. A span answer carries no conformal set (`answer.rs` serves
+/// `null`), so that cutoff is fitted for the table's shape and read by nothing yet.
+pub fn fit_span_entry(rows: &SpanRows, alpha: f64, target_precision: f64) -> Result<EntryFit> {
+    let temperature = fit_span_temperature(rows)?;
+    let scored = score_span_rows(rows, &temperature_only(temperature.temperature))?;
+    let margins: Vec<f64> = scored.iter().map(|s| s.margin).collect();
+    let correct: Vec<bool> = scored.iter().map(|s| s.correct).collect();
+    let p_gold: Vec<f64> = scored
+        .iter()
+        .flat_map(|s| [s.p_gold_start, s.p_gold_end])
+        .collect();
+    let noul_margin = fit_noul_margin(&margins, &correct, target_precision)?;
+    let nonconformity_quantile = split_conformal_nonconformity(&p_gold, alpha)?;
+    let conformal_quantile = probability_cutoff_from_nonconformity(nonconformity_quantile)?;
+    entry_fit(
+        rows.len(),
+        temperature,
+        nonconformity_quantile,
+        conformal_quantile,
+        noul_margin,
+    )
 }
 
 #[cfg(test)]
@@ -773,5 +1034,119 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    fn span(data: &[(&[f32], &[f32], usize, usize)]) -> SpanRows {
+        let mut out = SpanRows::new();
+        for (start, end, gs, ge) in data {
+            out.push(start, end, *gs, *ge).unwrap();
+        }
+        out
+    }
+
+    #[test]
+    fn a_span_row_is_scored_by_answer_rs_rule() {
+        let t1 = temperature_only(1.0);
+        // Three lines and the abstention. Start on line 1, end on line 2, gold the same.
+        let rows = span(&[
+            (&[0.0, 4.0, 0.0, 0.0], &[0.0, 0.0, 4.0, 0.0], 1, 2),
+            // End before start: abstains by rule, right only on a gold abstention.
+            (&[0.0, 0.0, 4.0, 0.0], &[0.0, 4.0, 0.0, 0.0], 3, 3),
+            // A pointer on the abstention: abstains by rule; the gold points, so wrong.
+            (&[0.0, 4.0, 0.0, 0.0], &[0.0, 0.0, 0.0, 4.0], 1, 1),
+            // Points at the wrong span.
+            (&[4.0, 0.0, 0.0, 0.0], &[0.0, 4.0, 0.0, 0.0], 1, 2),
+        ]);
+        let s = score_span_rows(&rows, &t1).unwrap();
+        assert_eq!(
+            (s[0].start, s[0].end, s[0].abstains_by_rule, s[0].correct),
+            (1, 2, false, true)
+        );
+        assert_eq!(
+            (s[1].abstains_by_rule, s[1].gold_abstains, s[1].correct),
+            (true, true, true)
+        );
+        assert_eq!((s[2].abstains_by_rule, s[2].correct), (true, false));
+        assert_eq!((s[3].abstains_by_rule, s[3].correct), (false, false));
+        // The span's score is the weaker pointer's margin.
+        let start = calibrate("t", &[0.0, 4.0, 0.0, 0.0], &t1).unwrap();
+        assert_eq!(s[0].margin, start.margin.min(start.margin));
+        // Served: answered above the margin, abstained (and right only on gold abstention) below.
+        assert!(s[0].served_correct(0.0) && !s[0].served_correct(1.0));
+        assert!(s[1].served_correct(0.0) && !s[2].served_correct(0.0));
+    }
+
+    #[test]
+    fn a_span_row_the_pointer_decode_could_not_produce_is_refused() {
+        let mut r = SpanRows::new();
+        for (start, end, gs, ge) in [
+            (&[0.0, 1.0][..], &[0.0, 1.0, 2.0][..], 0, 0),
+            (&[0.0][..], &[0.0][..], 0, 0),
+            (&[0.0, f32::NAN][..], &[0.0, 1.0][..], 0, 0),
+            (&[0.0, 1.0, 2.0][..], &[0.0, 1.0, 2.0][..], 3, 3),
+            (&[0.0, 1.0, 2.0][..], &[0.0, 1.0, 2.0][..], 0, 2),
+            (&[0.0, 1.0, 2.0][..], &[0.0, 1.0, 2.0][..], 1, 0),
+        ] {
+            assert!(
+                r.push(start, end, gs, ge).is_err(),
+                "{start:?} {end:?} {gs} {ge}"
+            );
+        }
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn a_span_entry_is_fitted_and_its_temperature_is_the_ragged_nll_minimum() {
+        let mut mix = Mix(7);
+        let mut rows = SpanRows::new();
+        for i in 0..400 {
+            let width = 3 + (mix.next() % 40) as usize;
+            let noul = width - 1;
+            let (gs, ge) = if i % 5 == 0 {
+                (noul, noul)
+            } else {
+                let a = (mix.next() as usize) % noul;
+                (a, a + (mix.next() as usize) % (noul - a))
+            };
+            let mut start: Vec<f32> = (0..width).map(|_| (mix.unit() * 2.0) as f32).collect();
+            let mut end: Vec<f32> = (0..width).map(|_| (mix.unit() * 2.0) as f32).collect();
+            if mix.unit() < 0.85 {
+                start[gs] += 5.0;
+                end[ge] += 5.0;
+            }
+            rows.push(&start, &end, gs, ge).unwrap();
+        }
+        let fit = fit_span_entry(&rows, DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION).unwrap();
+        assert_eq!(fit.n, 400);
+        let t = fit.temperature.temperature;
+        assert!(
+            !fit.temperature.at_lower_bound && !fit.temperature.at_upper_bound,
+            "{t}"
+        );
+        // The NLL at the fit is no worse than a little either side of it.
+        let ragged = |t: f64| {
+            let mut sum = 0.0;
+            for i in 0..rows.len() {
+                for (z, g) in [
+                    (&rows.start[i], rows.gold_start[i]),
+                    (&rows.end[i], rows.gold_end[i]),
+                ] {
+                    let c = calibrate("t", z, &temperature_only(t)).unwrap();
+                    sum -= c.probs[g].ln();
+                }
+            }
+            sum
+        };
+        assert!(ragged(t) <= ragged(t * 1.05) && ragged(t) <= ragged(t / 1.05));
+        // The fitted margin reaches the target on the rows it was fitted on, or abstains on all
+        // but the widest: fit_noul_margin's contract.
+        let scored = score_span_rows(&rows, &fit.entry()).unwrap();
+        let retained: Vec<&SpanScore> = scored
+            .iter()
+            .filter(|s| s.margin >= fit.noul_margin)
+            .collect();
+        let right = retained.iter().filter(|s| s.correct).count();
+        assert!(right as f64 / retained.len() as f64 >= DEFAULT_TARGET_PRECISION);
+        assert!((0.0..=1.0).contains(&fit.conformal_quantile));
     }
 }

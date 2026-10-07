@@ -183,10 +183,9 @@ def test_the_suite_is_decoded_one_case_at_a_time_at_one_width(monkeypatch):
     cases = build_suite(target_tokens=1024, cases_per_depth=2, seed=0)
     widths: list[int] = []
 
-    def decode(step, batches, labels_for, letter_id, *, pointer_scores):
+    def decode(step, batches, labels_for, letter_id):
         widths.extend(int(b.tokens.shape[1]) for b in batches)
         assert len(batches) == 1
-        assert pointer_scores is False, "the gate's own decode never asks for pointer scores"
         return {"verdicts": []}
 
     monkeypatch.setattr(rft, "_decode", decode)

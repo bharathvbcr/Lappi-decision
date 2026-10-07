@@ -242,8 +242,8 @@ def test_the_slice_row_is_quick_holds_the_tables_and_no_gate(monkeypatch):
     composed = _fixture_slice()
     asked: dict[str, object] = {}
 
-    def decode(step, plan, labels_for, letter_id, *, pointer_scores):
-        asked.update(step=step, plan=plan, pointer_scores=pointer_scores)
+    def decode(step, plan, labels_for, letter_id):
+        asked.update(step=step, plan=plan)
         return {"verdicts": _scorer_verdicts(composed), "rows_not_decoded": 0,
                 "letters_without_id": []}
 
@@ -266,7 +266,7 @@ def test_the_slice_row_is_quick_holds_the_tables_and_no_gate(monkeypatch):
         plan_note="Scored as kind 'seed0'.",
     )
     assert (row_id, seed, len(lines)) == ("control-row", 0, 2)
-    assert asked == {"step": "step", "plan": composed.plan, "pointer_scores": False}
+    assert asked == {"step": "step", "plan": composed.plan}
     metrics = captured["metrics"]
     assert metrics["ft_run_row_id"].value == "ft0"
     assert all(k == "ft_run_row_id" or k.startswith("composed.") for k in metrics)

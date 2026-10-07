@@ -24,9 +24,13 @@ from qd_data.mixture import rewrite_defect_class
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "schema-api.md"
 
-#: The one-line Rust diff the documented example is built from.
+#: The one-line Rust diff the documented example is built from, in the single-file shape the plain
+#: corpus trains on: hunks only, the path in ``file:``. Until 2026-10-07 it opened with a bare
+#: ``---``/``+++`` preamble, a shape no row trains, and the runtime's admission refused the
+#: documented request (GAP-PREVIEW-DOES-NOT-SERVE-CODE-DEFECT-CLASS-2026-10-06);
+#: ``crates/qd-runtime/tests/admission.rs`` now admits the block this test pins.
 DOC_DIFF = (
-    "--- a/src/add.rs\n+++ b/src/add.rs\n@@ -1 +1 @@\n"
+    "@@ -1 +1 @@\n"
     "-fn add(a: i32, b: i32) -> i32 { a + b }\n"
     "+fn add(a: i32, b: i32) -> i32 { a - b }\n"
 )
@@ -46,7 +50,7 @@ def _trained_request() -> dict[str, object]:
     raw = DefectRow(
         example_id="doc-example", pool_id="doc", repo="doc/example", path="src/add.rs",
         symbol="add", arity=2, language="rust", mutation_class="logic", operator="swap_binop",
-        diff=DOC_DIFF, diff_span=(5, 5), span_refusal=None, licence="MIT",
+        diff=DOC_DIFF, diff_span=(3, 3), span_refusal=None, licence="MIT",
     )
     row = rewrite_defect_class(raw, family_id=DEFECT_FAMILY_ID, index=0, config=DataConfig())
     wire = row.request.to_wire()

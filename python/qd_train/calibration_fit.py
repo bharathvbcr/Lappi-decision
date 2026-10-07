@@ -240,6 +240,60 @@ def fit_temperature(
     return float(math.exp((a + b) / 2.0))
 
 
+def fit_span_temperature(
+    start: list[np.ndarray],
+    end: list[np.ndarray],
+    gold_start: list[int],
+    gold_end: list[int],
+    *,
+    lo: float = 0.05,
+    hi: float = 20.0,
+    iters: int = 200,
+) -> float:
+    """The span entry's temperature: :func:`fit_temperature`'s search over ragged rows.
+
+    A span slot's rows are one per line start plus the abstention, so each row is as wide as
+    its context has lines and no 2-D array holds them. One temperature serves both pointers
+    (``answer.rs`` reads both through the table's one span entry), so the NLL is the mean over
+    ``2n`` pointer rows interleaved ``start_0, end_0, start_1, ...``, each at its own gold --
+    the same per-row arithmetic as :func:`fit_temperature`'s ``nll``, row by row. Written for
+    ``GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS``; ``qd-calib-fit``'s ``fit_span_temperature``
+    is the Rust owner this pins.
+    """
+    if not (len(start) == len(end) == len(gold_start) == len(gold_end)) or not start:
+        raise ValueError("start/end/gold_start/gold_end must be equal-length and non-empty")
+    rows: list[np.ndarray] = []
+    golds: list[int] = []
+    for s, e, gs, ge in zip(start, end, gold_start, gold_end, strict=True):
+        for z, g in ((s, gs), (e, ge)):
+            z = np.asarray(z, dtype=np.float64)
+            if z.ndim != 1 or len(z) < 2 or not np.isfinite(z).all():
+                raise ValueError("each pointer row must be 1-D, finite, with at least 2 rows")
+            if not 0 <= int(g) < len(z):
+                raise ValueError(f"gold row {g} is outside {len(z)} pointer rows")
+            rows.append(z)
+            golds.append(int(g))
+    if not 0.0 < lo < hi:
+        raise ValueError(f"need 0 < lo < hi, got lo={lo} hi={hi}")
+
+    def nll(t: float) -> float:
+        per_row = np.empty(len(rows), dtype=np.float64)
+        for i, (z, y) in enumerate(zip(rows, golds, strict=True)):
+            s = z / t
+            s = s - s.max()
+            per_row[i] = s[y] - np.log(np.exp(s).sum())
+        return float(-per_row.mean())
+
+    a, b = math.log(lo), math.log(hi)
+    for _ in range(iters):
+        m1, m2 = a + (b - a) / 3.0, b - (b - a) / 3.0
+        if nll(math.exp(m1)) < nll(math.exp(m2)):
+            b = m2
+        else:
+            a = m1
+    return float(math.exp((a + b) / 2.0))
+
+
 def probability_cutoff_from_nonconformity(q_hat: float) -> float:
     """Convert a nonconformity quantile to the probability cutoff Rust expects.
 

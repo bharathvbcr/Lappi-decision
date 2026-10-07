@@ -18,12 +18,17 @@
 //! both fold tables and no pooled one. Which table ships is the human's call (CLAUDE.md rule 2);
 //! this tool writes and reports, it installs nothing.
 //!
-//! # What it does not fit
+//! # The span entry
 //!
-//! The span entry. A span verdict line carries the two pointer heads' winners and no
-//! distribution (`_decode` writes `row_logits` for letter rows only), so there is nothing to fit
-//! it on. The table's `span` is `null`, and a span request against it refuses with
-//! `calibration_entry_missing` — `GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS`.
+//! A span verdict line written since 2026-10-07 carries both pointers' scores over the runtime's
+//! rows and their gold rows (`start_logits`, `end_logits`, `gold_start`, `gold_end`), and the one
+//! span entry is fitted on them, in the same population as the letter entries, by
+//! [`qd_runtime::calibration_fit::fit_span_entry`]: `answer.rs`'s span rule, read through the
+//! same `calibrate`. A file written before that carries the pointers' winners only; its span
+//! lines are counted and not fitted, the table's `span` is `null`, and a span request against it
+//! refuses with `calibration_entry_missing` — `GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS`. Inputs
+//! that mix the two are refused: a span entry fitted on the half that could be read would be
+//! reported as the whole.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
@@ -34,8 +39,9 @@ use clap::{Parser, ValueEnum};
 use qd_runtime::calibration::{CalibrationEntry, CalibrationTable};
 use qd_runtime::calibration_fit::{
     DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION, ECE_BINS, ECE_MIN_SAMPLES, ECE_THRESHOLD, EceState,
-    EntryFit, LetterRows, RowScore, TEMPERATURE_HI, TEMPERATURE_ITERS, TEMPERATURE_LO, ece_state,
-    fit_entry, score_rows, temperature_only,
+    EntryFit, LetterRows, RowScore, SpanRows, SpanScore, TEMPERATURE_HI, TEMPERATURE_ITERS,
+    TEMPERATURE_LO, ece_state, fit_entry, fit_span_entry, score_rows, score_span_rows,
+    temperature_only,
 };
 use qd_runtime::schema::{
     MAX_BINS, MAX_OPTIONS, MIN_BINS, MIN_OPTIONS, RESERVED_NOUL_ROWS, SlotKind,
@@ -119,6 +125,23 @@ struct LetterLine {
     gold: usize,
     verdict_top: usize,
     logits: Vec<f32>,
+}
+
+/// The pointer fields a span line carries when its entry can be fitted, all or none.
+const SPAN_FIT_FIELDS: [&str; 4] = ["start_logits", "end_logits", "gold_start", "gold_end"];
+
+/// One span verdict line that carries its pointer distributions, checked.
+#[derive(Debug, Clone)]
+struct SpanLine {
+    eval_row_id: String,
+    row_id: String,
+    slot_name: String,
+    /// The verdict's own winners, `top: [start, end]`.
+    verdict_top: (usize, usize),
+    start: Vec<f32>,
+    end: Vec<f32>,
+    gold_start: usize,
+    gold_end: usize,
 }
 
 /// One verdict file's identity and counts, as the eval row it came from states them.
@@ -238,27 +261,12 @@ fn letter_line(line: &Value, kind: SlotKind, at: &str) -> Result<LetterLine> {
         verdict_top < rows,
         "{at}: top {verdict_top} is outside {rows} rows"
     );
-    let values = line
-        .get("row_logits")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            format!("{at}: no `row_logits` -- written by a scoring run older than 444bedc")
-        })?;
-    ensure!(
-        values.len() == rows,
-        "{at}: {} logits for {rows} decode rows",
-        values.len()
-    );
-    let mut logits = Vec::with_capacity(rows);
-    for v in values {
-        // `calibrate` takes f32. A value that is not a number, or overflows f32, is refused.
-        let x = v
-            .as_f64()
-            .map(|x| x as f32)
-            .filter(|x| x.is_finite())
-            .ok_or_else(|| format!("{at}: `row_logits` holds a non-finite or non-number value"))?;
-        logits.push(x);
+    if line.get("row_logits").is_none() {
+        return Err(format!(
+            "{at}: no `row_logits` -- written by a scoring run older than 444bedc"
+        ));
     }
+    let logits = scores(line, "row_logits", rows, at)?;
     Ok(LetterLine {
         eval_row_id: str_field(line, "eval_row_id", at)?.to_string(),
         row_id: str_field(line, "row_id", at)?.to_string(),
@@ -271,8 +279,91 @@ fn letter_line(line: &Value, kind: SlotKind, at: &str) -> Result<LetterLine> {
     })
 }
 
+/// `key`'s array of `rows` scores, as the f32 `calibrate` takes. A value that is not a number, or
+/// overflows f32, is refused.
+fn scores(line: &Value, key: &str, rows: usize, at: &str) -> Result<Vec<f32>> {
+    let values = line
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{at}: `{key}` is not an array"))?;
+    ensure!(
+        values.len() == rows,
+        "{at}: {} `{key}` values for {rows} decode rows",
+        values.len()
+    );
+    let mut out = Vec::with_capacity(rows);
+    for v in values {
+        let x = v
+            .as_f64()
+            .map(|x| x as f32)
+            .filter(|x| x.is_finite())
+            .ok_or_else(|| format!("{at}: `{key}` holds a non-finite or non-number value"))?;
+        out.push(x);
+    }
+    Ok(out)
+}
+
+/// A span line: `None` when it carries none of [`SPAN_FIT_FIELDS`] (a file written before they
+/// existed), the checked line when it carries all four, and refused when it carries some.
+fn span_line(line: &Value, at: &str) -> Result<Option<SpanLine>> {
+    let present: Vec<&str> = SPAN_FIT_FIELDS
+        .iter()
+        .copied()
+        .filter(|k| line.get(*k).is_some())
+        .collect();
+    if present.is_empty() {
+        return Ok(None);
+    }
+    ensure!(
+        present.len() == SPAN_FIT_FIELDS.len(),
+        "{at}: a span line carries {present:?} of {SPAN_FIT_FIELDS:?}; all four or none"
+    );
+    let rows = index_field(line, "rows", at)?;
+    ensure!(
+        rows > RESERVED_NOUL_ROWS,
+        "{at}: a span slot with {rows} pointer rows has no line to point at"
+    );
+    let noul_row = index_field(line, "noul_row", at)?;
+    ensure!(
+        noul_row == rows - RESERVED_NOUL_ROWS,
+        "{at}: noul_row {noul_row} is not the last of {rows} rows, which is where the runtime \
+         puts it"
+    );
+    let top = line
+        .get("top")
+        .and_then(Value::as_array)
+        .filter(|a| a.len() == 2)
+        .ok_or_else(|| format!("{at}: a span line's `top` is not [start, end]"))?;
+    let index = |v: &Value| {
+        v.as_u64()
+            .and_then(|v| usize::try_from(v).ok())
+            .filter(|v| *v < rows)
+            .ok_or_else(|| format!("{at}: `top` {top:?} is not two rows of {rows}"))
+    };
+    let verdict_top = (index(&top[0])?, index(&top[1])?);
+    Ok(Some(SpanLine {
+        eval_row_id: str_field(line, "eval_row_id", at)?.to_string(),
+        row_id: str_field(line, "row_id", at)?.to_string(),
+        slot_name: str_field(line, "slot_name", at)?.to_string(),
+        verdict_top,
+        start: scores(line, "start_logits", rows, at)?,
+        end: scores(line, "end_logits", rows, at)?,
+        gold_start: index_field(line, "gold_start", at)?,
+        gold_end: index_field(line, "gold_end", at)?,
+    }))
+}
+
+/// What [`read_inputs`] returns: the files, the letter lines, the span lines that carry their
+/// distributions, and the count of span lines that do not.
+struct Inputs {
+    files: Vec<InputSummary>,
+    letters: Vec<LetterLine>,
+    spans: Vec<SpanLine>,
+    spans_without_scores: usize,
+}
+
 /// Read every input: hash the bytes once and parse those same bytes.
-fn read_inputs(paths: &[PathBuf]) -> Result<(Vec<InputSummary>, Vec<LetterLine>, usize)> {
+fn read_inputs(paths: &[PathBuf]) -> Result<Inputs> {
     ensure!(!paths.is_empty(), "no --verdicts file");
     ensure!(
         paths.len() <= MAX_INPUTS,
@@ -281,7 +372,8 @@ fn read_inputs(paths: &[PathBuf]) -> Result<(Vec<InputSummary>, Vec<LetterLine>,
     );
     let mut summaries = Vec::new();
     let mut letters = Vec::new();
-    let mut span_rows = 0usize;
+    let mut spans = Vec::new();
+    let mut spans_without_scores = 0usize;
     let mut seen: BTreeSet<(String, String, String)> = BTreeSet::new();
     for path in paths {
         let shown = path.display().to_string();
@@ -356,7 +448,10 @@ fn read_inputs(paths: &[PathBuf]) -> Result<(Vec<InputSummary>, Vec<LetterLine>,
             };
             match kind {
                 Some(kind) => letters.push(letter_line(&line, kind, &at)?),
-                None => span_rows += 1,
+                None => match span_line(&line, &at)? {
+                    Some(span) => spans.push(span),
+                    None => spans_without_scores += 1,
+                },
             }
             let counts = summary.by_kind.entry(kind_name.to_string()).or_default();
             counts.0 += 1;
@@ -366,7 +461,19 @@ fn read_inputs(paths: &[PathBuf]) -> Result<(Vec<InputSummary>, Vec<LetterLine>,
         ensure!(summary.lines > 0, "{shown}: no verdict lines");
         summaries.push(summary);
     }
-    Ok((summaries, letters, span_rows))
+    ensure!(
+        spans.is_empty() || spans_without_scores == 0,
+        "the inputs hold {} span lines with their pointer distributions and \
+         {spans_without_scores} without: a span entry fitted on the first would be reported as \
+         fitted on all; refused",
+        spans.len()
+    );
+    Ok(Inputs {
+        files: summaries,
+        letters,
+        spans,
+        spans_without_scores,
+    })
 }
 
 /// Group letter lines by table key, keeping file order inside each group.
@@ -503,6 +610,197 @@ fn row_line(
     Value::Object(out)
 }
 
+/// What scoring span rows with fitted parameters measured, by `answer.rs`'s span rule.
+fn summarise_spans(scored: &[Option<(SpanScore, CalibrationEntry)>], how: &str) -> Value {
+    let rows: Vec<&(SpanScore, CalibrationEntry)> = scored.iter().flatten().collect();
+    let n = rows.len();
+    let count = |f: &dyn Fn(&SpanScore, &CalibrationEntry) -> bool| {
+        rows.iter().filter(|(s, e)| f(s, e)).count()
+    };
+    let answered = count(&|s, e| s.answered(e.noul_margin));
+    let answered_correct = count(&|s, e| s.answered(e.noul_margin) && s.correct);
+    let ratio = |num: usize, den: usize| -> Value {
+        if den == 0 {
+            Value::Null
+        } else {
+            json!(num as f64 / den as f64)
+        }
+    };
+    let pointers_covered = rows
+        .iter()
+        .map(|(s, _)| usize::from(s.gold_in_set_start) + usize::from(s.gold_in_set_end))
+        .sum::<usize>();
+    json!({
+        "how": how,
+        "n_scored": n,
+        "n_not_scored": scored.len() - n,
+        "gold_abstains": count(&|s, _| s.gold_abstains),
+        "verdict_correct": count(&|s, _| s.correct),
+        "abstained_by_rule": count(&|s, _| s.abstains_by_rule),
+        "abstained_by_margin": count(&|s, e| !s.abstains_by_rule && s.margin < e.noul_margin),
+        "answered": answered,
+        "answered_correct": answered_correct,
+        "answered_precision": ratio(answered_correct, answered),
+        "served_correct": count(&|s, e| s.served_correct(e.noul_margin)),
+        "served_accuracy": ratio(count(&|s, e| s.served_correct(e.noul_margin)), n),
+        "pointer_conformal_coverage": ratio(pointers_covered, 2 * n),
+    })
+}
+
+fn span_row_line(
+    line: &SpanLine,
+    fold: Option<Fold>,
+    params: Option<&str>,
+    scored: Option<&(SpanScore, CalibrationEntry)>,
+) -> Result<Vec<u8>> {
+    let mut v = json!({
+        "eval_row_id": line.eval_row_id, "row_id": line.row_id, "slot_name": line.slot_name,
+        "key": "span", "fold": fold.map(Fold::as_str), "params": params,
+        "gold": [line.gold_start, line.gold_end],
+    });
+    match scored {
+        Some((s, e)) => {
+            for (k, x) in [
+                ("scored", json!(true)),
+                ("top", json!([s.start, s.end])),
+                ("margin", json!(s.margin)),
+                ("correct", json!(s.correct)),
+                ("abstained_by_rule", json!(s.abstains_by_rule)),
+                ("answered", json!(s.answered(e.noul_margin))),
+                ("served_correct", json!(s.served_correct(e.noul_margin))),
+                ("p_gold", json!([s.p_gold_start, s.p_gold_end])),
+            ] {
+                v[k] = x;
+            }
+        }
+        None => v["scored"] = json!(false),
+    }
+    let mut bytes = serde_json::to_vec(&v).map_err(|e| e.to_string())?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+/// The span entry, fitted on `spans` under the run's population: the entry for each table it
+/// goes into, the report's `span` section, and the span rows' lines for `rows.jsonl`.
+struct SpanFit {
+    all: Option<CalibrationEntry>,
+    fold_a: Option<CalibrationEntry>,
+    fold_b: Option<CalibrationEntry>,
+    report: Value,
+    rows: Vec<u8>,
+}
+
+fn fit_spans(
+    spans: &[SpanLine],
+    split_key: Option<&str>,
+    alpha: f64,
+    target_precision: f64,
+) -> Result<SpanFit> {
+    let mut rows = SpanRows::new();
+    for line in spans {
+        rows.push(&line.start, &line.end, line.gold_start, line.gold_end)
+            .map_err(|e| format!("row {} slot {}: {e}", line.row_id, line.slot_name))?;
+    }
+    let before = score_span_rows(&rows, &temperature_only(1.0))?;
+    let disagreements = spans
+        .iter()
+        .zip(&before)
+        .filter(|(line, s)| line.verdict_top != (s.start, s.end))
+        .count();
+    let mut report = json!({
+        "rows": spans.len(),
+        "fitted": true,
+        "rule": "answer.rs: score = min(start.margin, end.margin); abstain when a pointer is on \
+                 the abstention row, the end is before the start, or score < noul_margin",
+        "verdict_top_disagreements": disagreements,
+    });
+    let mut scored: Vec<Option<(SpanScore, CalibrationEntry)>> = vec![None; rows.len()];
+    let mut out = SpanFit {
+        all: None,
+        fold_a: None,
+        fold_b: None,
+        report: Value::Null,
+        rows: Vec::new(),
+    };
+    match split_key {
+        None => {
+            let fit =
+                fit_span_entry(&rows, alpha, target_precision).map_err(|e| format!("span: {e}"))?;
+            let e = fit.entry();
+            for (i, s) in score_span_rows(&rows, &e)?.into_iter().enumerate() {
+                scored[i] = Some((s, e));
+            }
+            report["fit"] = fit_json(&fit);
+            report["scored"] = summarise_spans(&scored, "in_sample");
+            for (line, s) in spans.iter().zip(&scored) {
+                out.rows
+                    .extend(span_row_line(line, None, Some("all"), s.as_ref())?);
+            }
+            out.all = Some(e);
+        }
+        Some(split) => {
+            let folds: Vec<Fold> = spans.iter().map(|l| fold_of(split, &l.row_id)).collect();
+            let mut folds_json = serde_json::Map::new();
+            for fold in [Fold::A, Fold::B] {
+                let idx: Vec<usize> = (0..folds.len()).filter(|i| folds[*i] == fold).collect();
+                let entry = if idx.is_empty() {
+                    folds_json.insert(
+                        fold.as_str().to_string(),
+                        json!({"n": 0, "fitted": false,
+                               "reason": format!("fold {} holds no span row", fold.as_str())}),
+                    );
+                    None
+                } else {
+                    let fit = fit_span_entry(&rows.subset(&idx)?, alpha, target_precision)
+                        .map_err(|e| format!("span fold {}: {e}", fold.as_str()))?;
+                    let mut body = fit_json(&fit);
+                    body["fitted"] = json!(true);
+                    folds_json.insert(fold.as_str().to_string(), body);
+                    Some(fit.entry())
+                };
+                match fold {
+                    Fold::A => out.fold_a = entry,
+                    Fold::B => out.fold_b = entry,
+                }
+            }
+            // Every row scored with the parameters of the fold it was not fitted on.
+            for fold in [Fold::A, Fold::B] {
+                let other = match fold.other() {
+                    Fold::A => out.fold_a,
+                    Fold::B => out.fold_b,
+                };
+                let Some(e) = other else { continue };
+                let idx: Vec<usize> = (0..folds.len()).filter(|i| folds[*i] == fold).collect();
+                for (k, s) in score_span_rows(&rows.subset(&idx)?, &e)?
+                    .into_iter()
+                    .enumerate()
+                {
+                    scored[idx[k]] = Some((s, e));
+                }
+            }
+            report["folds"] = Value::Object(folds_json);
+            report["scored"] = summarise_spans(&scored, "out_of_fold");
+            for (i, line) in spans.iter().enumerate() {
+                let params = scored[i].as_ref().map(|_| {
+                    if folds[i] == Fold::A {
+                        "fold-b"
+                    } else {
+                        "fold-a"
+                    }
+                });
+                out.rows.extend(span_row_line(
+                    line,
+                    Some(folds[i]),
+                    params,
+                    scored[i].as_ref(),
+                )?);
+            }
+        }
+    }
+    out.report = report;
+    Ok(out)
+}
+
 /// A table as its file bytes: `serde_json::to_vec`, so `sha256(bytes) == table.hash()`. Read
 /// back through the runtime's own deserializer before it is trusted.
 fn table_bytes(table: &CalibrationTable) -> Result<Vec<u8>> {
@@ -595,7 +893,13 @@ fn run(args: &Args) -> Result<Outputs> {
         }
     };
 
-    let (inputs, letters, span_rows) = read_inputs(&args.verdicts)?;
+    let Inputs {
+        files: inputs,
+        letters,
+        spans,
+        spans_without_scores,
+    } = read_inputs(&args.verdicts)?;
+    let span_rows = spans.len() + spans_without_scores;
     let letter_rows = letters.len();
     ensure!(
         letter_rows > 0,
@@ -727,6 +1031,41 @@ fn run(args: &Args) -> Result<Outputs> {
         entries.insert(key, entry);
     }
 
+    let span_fit = if spans.is_empty() {
+        None
+    } else {
+        Some(fit_spans(
+            &spans,
+            split_key,
+            args.alpha,
+            args.target_precision,
+        )?)
+    };
+    if let Some(fit) = &span_fit {
+        row_lines.extend_from_slice(&fit.rows);
+        for (table, entry) in [
+            (&mut table_all, fit.all),
+            (&mut table_a, fit.fold_a),
+            (&mut table_b, fit.fold_b),
+        ] {
+            if let Some(entry) = entry {
+                *table = std::mem::replace(table, CalibrationTable::new("")).with_span(entry);
+            }
+        }
+    }
+    let span_in = |fitted_on: &str| -> &'static str {
+        let entry = span_fit.as_ref().and_then(|f| match fitted_on {
+            "all" => f.all,
+            "fold-a" => f.fold_a,
+            _ => f.fold_b,
+        });
+        if entry.is_some() {
+            "fitted"
+        } else {
+            "null: not fitted"
+        }
+    };
+
     let tables: Vec<(String, CalibrationTable, &str)> = match split_key {
         None => vec![("table.json".to_string(), table_all, "all")],
         Some(_) => {
@@ -748,7 +1087,7 @@ fn run(args: &Args) -> Result<Outputs> {
         tables_json.push(json!({
             "file": file, "name": table.name, "sha256": table.hash(), "fitted_on": fitted_on,
             "entries": fitted_keys.get(fitted_on).cloned().unwrap_or_default(),
-            "span": "null: not fitted",
+            "span": span_in(fitted_on),
         }));
         written.push((file.clone(), bytes));
     }
@@ -778,11 +1117,14 @@ fn run(args: &Args) -> Result<Outputs> {
     }
 
     let kinds_present: BTreeSet<&str> = groups.iter().map(|g| g.kind.as_str()).collect();
-    let mut caveats = vec![format!(
-        "{SPAN_GAP}: span verdict lines carry no pointer distribution, so the span entry is not \
-         fitted; every table here has span null, and a span request against it refuses with \
-         calibration_entry_missing. {span_rows} span rows were read and not fitted"
-    )];
+    let mut caveats = Vec::new();
+    if span_fit.is_none() {
+        caveats.push(format!(
+            "{SPAN_GAP}: span verdict lines carry no pointer distribution, so the span entry is \
+             not fitted; every table here has span null, and a span request against it refuses \
+             with calibration_entry_missing. {span_rows} span rows were read and not fitted"
+        ));
+    }
     for kind in ["choice", "score"] {
         if !kinds_present.contains(kind) {
             caveats.push(format!(
@@ -835,15 +1177,19 @@ fn run(args: &Args) -> Result<Outputs> {
         "eval_rows": eval_rows,
         "population_counts": {
             "letter_rows": letter_rows,
-            "span_rows_not_fitted": span_rows,
+            "span_rows": span_rows,
+            "span_rows_not_fitted": spans_without_scores,
             "entries": groups.len(),
             "fold_a_rows": split_key.map(|_| fold_rows_a),
             "fold_b_rows": split_key.map(|_| fold_rows_b),
         },
-        "span": {
-            "rows": span_rows, "fitted": false, "gap": SPAN_GAP,
-            "reason": "span verdict lines carry the pointer heads' winners, not their \
-                       distributions; there is nothing to fit the span entry on",
+        "span": match &span_fit {
+            Some(fit) => fit.report.clone(),
+            None => json!({
+                "rows": span_rows, "fitted": false, "gap": SPAN_GAP,
+                "reason": "span verdict lines carry the pointer heads' winners, not their \
+                           distributions; there is nothing to fit the span entry on",
+            }),
         },
         "entries": entries,
         "tables": tables_json,

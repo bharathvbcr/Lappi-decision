@@ -12,8 +12,8 @@ produce byte-identical prompts for the same request.
 {
   "schema_version": 1,
   "task": "code.defect_class",
-  "context_b64": "ZmlsZTogc3JjL2FkZC5ycwoKLS0tIGEvc3JjL2FkZC5ycworKysgYi9zcmMvYWRkLnJzCkBAIC0xICsxIEBACi1mbiBhZGQoYTogaTMyLCBiOiBpMzIpIC0+IGkzMiB7IGEgKyBiIH0KK2ZuIGFkZChhOiBpMzIsIGI6IGkzMikgLT4gaTMyIHsgYSAtIGIgfQ==",
-  "context_len": 145,
+  "context_b64": "ZmlsZTogc3JjL2FkZC5ycwoKQEAgLTEgKzEgQEAKLWZuIGFkZChhOiBpMzIsIGI6IGkzMikgLT4gaTMyIHsgYSArIGIgfQorZm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgeyBhIC0gYiB9",
+  "context_len": 111,
   "question": "What kind of change is this diff, and which lines does it touch?",
   "slots": [
     {
@@ -42,7 +42,22 @@ produce byte-identical prompts for the same request.
 and requires this block to equal it). Copy its `task`, `question` and slot names exactly:
 - All three are rendered into the prompt, so a request that renames them serves the model a prompt
   it never saw.
-- The runtime's admission check runs only for `task: code.defect_class`.
+- The runtime's admission check runs only for `task: code.defect_class`. It admits the two context
+  shapes training renders, and no third (`crates/qd-runtime/src/admission.rs`):
+  - **single-file**, this example: `file: <path>`, an empty line, then the diff's hunks;
+  - **composed** (multi-file): `file: <name>`, an empty line, then one or more file blocks, each
+    exactly `diff --git a/<p> b/<p>`, `--- a/<p>`, `+++ b/<p>` and its hunks.
+
+  `git diff` output is neither as it comes: drop each block's `index`, mode and similarity lines,
+  and do not send a bare `---`/`+++` preamble without its `diff --git` line. A new or deleted
+  file's `/dev/null` side is refused too; no trained block has one. Each file's language must be
+  one the pool held (Go, Python, Rust, TypeScript).
+
+The decoded context is `file: src/add.rs`, an empty line, `@@ -1 +1 @@`, and the `-`/`+` pair, so
+line 5 is the changed line the span answer below points at. Until 2026-10-07 the example carried a
+bare `--- a/src/add.rs` / `+++ b/src/add.rs` preamble, a shape no row trains, and the runtime
+refused it `context_not_unified_diff` (GAP-PREVIEW-DOES-NOT-SERVE-CODE-DEFECT-CLASS-2026-10-06);
+`crates/qd-runtime/tests/admission.rs` now admits this block as written.
 
 Until 2026-10-03 this example showed `devcouncil.verdict` with slots `verdict` / `severity` /
 `evidence` and another family's question. No family trains that request
@@ -167,7 +182,7 @@ The runtime **refuses** rather than degrades when:
 | tokenizer / weight / head / label-set hash != build | A swapped tokenizer maps wrong ids silently. Answering would be confidently wrong |
 | `options.len() > 16` | The letter slice holds 16 option rows plus the reserved `noul` row. Dropping an option changes the question |
 | `context` over the configured cap | Truncating moves the answer out of the window without saying so. Line spans would point at the wrong lines |
-| a `code.defect_class` `context` not in the trained shape (`file: <path>`, a blank line, unified-diff hunks whose bodies match their headers): `context_not_unified_diff`; or its file's language not one the pool held: `context_language_not_in_pool` (`crates/qd-runtime/src/admission.rs`) | The model was never shown such a context. An answer would be read from a shape it cannot read, and would look like any other |
+| a `code.defect_class` `context` in neither trained shape (`file: <path>`, a blank line, unified-diff hunks whose bodies match their headers; or `file: <name>`, a blank line, file blocks each opening `diff --git a/<p> b/<p>` / `--- a/<p>` / `+++ b/<p>` before such hunks): `context_not_unified_diff`; or a file's language not one the pool held: `context_language_not_in_pool` (`crates/qd-runtime/src/admission.rs`) | The model was never shown such a context. An answer would be read from a shape it cannot read, and would look like any other |
 | `task` is not one of the release manifest's `trained_families` (`qd-export --train-manifest` writes them from the train split; a request's `task` is its family id), or the manifest records none: `task_not_trained`, naming the trained families (empty when none are recorded) | The model was never shown a request of that task. Its answer would come from a prompt shape it never saw and would look like any other. A release that cannot say what it trained admits nothing. A runtime built with no release (the test seam, the reference backend) does not run this check |
 | `slots` empty, or a duplicate slot name | The answer map would be ambiguous |
 | `bins < 2` for `score`, or `bins > 16` | Same 16-letter limit; a 1-bin ordinal is not a question |

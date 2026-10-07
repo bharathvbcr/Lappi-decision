@@ -53,8 +53,10 @@ def _bf16(x: float) -> float:
 
 
 def synthesize(path: Path, *, letters: int, spans: int, seed: int = 0,
-               eval_row: str = "E-synth", shapes=SHAPES) -> None:
-    """A verdict file with the real writer's key set (``_verdict_lines``)."""
+               eval_row: str = "E-synth", shapes=SHAPES, pointers: bool = False) -> None:
+    """A verdict file with the real writer's key set (``_verdict_lines``). ``pointers`` writes
+    span lines as ``_decode`` has since 2026-10-07: both pointers' bf16 scores over 10 to 60
+    rows and their gold rows, a tenth of them gold abstentions."""
     rng = np.random.default_rng(seed)
     out: list[str] = []
     for i in range(letters):
@@ -78,12 +80,31 @@ def synthesize(path: Path, *, letters: int, spans: int, seed: int = 0,
     for i in range(spans):
         rows = int(rng.integers(10, 61))
         start = int(rng.integers(0, rows - 1))
-        out.append(json.dumps({
+        line = {
             "eval_row_id": eval_row, "seed": 0, "row_id": f"qdm:code.defect_class:{i:06d}",
             "kind": "span", "slot_name": "defect_span", "correct": bool(rng.random() < 0.99),
             "top": [start, start], "gold_row": None, "expected_abstain": False,
             "noul_row": rows - 1, "rows": rows, "family_id": "code.defect_class",
-        }, sort_keys=True))
+        }
+        if pointers:
+            noul = rows - 1
+            if rng.random() < 0.1:
+                gs = ge = noul
+            else:
+                gs = int(rng.integers(0, noul))
+                ge = int(rng.integers(gs, noul))
+            pair = []
+            for gold in (gs, ge):
+                z = rng.normal(0.0, 2.0, rows)
+                if rng.random() < 0.9:
+                    z[gold] += rng.gamma(2.0, 3.0)
+                pair.append([_bf16(float(np.float32(v))) for v in z])
+            line.update({
+                "start_logits": pair[0], "end_logits": pair[1], "gold_start": gs,
+                "gold_end": ge, "expected_abstain": gs == noul,
+                "top": [max(range(rows), key=lambda j, z=z: (z[j], -j)) for z in pair],
+            })
+        out.append(json.dumps(line, sort_keys=True))
     path.write_text("".join(line + "\n" for line in out), encoding="utf-8")
 
 
@@ -135,7 +156,12 @@ def assert_parity(out: Path, ref: dict[str, object]) -> dict[str, object]:
                                               want["slot_name"])], want)
     counts = report["population_counts"]
     assert counts["letter_rows"] == ref["letter_rows"]
-    assert counts["span_rows_not_fitted"] == ref["span_rows"]
+    assert counts["span_rows"] == ref["span_rows"]
+    assert counts["span_rows_not_fitted"] == ref["span_rows_not_fitted"]
+    if ref["span"] is None:
+        assert report["span"]["fitted"] is False
+    else:
+        _same("span", report["span"], ref["span"])
     return report
 
 
@@ -157,6 +183,41 @@ def test_real_shaped_verdicts_fit_bit_exactly(calib_fit_bin, mixed_file, tmp_pat
     assert set(report["entries"]) == {"choice:5", "choice:6", "choice:11", "score:6"}
     assert report["entries"]["choice:11"]["gold_noul"] > 0
     assert report["tables"][0]["span"] == "null: not fitted"
+
+
+@pytest.fixture(scope="module")
+def pointer_file(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = tmp_path_factory.mktemp("pointers") / "verdicts.jsonl"
+    synthesize(path, letters=1500, spans=900, seed=5, pointers=True)
+    return path
+
+
+@pytest.mark.parametrize(("population", "split_key"), [("all", None), ("two-fold", "j7")])
+def test_the_span_entry_fits_bit_exactly(calib_fit_bin, pointer_file, tmp_path, population,
+                                         split_key):
+    """GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS: span lines carrying both pointers' scores
+    and gold rows fit the span entry -- temperature, noul_margin, conformal cutoff, every
+    per-row margin and verdict, and every table's span -- equal to the oracle's, in both
+    populations."""
+    out = tmp_path / "fit"
+    fit_bin(calib_fit_bin, [pointer_file], out, population=population, split_key=split_key)
+    ref = run([pointer_file], population=population, split_key=split_key, name="parity-v1")
+    report = assert_parity(out, ref)
+    assert report["span"]["fitted"] is True and report["span"]["rows"] == 900
+    assert report["population_counts"]["span_rows_not_fitted"] == 0
+    assert all(t["span"] == "fitted" for t in report["tables"])
+    assert report["span"]["scored"]["gold_abstains"] > 0
+    assert not any("GAP-CALIB-SPAN" in c for c in report["caveats"])
+
+
+def test_span_lines_with_and_without_scores_are_refused_by_both(calib_fit_bin, tmp_path):
+    with_scores, without = tmp_path / "with.jsonl", tmp_path / "without.jsonl"
+    synthesize(with_scores, letters=200, spans=50, seed=1, eval_row="E1", pointers=True)
+    synthesize(without, letters=200, spans=50, seed=2, eval_row="E2")
+    done = fit_bin(calib_fit_bin, [with_scores, without], tmp_path / "fit", check=False)
+    assert done.returncode != 0 and "all; refused" in done.stderr, done.stderr
+    with pytest.raises(OracleRefusal, match="with and without"):
+        run([with_scores, without], population="all", split_key=None, name="x")
 
 
 @pytest.mark.skipif(not REAL_VERDICTS.is_file(), reason=f"{REAL_VERDICTS} is not on disk")
@@ -201,7 +262,7 @@ def test_the_conformal_cutoff_is_one_minus_the_nonconformity_quantile(
     rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
 
     # The oracle's q̂ is split_conformal_threshold over calibrate()'s probabilities at T.
-    letters, _ = read([path])
+    letters, _, _ = read([path])
     probs = np.asarray([calibrate(r.logits, ref_fit["temperature"])[0] for r in letters])
     q_hat = split_conformal_threshold(probs, np.asarray([r.gold for r in letters]), alpha=0.1)
     assert fit["nonconformity_quantile"] == q_hat

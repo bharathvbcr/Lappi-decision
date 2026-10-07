@@ -49,15 +49,17 @@ def _pointer(i: int) -> dict[str, list[float]]:
     return {"start_logits": [float(i), 0.5, -1.0], "end_logits": [0.0, float(i), 2.0]}
 
 
-def _decode_recording(calls: list[bool], cases):
-    """A stand-in ``_decode`` for one needle case per call, recording what it was asked."""
+def _decode_recording(calls: list[int], cases):
+    """A stand-in ``_decode`` for one needle case per call, recording which case it decoded."""
 
-    def decode(step, batches, labels_for, letter_id, *, pointer_scores):
+    def decode(step, batches, labels_for, letter_id):
         i = len(calls)
-        calls.append(pointer_scores)
+        calls.append(i)
         verdict = {"kind": "span", "row_id": cases[i].case_id, "top": [1, 2], "noul_row": 2,
                    "rows": 3}
-        return {"verdicts": [{**verdict, **(_pointer(i) if pointer_scores else {})}]}
+        # `_decode` writes the pointer scores on every span verdict; the flag decides only
+        # whether the suite line copies them.
+        return {"verdicts": [{**verdict, **_pointer(i)}]}
 
     return decode
 
@@ -67,16 +69,16 @@ def test_needle_lines_carry_the_pointer_scores_only_when_asked(monkeypatch):
     suite = _suite(cases)
     monkeypatch.setattr(rft, "release_device_cache", lambda: None)
 
-    calls: list[bool] = []
+    calls: list[int] = []
     monkeypatch.setattr(rft, "_decode", _decode_recording(calls, cases))
     off = rft.needle_predictions(None, suite, {})  # type: ignore[arg-type]
-    assert calls == [False] * len(cases)
+    assert calls == list(range(len(cases))), "one decode per case"
     for line in off.verdicts:
         assert set(line) == set(rft.NEEDLE_VERDICT_FIELDS), "off, a line is what it was"
 
     calls.clear()
     on = rft.needle_predictions(None, suite, {}, logits=True)  # type: ignore[arg-type]
-    assert calls == [True] * len(cases)
+    assert calls == list(range(len(cases)))
     assert on.predictions == off.predictions, "the scores ride along; the verdict is unmoved"
     for i, line in enumerate(on.verdicts):
         assert set(line) == {*rft.NEEDLE_VERDICT_FIELDS, *rft.SUITE_LOGIT_KEYS}
@@ -86,7 +88,7 @@ def test_needle_lines_carry_the_pointer_scores_only_when_asked(monkeypatch):
     # score_needle decodes in-process (no worker's predictions) with the same switch.
     calls.clear()
     _, _, lines = rft.score_needle(None, suite, {}, logits=True)  # type: ignore[arg-type]
-    assert calls == [True] * len(cases) and all("start_logits" in v for v in lines)
+    assert calls == list(range(len(cases))) and all("start_logits" in v for v in lines)
 
 
 def test_a_needle_control_row_asks_for_the_scores_under_the_flag(tmp_path, monkeypatch):
@@ -185,12 +187,12 @@ def test_the_needle_worker_writes_the_pointer_scores_under_the_flag(tmp_path, mo
     monkeypatch.setattr(rft, "release_device_cache", lambda: None)
     suite_out = tmp_path / "suite.jsonl"
     for flag in (False, True):
-        calls: list[bool] = []
+        calls: list[int] = []
         monkeypatch.setattr(rft, "_decode", _decode_recording(calls, suite.cases))
         out = tmp_path / f"predictions-{flag}.json"
         extra = ("--suite-logits", "--suite-verdicts-out", str(suite_out)) if flag else ()
         assert rft.main(_worker_argv(tmp_path, handoff, out, *extra)) == 0
-        assert calls == [flag] * len(suite.cases), "every case decoded, each told the flag"
+        assert calls == list(range(len(suite.cases))), "every case decoded once"
         verdicts = json.loads(out.read_text(encoding="utf-8"))["verdicts"]
         assert [v["case_id"] for v in verdicts] == [c.case_id for c in suite.cases]
         for i, line in enumerate(verdicts):

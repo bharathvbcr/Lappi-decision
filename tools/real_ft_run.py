@@ -1478,7 +1478,6 @@ def _decode(
     letter_id: dict[str, int],
     *,
     noul_first: bool = False,
-    pointer_scores: bool = False,
 ) -> dict[str, object]:
     """Decode every row of every batch the way ``crates/qd-runtime/src/answer.rs`` does.
 
@@ -1505,9 +1504,16 @@ def _decode(
 
     ``step`` may be a :class:`TowerEnsemble`: every score below is then the ensemble's mean
     of per-tower log-probabilities (:func:`combine_readouts`), decoded by the same rules.
-    ``pointer_scores`` adds each span row's ``start_logits``/``end_logits`` (the runtime's
-    rows, the abstention last) to its verdict -- what ``--suite-logits`` writes for the
-    needle suite; off, the verdicts are what they always were.
+
+    Every span verdict carries both pointers' scores over the runtime's rows
+    (``start_logits``/``end_logits``, the abstention last at ``noul_row``) and their gold rows
+    (``gold_start``/``gold_end``, both ``noul_row`` on an abstaining row), as every letter
+    verdict carries ``row_logits`` and ``gold_row``: the span calibration entry is fitted from
+    exactly these (``qd-calib-fit``). Until 2026-10-07 the scores rode only behind a
+    ``pointer_scores`` switch the val decode never set and no gold row was written, so no
+    ``--verdicts-out`` file could fit a span entry (GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS).
+    Whether a suite's own output lines copy the scores is still ``--suite-logits``'s call
+    (:func:`needle_predictions`, :func:`composed_slice_verdicts`).
     """
     verdicts: list[dict[str, object]] = []
     not_decoded: list[str] = []
@@ -1556,15 +1562,13 @@ def _decode(
                     top_end = int(end_rows[k].argmax())
                     abstained = top_start == noul_row or top_end == noul_row
                     expected = bool(plan.abstaining[k])
-                    pointer = (
-                        {
-                            "start_logits": start_rows[k].double().tolist(),
-                            "end_logits": end_rows[k].double().tolist(),
-                        }
-                        if pointer_scores else {}
-                    )
                     verdicts.append({
-                        **pointer,
+                        "start_logits": start_rows[k].double().tolist(),
+                        "end_logits": end_rows[k].double().tolist(),
+                        # Indices into those rows: `noul_row` on an abstaining row
+                        # (`heads.SpanPlan`), the line-start ordinal otherwise.
+                        "gold_start": int(plan.gold_start[k]),
+                        "gold_end": int(plan.gold_end[k]),
                         "kind": "span",
                         "row_id": label.row_id,
                         "slot_name": label.slot_name,
@@ -5833,9 +5837,7 @@ def needle_predictions(
     release_device_cache()
     verdicts: list[Mapping[str, object]] = []
     for i, batch in enumerate(suite.batches):
-        decoded = _decode(
-            step, [batch], {0: suite.labels_for[i]}, dict(letter_id), pointer_scores=logits
-        )
+        decoded = _decode(step, [batch], {0: suite.labels_for[i]}, dict(letter_id))
         verdicts.extend(decoded["verdicts"])  # type: ignore[arg-type]
     by_case = {str(v["row_id"]): v for v in verdicts}
     predictions: dict[str, int | None] = {}
@@ -8396,10 +8398,7 @@ def run_composed_slice(
     step, ft, recipe, seed, meta = loaded
     model = scored_model(args, ft, meta)
     decode_at = time.monotonic()
-    scored = _decode(
-        step, composed.plan, composed.labels_for, composed.letter_id,
-        pointer_scores=args.suite_logits,
-    )
+    scored = _decode(step, composed.plan, composed.labels_for, composed.letter_id)
     decode_s = time.monotonic() - decode_at
     if int(scored["rows_not_decoded"]):  # type: ignore[call-overload]
         raise SystemExit(
@@ -10130,9 +10129,11 @@ def _verdict_lines(
 
 
 #: Verdict fields ``--verdicts-out`` carries whenever the decoder wrote them: the letter
-#: distribution and where the abstention sits in it.
+#: distribution, the span pointers' distributions and their gold rows, and where the
+#: abstention sits in them.
 VERDICT_DISTRIBUTION_KEYS: Final[tuple[str, ...]] = (
     "noul_row", "rows", "language", "noul_probability", "row_logits",
+    "start_logits", "end_logits", "gold_start", "gold_end",
 )
 
 #: The row's family (``_decode``) and, on a choice row with a derangement, its second pass

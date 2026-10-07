@@ -51,6 +51,13 @@ impl Mix {
 /// One verdict file in `_verdict_lines`' shape: `choice` rows at 5 decode rows (four options),
 /// `score` rows at 6 (five bins), and span rows, which carry no logits.
 fn write_verdicts(path: &Path, eval_row: &str) {
+    write_verdicts_with(path, eval_row, false);
+}
+
+/// The same, with `pointers` the span rows written since 2026-10-07: both pointers' scores over
+/// a context's rows (6 to 35, the abstention last) and their gold rows, a seventh of them gold
+/// abstentions, the gold winning about four times in five.
+fn write_verdicts_with(path: &Path, eval_row: &str, pointers: bool) {
     let mut mix = Mix(11);
     let mut out = String::new();
     for i in 0..300 {
@@ -73,11 +80,48 @@ fn write_verdicts(path: &Path, eval_row: &str) {
             out.push_str(&line.to_string());
             out.push('\n');
         }
-        let line = json!({
+        let mut line = json!({
             "eval_row_id": eval_row, "seed": 0, "row_id": format!("r{i}"), "kind": "span",
             "slot_name": "defect_span", "correct": true, "top": [1, 2], "gold_row": null,
             "rows": 20, "noul_row": 19, "expected_abstain": false,
         });
+        if pointers {
+            let rows = 6 + (mix.next() % 30) as usize;
+            let noul = rows - 1;
+            let (gs, ge) = if i % 7 == 0 {
+                (noul, noul)
+            } else {
+                let a = (mix.next() % noul as u64) as usize;
+                (a, a + (mix.next() % (noul - a) as u64) as usize)
+            };
+            let mut pointer = |gold: usize| {
+                let mut z: Vec<f32> = (0..rows).map(|_| (mix.unit() * 3.0) as f32).collect();
+                if mix.unit() < 0.8 {
+                    z[gold] += 4.0;
+                }
+                z
+            };
+            let (start, end) = (pointer(gs), pointer(ge));
+            let top = |z: &[f32]| (0..rows).fold(0, |b, j| if z[j] > z[b] { j } else { b });
+            for (k, v) in [
+                ("rows", json!(rows)),
+                ("noul_row", json!(noul)),
+                ("expected_abstain", json!(gs == noul)),
+                ("top", json!([top(&start), top(&end)])),
+                (
+                    "start_logits",
+                    json!(start.iter().map(|v| f64::from(*v)).collect::<Vec<_>>()),
+                ),
+                (
+                    "end_logits",
+                    json!(end.iter().map(|v| f64::from(*v)).collect::<Vec<_>>()),
+                ),
+                ("gold_start", json!(gs)),
+                ("gold_end", json!(ge)),
+            ] {
+                line[k] = v;
+            }
+        }
         out.push_str(&line.to_string());
         out.push('\n');
     }
@@ -85,8 +129,12 @@ fn write_verdicts(path: &Path, eval_row: &str) {
 }
 
 fn fit(dir: &Path, extra: &[&str]) -> Value {
+    fit_with(dir, extra, false)
+}
+
+fn fit_with(dir: &Path, extra: &[&str], pointers: bool) -> Value {
     let verdicts = dir.join("verdicts.jsonl");
-    write_verdicts(&verdicts, "E-roundtrip");
+    write_verdicts_with(&verdicts, "E-roundtrip", pointers);
     let out = dir.join("fit");
     let done = Command::new(BIN)
         .arg("--verdicts")
@@ -257,6 +305,130 @@ fn two_fold_writes_both_fold_tables_and_no_pooled_one() {
         counts["fold_a_rows"].as_u64().unwrap() + counts["fold_b_rows"].as_u64().unwrap(),
         600
     );
+}
+
+fn runtime_with(table: CalibrationTable) -> Runtime {
+    Runtime::with_backend(
+        Arc::new(ReferenceBackend::new(true)),
+        table,
+        HeadRegistry::new(),
+        RenderCaps::DEFAULT,
+    )
+    .expect("the runtime accepts the fitted table")
+}
+
+/// GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS, the complement of the refusal above: span lines
+/// that carry their pointer distributions fit the span entry, the table carries it bit for bit as
+/// reported, and a span request through `Runtime::answer` is answered, not refused. Through the
+/// reference backend, so this is the runtime's half; a release's span head is another matter
+/// (GAP-J7-EXPORT-SPAN-HEAD-UNSERVED).
+#[test]
+fn span_lines_with_their_pointer_distributions_fit_the_span_entry_and_a_span_request_answers() {
+    let dir = scratch("span-all");
+    let report = fit_with(&dir, &["--population", "all"], true);
+    let span = &report["span"];
+    assert_eq!(span["fitted"], json!(true), "{span}");
+    assert_eq!(span["rows"], json!(300));
+    assert_eq!(
+        report["population_counts"]["span_rows_not_fitted"],
+        json!(0)
+    );
+    assert_eq!(report["tables"][0]["span"], json!("fitted"));
+    let bytes = std::fs::read(dir.join("fit").join("table.json")).expect("table");
+    let table: CalibrationTable = serde_json::from_slice(&bytes).expect("the runtime's type");
+    table.validate().expect("validates");
+    let entry = table
+        .lookup("slot", SlotKind::Span, 20)
+        .expect("span is fitted");
+    let fit = &span["fit"];
+    assert_eq!(entry.temperature, fit["temperature"].as_f64().unwrap());
+    assert_eq!(entry.noul_margin, fit["noul_margin"].as_f64().unwrap());
+    assert_eq!(
+        entry.conformal_quantile,
+        fit["conformal_quantile"].as_f64().unwrap()
+    );
+    assert!(entry.temperature != 1.0, "span was not fitted");
+    assert!(
+        !report["caveats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c.as_str().unwrap().contains("GAP-CALIB-SPAN")),
+        "a fitted span entry is not caveated as unfitted"
+    );
+    assert_eq!(span["scored"]["n_scored"], json!(300));
+
+    let runtime = runtime_with(table);
+    let request = request(json!([{"name": "evidence", "type": "span"}]));
+    let answered = runtime.answer(&request, None);
+    assert_eq!(refusal_kind(&answered), None, "{answered:?}");
+    assert_ne!(answered.caller_reading(), CallerReading::RequestRefused);
+}
+
+#[test]
+fn the_span_entry_is_fitted_two_fold_with_the_letters_and_scored_out_of_fold() {
+    let dir = scratch("span-two-fold");
+    let report = fit_with(
+        &dir,
+        &["--population", "two-fold", "--split-key", "k"],
+        true,
+    );
+    let span = &report["span"];
+    assert_eq!(span["scored"]["how"], json!("out_of_fold"));
+    assert_eq!(span["scored"]["n_scored"], json!(300));
+    for (i, (file, fold)) in [("table.fold-a.json", "a"), ("table.fold-b.json", "b")]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(span["folds"][fold]["fitted"], json!(true));
+        let bytes = std::fs::read(dir.join("fit").join(file)).expect("fold table");
+        let table: CalibrationTable = serde_json::from_slice(&bytes).expect("parses");
+        let entry = table
+            .lookup("slot", SlotKind::Span, 9)
+            .expect("each fold fits span");
+        assert_eq!(
+            entry.temperature,
+            span["folds"][fold]["temperature"].as_f64().unwrap()
+        );
+        assert_eq!(report["tables"][i]["span"], json!("fitted"));
+    }
+    // A span row's slots and its letter slots share a fold: the split is by row_id alone.
+    let rows = std::fs::read_to_string(dir.join("fit").join("rows.jsonl")).expect("rows");
+    let mut fold_of: std::collections::BTreeMap<String, String> = Default::default();
+    for line in rows.lines() {
+        let v: Value = serde_json::from_str(line).expect("row line");
+        let (id, fold) = (v["row_id"].as_str().unwrap(), v["fold"].as_str().unwrap());
+        assert_eq!(
+            fold_of
+                .entry(id.to_string())
+                .or_insert_with(|| fold.to_string()),
+            fold,
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn span_lines_with_and_without_their_distributions_are_refused_together() {
+    let dir = scratch("span-mixed");
+    let (with, without) = (dir.join("with.jsonl"), dir.join("without.jsonl"));
+    write_verdicts_with(&with, "E-with", true);
+    write_verdicts_with(&without, "E-without", false);
+    let done = Command::new(BIN)
+        .arg("--verdicts")
+        .arg(&with)
+        .arg("--verdicts")
+        .arg(&without)
+        .args(["--name", "n", "--population", "all", "--out-dir"])
+        .arg(dir.join("fit"))
+        .output()
+        .expect("run");
+    let err = String::from_utf8_lossy(&done.stderr);
+    assert!(
+        !done.status.success() && err.contains("all; refused"),
+        "{err}"
+    );
+    assert!(!dir.join("fit").exists());
 }
 
 #[test]

@@ -252,12 +252,47 @@ def _val_and_steps(tiny):
     return val, second, steps
 
 
+def test_every_span_verdict_carries_both_pointer_distributions_and_their_gold(
+    tmp_path, monkeypatch
+):
+    """GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS: a span entry is fitted from the verdict file,
+    so every span line ``--verdicts-out`` writes carries what the fit reads -- the start and
+    end pointers' scores over the runtime's rows and each pointer's gold row -- with no flag,
+    as every letter line carries ``row_logits`` and ``gold_row``."""
+    tiny = tiny_master_checkpoints(tmp_path, monkeypatch)
+    val, _, steps = _val_and_steps(tiny)
+    scored = rft._decode(steps[0], val.plan, val.labels_for, val.letter_id)
+    spans = [v for v in scored["verdicts"] if v["kind"] == "span"]
+    assert spans, "the tiny val set holds span rows"
+    lines = {
+        line["row_id"]: line
+        for line in rft._verdict_lines(scored, eval_row_id="e1", seed=0)
+        if line["kind"] == "span"
+    }
+    for v in spans:
+        rows, noul = int(v["rows"]), int(v["noul_row"])
+        assert noul == rows - 1
+        for key in ("start_logits", "end_logits"):
+            assert len(v[key]) == rows, (key, v["row_id"])
+        gold = (int(v["gold_start"]), int(v["gold_end"]))
+        if v["expected_abstain"]:
+            assert gold == (noul, noul)
+        else:
+            assert 0 <= gold[0] <= gold[1] < noul
+        tops = [max(range(rows), key=v[key].__getitem__) for key in ("start_logits", "end_logits")]
+        assert tops == list(v["top"]), "the written scores are the ones the verdict read"
+        line = lines[v["row_id"]]
+        for key in ("start_logits", "end_logits", "gold_start", "gold_end", "rows", "noul_row"):
+            assert line[key] == v[key], key
+
+
 def test_an_ensemble_of_one_tower_three_times_decodes_as_that_tower(tmp_path, monkeypatch):
     tiny = tiny_master_checkpoints(tmp_path, monkeypatch)
     val, _, steps = _val_and_steps(tiny)
-    one = rft._decode(steps[0], val.plan, val.labels_for, val.letter_id, pointer_scores=True)
-    ens = rft._decode(rft.TowerEnsemble([steps[0]] * 3), val.plan, val.labels_for,
-                      val.letter_id, pointer_scores=True)
+    one = rft._decode(steps[0], val.plan, val.labels_for, val.letter_id)
+    ens = rft._decode(
+        rft.TowerEnsemble([steps[0]] * 3), val.plan, val.labels_for, val.letter_id
+    )
     assert len(one["verdicts"]) == len(ens["verdicts"]) > 0
     kinds = set()
     for a, b in zip(one["verdicts"], ens["verdicts"], strict=True):
@@ -337,10 +372,7 @@ def test_three_separately_scored_seeds_predict_the_ensembles_every_verdict(
             asked += 1
             assert ens[key]["top_permuted"] == v["top"], key
     assert asked == len(second.perms) > 0
-    pointer = [
-        rft._decode(s, val.plan, val.labels_for, val.letter_id, pointer_scores=True)
-        for s in steps
-    ]
+    pointer = [rft._decode(s, val.plan, val.labels_for, val.letter_id) for s in steps]
     pointer_by_key = [{(v["row_id"], v["slot_name"]): v for v in d["verdicts"]} for d in pointer]
     spans = 0
     for key, line in ens.items():
