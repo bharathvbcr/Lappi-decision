@@ -621,10 +621,50 @@ Runner 6b [V]:
   - Acted on: the exact `_sha256_file` clone, and `convert::shuffled` (a clone DevMap did not group).
   - Named, not touched: the other `sha256_file` copies in `tools/` and `campaign/` (other lanes' one-offs); the exact `hex` clone across `qd-prep/src/blake2b.rs` and qd-runtime/qd-train bins (other owners); the qd-mutate per-language query wrappers (alike in shape, different grammars).
 
+## 10. The merge and the stress suite's one run on main (2026-10-06 22:55Z to 2026-10-07 00:29Z)
+
+**Merge [V].**
+- C1 `ae701ad`: the stress tree committed on `stress-v6` (parent 22c38b6). `integrate-v6-data` fast-forwarded to it.
+- M `30defc9`: merges C1 into main (parents 89b9ad0 and ae701ad).
+  - One conflict, `python/tests/test_decisions_pool.py`. Resolved by taking the integration side and re-applying d279d71's split; ruff passes on the result.
+  - `gaps.jsonl`: one appended line.
+  - No protected path changed (qd-runtime, qd-metal, qd-train, the caller contract).
+- Nothing pushed; `origin/main` is 89b9ad0.
+
+**What the suite ran on [V].** The launcher checked HEAD == 30defc9 at 22:57:44Z. It then waited 1,980 s for the mac_heavy lock, behind ojas-gdn-step5 and tessl-eg2-*, and four commits landed meanwhile (6f65501, 9c563ed, 8d781c2, 25e6f2b). So the suite ran on **25e6f2b**. `git diff --stat 30defc9 25e6f2b -- crates/qd-prep python/qd_data tools Cargo.lock Cargo.toml` is empty, and main's working copy has no changes under those paths. The code built is the same. The check belongs inside the locked job (GAP-STRESS-RUNNER-HEAD-CHECKED-BEFORE-THE-LOCK-2026-10-06).
+
+**Results, tri-state** (`build/queue-2026-10-06/status-stress.tsv`; the suite ran 23:30:45Z to 00:29:21Z; mac_heavy exit 0):
+
+| Item | Result | Reading |
+| --- | --- | --- |
+| stress-build | passed | |
+| S1 | passed | an expected red when the suite was written; fixed in the stress round (roles) |
+| **S2** | **failed (101)** | `s2_noul_gold_on_a_family_stating_noul_as_zero_is_refused_or_counted` (`stress_v6.rs:925`): "apps.tool_select states noul as zero, yet 1 noul row(s) were admitted; refused: {}". An expected red when the suite was written. Nothing enforces a family's stated zero noul. The real tools pool has 0 noul gold, so this is the missing check, not a contaminated pool. The other 4 S2 tests passed. |
+| S3, S4, S5, S6, S7 | passed | S3 was an expected red; fixed in the stress round |
+| S6-kill | passed | the kill reached the write (not the `not_run` case) |
+| **S8** | **failed (101)** | **By the test's own bound, not by a byte difference.** The debug `synth email` build at `--threads 1` "ran past 1800s and was killed" (`CLI_LIMIT`, `stress_v6.rs:34`; `s8.log`). Email's U4 comparison never ran, so it is **undetermined** by this run. Jarvis and tools were byte-identical across `--threads 1, 8, 8`. The step took 3,256 s. A sample at ~30 min showed the build in `linfit::train_once` under `synth::leak_probe`. The release email build takes 38 s (runner 6c), and S9 below built 82,748 rows in release in 196 s. GAP-STRESS-RUNNER-S1-S8-STEPS-UNBOUNDED-DEBUG-PROFILE-2026-10-06 (its second line corrects the first). |
+| S8-decisions | not run | needs the decisions pool's pinned upstream sources; no fixture holds them |
+| S11, S12 | passed | S11 was an expected red; fixed in the stress round |
+| s2, s3, s4, s5, s8, s12 reuse | passed | |
+| s12-parity, s11-qdtrain-records, s11-qdtrain-door | passed | |
+| s7-py, s10-py, s10-py-reuse, s11-py, s12-py, s12-py-reuse | passed | s10-py was an expected red; fixed in the stress round |
+| S9 build (release) | passed | |
+| S9 email | passed | 196.3 s (bound 600 s), max RSS 4.02 GB (cap 32 GiB). The test asks for 65 templates x 1,400 rows plus a 0.1 injection share, about 100k generated (inferred from the test's config, not counted). The pool kept 82,748. |
+| S9 containment | passed | 200k x 50k in 0.8 s (bound 1,200 s), max RSS 0.33 GB. The planted hits (every 1,000th candidate) were found, at least 200. |
+| S9 LSH | passed | 1M keys in 1.7 s (bound 600 s), max RSS 2.60 GB |
+
+Totals: 32 rows; 29 passed, 2 failed (S2, S8), 1 not run (S8-decisions). No threshold, bound or held-out set was moved. Nothing was re-run.
+
+**The lock while S8 ran.** Three other projects' jobs waited behind it: tessl-eg2-full2, rsijev-oracle and ojas-gdn-step7. S8 was not killed (the advisor's ruling): a kill writes 101 for a failure that did not happen, and the runner has no interrupted state. The session that owns tessl-eg2-full2 and rsijev-oracle was told and will relaunch them. ojas-gdn-step7's owner was not identified.
+
 ## Open
 
-- The stress-v6 merge into `integrate-v6-data` and then main (the advisor reviewed the plan at ~22:55Z).
+- **S2 red:** a family that states zero noul must refuse or count a noul row at `synth::assemble` / `pool::examples`. Fix it with a test that is red on 25e6f2b.
+- **S8 email undetermined:** run it again, labelled as a second run, with the profile and size chosen beforehand. Either release at the shipped size, or debug at a size measured in debug. The runner fixes go in the same edition: a per-step bound recorded as its own state, and the HEAD check inside the lock on a pinned worktree.
 - A positive control per real target set (jarvis-scenarios, tool-heldout), before those pools are called decontaminated.
-- The stress suite's one run on main, reported tri-state.
 - The v6 allocation over every pool (GAP-V6-THREE-POOL-PRODUCERS-CAPS-APPLIED-IN-DECISIONS-ONLY-2026-10-06, the rebuild lane).
 - Sections 3-4 otherwise as before.
+
+**First command for the next data lane** (the S2 red, alone, under the lock):
+
+    bash tools/mac_heavy.sh s2-noul cargo test -p qd-prep --test stress_v6 -j 2 -- s2_noul_gold_on_a_family_stating_noul_as_zero_is_refused_or_counted --exact
