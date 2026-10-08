@@ -62,12 +62,14 @@ from .tristate import NotRun, Ran, TriState
 
 __all__ = [
     "CONTRAST_PATHS",
+    "V6_CONTRAST_MOVES",
     "ContrastRecord",
     "ContrastShortfall",
     "apply_contrast",
     "contrast_order_key",
     "contrast_rows_sha256",
     "derive_contrast_rows",
+    "v6_contrast_spec",
 ]
 
 #: The paths a contrast row's context sits under, one per row by its twin's keyed digest.
@@ -84,6 +86,16 @@ CONTRAST_PATHS: Final[tuple[str, ...]] = (
     "src/quiz.rs",
     "src/quiz.ts",
 )
+
+
+#: v6's contrast re-spec (``AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md`` R2): under
+#: ``DataConfig.benchmark_eval_splits_are_targets`` MMLU's dev and test are decontamination targets,
+#: never rows, so ``knowledge.multiple_choice`` has no train twin and its contrast quota moves to
+#: ``commonsense.multiple_choice`` (v5's 1,200 + 800 become 2,000 CSQA). Applied by
+#: :func:`v6_contrast_spec`, only under that config, so a v5 build derives v5's rows.
+V6_CONTRAST_MOVES: Final[dict[str, str]] = {
+    "knowledge.multiple_choice": "commonsense.multiple_choice",
+}
 
 
 class ContrastShortfall(SystemExit):
@@ -218,6 +230,19 @@ def derive_contrast_rows(
     return report, record
 
 
+def v6_contrast_spec(spec: ContrastSpec, *, config: DataConfig) -> ContrastSpec:
+    """``spec`` as ``config`` derives it: unchanged under v5's config; under v6's benchmark
+    re-pin each family of :data:`V6_CONTRAST_MOVES` hands its quota to its target, the seed
+    kept, so the total the noul corpus asked for is still the total derived."""
+    if not config.benchmark_eval_splits_are_targets:
+        return spec
+    per_family: dict[str, int] = {}
+    for family, n in spec.per_family.items():
+        target = V6_CONTRAST_MOVES.get(family, family)
+        per_family[target] = per_family.get(target, 0) + n
+    return ContrastSpec(per_family=per_family, seed=spec.seed)
+
+
 def apply_contrast(
     split_report: SplitReport,
     *,
@@ -236,6 +261,7 @@ def apply_contrast(
     spec = noul_contrast_spec(defect_noul) if defect_noul is not None else None
     if spec is None:
         return split_report, None, None
+    spec = v6_contrast_spec(spec, config=config)
     if not exclusions_applied:
         return (
             split_report,

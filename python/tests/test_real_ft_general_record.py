@@ -213,7 +213,7 @@ def _manifest(out: Path, n_input: dict[str, int], *, replay: bool = False) -> No
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "data_snapshot_hash": "d" * 64, "status": {"state": "ran", "passed": True},
-        "mixture": {"n_input": n_input},
+        "mixture": {"n_input": n_input}, "config_fingerprint": DataConfig().fingerprint(),
     }), encoding="utf-8")
     if replay:
         (out / rft.REPLAY_MANIFEST).write_text("{}", encoding="utf-8")
@@ -222,6 +222,7 @@ def _manifest(out: Path, n_input: dict[str, int], *, replay: bool = False) -> No
 def _facts(out: Path, **kw: Any) -> rft.CorpusFacts:
     kw.setdefault("repo_history", True)
     kw.setdefault("commitpackft", None)
+    kw.setdefault("config", DataConfig())
     return rft.corpus_facts(out, data_snapshot_hash="d" * 64, **kw)
 
 

@@ -564,7 +564,7 @@ def _recipe_pieces(
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
-    train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
+    train_dtype: str = "bf16", span_head_init: Mapping[str, object] | None = None,
     exclusions_sha256: str = "", min_lr: float | None = None,
     noul_weight: float | None = None, prompt_format: int = 1,
     batch_order: str | None = None, probe_shapes: float | None = None,
@@ -1909,6 +1909,179 @@ class MemoryProbe:
         )
 
 
+#: The optimizer steps (1-based, as ``Progress.optimizer_step`` counts them) whose wall time
+#: :class:`StepTimer` summarises: campaign/next-train-first-box-2026-10-06.DRAFT.json P1's
+#: "median of steps 101-600". Steps 1-100 are warm-up (allocator growth, kernel autotuning,
+#: the lazily-built optimizer state) and are not in it.
+STEP_TIME_WINDOW: Final[tuple[int, int]] = (101, 600)
+
+
+def device_sync(device: str) -> tuple[Callable[[], None], str]:
+    """The call that waits for ``device``'s queued work, and its name for the row.
+
+    CUDA and MPS launch kernels asynchronously, so a clock read without this times the
+    LAUNCH of a step and not its work. CPU executes eagerly: nothing is queued.
+    """
+    if device == "cuda":
+        return torch.cuda.synchronize, "torch.cuda.synchronize()"
+    if device == "mps":
+        return torch.mps.synchronize, "torch.mps.synchronize()"
+    if device == "cpu":
+        return (lambda: None), "none (cpu executes eagerly)"
+    raise ValueError(f"no synchronisation known for device {device!r}")
+
+
+class StepTimer:
+    """Per-step wall time of a training arm, kept current on the ft row as two metrics.
+
+    * ``train.step_time_s``: the whole optimizer step -- every micro-batch's forward and
+      backward plus ``apply`` -- measured between consecutive ``on_progress`` calls, each
+      closed by ``sync``.
+    * ``train.optimizer_step_s``: ``apply`` alone (gradient clip, ``optimizer.step()``,
+      ``zero_grad``), synced before and after so it covers the device work.
+
+    Only steps inside ``window`` are kept, so at most ``window[1] - window[0] + 1`` floats
+    per series whatever the schedule's length. Each metric is ``NotRun`` until EVERY step of
+    the window was timed in this process; a run that stopped short of ``window[1]`` (cap,
+    ``--max-steps``, a kill) or resumed past ``window[0]`` never records a median of part of
+    the window. A checkpoint write lands between two steps; :meth:`excluding` restarts the
+    interval after it, so a step's time never includes writing the previous step's state.
+    """
+
+    STEP_METRIC = "train.step_time_s"
+    APPLY_METRIC = "train.optimizer_step_s"
+
+    def __init__(
+        self, recorder: Any, *, sync: Callable[[], None], sync_name: str,
+        window: tuple[int, int] = STEP_TIME_WINDOW, first_step: int = 0,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
+        lo, hi = window
+        if not 1 <= lo <= hi:
+            raise ValueError(f"window {window!r} is not 1 <= first <= last")
+        if first_step < 0:
+            raise ValueError(f"first_step must not be negative, got {first_step}")
+        self.recorder = recorder
+        self.window = (int(lo), int(hi))
+        self.first_step = int(first_step)
+        self.sync_name = sync_name
+        self._sync = sync
+        self._clock = clock
+        self._mark: float | None = None
+        self._last_apply: float | None = None
+        self.step_s: dict[int, float] = {}
+        self.apply_s: dict[int, float] = {}
+        self.restarts = 0
+        self._publish()
+
+    @property
+    def n_window(self) -> int:
+        return self.window[1] - self.window[0] + 1
+
+    def start(self) -> None:
+        """Open step 1's interval. Called immediately before the loop."""
+        self._sync()
+        self._mark = self._clock()
+
+    def wrap(self, step: Any) -> None:
+        """Time ``step.apply`` in place: an instance attribute, so ``step`` keeps its type
+        (``train_ft`` checks it against ``SpanScoringStep``) and every caller of ``apply``
+        -- a replay wrapper's included -- reaches the timed one."""
+        inner = step.apply
+
+        def apply(*, lr: float) -> None:
+            self._sync()
+            t0 = self._clock()
+            inner(lr=lr)
+            self._sync()
+            self._last_apply = self._clock() - t0
+
+        step.apply = apply
+
+    def excluding(self, sink: Callable[[Any], None] | None) -> Callable[[Any], None] | None:
+        """``sink`` with the interval restarted after it, so its write is in no step."""
+        if sink is None:
+            return None
+
+        def run(ckpt: Any) -> None:
+            sink(ckpt)
+            self.restarts += 1
+            self.start()
+
+        return run
+
+    def __call__(self, p: Progress) -> None:
+        self._sync()
+        now = self._clock()
+        if self._mark is None:
+            raise RuntimeError("StepTimer was called before start(): no interval is open")
+        took, self._mark = now - self._mark, now
+        apply, self._last_apply = self._last_apply, None
+        lo, hi = self.window
+        if not lo <= p.optimizer_step <= hi:
+            return
+        if apply is None:
+            raise RuntimeError(
+                f"step {p.optimizer_step} completed without the timed apply: wrap() was not "
+                "called on the step the loop drives"
+            )
+        self.step_s[p.optimizer_step] = took
+        self.apply_s[p.optimizer_step] = apply
+        self._publish()
+
+    def _covered(self) -> bool:
+        lo, hi = self.window
+        return len(self.step_s) == self.n_window and set(self.step_s) == set(range(lo, hi + 1))
+
+    def _publish(self) -> None:
+        lo, hi = self.window
+        for name, series, what in (
+            (self.STEP_METRIC, self.step_s,
+             "the whole optimizer step (forward, backward, apply), between consecutive "
+             "on_progress calls"),
+            (self.APPLY_METRIC, self.apply_s,
+             "apply alone (gradient clip, optimizer.step(), zero_grad)"),
+        ):
+            if not self._covered():
+                why = (
+                    f"{len(series)} of the {self.n_window} steps of window {lo}-{hi} timed in "
+                    f"this process; no median of a partial window is recorded"
+                )
+                if self.first_step >= lo:
+                    why += (
+                        f" (the run resumed at step {self.first_step}, so steps {lo}-"
+                        f"{self.first_step} were never timed here)"
+                    )
+                self.recorder.metric(name, NotRun(reason=why))
+                continue
+            values = sorted(series.values())
+            median = float(np.median(values))
+            self.recorder.metric(
+                name,
+                Ran(
+                    passed=True, value=median, n=len(values), n_total=self.n_window,
+                    detail=(
+                        f"median wall seconds of {what}, over optimizer steps {lo}-{hi}; "
+                        f"each clock read after {self.sync_name}; min {values[0]:.6f} "
+                        f"p90 {float(np.percentile(values, 90)):.6f} max {values[-1]:.6f}; "
+                        f"{self.restarts} interval(s) restarted after a checkpoint write"
+                    ),
+                ),
+            )
+
+
+def _both(
+    first: Callable[[Progress], None], second: Callable[[Progress], None]
+) -> Callable[[Progress], None]:
+    """Two ``every_step`` hooks, in order: ``first`` reads its clock before ``second`` works."""
+
+    def run(p: Progress) -> None:
+        first(p)
+        second(p)
+
+    return run
+
+
 class CheckpointSink:
     """``train_ft``'s ``on_checkpoint``, plus the write at the end of the arm.
 
@@ -2715,10 +2888,18 @@ class SpanHeadInit:
     content_digest: str
     seed: int
     tensors: Mapping[str, Any]
+    #: The manifest's ``construction.shared_across_seeds`` (``qd_train_oracle_span_head_init.py
+    #: --shared``): one head every seed of a run starts from (Fable's v6 ruling R7). False when
+    #: the key is absent, as in every manifest written before it.
+    shared: bool = False
 
-    def recipe(self) -> dict[str, str]:
-        """What the recipe records: which file, by both of its digests."""
-        return {"sha256": self.sha256, "content_digest": self.content_digest}
+    def recipe(self) -> dict[str, object]:
+        """What the recipe records: which file, by both of its digests, and ``shared: True``
+        for a shared head (only then, so a seed-specific head hashes as it always did)."""
+        out: dict[str, object] = {"sha256": self.sha256, "content_digest": self.content_digest}
+        if self.shared:
+            out["shared"] = True
+        return out
 
 
 def _manifest_field(manifest: Mapping[str, Any], *keys: str) -> object:
@@ -2761,6 +2942,14 @@ def read_span_head_init(path: Path, manifest_path: Path) -> SpanHeadInit:
     seed = _manifest_field(manifest, "construction", "seed")
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise SystemExit(f"--span-head-init-manifest construction.seed is {seed!r}, not a seed")
+    construction = manifest["construction"]
+    shared = construction.get("shared_across_seeds", False)
+    if "shared_across_seeds" in construction and shared is not True:
+        # The generator writes the key only as true; anything else is not its manifest.
+        raise SystemExit(
+            f"--span-head-init-manifest construction.shared_across_seeds is {shared!r}: the "
+            "generator writes it only as true (--shared), and absent otherwise"
+        )
     names = _manifest_field(manifest, "tensors")
     if not isinstance(names, Mapping) or not names:
         raise SystemExit("--span-head-init-manifest tensors is not a non-empty object")
@@ -2804,7 +2993,8 @@ def read_span_head_init(path: Path, manifest_path: Path) -> SpanHeadInit:
         for name, t in load_safetensors(payload).items()
     }
     return SpanHeadInit(
-        path=path, sha256=got_sha, content_digest=content, seed=seed, tensors=tensors
+        path=path, sha256=got_sha, content_digest=content, seed=seed, tensors=tensors,
+        shared=shared is True,
     )
 
 
@@ -3620,6 +3810,16 @@ def _train(
                 int(torch.cuda.max_memory_allocated()), int(torch.cuda.max_memory_reserved())
             ),
         )
+    # Per-step wall time on the ft row (StepTimer): the inner step's apply is the optimizer
+    # step whichever wrapper drives it, and a resumed run's first step is the checkpoint's.
+    sync, sync_name = device_sync(device)
+    resumed_at = getattr(resume_from, "optimizer_step", 0) if resume_from is not None else 0
+    timer = StepTimer(
+        recorder, sync=sync, sync_name=sync_name,
+        first_step=resumed_at if isinstance(resumed_at, int) else 0,
+    )
+    timer.wrap(step)
+    timer.start()
     result = train_ft(
         source(),
         epoch=0,
@@ -3632,7 +3832,7 @@ def _train(
             approved_by=approved_by, cap_s=cap_s, min_lr=min_lr,
         ),
         recorder=recorder,
-        on_checkpoint=on_checkpoint,
+        on_checkpoint=timer.excluding(on_checkpoint),
         resume_from=resume_from,
         # Under --probe-shapes: a line on every step (each is one shape's peak), the
         # allocator's reserved peak rather than its allocated one, and the probe's metric
@@ -3645,7 +3845,7 @@ def _train(
                 else torch.cuda.max_memory_allocated if probe is None
                 else torch.cuda.max_memory_reserved
             ),
-            every_step=probe,
+            every_step=timer if probe is None else _both(timer, probe),
         ),
     )
     wall = time.monotonic() - started
@@ -4239,7 +4439,6 @@ def ft_splits(
     import real_tokenizer_pipeline as pipeline
 
     from qd_data.config import SPLITS
-    from qd_train.exclusions import containment_corpus
 
     split_report = ft_split_report(
         commitpackft=commitpackft, max_pairs=max_pairs, rev=rev, config=config,
@@ -4249,13 +4448,14 @@ def ft_splits(
         defect_noul=defect_noul, decisions_pool=decisions_pool,
         pre_dedupe_drops=pre_dedupe_drops,
     )
-    corpus = containment_corpus(replay_corpus_identity(
+    # Named as the pipeline names it (name_corpus), v6's rule keys included under its config.
+    corpus = pipeline.name_corpus(replay_corpus_identity(
         rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
         defect_noul=defect_noul, decisions_pool=decisions_pool,
         drop_before_dedupe=pre_dedupe_drops,
-    )) if exclude_identity_keys is not None else {}
+    ), config=config) if exclude_identity_keys is not None else {}
     split_report = pipeline.exclusions_then_contrast(
         split_report, exclude_identity_keys=exclude_identity_keys, corpus=corpus,
         defect_noul=defect_noul, config=config,
@@ -4562,8 +4762,8 @@ def general_record_datasets(record: Path | None) -> frozenset[str] | None:
 
 def corpus_facts(
     out: Path, *, data_snapshot_hash: str, repo_history: bool, commitpackft: Path | None,
-    general_datasets: frozenset[str] | None = None, replay_partition: bool = False,
-    decisions_pool: bool = False,
+    config: DataConfig, general_datasets: frozenset[str] | None = None,
+    replay_partition: bool = False, decisions_pool: bool = False,
 ) -> CorpusFacts:
     """Read the train manifest the pipeline wrote, and refuse what this rebuild cannot match.
 
@@ -4590,6 +4790,10 @@ def corpus_facts(
       a set no pool source fed is refused too: the first rebuild would drop the pool's rows,
       the second would add rows the shards never held. Which pool is the right one is the
       ``data_snapshot_hash`` pairing's question, answered by ``pair_labels``.
+    * ``config`` is the rebuild's: the manifest's ``config_fingerprint`` must equal its
+      ``fingerprint()``. A set built under the pipeline's ``--v6-data-rules`` is refused
+      without ``--v6-data-rules`` here, and a v5 set with it; a manifest with no fingerprint
+      cannot say which, and is refused too.
     """
     path = out / TRAIN_MANIFEST
     if not path.is_file():
@@ -4600,6 +4804,25 @@ def corpus_facts(
         raise SystemExit(
             f"{path} records data_snapshot_hash {recorded!r} but the shard header pins "
             f"{data_snapshot_hash!r}: it is not the manifest this shard set was written from"
+        )
+    built_under = raw.get("config_fingerprint")
+    rebuilt_under = json.loads(json.dumps(config.fingerprint()))
+    if not isinstance(built_under, dict):
+        raise SystemExit(
+            f"{path} carries no config_fingerprint, so the data rules this shard set was built "
+            "under cannot be read, and a rebuild under any one of them is a guess"
+        )
+    if built_under != rebuilt_under:
+        differ = sorted(
+            k for k in set(built_under) | set(rebuilt_under)
+            if built_under.get(k) != rebuilt_under.get(k)
+        )
+        raise SystemExit(
+            f"{path}: built under config fingerprint keys {differ} = "
+            f"{ {k: built_under.get(k) for k in differ} }, and this rebuild runs under "
+            f"{ {k: rebuilt_under.get(k) for k in differ} }. The pipeline's --v6-data-rules "
+            "must be given here exactly when the set was built with it, or the rebuild is "
+            "another row set"
         )
     status = parse_tristate(raw.get("status"), field=f"{path}:status")
     n_input = raw.get("mixture", {}).get("n_input")
@@ -9784,11 +10007,12 @@ def _check_rungd_flags(args: argparse.Namespace) -> SpanHeadInit | None:
         return None
     init = read_span_head_init(args.span_head_init, args.span_head_init_manifest)
     other = sorted({int(s) for s in args.seeds} - {init.seed})
-    if other:
+    if other and not init.shared:
         raise SystemExit(
             f"--span-head-init {args.span_head_init} is the head of seed {init.seed} "
             f"(construction.seed), and this run trains seed(s) {other}: each seed starts from "
-            "its own head"
+            "its own head; a head every seed starts from is generated with "
+            "tools/qd_train_oracle_span_head_init.py --shared (Fable v6 R7)"
         )
     return init
 
@@ -10334,6 +10558,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--general-max-rows", type=int, default=None,
         help="as the pipeline's --general-max-rows: the same per-file bound; default its default",
+    )
+    parser.add_argument(
+        "--v6-data-rules", action="store_true",
+        help=(
+            "the shard set was built with tools/real_tokenizer_pipeline.py --v6-data-rules: "
+            "rebuild its rows under the same DataConfig (with_v6_benchmark_targets and "
+            "with_v6_dedupe_rules, real_tokenizer_pipeline.data_rules). Refused when the train "
+            "manifest's config_fingerprint disagrees, either way. The suites keep DataConfig()"
+        ),
     )
     parser.add_argument(
         "--decisions-pool", type=Path, default=None,
@@ -11198,18 +11431,26 @@ def main(argv: list[str] | None = None) -> int:
     # Before the rebuild, which on the full defect corpus is minutes of work: what the
     # manifest says about the corpus decides both whether this rebuild can match it and,
     # below, which of this run's rows are quick.
+    # The config the shard set's rows were built under: the pipeline's --v6-data-rules is
+    # applied here by the pipeline's own data_rules, to the rebuild alone. The suites below
+    # (OOD prose, needle, gates) keep DataConfig(), so a v6 run reads v5's suites.
+    import real_tokenizer_pipeline as pipeline
+
+    rebuild_config = pipeline.data_rules(config, v6=args.v6_data_rules)
     corpus = corpus_facts(
         args.out, data_snapshot_hash=reader.header.data_snapshot_hash,
         repo_history=args.repo_history, commitpackft=args.commitpackft,
         general_datasets=general_record_datasets(args.general_record),
         replay_partition=args.replay_partition,
         decisions_pool=args.decisions_pool is not None,
+        config=rebuild_config,
     )
     # One set of arguments for the rebuild and for the split cache's key, so what is keyed is
     # what is rebuilt. The module global is read here, at call time, as it always was.
     rebuild = functools.partial(
         ft_split_rows,
-        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
+        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev,
+        config=rebuild_config,
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,

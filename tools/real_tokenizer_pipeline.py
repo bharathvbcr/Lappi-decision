@@ -125,7 +125,6 @@ from qd_train.exclusions import (
     SAME_FAMILY_SCOPE_KEY,
     Exclusions,
     apply_exclusions,
-    containment_corpus,
     drop_before_dedupe,
     pre_dedupe_drops_identity,
     read_exclusions,
@@ -776,6 +775,11 @@ class Census:
     #: ``(tokens, files, written under the run's policy, written under refuse-any)``. The
     #: tokens are the span sequence's own length; the files are its ``diff --git`` blocks.
     composed_span: list[tuple[int, int, bool, bool]] = None  # type: ignore[assignment]
+    #: Tokens of the sequences the writer writes, by the row's family: the rows ``lengths``
+    #: counts, so the defect-share check (R1) reads what reaches the shard set.
+    tokens_by_family: collections.Counter[str] = dataclasses.field(
+        default_factory=collections.Counter
+    )
 
     def __post_init__(self) -> None:
         self.lengths = []
@@ -906,6 +910,7 @@ def census(
         out.sequences_out += len(staged_ids)
         out.span_rows_out += staged_spans
         out.lengths.extend(int(i.size) for i in staged_ids)
+        out.tokens_by_family[row.family_id] += sum(int(i.size) for i in staged_ids)
     return out
 
 
@@ -3095,6 +3100,81 @@ def _spancheck_installed(
     return contextlib.nullcontext() if spancheck is None else spancheck.installed()
 
 
+#: The :meth:`DataConfig.fingerprint` keys v6's data rules add (and only they add): a corpus is
+#: named with them (:func:`name_corpus`), so an exclusion list scanned under one rule set is
+#: refused by a build under the other.
+V6_CORPUS_KEYS: Final[tuple[str, ...]] = (
+    "benchmark_eval_splits_are_targets", "dedupe_keep_rule", "lsh_min_agreement_permille",
+)
+#: Fable's two-thirds bound on the defect family's share of train tokens: v4's 83.7%
+#: (256.9M of 306.9M, ``AUDIT/v5-plan-2026-10-02/v4_token_accounting.json``) times 2/3
+#: (``AUDIT/finalize-2026-10-03/fable-weighting-ruling.md``; enforced here for v6 by
+#: ``AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md`` R1). Read-only (rule 2).
+DEFECT_TOKEN_SHARE_FLOOR: Final[float] = 0.558
+#: The family v6's benchmark re-pin empties (R2): MMLU's only rows are its dev and test splits.
+V6_EMPTY_TRAIN_FAMILY: Final[str] = "knowledge.multiple_choice"
+
+
+def data_rules(config: DataConfig, *, v6: bool) -> DataConfig:
+    """``config`` under ``--v6-data-rules`` when ``v6``, else ``config`` itself: the one owner of
+    what that flag means, for the pipeline's build and ``real_ft_run``'s rebuild of it alike
+    (R2): ``DataConfig.with_v6_benchmark_targets()`` and ``with_v6_dedupe_rules()``, both in
+    the config fingerprint and so in every manifest and ``data_snapshot_hash``."""
+    return config.with_v6_benchmark_targets().with_v6_dedupe_rules() if v6 else config
+
+
+def name_corpus(identity: Mapping[str, object], *, config: DataConfig) -> dict[str, object]:
+    """``containment_corpus(identity)`` plus the :data:`V6_CORPUS_KEYS` ``config`` fingerprints:
+    nothing under v5's config, so every v5 attestation still matches; under
+    ``with_v6_benchmark_targets()`` alone exactly the key ``tools/containment_scan.py
+    --v6-benchmark-targets`` writes. The build and ``ft_splits`` both name their corpus here."""
+    # Resolved at call time, as ft_splits' own import of it always was.
+    from qd_train import exclusions as exclusions_module
+
+    fingerprint = config.fingerprint()
+    return {
+        **exclusions_module.containment_corpus(identity),
+        **{k: fingerprint[k] for k in V6_CORPUS_KEYS if k in fingerprint},
+    }
+
+
+def train_token_share(
+    train_rows: Sequence[DataRow], cen: Census, *, defect_source_read: bool
+) -> tuple[TriState, TriState]:
+    """``(train_tokens_by_family, defect_token_share)`` over the train sequences the census says
+    the writer writes (R1). The share is ``code.defect_class`` tokens over all train tokens,
+    passed iff at least :data:`DEFECT_TOKEN_SHARE_FLOOR`. ``NotRun`` -- never a pass -- when the
+    build read no ``--defect-class`` or the census counted no train token."""
+    by_family = dict(sorted(cen.tokens_by_family.items()))
+    total = sum(by_family.values())
+    n_rows = len(train_rows)
+    if total == 0:
+        why = NotRun(reason=f"the census counted no written train token over {n_rows} row(s)")
+        return why, why
+    tokens = Ran(
+        passed=True, value=total, n=total, n_total=total,
+        detail=json.dumps({"train_tokens_by_family": by_family}, sort_keys=True),
+    )
+    if not defect_source_read:
+        return tokens, NotRun(
+            reason=(
+                f"this build read no --defect-class, so {DEFECT_FAMILY_ID}'s share of train "
+                "tokens is not the mixture bound's question"
+            )
+        )
+    defect = by_family.get(DEFECT_FAMILY_ID, 0)
+    share = defect / total
+    return tokens, Ran(
+        passed=share >= DEFECT_TOKEN_SHARE_FLOOR,
+        value=round(share, 6), n=defect, n_total=total,
+        detail=(
+            f"{DEFECT_FAMILY_ID} train tokens {defect} of {total} written train tokens "
+            f"(contrast and noul rows included, replay excluded); floor "
+            f"{DEFECT_TOKEN_SHARE_FLOOR} (Fable R1, the two-thirds bound on v4's 83.7%)"
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class PostSplit:
     """What :func:`exclusions_then_contrast` did to the split."""
@@ -3161,6 +3241,7 @@ def run(
     pre_dedupe_drops: Path | None = None,
     dedupe_report_out: Path | None = None,
     spancheck_in_qd_prep: bool = False,
+    v6_data_rules: bool = False,
 ) -> Measured:
     """Build, measure and write one shard set, and return what was measured.
 
@@ -3192,6 +3273,15 @@ def run(
     for each write; the census keeps the reference. Every lookup the table does not settle runs
     the reference, so the sets are the reference's byte for byte, and the ``native_spancheck``
     metric records the binary's sha256. Without it nothing here changes.
+
+    With ``v6_data_rules`` (``--v6-data-rules``, Fable's v6 ruling R2) the config is
+    :func:`data_rules`'s v6 one: MMLU and CLINC evaluation splits are targets, never rows, and
+    dedupe keeps by split priority behind the LSH prefilter; both are in the config fingerprint,
+    the corpus name (:func:`name_corpus`) and ``data_snapshot_hash``. The build refuses unless
+    the train split holds no ``knowledge.multiple_choice`` row and ``code.defect_class`` holds at
+    least :data:`DEFECT_TOKEN_SHARE_FLOOR` of the written train tokens (R1); v5's MMLU contrast
+    quota moves to CSQA (``qd_train.contrast.v6_contrast_spec``). Without it the share is still
+    measured and recorded, never enforced, and nothing else here changes.
     """
     if dedupe_report_out is not None and dedupe_report_out.exists():
         raise SystemExit(f"--dedupe-report-out {dedupe_report_out} exists; it is written once")
@@ -3283,17 +3373,19 @@ def run(
         )
     # A build that reads the decision pool admits its opt-in sources (ARC), with the human's
     # recorded call; one without keeps the default config, so its manifests do not move.
-    config = DataConfig() if decisions_pool is None else pool_data_config()
+    config = data_rules(
+        DataConfig() if decisions_pool is None else pool_data_config(), v6=v6_data_rules
+    )
     extra_metrics: dict[str, TriState] = {}
     resolved = resolve_rev(REPO, rev)
-    containment = containment_corpus(corpus_identity(
+    containment = name_corpus(corpus_identity(
         rev=resolved, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record,
         general_max_rows=general_max_rows if general_record is not None else None,
         defect_noul=defect_noul, decisions_pool=decisions_pool,
         drop_before_dedupe=pre_dedupe_drops,
-    )) if exclude_identity_keys is not None else {}
+    ), config=config) if exclude_identity_keys is not None else {}
     if exclude_identity_keys is not None:
         # Verified now, before minutes of building: the same check runs again where it is
         # applied, after the split.
@@ -3508,6 +3600,23 @@ def run(
     if post.contrast_status is not None:
         extra_metrics["contrast_rows"] = post.contrast_status
         print(f"  contrast rows: {json.dumps(post.contrast_status.to_json())[:600]}")
+    if v6_data_rules:
+        # R2: MMLU's evaluation splits are targets, so no knowledge.multiple_choice row may
+        # reach train -- after the contrast rows, which are code.defect_class rows.
+        mmlu_train = sum(
+            1 for r in split_report.rows_by_split.get("train", ())
+            if r.family_id == V6_EMPTY_TRAIN_FAMILY
+        )
+        if mmlu_train:
+            raise SystemExit(
+                f"--v6-data-rules: {mmlu_train} {V6_EMPTY_TRAIN_FAMILY} row(s) in the train "
+                "split; v6 trains on none (Fable R2: MMLU at zero). Refusing to write a shard set"
+            )
+        extra_metrics["v6_knowledge_multiple_choice_train_rows"] = Ran(
+            passed=True, value=0, n=0,
+            n_total=len(split_report.rows_by_split.get("train", ())),
+            detail=f"{V6_EMPTY_TRAIN_FAMILY} train rows under --v6-data-rules (Fable R2: zero)",
+        )
     exclusions_sha256 = "" if exclusions is None else exclusions.sha256
     if exclusions is not None:
         extra_metrics["decontam_exclusion"] = Ran(
@@ -3646,6 +3755,20 @@ def run(
         raise SystemExit(
             f"no row of {cen.rows_in} survived the census, so there is nothing to write. "
             f"Refusals: {dict(cen.refused)}"
+        )
+    tokens_by_family, defect_share = train_token_share(
+        train_rows, cen, defect_source_read=DEFECT_SOURCE_ID in raw
+    )
+    extra_metrics["train_tokens_by_family"] = tokens_by_family
+    extra_metrics["defect_token_share"] = defect_share
+    print(f"  defect token share: {json.dumps(defect_share.to_json())[:600]}")
+    if v6_data_rules and not (isinstance(defect_share, Ran) and defect_share.passed):
+        # Before any shard is written (R1): a share that failed, or could not be measured, is
+        # not a v6 shard set.
+        raise SystemExit(
+            f"--v6-data-rules: defect_token_share {json.dumps(defect_share.to_json())}; "
+            f"train tokens by family {json.dumps(tokens_by_family.to_json())}. Refusing to "
+            "write a shard set (Fable R1)"
         )
 
     print("\n== stage 3b: does the obvious decode= argument work? ==")
@@ -4340,6 +4463,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--v6-data-rules", action="store_true",
+        help=(
+            "build under v6's data rules (Fable's v6 ruling R2): DataConfig."
+            "with_v6_benchmark_targets() and with_v6_dedupe_rules(), both in the config "
+            "fingerprint and the recipe; refuses unless the train split holds no "
+            "knowledge.multiple_choice row and code.defect_class is at least "
+            f"{DEFECT_TOKEN_SHARE_FLOOR} of the written train tokens (R1). real_ft_run.py takes "
+            "the same flag to rebuild the set"
+        ),
+    )
+    parser.add_argument(
         "--usd-per-hour", type=float, default=None,
         help="the instance rate from the provider's price page, on a rented box",
     )
@@ -4396,6 +4530,7 @@ def main(argv: list[str] | None = None) -> int:
         "pre_dedupe_drops": args.pre_dedupe_drops,
         "dedupe_report_out": args.dedupe_report_out,
         "spancheck_in_qd_prep": args.spancheck_in_qd_prep,
+        "v6_data_rules": args.v6_data_rules,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -4507,6 +4642,9 @@ def main(argv: list[str] | None = None) -> int:
         # corpus remap and hashed without this key, so a trimmed set still hashes as before
         # and a full-vocabulary set can never share its recipe_hash.
         recipe["vocab"] = VOCAB_FULL
+    if args.v6_data_rules:
+        # Only when used: it decides which rows exist and which survive dedupe.
+        recipe["v6_data_rules"] = True
     # It decides which rows exist (the contradictory-prompt drop runs only under it).
     recipe["max_consistency_rows"] = PIPELINE_MAX_CONSISTENCY_ROWS
     protocol = Protocol(

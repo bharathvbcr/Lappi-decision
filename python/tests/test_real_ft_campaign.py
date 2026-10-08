@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 import real_ft_run as rft  # noqa: E402
 
+from qd_data.config import DataConfig  # noqa: E402
 from qd_train.run_control import MAX_CAP_S, hard_exit_on_cap  # noqa: E402
 
 HOURS = 3600.0
@@ -230,12 +231,14 @@ def _manifest(out: Path, *, n_input: dict[str, int], status: dict[str, object] |
         "data_snapshot_hash": snapshot,
         "status": status or {"state": "ran", "passed": True},
         "mixture": {"n_input": n_input},
+        "config_fingerprint": DataConfig().fingerprint(),
     }), encoding="utf-8")
 
 
 def _facts(out: Path, **kw):
     kw.setdefault("repo_history", True)
     kw.setdefault("commitpackft", None)
+    kw.setdefault("config", DataConfig())
     return rft.corpus_facts(out, data_snapshot_hash="d" * 64, **kw)
 
 

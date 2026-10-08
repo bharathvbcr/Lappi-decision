@@ -5,6 +5,10 @@
         --out data/checkpoints/span-head-init/span_head_init-seed0.safetensors \\
         --manifest crates/qd-train/tests/fixtures/span-head-init-seed0.manifest.json
 
+``--shared`` adds ``construction.shared_across_seeds: true`` to the manifest: v6's one head every
+seed starts from (Fable's v6 ruling R7, generated once at ``--seed 0``). Without it the manifest
+has no such key, as before.
+
 A **fixture generator** (user policy: Python only as an oracle). The Rust trainer does not
 port torch's random stream. It loads this file by path, recomputes the two digests the manifest
 records, and refuses to start on a mismatch. A second owner of the stream would be a copy that
@@ -225,6 +229,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "2026-10-01; the one torch.device context there is the 'meta' skeleton at "
             "backbone.py:559, before the step), so a CUDA run's head is drawn on the CPU too "
             "[inferred: no CUDA host here]",
+            # Only under --shared, so a manifest generated without it is the one it always was.
+            **({"shared_across_seeds": True} if args.shared else {}),
         },
         "compared_with": compared,
         "generator": {
@@ -268,6 +274,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         default=None,
         help="a safetensors whose span_head.* tensors must equal this head bit for bit",
+    )
+    parser.add_argument(
+        "--shared",
+        action="store_true",
+        help="write construction.shared_across_seeds: true -- the one head every seed of a run "
+        "starts from (Fable's v6 ruling R7); tools/real_ft_run.py then lets seeds other than "
+        "--seed load it. Absent without the flag",
     )
     args = parser.parse_args(argv)
     args.argv = list(sys.argv[1:] if argv is None else argv)
