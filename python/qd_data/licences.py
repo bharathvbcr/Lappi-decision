@@ -125,6 +125,30 @@ LICENCE_POLICY: Final[dict[str, LicencePolicy]] = {
                 "authored, not text hosted in their repositories"
             ),
         ),
+        # -- the v6 sources, ruled by the human on 2026-10-08 ----------------
+        _p(
+            "oanc", _A, "attribution",
+            note=(
+                "nyu-mll/multi_nli: the Open American National Corpus terms of its non-fiction "
+                "genres. Genre 'fiction' carries other terms and is dropped at conversion. "
+                "Allowed by the human on 2026-10-08"
+            ),
+        ),
+        _p(
+            "odc-by-1.0", _A, "attribution",
+            note=(
+                "allenai/scirepeval: Open Data Commons Attribution 1.0 over the aggregate; the "
+                "attribution is carried to the model card. Allowed by the human on 2026-10-08"
+            ),
+        ),
+        _p(
+            "synthetic-by-rule", _A,
+            note=(
+                "rows written by rule by qd-prep synth (lappi/synth-*), from no person's data: "
+                "the human's 'Synthetic only' ruling (2026-10-06) for the caller families, and "
+                "the human's allowance of this licence id on 2026-10-08"
+            ),
+        ),
         # -- copyleft / non-standard / absent: default-deny --------------
         _p(
             "agpl-3.0", _H, "share-alike", "network-use-disclosure",

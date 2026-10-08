@@ -55,6 +55,12 @@ def test_exactly_these_sources_are_admitted_unattended() -> None:
         "Mapika/decider/teacher_data",
         # The share-alike pool sources that are not opt-in (ARC is; see qd_data.sources).
         "google/boolq", "tals/vitaminc",
+        # The v6 decision sources (registered 2026-10-08 with the human's rulings that day on
+        # oanc, odc-by-1.0 and synthetic-by-rule). A pool of theirs still loads only once an
+        # allocation has been applied to it (qd_data.decisions.load_decision_pool).
+        "nyu-mll/multi_nli", "allenai/scirepeval", "code-search-net/code_search_net",
+        "nvidia/When2Call", "Team-ACE/ToolACE",
+        "lappi/synth-email", "lappi/synth-jarvis", "lappi/synth-tools",
     }
 
 

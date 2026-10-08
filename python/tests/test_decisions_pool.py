@@ -28,6 +28,7 @@ from qd_data.decisions import (
 from qd_data.dedupe import EXACT_CONTENT, NEAR_DUPLICATE_POLICY_KEY, near_duplicate_policy
 from qd_data.errors import LicenceRefused
 from qd_data.general import _checked_options
+from qd_data.licences import LicenceTier
 from qd_data.loaders import MalformedRowRefusal, TypedDecisionRow
 from qd_data.mixture import RowRefused, build_mixture
 from qd_data.schema import ChoiceSlot
@@ -65,7 +66,8 @@ def _row(**over: object) -> TypedDecisionRow:
 
 
 def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source() -> None:
-    assert len(DECISION_FAMILIES) == 15
+    # v5's 15, then v6's 10 (registered 2026-10-08 with the human's licence rulings of that day).
+    assert len(DECISION_FAMILIES) == 25
     for family_id, source_id, description in DECISION_FAMILIES:
         family = task_family_by_id(family_id)
         assert family.source_id == source_id
@@ -75,7 +77,9 @@ def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source(
         assert dict(source.pinned_splits) == {"train": "train", "val": "val"}
         assert source.licence_policy.licence_id in {
             "cc-by-4.0", "apache-2.0", "mit", "cc-by-sa-3.0", "cc-by-sa-4.0",
+            "oanc", "odc-by-1.0", "synthetic-by-rule",
         }
+        assert source.licence_policy.tier is LicenceTier.ALLOW
 
 
 def _arc_row(i: int) -> TypedDecisionRow:
@@ -313,6 +317,59 @@ def test_the_loader_refuses_a_pool_its_manifest_does_not_describe(
 ) -> None:
     with pytest.raises(DecisionPoolError, match=match):
         load_decision_pool(_write_pool(tmp_path / "pool", [_line()], **manifest))
+
+
+#: One row per v6 family, shaped as its pool writes it (the field values are the pools'
+#: under ~/qd-campaign/v6-data-2026-10-06/pool, read 2026-10-08).
+_V6_ROWS: tuple[tuple[str, str, str, str], ...] = (
+    ("mnli.nli", "nyu-mll/multi_nli", "oanc", "relation"),
+    ("scirepeval.search_rel", "allenai/scirepeval", "odc-by-1.0", "relevant"),
+    ("csn.func_match", "code-search-net/code_search_net", "mit", "matches"),
+    ("when2call.tool_select", "nvidia/When2Call", "cc-by-4.0", "action"),
+    ("toolace.tool_select", "Team-ACE/ToolACE", "apache-2.0", "action"),
+    ("email.category", "lappi/synth-email", "synthetic-by-rule", "category"),
+    ("jarvis.target", "lappi/synth-jarvis", "synthetic-by-rule", "element"),
+    ("jarvis.field_fill", "lappi/synth-jarvis", "synthetic-by-rule", "profile_entry"),
+    ("jarvis.step_risk", "lappi/synth-jarvis", "synthetic-by-rule", "policy_requirement"),
+    ("apps.tool_select", "lappi/synth-tools", "synthetic-by-rule", "action"),
+)
+
+
+def _v6_lines() -> list[dict[str, object]]:
+    return [
+        _line(id=f"{fam}:0", source_id=src, family_id=fam, stratum=f"{fam}/choice",
+              licence=lic, slot_name=slot)
+        for fam, src, lic, slot in _V6_ROWS
+    ]
+
+
+def test_v6_family_rows_load_from_an_allocated_pool_and_stay_refused_from_a_candidate_one(
+    tmp_path: Path,
+) -> None:
+    """Registration admits a v6 family's rows to the loader (before 2026-10-08 every one was a
+    MalformedRowRefusal: no registered family of its source). It is not admission to a mixture:
+    a candidate pool (allocation not applied) is still refused whole."""
+    pool = load_decision_pool(_write_pool(
+        tmp_path / "allocated", _v6_lines(),
+        allocation={"state": "applied", "detail": "test"}, tool="qd-prep allocate",
+    ))
+    assert sorted(pool.raw) == sorted({src for _, src, _, _ in _V6_ROWS})
+    with pytest.raises(DecisionPoolError, match="allocation"):
+        load_decision_pool(_write_pool(
+            tmp_path / "candidate", _v6_lines(),
+            allocation={"state": "not_applied", "detail": "candidates"}, tool="qd-prep convert",
+        ))
+
+
+def test_v6_licences_are_admitted_rows_by_row_through_the_mixture() -> None:
+    """The three licence ids the human allowed on 2026-10-08 admit a row; before, each was
+    unregistered and so default-denied."""
+    config = pool_data_config()
+    for fam, src, lic, slot in _V6_ROWS:
+        raw = _row(example_id=f"{fam}:0", source_id=src, family_id=fam,
+                   stratum=f"{fam}/choice", licence=lic, slot_name=slot)
+        row = rewrite_typed_decision(raw, family_id=fam, index=0, config=config)
+        assert row.licence_id == lic
 
 
 @pytest.mark.parametrize(
