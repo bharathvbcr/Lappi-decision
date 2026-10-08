@@ -368,6 +368,16 @@ pub fn read_view(
     read_pinned(v, decisions::Role::Source, each)
 }
 
+/// [`read_view`] for a corpus where a NUL is the attack itself
+/// ([`decisions::Role::SourceNulEncoded`]): a row holding one is kept with every NUL written as
+/// [`decisions::NUL_PLACEHOLDER`], and counted.
+pub fn read_view_nul_encoded(
+    v: &View,
+    each: impl FnMut(usize, Value) -> Result<(), String>,
+) -> Result<decisions::Lines, String> {
+    read_pinned(v, decisions::Role::SourceNulEncoded, each)
+}
+
 fn read_pinned(
     v: &View,
     role: decisions::Role,

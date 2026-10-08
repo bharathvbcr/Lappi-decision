@@ -476,6 +476,10 @@ pub fn assemble_heldout(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, Str
     assemble_sides(cfg, drafts, true)
 }
 
+/// Families whose module states `noul` as a zero. A `noul` gold there is a generator defect:
+/// refused and counted as `noul_on_a_family_stating_zero`, never admitted.
+const NOUL_STATED_ZERO: [&str; 1] = [crate::synth_tools::FAMILY];
+
 /// Both sides go through one dedupe in one order (held-out first, then val, then train), so a
 /// pool row that duplicates a held-out row is the one dropped, and counted.
 fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assembled, String> {
@@ -523,6 +527,10 @@ fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assem
             if side == HELDOUT {
                 *refused.entry("heldout_template").or_default() += 1;
             }
+            continue;
+        }
+        if d.gold == Gold::Noul && NOUL_STATED_ZERO.contains(&d.family_id) {
+            *refused.entry("noul_on_a_family_stating_zero").or_default() += 1;
             continue;
         }
         let perm = Scope::new(cfg.seed, &digest)

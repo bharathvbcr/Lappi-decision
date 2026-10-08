@@ -95,6 +95,10 @@ pub fn decontaminate<'c>(
             "target set {name} is empty: a scan against nothing is not a check"
         ));
     }
+    let Some(scaffold) = candidates.first() else {
+        return Err("no candidate to scan: a pool of nothing is refused".into());
+    };
+    let control = positive_control(ngram_n, threshold, tool, scaffold, targets, threads)?;
     let request_bytes = decisions::containment_request_with(
         ngram_n,
         threshold,
@@ -126,6 +130,8 @@ pub fn decontaminate<'c>(
         "excluded_by_target": hit.iter().map(|(k, v)| (k.clone(), json!(v.len())))
             .collect::<serde_json::Map<_, _>>(),
         "excluded_total": excluded.len(),
+        // Beside the total: whether this scan could have excluded anything at all.
+        "positive_control": control,
         // A row shorter than n words has no n-grams: it cannot be matched, and an unscanned
         // row must not read as clean.
         "rows_too_short_by_set": request.set_names.iter().zip(&found.sets)
@@ -137,6 +143,94 @@ pub fn decontaminate<'c>(
         written: request.render(&found),
         report,
     })
+}
+
+/// How many missed target ids a failed control names.
+const CONTROL_MISSES_NAMED: usize = 8;
+
+/// The planted-copy control for every target set, run before the pool's own scan. A zero
+/// exclusion count is what a disjoint pool reports, and also what a scan reports when its
+/// targets can never match (GAP-SYNTH-POOLS-ZERO-EXCLUSION-NOT-POSITIVE-CONTROLLED-2026-10-06).
+/// So per set, one planted candidate per target row: `scaffold` (a real candidate, carrying
+/// the pool's shared question and options) with the target row's text as its context, under the
+/// target row's id. It is scanned by itself against that set with the pool's n and threshold,
+/// so no planted row reaches the pool's exclusion record or its count.
+///
+/// A target row with at least n words is checkable, and its planted copy must hit that same
+/// row. A set with no checkable row, or a checkable row whose copy was missed, is refused: the
+/// scan's zero would then say nothing about the pool. Every row is planted, never a sample, so
+/// `planted` is the set's row count.
+fn positive_control(
+    ngram_n: u32,
+    threshold: f64,
+    tool: &Value,
+    scaffold: &Candidate,
+    targets: &[TargetSet],
+    threads: usize,
+) -> Result<Value, String> {
+    let mut out = serde_json::Map::new();
+    for set in targets {
+        let (name, rows) = set;
+        let planted: Vec<Candidate> = rows
+            .iter()
+            .map(|(id, text)| Candidate {
+                id: id.clone(),
+                group_key: id.clone(),
+                context: text.clone(),
+                ..scaffold.clone()
+            })
+            .collect();
+        let bytes = decisions::containment_request_with(
+            ngram_n,
+            threshold,
+            tool,
+            "positive-control",
+            &planted,
+            std::slice::from_ref(set),
+        );
+        let request = containment::parse(&bytes)?;
+        let found = request.scan(threads)?;
+        let mut hit: BTreeSet<&str> = BTreeSet::new();
+        for p in &found.pairs {
+            let scan = request.scans[p.scan];
+            let copy = request.sets[scan.source][p.source_row].key;
+            if copy == request.sets[scan.target][p.target_row].key {
+                hit.insert(copy);
+            }
+        }
+        // Set 0 is the planted copies, set 1 the target set.
+        let checkable = found.sets[1].indexed;
+        let too_short = found.sets[1].too_short;
+        if checkable == 0 {
+            return Err(format!(
+                "target set {name}: none of its {} rows has {ngram_n} words, so no candidate can \
+                 ever match it and a planted copy of each was not excluded; a scan of it reports \
+                 zero exclusions whatever the pool holds",
+                rows.len()
+            ));
+        }
+        // A too-short row's copy cannot hit; any other miss is a scan that cannot match.
+        if hit.len() != checkable {
+            let not_hit: Vec<&str> = request.sets[1]
+                .iter()
+                .map(|r| r.key)
+                .filter(|k| !hit.contains(k))
+                .take(CONTROL_MISSES_NAMED)
+                .collect();
+            return Err(format!(
+                "target set {name}: {} of {checkable} checkable rows' planted copy was not \
+                 excluded by its own row (n {ngram_n}, threshold {threshold}); rows not hit \
+                 (too-short ones included), first {CONTROL_MISSES_NAMED}: {not_hit:?}",
+                checkable.saturating_sub(hit.len())
+            ));
+        }
+        out.insert(
+            name.clone(),
+            json!({"state": "passed", "planted": rows.len(), "checkable": checkable,
+                   "too_short": too_short, "excluded": hit.len()}),
+        );
+    }
+    Ok(Value::Object(out))
 }
 
 /// `examples.jsonl`'s bytes and what the manifest records about them.
@@ -319,6 +413,74 @@ mod tests {
             panic!("not refused")
         };
         assert!(err.contains("target set t is empty"), "{err}");
+    }
+
+    /// A target set no candidate can match: every row is shorter than n words, so it has no
+    /// n-gram to contain. Before the planted-copy control this scan returned `excluded_total 0`,
+    /// which reads the same as a disjoint pool
+    /// (GAP-SYNTH-POOLS-ZERO-EXCLUSION-NOT-POSITIVE-CONTROLLED-2026-10-06).
+    #[test]
+    fn a_target_set_no_candidate_can_match_is_refused_not_reported_clean() {
+        let rows = vec![cand(
+            "a",
+            "the quick brown fox jumps over the lazy dog near the river bank today",
+            Gold::Option(0),
+            "train",
+        )];
+        let short: Vec<TargetSet> = vec![(
+            "short".to_owned(),
+            vec![
+                ("s1".to_owned(), "only five words in it".to_owned()),
+                ("s2".to_owned(), "and this one is short".to_owned()),
+            ],
+        )];
+        let Err(err) = decontaminate(8, 0.5, &json!({}), "rows", &rows, &short, 1) else {
+            panic!("a scan that cannot match anything was reported as a scan")
+        };
+        assert!(
+            err.contains("target set short") && err.contains("planted copy"),
+            "{err}"
+        );
+    }
+
+    /// The control on a set that can match: a planted copy of every target row is excluded by
+    /// its own row, the report says so beside `excluded_total`, and the planted rows reach
+    /// neither the clean rows nor the exclusion count.
+    #[test]
+    fn every_checkable_target_rows_planted_copy_is_excluded_and_reported() {
+        let rows = vec![
+            cand(
+                "a",
+                "an entirely unrelated sentence about compilers and parsers and grammars here",
+                Gold::Option(0),
+                "train",
+            ),
+            cand(
+                "b",
+                "a second unrelated sentence about linkers loaders and object files today",
+                Gold::Option(1),
+                "val",
+            ),
+        ];
+        let targets: Vec<TargetSet> = vec![(
+            "t".to_owned(),
+            vec![
+                (
+                    "t1".to_owned(),
+                    "the quick brown fox jumps over the lazy dog near the river bank today"
+                        .to_owned(),
+                ),
+                ("t2".to_owned(), "too short to match".to_owned()),
+            ],
+        )];
+        let s = decontaminate(8, 0.5, &json!({}), "rows", &rows, &targets, 1).unwrap();
+        assert_eq!(s.clean.len(), 2);
+        assert_eq!(s.report["excluded_total"], 0);
+        assert_eq!(
+            s.report["positive_control"]["t"],
+            json!({"state": "passed", "planted": 2, "checkable": 1, "too_short": 1,
+                   "excluded": 1})
+        );
     }
 
     #[test]

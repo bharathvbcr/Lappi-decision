@@ -1062,6 +1062,24 @@ fn s3_ngram_n_zero_and_past_max_n_are_refused() {
     for n in [0, containment::MAX_N + 1] {
         assert!(scan(n, 0.5, &rows, &targets).is_err(), "n {n} was accepted");
     }
+    // At MAX_N the rows hold MAX_N words. A target set no row of which reaches n words is
+    // refused by the planted-copy control, which is S3's "n longer than every row" case below,
+    // not this bound's.
+    let long = containment::MAX_N as usize + 8;
+    let rows: Vec<Candidate> = (0..3)
+        .map(|i| {
+            cand(
+                &format!("c{i}"),
+                &words(long, &format!("candidate{i}w")),
+                Gold::Option(0),
+                &["yes", "no"],
+            )
+        })
+        .collect();
+    let targets: Vec<TargetSet> = vec![(
+        "t".to_owned(),
+        vec![("t1".to_owned(), words(long, "targetw"))],
+    )];
     let ok = scan(containment::MAX_N, 0.5, &rows, &targets);
     assert!(ok.is_ok(), "n MAX_N was refused: {ok:?}");
 }

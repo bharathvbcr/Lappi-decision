@@ -342,12 +342,24 @@ pub enum Role {
     /// escaped NUL is accepted and counted, and a line past [`MAX_REFERENCE_LINE_BYTES`]
     /// refuses the file.
     Reference,
+    /// [`Role::Source`] rows from a corpus where a NUL is the attack itself (the injection
+    /// corpus: a NUL ends a string before a forged JSON close or chat-template token). A row
+    /// holding an escaped NUL is kept, every U+0000 in it written as [`NUL_PLACEHOLDER`], and
+    /// counted as encoded; dropping it would drop the technique. No row passed on holds a NUL.
+    /// Everything else is [`Role::Source`]'s (Fable's ruling, 2026-10-08, in
+    /// `AUDIT/data-stress-suite-2026-10-06.md`).
+    SourceNulEncoded,
 }
+
+/// What [`Role::SourceNulEncoded`] writes for each NUL: U+2400 SYMBOL FOR NULL, Unicode's
+/// visible symbol for it. Not the six characters `\u0000`, which a row can already hold as text,
+/// and not a `\w` character, so the containment scan splits words at it as it does at a NUL.
+pub const NUL_PLACEHOLDER: char = '\u{2400}';
 
 impl Role {
     pub fn max_line_bytes(self) -> usize {
         match self {
-            Self::Source => MAX_LINE_BYTES,
+            Self::Source | Self::SourceNulEncoded => MAX_LINE_BYTES,
             Self::Reference => MAX_REFERENCE_LINE_BYTES,
         }
     }
@@ -356,6 +368,7 @@ impl Role {
         match self {
             Self::Source => "source",
             Self::Reference => "reference",
+            Self::SourceNulEncoded => "source-nul-encoded",
         }
     }
 }
@@ -399,7 +412,8 @@ pub struct LineFacts {
     pub crlf_lines: usize,
     /// Whitespace-only lines, skipped.
     pub blank_lines: usize,
-    /// Rows holding an escaped NUL: dropped from a source, accepted from a reference.
+    /// Rows holding an escaped NUL: dropped from a source, accepted from a reference, kept
+    /// with [`NUL_PLACEHOLDER`] by [`Role::SourceNulEncoded`].
     pub nul_rows: Counted,
     /// Source lines past [`MAX_LINE_BYTES`], dropped. A reference line past its bound refuses
     /// the file, so this stays 0 for one.
@@ -423,6 +437,7 @@ pub fn record_input(inputs: &mut BTreeMap<String, String>, key: String, lines: L
     let verb = match lines.role {
         Role::Source => "dropped",
         Role::Reference => "accepted",
+        Role::SourceNulEncoded => "encoded",
     };
     inputs.insert(
         format!("line_facts/{key}"),
@@ -507,12 +522,14 @@ fn read_lines(
             facts.blank_lines += 1;
             continue;
         }
-        let v: Value =
+        let mut v: Value =
             serde_json::from_slice(&line).map_err(|e| format!("{}:{n}: {e}", path.display()))?;
         if line.windows(6).any(|w| w == b"\\u0000") && holds_nul(&v) {
             facts.nul_rows.note(n);
-            if role == Role::Source {
-                continue;
+            match role {
+                Role::Source => continue,
+                Role::SourceNulEncoded => encode_nul(&mut v),
+                Role::Reference => {}
             }
         }
         each(n, v)?;
@@ -545,6 +562,22 @@ fn holds_nul(v: &Value) -> bool {
         Value::Array(a) => a.iter().any(holds_nul),
         Value::Object(o) => o.iter().any(|(k, x)| k.contains('\0') || holds_nul(x)),
         _ => false,
+    }
+}
+
+/// Every U+0000 in `v`'s strings and keys written as [`NUL_PLACEHOLDER`].
+fn encode_nul(v: &mut Value) {
+    let enc = |s: &str| s.replace('\0', &NUL_PLACEHOLDER.to_string());
+    match v {
+        Value::String(s) if s.contains('\0') => *s = enc(s),
+        Value::Array(a) => a.iter_mut().for_each(encode_nul),
+        Value::Object(o) => {
+            for (k, mut x) in std::mem::take(o) {
+                encode_nul(&mut x);
+                o.insert(if k.contains('\0') { enc(&k) } else { k }, x);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -2501,6 +2534,19 @@ mod tests {
         let (refr, seen) = read("nul-ref.jsonl", Role::Reference, nul);
         assert_eq!(seen, [1, 2, 3], "a reference row is never dropped");
         assert!(facts_of(refr).contains("nul_rows=1 accepted lines [2]"));
+        let (enc, seen) = read("nul-enc.jsonl", Role::SourceNulEncoded, nul);
+        assert_eq!(seen, [1, 2, 3], "an encoded source row is kept");
+        assert!(facts_of(enc).contains("nul_rows=1 encoded lines [2]"));
+        // What it is handed holds the placeholder and no NUL, in a key as in a value.
+        let path = dir.join("nul-keys.jsonl");
+        std::fs::write(&path, b"{\"k\\u0000\":[\"v\\u0000w\",{\"x\":\"\\u0000\"}]}\n").unwrap();
+        let mut got = Vec::new();
+        for_lines(&path, Role::SourceNulEncoded, |_, v| {
+            got.push(v);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(got, [json!({"k\u{2400}": ["v\u{2400}w", {"x": "\u{2400}"}]})]);
         // A literal backslash followed by `u0000` is text, not a NUL.
         let (_, seen) = read("text.jsonl", Role::Source, b"{\"b\":\"\\\\u0000\"}\n");
         assert_eq!(seen, [1]);
