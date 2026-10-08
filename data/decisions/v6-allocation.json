@@ -1,0 +1,69 @@
+{
+  "schema": "qd-allocation-config/v1",
+  "seed": 20261008,
+  "val_cap_per_family": 1000,
+  "val_floor_per_family": 100,
+  "val_cap_total": 10000,
+  "basis": "Fable's v6 data-design ruling R1 and R2 (AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md). v5's pool passes through as built (its 15 families, rows, splits and bytes unchanged). Each v6 family is capped by the R2 table over every capped pool; within a family the cap is shared over its strata by largest remainder on train availability and drawn in seeded order (decisions::select). Val follows the v5 rule: 1,000 per family, floor 100, and a total of 10,000 over the v6 families (v5's val rows pass untouched). csn.func_match's cc-by-sa-4.0 rows are refused (R2, R6). knowledge.multiple_choice comes through no pool: its train count of 0 is stated here for the pipeline to assert under --v6-data-rules (R2).",
+  "notes": "DRY-RUN PINS (2026-10-08, lane A): synth-jarvis-v1, synth-tools-v1 and synth-email-v1 are pinned at the pools built 2026-10-06, which predate the planted-copy positive control: none of the seven v6 pools pinned here carries decontamination.positive_control in its manifest (read 2026-10-08). The jarvis and tools pools are to be rebuilt from committed code before the real allocation, and these pins replaced then; the real allocation run is the lead's.",
+  "pools": {
+    "pool-v5-decisions-v4": {
+      "examples_sha256": "f3942c1475c695099064d792429e348d0172640db8b961c7874a608b7ee8bb79",
+      "draw": "as_built",
+      "note": "~/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4"
+    },
+    "convert-csn-v1": {
+      "examples_sha256": "c0daa11155f4f47720bb75ee1102760cf4f8ffcf118cf042b322e6b218337046",
+      "draw": "capped",
+      "note": "~/qd-campaign/v6-data-2026-10-06/pool/convert-csn-v1"
+    },
+    "convert-mnli-v1": {
+      "examples_sha256": "508940423128de4fba0cf25dccd2cb03366db2c4bffef2cba44bdebb83b789bb",
+      "draw": "capped",
+      "note": "~/qd-campaign/v6-data-2026-10-06/pool/convert-mnli-v1"
+    },
+    "convert-scirepeval-v1": {
+      "examples_sha256": "f3dd3308b413c4ff0859a499233407430960f6f2399783d2b3b4b6f8630a35e7",
+      "draw": "capped",
+      "note": "~/qd-campaign/v6-data-2026-10-06/pool/convert-scirepeval-v1"
+    },
+    "convert-tools-v1": {
+      "examples_sha256": "1574b3eec3e01fc5b203c55eeb01e0a1dbd17e68cce59111f3651e1dd052e209",
+      "draw": "capped",
+      "note": "~/qd-campaign/v6-data-2026-10-06/pool/convert-tools-v1"
+    },
+    "synth-email-v1": {
+      "examples_sha256": "05bb22f8fa04e14dc9b03023c2e37cddcef131054c2a9980beb798739285ea8f",
+      "draw": "capped",
+      "note": "~/qd-campaign/v6-data-2026-10-06/pool/synth-email-v1; dry-run pin"
+    },
+    "synth-jarvis-v1": {
+      "examples_sha256": "d457b908ffe2bcaac694c1eff0be555e904e84789902ff5815f9e8906d5aa841",
+      "draw": "capped",
+      "note": "~/qd-campaign/v6-data-2026-10-06/pool/synth-jarvis-v1; dry-run pin, to be rebuilt"
+    },
+    "synth-tools-v1": {
+      "examples_sha256": "c662f734f4598fdbcc52655e4ac8f09682185b8bf5b5ca14ba0bb2a8bf8e5128",
+      "draw": "capped",
+      "note": "~/qd-campaign/v6-data-2026-10-06/pool/synth-tools-v1; dry-run pin, to be rebuilt"
+    }
+  },
+  "train_caps": {
+    "mnli.nli": 5000,
+    "scirepeval.search_rel": 10000,
+    "csn.func_match": 15000,
+    "when2call.tool_select": 19914,
+    "toolace.tool_select": 4740,
+    "apps.tool_select": 3288,
+    "email.category": 5343,
+    "jarvis.target": 2400,
+    "jarvis.field_fill": 3200,
+    "jarvis.step_risk": 1000
+  },
+  "refused_licences": {
+    "csn.func_match": ["cc-by-sa-4.0"]
+  },
+  "stated_zero_train_families": {
+    "knowledge.multiple_choice": "R2: MMLU at zero. cais/mmlu pins dev and test to train today; under --v6-data-rules the pipeline asserts this family's built train count is 0, and its 1,200 contrast rows move to commonsense.multiple_choice."
+  }
+}
