@@ -332,10 +332,18 @@ verdict reads this file and carries what it read:
   in code infers it. As built, the gates pool every val family's choice rows
   (`GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS`).
 - The other questions: `average_may_promote`, `ece_population`, `degenerate_head_floor`,
-  `privileged_hunk_pass_rule`, `transfer_gate_definition`, each naming its gap.
+  `privileged_hunk_pass_rule`, `transfer_gate_definition`, `paired_margin_population`,
+  `shuffled_label_seeds`, each naming its gap.
 
-All six were decided on 2026-10-03, under the human's delegation
-(`AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md`).
+The first six were decided on 2026-10-03, under the human's delegation
+(`AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md`). The last two are the
+re-specifications in `HANDOFF/promotion-respec-proposal-2026-10-05.md`, approved by the human on
+2026-10-08. Their entries are in `docs/promotion-decisions.respec-2026-10-08.patch.json` for the
+human to copy into the record in a commit of its own naming
+`GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05` and
+`GAP-SHUFFLED-LABEL-REQUIRED-ON-EVERY-SEED-2026-10-05`. Both are in `REQUIRED_DECISIONS`, so a
+record without them is refused and every verdict refuses with it: that commit must land before,
+or with, the code that requires them.
 
 **How the verdict applies the record.** The verdict re-reads the record each time, so a row is
 never rewritten when a ruling changes.
@@ -351,6 +359,8 @@ never rewritten when a ruling changes.
 | `promotion_population` (a list of families) | `permutation_consistency` from `permutation_consistency.family.<f>`, summed over the families; `ood_abstain` with its in-distribution half from `ood_abstain.in_distribution.family.<f>` and its suite half from every `ood_abstain.<category>`, unchanged. A missing family metric is `not_run`. Decided `"all"`, it is as built. |
 | `ece_population` (value starting `the promotion population's letter rows`) | `ece` aggregated from `ece.family.<f>.choice.*` over the population. It is `not_run` unless `promotion_population` is decided to a list. |
 | `degenerate_head_floor` (value starting `no predicted class above 0.95`) | `degenerate_head` from every `degenerate_head.choice.<shape>.top_class_share` at the 0.95 share; the entropy floor is not read. `tools/real_ft_run.py` writes the metric from v5-build's commit of 2026-10-03 on; a row without it (every v4 row) reads `not_run`. |
+| `paired_margin_population` (value starting `the promotion population`) | `paired_margin_vs_linear` from each `paired_margin_vs_linear.choice.<f>` over the population's families, read across the unit (the control row `tools/ft_linear_control.py` writes supplements the eval row). Any such family failing fails it; a family whose metric is absent or `not_run` makes it `not_run`; a capped family is a capped sample under rule 7. Every other family is report-only. It is `not_run` unless `promotion_population` is decided to a list. |
+| `shuffled_label_seeds` (value starting `3:`, that is `PROMOTION_MIN_SEEDS`) | on the seed-family verdict, `shuffled_label` across the units' seeds: at least `PROMOTION_MIN_SEEDS` distinct seeds carry a control that ran and passed at complete coverage. A control that ran and failed on any seed still refuses; one that is absent, `not_run` or capped never counts. Any other decided value makes the control `not_run` on every unit. The `avg` kind judges one row with no seeds to count, so its row keeps the control as built. |
 | `privileged_hunk_pass_rule`, `transfer_gate_definition` (value starting `retired`) | that control is no longer required. Only a `decided` retirement retires. |
 | `average_may_promote` | the `avg` kind below. |
 

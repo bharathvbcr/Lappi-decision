@@ -101,6 +101,8 @@ def _avg_row(led: Ledger, ft_row_ids: list[str], seeds: list[int], *,
         for c in REQUIRED_CONTROLS:
             rec.control(c, Ran(passed=True, n=300, n_total=300))
         _record_population_metrics(rec)
+        rec.metric("paired_margin_vs_linear.choice.code.defect_class",
+                   Ran(passed=True, value=0.39, n=2304, n_total=2304))
     avg_id = led.rows()[-1].row_id
     if margin_on_a_supplement:
         with RunRecorder(
@@ -136,6 +138,10 @@ POPULATION = _decided("code.defect_class only", families=["code.defect_class"])
 ECE_RULE = _decided("the promotion population's letter rows, per shape")
 SHARE_ONLY = _decided("no predicted class above 0.95, on every slot shape")
 RETIRED = _decided("retired for this test")
+MARGIN_RULE = _decided("the promotion population: its families' margins")
+SHUFFLED_RULE = _decided("3: at least three seeds")
+#: The two re-specifications approved on 2026-10-08, decided on another date than the six.
+RESPEC_DECISIONS = ("paired_margin_population", "shuffled_label_seeds")
 
 
 def _everything_decided(tmp_path: Path, *, average: bool = True) -> Path:
@@ -147,6 +153,8 @@ def _everything_decided(tmp_path: Path, *, average: bool = True) -> Path:
         degenerate_head_floor=SHARE_ONLY,
         privileged_hunk_pass_rule=RETIRED,
         transfer_gate_definition=RETIRED,
+        paired_margin_population=MARGIN_RULE,
+        shuffled_label_seeds=SHUFFLED_RULE,
     )
 
 
@@ -155,12 +163,18 @@ def _everything_decided(tmp_path: Path, *, average: bool = True) -> Path:
 # --------------------------------------------------------------------------
 
 def test_the_record_in_the_repo_holds_the_delegated_decisions():
-    """The committed record: all six decided on 2026-10-03 under the human's delegation, each
-    naming the ruling it rests on, with the as-built source still cited."""
+    """The committed record: six decided on 2026-10-03 under the human's delegation, each
+    naming the ruling it rests on, with the as-built source still cited; and the two
+    re-specifications the human approved on 2026-10-08
+    (docs/promotion-decisions.respec-2026-10-08.patch.json, applied by the human)."""
     decisions = load_promotion_decisions()
     assert set(REQUIRED_DECISIONS) <= set(decisions.decisions)
     assert decisions.open() == []
-    for name in REQUIRED_DECISIONS:
+    for name in RESPEC_DECISIONS:
+        d = decisions.decisions[name]
+        assert d.decided_on == "2026-10-08"
+        assert "promotion-respec-proposal-2026-10-05.md" in (d.decision_ref or "")
+    for name in (n for n in REQUIRED_DECISIONS if n not in RESPEC_DECISIONS):
         d = decisions.decisions[name]
         assert d.decided_on == "2026-10-03"
         assert "For decisions ask fable and proceed with them" in (d.decided_by or "")
