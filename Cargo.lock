@@ -586,8 +586,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "ojas-autograd"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+ "ojas-cpu",
+]
+
+[[package]]
 name = "ojas-core"
 version = "0.1.0"
+
+[[package]]
+name = "ojas-cpu"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+ "ojas-simd",
+]
+
+[[package]]
+name = "ojas-data"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+]
+
+[[package]]
+name = "ojas-device"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "ojas-core",
+]
 
 [[package]]
 name = "ojas-io"
@@ -597,13 +628,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ojas-model"
+version = "0.1.0"
+dependencies = [
+ "ojas-autograd",
+ "ojas-core",
+ "ojas-cpu",
+ "ojas-data",
+ "ojas-device",
+ "ojas-io",
+]
+
+[[package]]
 name = "ojas-qwen35"
 version = "0.1.0"
 dependencies = [
  "ojas-core",
  "ojas-io",
+ "ojas-model",
  "tessl",
 ]
+
+[[package]]
+name = "ojas-simd"
+version = "0.1.0"
 
 [[package]]
 name = "once_cell"
