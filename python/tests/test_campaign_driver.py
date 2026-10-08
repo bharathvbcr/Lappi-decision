@@ -78,6 +78,26 @@ def env(tmp_path: Path) -> dict[str, Path]:
             "count": tmp_path / "count.txt", "root": tmp_path}
 
 
+#: A box ceiling far above anything these tests spend, for the cuda configs whose subject is
+#: something else: a rented box is refused without one (precaution 4).
+LAUNCH: dict[str, object] = {
+    "approved": {"box_usd": 5000.0, "wall_clock_cap_s": 72 * 3600, "by": "test"}}
+
+
+@pytest.fixture
+def uptime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[float], Path]:
+    """A fake ``/proc/uptime``; returns a setter. Starts at 100 s since boot."""
+    path = tmp_path / "uptime"
+
+    def set_uptime(seconds: float) -> Path:
+        path.write_text(f"{seconds} 0.00\n", encoding="ascii")
+        return path
+
+    set_uptime(100.0)
+    monkeypatch.setattr(cd, "UPTIME_PATH", path, raising=False)
+    return set_uptime
+
+
 def pull_once(state_dir: Path, dest: Path) -> subprocess.CompletedProcess[str]:
     """The real Mac-side pull, in local mode."""
     return subprocess.run(
@@ -172,7 +192,7 @@ def test_a_missing_terminate_command_fails_closed(env: dict[str, Path]) -> None:
 def test_rule_four_needs_a_name_above_twenty_dollars(env: dict[str, Path]) -> None:
     gh200 = {"usd_per_hour": 1.49, "device": "cuda", "instance": "lambda-1xGH200", "n_gpus": 1,
              "usd_per_hour_source": "lambda.ai/pricing read at launch (test)",
-             "pull_grace_minutes": 45}
+             "pull_grace_minutes": 45, "launch": LAUNCH}
     path = config(env, [after_phase(env)], campaign_cap_hours=60, **gh200)
     with pytest.raises(cd.ConfigRefused, match="approved_by is empty"):
         cd.load_config(path)
@@ -484,11 +504,11 @@ def _finish_state(env: dict[str, Path], **over: object) -> tuple[cd.Config, dict
 
 
 def test_no_acknowledgement_and_no_durable_copy_keeps_the_box_alive(
-    env: dict[str, Path], capsys: pytest.CaptureFixture[str]
+    env: dict[str, Path], capsys: pytest.CaptureFixture[str], uptime: Callable[[float], Path]
 ) -> None:
     cfg, state = _finish_state(env, usd_per_hour=1.49, device="cuda", n_gpus=1,
                                instance="lambda-1xGH200", usd_per_hour_source="test",
-                               approved_by="test")
+                               approved_by="test", launch=LAUNCH)
     started = time.monotonic()
     code = cd.finalize(cfg, state, "completed every phase", cd.EXIT_DONE, phase="x")
     assert code == cd.EXIT_KEPT_ALIVE
@@ -563,7 +583,7 @@ def test_a_durable_copy_that_differs_is_refused(
 def test_the_up_front_estimate_includes_the_grace_window(env: dict[str, Path]) -> None:
     cfg = cd.load_config(config(env, [after_phase(env)], usd_per_hour=2.0, device="cuda",
                                 n_gpus=1, usd_per_hour_source="test", approved_by="test",
-                                campaign_cap_hours=10, pull_grace_minutes=45))
+                                campaign_cap_hours=10, pull_grace_minutes=45, launch=LAUNCH))
     assert cd.campaign_usd(cfg) == pytest.approx(2.0 * 10.75)
     assert "45 min pull grace window" in "\n".join(cd.cost_lines(cfg))
 
@@ -677,3 +697,372 @@ def test_the_pull_loop_is_bounded(env: dict[str, Path]) -> None:
              "QD_PULL_SYNC_DIR": str(env["state"] / "sync"), "QD_PYTHON": sys.executable,
              "QD_PULL_INTERVAL_S": "1", "QD_PULL_LOOP_MAX_HOURS": "0.0005"})
     assert out.returncode == 1 and "without the FINAL snapshot" in out.stdout
+
+
+# --- the box guard (HANDOFF/next-training-plan-2026-10-06.md section 7, precaution 4) -----
+#
+# The box bills from boot. These configs price it at $3600/h -- one dollar a second -- so a
+# box_usd of N allows N seconds of uptime, and the 3 s pull window (0.05 min) is reserved
+# inside it. Every test here failed against the driver before the guard (recorded in the
+# lane's report); the fake clock and the fake uptime are patched with raising=False so the
+# old driver ran its own behaviour rather than erroring on a missing name.
+
+
+class FakeClock:
+    """A clock that moves only when the driver sleeps; uptime moves with it."""
+
+    def __init__(self, uptime0: float = 100.0) -> None:
+        self.t0 = self.t = 1_000_000.0
+        self.uptime0 = uptime0
+        self.slept = 0.0
+
+    def now(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        self.t += max(seconds, 0.0)
+        self.slept += max(seconds, 0.0)
+
+    def uptime(self, path: Path | None = None) -> float:
+        return self.uptime0 + (self.t - self.t0)
+
+
+def use_clock(monkeypatch: pytest.MonkeyPatch, clock: FakeClock) -> None:
+    monkeypatch.setattr(cd, "_now", clock.now, raising=False)
+    monkeypatch.setattr(cd, "_sleep", clock.sleep, raising=False)
+    monkeypatch.setattr(cd, "read_uptime_s", clock.uptime, raising=False)
+
+
+def no_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No detached guard: these tests drive the driver's own bounds."""
+    monkeypatch.setattr(cd, "ensure_guard", lambda *a, **k: None)
+
+
+def box(box_usd: float, **over: object) -> dict[str, object]:
+    approved: dict[str, object] = {"box_usd": box_usd, "wall_clock_cap_s": 72 * 3600,
+                                   "by": "test"}
+    approved.update(over)
+    return {"usd_per_hour": 3600.0, "approved_by": "test", "launch": {"approved": approved}}
+
+
+def gated_phase(env: dict[str, Path], *, wait_max_s: float = 10_000) -> dict[str, object]:
+    markers = env["root"] / "markers"
+    return {
+        "name": "p2", "cap_hours": 0.5, "units": [unit(env, "p2work", "--quick", quick=True)],
+        "requires": {"wait_max_s": wait_max_s, "poll_s": 60, "markers": [
+            {"path": str(markers / "P1_VERDICT.json"), "json_key": "word",
+             "equals": "admissible"},
+            {"path": str(markers / "HUMAN_4B_DOWNLOAD_YES")}]},
+    }
+
+
+def p1_phase(env: dict[str, Path]) -> dict[str, object]:
+    return {"name": "p1", "cap_hours": 0.5,
+            "units": [unit(env, "arm", "--quick", quick=True)]}
+
+
+def read_state(env: dict[str, Path]) -> dict[str, object]:
+    return json.loads((env["state"] / "campaign_state.json").read_text())
+
+
+def test_box_budget_reached_mid_wait_stops_and_writes_box_ceiling(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P2 waits for its markers; they never come, and the box's budget runs out first."""
+    clock = FakeClock(uptime0=100.0)
+    use_clock(monkeypatch, clock)
+    no_guard(monkeypatch)
+    path = config(env, [p1_phase(env), gated_phase(env)], **box(600.0))
+    code = cd.main(["--config", str(path)])
+    assert "p2work" not in invocations(env), "a gated phase ran past the box ceiling"
+    assert invocations(env) == ["arm"]
+    ceiling = env["state"] / "BOX_CEILING"
+    assert ceiling.exists(), "no BOX_CEILING marker at the box ceiling"
+    numbers = json.loads(ceiling.read_text())
+    # $3600/h for >= 597 s of uptime (600 s less the 3 s pull window): >= $597 of $600.
+    assert numbers["box_usd"] == 600.0 and numbers["usd_per_hour"] == 3600.0
+    assert numbers["uptime_s"] >= 597.0 and numbers["spend_usd"] >= 597.0
+    assert "markers" in numbers["reason"]
+    # The pull wait that followed was bounded by what was left, not the 3 s grace alone.
+    assert clock.uptime() <= 600.0 + 0.05
+    # No Mac acknowledged the snapshot: the data is not proven off the box, so it is KEPT
+    # ALIVE (loud) and the human's terminate command did not run.
+    assert code == cd.EXIT_KEPT_ALIVE
+    assert not env["term"].exists()
+    assert str(read_state(env)["outcome"]).startswith("box ceiling")
+
+
+def test_a_marker_that_never_arrives_ends_the_wait_and_the_phase_is_not_run(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = FakeClock()
+    use_clock(monkeypatch, clock)
+    no_guard(monkeypatch)
+    path = config(env, [p1_phase(env), gated_phase(env, wait_max_s=600)], **box(100_000.0))
+    cd.main(["--config", str(path)])
+    assert "p2work" not in invocations(env)
+    state = read_state(env)
+    assert state["phases"]["p2"]["status"] == "not_run"  # type: ignore[index]
+    assert 600 <= clock.slept < 2_000, f"the wait was not bounded by wait_max_s: {clock.slept}"
+    assert not (env["state"] / "BOX_CEILING").exists(), "the box had budget; not a ceiling"
+
+
+def test_a_marker_reading_anything_but_admissible_is_not_admissible(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = FakeClock()
+    use_clock(monkeypatch, clock)
+    no_guard(monkeypatch)
+    markers = env["root"] / "markers"
+    markers.mkdir()
+    (markers / "HUMAN_4B_DOWNLOAD_YES").write_text("yes\n")
+    (markers / "P1_VERDICT.json").write_text(json.dumps({"word": "diverges"}))
+    cd.main(["--config", str(config(env, [p1_phase(env), gated_phase(env)], **box(1e5)))])
+    assert "p2work" not in invocations(env), "P2 ran on a P1 verdict of 'diverges'"
+    assert clock.slept < 60, "a refuted marker is final; nothing to wait for"
+
+    # The same queue with the verdict admissible and the download approved runs P2.
+    env2 = dict(env, state=env["root"] / "state2", count=env["root"] / "count2")
+    (markers / "P1_VERDICT.json").write_text(json.dumps({"word": "admissible"}))
+    cd.main(["--config", str(config(env2, [p1_phase(env2), gated_phase(env2)],
+                                    **box(1e5)))])
+    assert invocations(env2) == ["arm", "p2work"]
+
+
+def test_the_guard_killed_the_driver_still_stops_the_unit_at_the_box_ceiling(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, uptime: Callable[[float], Path]
+) -> None:
+    """The guard is SIGKILLed as soon as it starts (and again when re-armed). The driver's
+    own bound must still stop a unit that would outlast the box."""
+    t0 = time.time()
+    monkeypatch.setattr(cd, "read_uptime_s", lambda path=None: 100.0 + time.time() - t0,
+                        raising=False)
+    real_ensure = cd.ensure_guard
+    killed: list[int] = []
+
+    def ensure_then_kill(cfg: object, state: dict[str, object], *a: object,
+                         **k: object) -> None:
+        real_ensure(cfg, state, *a, **k)  # type: ignore[arg-type]
+        pid = state.get("guard_pid")
+        if isinstance(pid, int) and pid not in killed:
+            os.killpg(pid, 9)
+            os.waitpid(pid, 0)
+            killed.append(pid)
+
+    monkeypatch.setattr(cd, "ensure_guard", ensure_then_kill)
+    pidfile = env["root"] / "pid"
+    phase = {"name": "p1", "cap_hours": 0.5,
+             "units": [unit(env, "sleeper", "--sleep", "30", "--pidfile", str(pidfile))]}
+    # 100 s up at start; ceiling at 110 s, GPU work stops at 107 s: ~7 s for the unit.
+    path = config(env, [phase], **box(110.0))
+    started = time.monotonic()
+    cd.main(["--config", str(path)])
+    elapsed = time.monotonic() - started
+    assert killed, "the guard was never started"
+    assert elapsed < 25, f"the unit ran {elapsed:.0f}s; the box allowed ~7s"
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pidfile.read_text()), 0)
+    numbers = json.loads((env["state"] / "BOX_CEILING").read_text())
+    assert numbers["who"] == "driver" and "sleeper" in numbers["reason"]
+    events = [e["text"] for e in read_state(env)["events"]]  # type: ignore[index]
+    assert any("re-arming" in e for e in events), "a dead guard was not noticed"
+
+
+@pytest.mark.parametrize(
+    ("over", "match"),
+    [({"usd_per_hour": 0.0}, "box rate"), ({"usd_per_hour": -2.29}, "box rate"),
+     ({"usd_per_hour": float("nan")}, "box rate"), ({"usd_per_hour": "2.29"}, "box rate"),
+     ({"box_usd": 0.0}, "box_usd"), ({"box_usd": -12.0}, "box_usd"),
+     ({"box_usd": float("nan")}, "box_usd"), ({"box_usd": "12"}, "box_usd"),
+     ({"wall_clock_cap_s": 0}, "wall_clock_cap_s"),
+     ({"box_usd": 1.0}, "pull grace window")],
+)
+def test_a_misconfigured_box_rate_or_budget_is_refused(
+    env: dict[str, Path], over: dict[str, object], match: str
+) -> None:
+    rate = over.pop("usd_per_hour", 3600.0)
+    cfg_box = box(**{"box_usd": 600.0, **over})  # type: ignore[arg-type]
+    cfg_box["usd_per_hour"] = rate
+    with pytest.raises(cd.ConfigRefused, match=match):
+        cd.load_config(config(env, [after_phase(env)], **cfg_box))
+
+
+@pytest.mark.parametrize(
+    "launch",
+    [None, {}, {"approved": {"wall_clock_cap_s": 18000, "by": "x"}},
+     {"approved": {"box_usd": 12.0, "wall_clock_cap_s": 18000, "by": ""}}],
+)
+def test_a_rented_box_without_an_approved_box_ceiling_is_refused(
+    env: dict[str, Path], launch: dict[str, object] | None
+) -> None:
+    over: dict[str, object] = {"device": "cuda", "n_gpus": 1, "usd_per_hour": 2.29,
+                               "usd_per_hour_source": "test", "instance": "lambda-1xGH200"}
+    if launch is not None:
+        over["launch"] = launch
+    with pytest.raises(cd.ConfigRefused, match=r"launch\.approved"):
+        cd.load_config(config(env, [after_phase(env)], **over))
+
+
+@pytest.mark.parametrize("content", [None, "", "garbage 1\n", "-5 1\n", "nan 1\n"])
+def test_an_unreadable_uptime_refuses_the_start(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, content: str | None
+) -> None:
+    no_guard(monkeypatch)
+    fake = env["root"] / "uptime"
+    if content is not None:
+        fake.write_text(content)
+    monkeypatch.setattr(cd, "UPTIME_PATH", fake, raising=False)
+    path = config(env, [after_phase(env)], **box(1e5))
+    with pytest.raises(SystemExit, match="uptime"):
+        cd.main(["--config", str(path)])
+    assert invocations(env) == [], "a unit ran with the box's spend unknown"
+    assert not (env["state"] / "campaign_state.json").exists()
+
+
+def test_an_uptime_lost_mid_campaign_stops_it_rather_than_reading_as_budget(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    no_guard(monkeypatch)
+    calls = {"n": 0}
+    unreadable = getattr(cd, "BoxClockUnreadable", OSError)
+
+    def flaky(path: Path | None = None) -> float:
+        calls["n"] += 1
+        if calls["n"] > 2:
+            raise unreadable("uptime vanished")
+        return 100.0
+
+    monkeypatch.setattr(cd, "read_uptime_s", flaky, raising=False)
+    phases = [{"name": "a", "cap_hours": 0.5, "units": [unit(env, "first")]},
+              {"name": "b", "cap_hours": 0.5, "units": [unit(env, "second")]}]
+    cd.main(["--config", str(config(env, phases, **box(1e5)))])
+    assert "second" not in invocations(env)
+    numbers = json.loads((env["state"] / "BOX_CEILING").read_text())
+    assert numbers["uptime_s"] is None and "vanished" in numbers["uptime_error"]
+
+
+def test_the_guard_at_the_box_ceiling_stops_the_unit_and_writes_the_numbers(
+    env: dict[str, Path], uptime: Callable[[float], Path]
+) -> None:
+    path = config(env, [after_phase(env)], **box(600.0))
+    cfg = cd.load_config(path)
+    state = cd.load_state(cfg, time.time())
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"],
+                               start_new_session=True)
+    state["running_pgid"] = sleeper.pid
+    cd.write_state(cfg.state_dir / cd.STATE_NAME, state)
+    uptime(5000.0)  # far past the 600 s ceiling
+    started = time.monotonic()
+    code = cd.run_guard(time.time() + 5.0, path)
+    assert time.monotonic() - started < 4.0, "the guard slept to the campaign deadline"
+    assert sleeper.wait(timeout=10) is not None
+    numbers = json.loads((env["state"] / "BOX_CEILING").read_text())
+    assert numbers["who"] == "guard" and numbers["spend_usd"] == pytest.approx(5000.0)
+    assert code == cd.EXIT_KEPT_ALIVE and not env["term"].exists()
+
+
+def test_placeholders_must_be_declared_and_filled(env: dict[str, Path]) -> None:
+    phase = {"name": "p", "cap_hours": 0.5, "units": [unit(env, "u", "--x", "{data_dir}")]}
+    with pytest.raises(cd.ConfigRefused, match="no placeholder declares"):
+        cd.load_config(config(env, [phase]))
+    with pytest.raises(cd.ConfigRefused, match="not filled"):
+        cd.load_config(config(env, [phase], placeholders={"data_dir": None}))
+    cfg = cd.load_config(config(env, [phase], placeholders={"data_dir": "/box/data"}))
+    assert cfg.phases[0].units[0].argv[-1] == "/box/data"
+
+
+def test_a_pinned_input_that_differs_refuses_the_start(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    no_guard(monkeypatch)
+    pinned = env["root"] / "qd-prep"
+    pinned.write_bytes(b"the binary that ran v5\n")
+    pins = [{"path": str(pinned), "sha256": "0" * 64}]
+    with pytest.raises(SystemExit, match="pinned"):
+        cd.main(["--config", str(config(env, [after_phase(env)], pins=pins))])
+    assert invocations(env) == []
+
+
+def test_a_unit_declared_quick_that_writes_a_promotable_row_fails(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    no_guard(monkeypatch)
+    phases = [{"name": "p1", "cap_hours": 0.5, "units": [unit(env, "arm", quick=True)]},
+              after_phase(env)]
+    cd.main(["--config", str(config(env, phases))])
+    assert "workhorse" not in invocations(env), "rule 8: a non-quick row from a quick unit"
+    assert read_state(env)["phases"]["p1"]["status"] == "failed"  # type: ignore[index]
+
+
+P1_QUEUE = REPO / "campaign" / "next-train-first-box-queue-2026-10-08.json"
+
+
+def _shared(av: tuple[str, ...]) -> list[str]:
+    skip = {av.index(f) + 1 for f in ("--optimizer", "--checkpoint-dir", "--verdicts-out")}
+    return [a for k, a in enumerate(av) if k not in skip]
+
+
+def test_the_p1_queue_refuses_until_filled_then_loads_as_preregistered(tmp_path: Path) -> None:
+    raw = json.loads(P1_QUEUE.read_text())
+    with pytest.raises(cd.ConfigRefused, match="not filled"):
+        cd.load_config(P1_QUEUE)
+    raw["placeholders"] = {k: (v or f"/box/{k}") for k, v in raw["placeholders"].items()}
+    filled = tmp_path / "queue.json"
+    filled.write_text(json.dumps(raw))
+    cfg = cd.load_config(filled)
+    # The DRAFT's box numbers, unchanged.
+    assert cfg.box is not None
+    assert (cfg.box.usd, cfg.box.usd_per_hour, cfg.box.wall_clock_cap_s) == (12.0, 2.29, 18000)
+    assert cfg.device == "cuda" and cfg.campaign_cap_hours * 3600 == 18000
+    units = [u for ph in cfg.phases for u in ph.units]
+    assert all(u.quick for u in units), "rule 8: every unit of P1/P2 is quick"
+    arms = {u.name: u.argv for u in units if any(a.endswith("real_ft_run.py") for a in u.argv)}
+    assert sorted(arms) == ["kahan", "master", "master-repeat"]
+    optimizer = {n: a[a.index("--optimizer") + 1] for n, a in arms.items()}
+    assert optimizer == {"master": "master", "master-repeat": "master", "kahan": "kahan"}
+    ckdirs = set()
+    for argv in arms.values():
+        assert argv[argv.index("--max-steps") + 1] == "600"
+        assert "--epoch" in argv and "--score-val" in argv
+        assert argv[argv.index("--seeds") + 1] == "0"
+        ckdirs.add(argv[argv.index("--checkpoint-dir") + 1])
+        # Everything but --optimizer and the per-arm output paths is the same across arms.
+        assert _shared(argv) == _shared(next(iter(arms.values())))
+    assert len(ckdirs) == 3, "one checkpoint dir per arm"
+    for argv in arms.values():
+        assert argv[argv.index("--verdicts-out") + 1].startswith("/box/run_dir/p1/verdicts-")
+        assert int(argv[argv.index("--checkpoint-every") + 1]) > 0
+    sweeps = [u.argv for u in units if any(a.endswith("gh200_footprint.py") for a in u.argv)]
+    assert [a[a.index("--optimizer") + 1] for a in sweeps] == ["master", "kahan"]
+    assert len({a[a.index("--out") + 1] for a in sweeps}) == 2
+    reader = next(u.argv for u in units if any(a.endswith("read_p1_parity.py") for a in u.argv))
+    assert [reader[i + 1] for i, a in enumerate(reader) if a == "--arm"] == [
+        "master", "master-repeat", "kahan"]
+    assert "{ft_row_id:kahan}" in reader
+    verdict_out = reader[reader.index("--out") + 1]
+    assert verdict_out == str(cfg.phases[-1].requires.markers[0].path)  # type: ignore[union-attr]
+    assert cfg.carry_dirs, "the verdicts and readings must travel in the snapshot"
+    p2 = cfg.phases[-1]
+    assert p2.requires is not None
+    assert [(m.json_key, m.equals) for m in p2.requires.markers] == [
+        ("word", "admissible"), (None, None)]
+    assert [p.sha256[:8] for p in cfg.pins] == ["900534f1", "a0841f0d", "a8ab2a11"]
+
+
+def test_a_reader_unit_gets_the_ft_row_id_its_arm_wrote(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``{ft_row_id:<unit>}`` is filled from the row the named earlier unit wrote, so the P1
+    reader names the run it reads without a hand-copied id; an unknown unit is refused."""
+    no_guard(monkeypatch)
+    bad = {"name": "r", "cap_hours": 0.5,
+           "units": [unit(env, "reader", "--x", "{ft_row_id:arm}", expect_rows=0)]}
+    with pytest.raises(cd.ConfigRefused, match="names no earlier unit"):
+        cd.load_config(config(env, [bad]))
+    phases = [{"name": "p1", "cap_hours": 0.5, "units": [unit(env, "arm")]},
+              {"name": "r", "cap_hours": 0.5, "units": [unit(env, "reader", "--x",
+                                                             "{ft_row_id:arm}")]}]
+    cd.main(["--config", str(config(env, phases))])
+    rows = [json.loads(ln) for ln in env["ledger"].read_text().splitlines()]
+    lines = env["count"].read_text().splitlines()
+    assert lines[1].split() == ["reader", "--x", rows[0]["row_id"]]

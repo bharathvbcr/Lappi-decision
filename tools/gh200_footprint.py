@@ -48,7 +48,19 @@ decision with a measured price on both sides, which is the only honest way to ha
 Run it on the box, not here::
 
     PYTHONPATH=/home/ubuntu/qwen-decision/python /home/ubuntu/qd-venv/bin/python \
-        /home/ubuntu/qwen-decision/tools/gh200_footprint.py --optimizer master
+        /home/ubuntu/qwen-decision/tools/gh200_footprint.py --optimizer master \
+        --out /home/ubuntu/p1/footprint_master.json
+
+**Where it writes.** ``--out PATH`` writes ``PATH`` atomically (temp file in the same
+directory, fsync, rename) and refuses a ``PATH`` that already exists, so a second probe can
+never replace the first one's measurement. Without ``--out`` the default is what it always
+was: ``/home/ubuntu/gh200_footprint_<optimizer>.json``, OVERWRITTEN on every run -- kept for
+the commands already written against it; anything a reading rule consumes passes ``--out``.
+
+**What shape it measured** is in the output's ``"shape"``: rows, the widths swept, the loss
+driven (the proxy above, not the trainer's), the checkpointing the loaded tower reports, the
+attention kernel, the dtype, the snapshot and which allocator peak ``measured_bytes`` is.
+``tools/read_p1_parity.py`` compares two arms' footprints only when their shapes are equal.
 """
 
 from __future__ import annotations
@@ -57,6 +69,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
@@ -72,6 +85,7 @@ from qd_train.memory import (
     estimate_step,
 )
 from qd_train.optim import build_optimizer
+from qd_train.replay import ReplayRefusal, write_text_atomic
 
 #: The recipes ``real_ft_run.py --optimizer`` trains a bf16 tower with, by that name, from the
 #: one owner of each spec (``qd_train.memory``). 'master' is
@@ -88,6 +102,16 @@ SNAPSHOT = Path(
 WIDTHS = (2048, 4096, 8192, 14759, 34522)
 
 GiB = 1024**3
+
+#: The rows of every probe batch.
+ROWS = 1
+#: The objective driven, stated in the output: the backward walks the whole tower but no
+#: lm_head CE and no span head run, so their terms are excluded from the predicted side too.
+LOSS = "proxy: hidden.float().pow(2).mean() over the tower's last hidden state"
+#: Which allocator figure ``measured_bytes`` is.
+PEAK = "torch.cuda.max_memory_allocated over the second optimizer step at that width"
+#: The default output, overwritten on every run (the behaviour before ``--out`` existed).
+DEFAULT_OUT = "/home/ubuntu/gh200_footprint_{optimizer}.json"
 
 
 def backbone_predicted_bytes(
@@ -121,62 +145,17 @@ def described_state_bytes(spec: OptimizerSpec) -> int:
     return spec.states_per_param * spec.state_bytes + spec.compensation_bytes
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--optimizer",
-        choices=sorted(RECIPES),
-        default="bf16",
-        help=(
-            "which recipe to measure. 'bf16' is what torch.optim.AdamW builds for a bf16 "
-            "tower (8 B/param all-in); 'master' is the fp32-master recipe (20 B/param), "
-            "whose second moment does not freeze -- see tools/moment_precision.py; 'kahan' "
-            "is bf16 weights + bf16 compensation + fp32 moments (14 B/param)."
-        ),
-    )
-    args = ap.parse_args(argv)
-    spec = RECIPES[args.optimizer]
+def measure_widths(
+    tower: Any, opt: Any, spec: OptimizerSpec, *, rows: int, widths: tuple[int, ...]
+) -> list[dict[str, Any]]:
+    """Two optimizer steps per width on the device; the second step's peak is the result.
 
-    if not torch.cuda.is_available():
-        raise SystemExit(
-            "no CUDA device. This script exists to measure one; refusing to report a "
-            "CPU number under a name that says cuda."
-        )
-    dev = torch.cuda.get_device_properties(0)
-    print(f"device   : {dev.name}, {dev.total_memory / GiB:.2f} GiB, sm_{dev.major}{dev.minor}")
-    print(f"torch    : {torch.__version__}")
-    print()
-
-    # Named rather than inherited: attention is where the activation memory is, so a
-    # footprint taken on another kernel is a measurement of something else.
-    tower = load_text_tower(
-        SNAPSHOT,
-        gradient_checkpointing=True,
-        optimizer=spec,
-        attn_implementation="sdpa",
-        device="cuda",
-        dtype="bf16",
-        rows=1,
-        width=WIDTHS[-1],
-    )
-    print(f"loaded   : {tower.n_tensors_loaded} tensors, vocab {tower.vocab_size}, "
-          f"hidden {tower.hidden_size}, grad_ckpt {tower.gradient_checkpointing}")
-    trainable = sum(p.numel() for p in tower.model.parameters() if p.requires_grad)
-    print(f"trainable: {trainable:,} parameters")
-
-    print(f"recipe   : {args.optimizer} -- {spec}")
-    # total_steps=1: this is a FOOTPRINT probe, one step per shape to see what the
-    # allocator does. It is not a training run, so the second moment never gets near the
-    # step at which its dtype would stop tracking -- and saying 1 is how that is stated
-    # rather than assumed.
-    opt = build_optimizer(
-        list(tower.model.parameters()), spec=spec, lr=1e-5, total_steps=1
-    )
+    The CUDA seam: everything that touches the device's allocator is here, so the output's
+    assembly around it is testable on a CPU host with this replaced.
+    """
     vocab = tower.vocab_size
-    rows = 1
-    results = []
-
-    for width in WIDTHS:
+    results: list[dict[str, Any]] = []
+    for width in widths:
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
         ids = torch.randint(0, vocab, (rows, width), device="cuda")
@@ -220,6 +199,100 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  width {width:6d}  OOM -- that is a measurement, not a failure")
             torch.cuda.empty_cache()
         del ids
+    return results
+
+
+def shape_record(tower: Any, *, rows: int, widths: tuple[int, ...]) -> dict[str, Any]:
+    """What this run measured, from the loaded tower where the tower says it."""
+    return {
+        "rows": rows,
+        "widths": list(widths),
+        "loss": LOSS,
+        "gradient_checkpointing": bool(tower.gradient_checkpointing),
+        "checkpoint_skip_layers": list(getattr(tower, "checkpoint_skip_layers", ()) or ()),
+        "attn_implementation": str(tower.attn_implementation),
+        "dtype": str(tower.dtype),
+        "snapshot": str(SNAPSHOT),
+        "peak": PEAK,
+    }
+
+
+def write_output(out: Path | None, optimizer: str, record: dict[str, Any]) -> Path:
+    """``--out``: atomic, refusing an existing file. No ``--out``: the default, overwritten."""
+    body = json.dumps(record, indent=2)
+    if out is None:
+        path = Path(DEFAULT_OUT.format(optimizer=optimizer))
+        path.write_text(body)
+        return path
+    try:
+        write_text_atomic(out, body)
+    except ReplayRefusal as exc:
+        raise SystemExit(f"--out: {exc}") from exc
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--optimizer",
+        choices=sorted(RECIPES),
+        default="bf16",
+        help=(
+            "which recipe to measure. 'bf16' is what torch.optim.AdamW builds for a bf16 "
+            "tower (8 B/param all-in); 'master' is the fp32-master recipe (20 B/param), "
+            "whose second moment does not freeze -- see tools/moment_precision.py; 'kahan' "
+            "is bf16 weights + bf16 compensation + fp32 moments (14 B/param)."
+        ),
+    )
+    ap.add_argument(
+        "--out", type=Path, default=None,
+        help=(
+            "write the JSON here, atomically; refused if the file exists. Without it: "
+            f"{DEFAULT_OUT}, overwritten"
+        ),
+    )
+    args = ap.parse_args(argv)
+    spec = RECIPES[args.optimizer]
+    if args.out is not None and args.out.exists():
+        # Before the tower loads: a refusal at the end would cost the whole probe.
+        raise SystemExit(f"--out {args.out} already exists; refusing to overwrite it")
+
+    if not torch.cuda.is_available():
+        raise SystemExit(
+            "no CUDA device. This script exists to measure one; refusing to report a "
+            "CPU number under a name that says cuda."
+        )
+    dev = torch.cuda.get_device_properties(0)
+    print(f"device   : {dev.name}, {dev.total_memory / GiB:.2f} GiB, sm_{dev.major}{dev.minor}")
+    print(f"torch    : {torch.__version__}")
+    print()
+
+    # Named rather than inherited: attention is where the activation memory is, so a
+    # footprint taken on another kernel is a measurement of something else.
+    tower = load_text_tower(
+        SNAPSHOT,
+        gradient_checkpointing=True,
+        optimizer=spec,
+        attn_implementation="sdpa",
+        device="cuda",
+        dtype="bf16",
+        rows=ROWS,
+        width=WIDTHS[-1],
+    )
+    print(f"loaded   : {tower.n_tensors_loaded} tensors, vocab {tower.vocab_size}, "
+          f"hidden {tower.hidden_size}, grad_ckpt {tower.gradient_checkpointing}")
+    trainable = sum(p.numel() for p in tower.model.parameters() if p.requires_grad)
+    print(f"trainable: {trainable:,} parameters")
+
+    print(f"recipe   : {args.optimizer} -- {spec}")
+    # total_steps=1: this is a FOOTPRINT probe, one step per shape to see what the
+    # allocator does. It is not a training run, so the second moment never gets near the
+    # step at which its dtype would stop tracking -- and saying 1 is how that is stated
+    # rather than assumed.
+    opt = build_optimizer(
+        list(tower.model.parameters()), spec=spec, lr=1e-5, total_steps=1
+    )
+    results = measure_widths(tower, opt, spec, rows=ROWS, widths=WIDTHS)
 
     # What the optimizer actually built, against what ADAMW_FP32 describes.
     # `MasterWeightAdamW.state` delegates to the inner optimizer, so this reads the real
@@ -250,8 +323,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  AGREES" if agrees else "  DISAGREES -- the arithmetic describes a layout "
           "this run did not build")
 
-    out = Path(f"/home/ubuntu/gh200_footprint_{args.optimizer}.json")
-    out.write_text(json.dumps({
+    out = write_output(args.out, args.optimizer, {
         "device": dev.name,
         "recipe": args.optimizer,
         "optimizer_spec": {
@@ -263,8 +335,9 @@ def main(argv: list[str] | None = None) -> int:
         "optimizer_state_bytes_per_param_measured": per_param,
         "optimizer_state_bytes_per_param_described": described,
         "spec_agrees_with_measurement": agrees,
+        "shape": shape_record(tower, rows=ROWS, widths=WIDTHS),
         "results": results,
-    }, indent=2))
+    })
     print(f"\nwrote {out}")
     return 0
 

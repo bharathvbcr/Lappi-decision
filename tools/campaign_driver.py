@@ -60,6 +60,41 @@ deadline it stops the driver and any running unit (so the ledger stops moving), 
 final snapshot and runs the same gated termination. A lock file makes sure only one of the
 guard and the driver finalizes.
 
+## The box guard: the box bills from boot, not from the campaign's first unit
+
+HANDOFF/next-training-plan-2026-10-06.md section 7 precaution 4. v5's queue enforced the
+GPU-step budget and never the box's: the box billed while lanes waited for markers
+(GAP-V5-2GPU-BOX-CEILING-NOT-ENFORCED-2026-10-03). So a config for a rented box carries
+``launch.approved`` -- ``box_usd``, ``wall_clock_cap_s`` and ``by`` -- and a ``cuda`` config
+without it is refused. The box's age is read from ``/proc/uptime`` (:data:`UPTIME_PATH`), and
+its spend is ``usd_per_hour`` x hours since boot. The box may run until the smaller of
+``box_usd / usd_per_hour`` and ``wall_clock_cap_s`` since boot; GPU work stops
+``pull_grace_minutes`` before that, so the Mac's pull still fits inside the ceiling.
+
+Every wait is bounded by it: a unit's timeout, a phase's marker wait, the wait for the Mac's
+acknowledgement, and the guard's sleep. At the ceiling the driver (or the guard, whichever
+gets there first) stops the unit's process group, writes ``<state_dir>/BOX_CEILING`` with the
+numbers, and runs the same gated finalize -- whose ``terminate_command`` is the human's (no
+agent holds a cloud credential). An unreadable uptime is never "within budget": it refuses a
+start and stops a running campaign (exit 5).
+
+## Placeholders, pins, quick units and marker-gated phases
+
+* ``placeholders``: ``{name}`` anywhere in the config is replaced by its value. A value only the
+  box knows (a path) ships as ``null``, and an unfilled or undeclared one is refused.
+  ``{checkpoint_every}`` stays reserved for the measured cadence below.
+* ``pins``: ``[{path, sha256}]``; every file is hashed before anything starts, and one that is
+  missing or differs refuses the start.
+* ``{ft_row_id:<unit>}`` in an argv is the id of the one ``ft`` row an earlier unit wrote,
+  filled when the reading unit starts (a reader names the run it reads, by construction).
+* ``carry``: directories whose files travel in every snapshot (verdicts, footprints and
+  readings that are not ledger rows or checkpoints).
+* a unit with ``"quick": true`` fails if any row it wrote is not quick (rule 8).
+* a phase with ``requires`` runs only once every marker exists (and a JSON marker's
+  ``json_key`` reads ``equals``). The wait is bounded by ``wait_max_s``, the campaign cap and
+  the box; a marker that never arrives, or reads anything else, ends the campaign with the
+  phase ``not_run``.
+
 ## Resume and the go/no-go
 
 State lives in ``<state_dir>/campaign_state.json``, rewritten atomically. Completed units
@@ -84,6 +119,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -118,12 +154,34 @@ MAX_PULL_GRACE_MIN: Final[float] = 240.0
 
 STATE_NAME: Final[str] = "campaign_state.json"
 LOCK_NAME: Final[str] = "finalize.lock"
+BOX_CEILING_NAME: Final[str] = "BOX_CEILING"
 TERMINATE_TIMEOUT_S: Final[float] = 300.0
+#: How long a SIGKILLed unit is waited on to be reaped before the driver reports it and moves
+#: on. A process stuck in uninterruptible sleep must not become an unbounded wait.
+REAP_TIMEOUT_S: Final[float] = 60.0
 
-#: Exit codes. 0 every phase ran; 2 stopped at the go/no-go; 1 anything else stopped it;
-#: 3 the terminate command failed; 4 the box was deliberately KEPT ALIVE because nothing
-#: proved the data was safe off it. 3 and 4 are the loud ones: the box is still billing.
+#: Where the box's age is read. Module-level so a test can point it at a fake file; the guard
+#: is handed the same path on its argv.
+UPTIME_PATH: Path = Path("/proc/uptime")
+
+#: Placeholders the driver fills itself at run time; a config may not declare them.
+RESERVED_PLACEHOLDERS: Final[frozenset[str]] = frozenset({"checkpoint_every"})
+PLACEHOLDER_RE: Final[re.Pattern[str]] = re.compile(r"\{([a-z][a-z0-9_]*)\}")
+#: Filled at run time from the state: the id of the one ``ft`` row an EARLIER unit wrote. A
+#: reader unit names the run it reads without anyone copying a row id by hand.
+FT_ROW_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"\{ft_row_id:([A-Za-z0-9_.-]+)\}")
+
+#: Exit codes. 0 every phase ran; 2 stopped at the go/no-go (or a gated phase's markers did
+#: not hold); 1 anything else stopped it; 3 the terminate command failed; 4 the box was
+#: deliberately KEPT ALIVE because nothing proved the data was safe off it; 5 the box guard
+#: stopped the campaign at the box's ceiling. 3, 4 and 5 are the loud ones.
 EXIT_DONE, EXIT_STOPPED, EXIT_FAILED, EXIT_TERMINATE_FAILED, EXIT_KEPT_ALIVE = 0, 2, 1, 3, 4
+EXIT_BOX_CEILING: Final[int] = 5
+
+#: The clock and the sleep every wait uses. Module-level so a test can drive them with a fake
+#: clock; nothing else in the driver calls time.time or time.sleep for a deadline.
+_now: Callable[[], float] = time.time
+_sleep: Callable[[float], None] = time.sleep
 
 
 class ConfigRefused(SystemExit):
@@ -131,6 +189,119 @@ class ConfigRefused(SystemExit):
 
     def __init__(self, reason: str) -> None:
         super().__init__(f"campaign config refused: {reason}")
+
+
+class BoxRefused(SystemExit):
+    """The box guard could not establish the box is within budget. Nothing was launched."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"box guard refused to start: {reason}")
+
+
+# --- the box: its age from uptime, its spend from its rate ------------------------------
+
+
+class BoxClockUnreadable(Exception):
+    """The box's uptime could not be read. Never treated as within budget."""
+
+
+def read_uptime_s(path: Path | None = None) -> float:
+    """Seconds since the box booted: the first field of ``/proc/uptime``."""
+    src = UPTIME_PATH if path is None else path
+    try:
+        text = src.read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BoxClockUnreadable(f"{src}: {type(exc).__name__}: {exc}") from exc
+    try:
+        value = float(text.split()[0])
+    except (IndexError, ValueError) as exc:
+        raise BoxClockUnreadable(f"{src}: no uptime in {text[:40]!r}") from exc
+    if not math.isfinite(value) or value < 0:
+        raise BoxClockUnreadable(f"{src}: uptime {value!r} is not a non-negative number")
+    return value
+
+
+@dataclass(frozen=True)
+class BoxBudget:
+    """What the human approved for the box, against its rate, from boot."""
+
+    usd: float
+    usd_per_hour: float
+    wall_clock_cap_s: float
+    approved_by: str
+    pull_grace_s: float
+
+    @property
+    def limit_s(self) -> float:
+        """Seconds since boot the box may bill: the smaller of the budget and the cap."""
+        return min(self.usd / self.usd_per_hour * 3600.0, self.wall_clock_cap_s)
+
+    @property
+    def work_limit_s(self) -> float:
+        """Seconds since boot by which GPU work stops, leaving the pull window inside."""
+        return self.limit_s - self.pull_grace_s
+
+
+@dataclass(frozen=True)
+class BoxReading:
+    budget: BoxBudget
+    uptime_s: float | None
+    error: str | None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None and self.uptime_s is not None
+
+    @property
+    def spend_usd(self) -> float | None:
+        if not self.ok or self.uptime_s is None:
+            return None
+        return self.budget.usd_per_hour * self.uptime_s / 3600.0
+
+    @property
+    def left_s(self) -> float:
+        """Until the ceiling itself. An unreadable clock has nothing left."""
+        if not self.ok or self.uptime_s is None:
+            return 0.0
+        return max(self.budget.limit_s - self.uptime_s, 0.0)
+
+    @property
+    def work_left_s(self) -> float:
+        """Until GPU work must stop. An unreadable clock has nothing left."""
+        if not self.ok or self.uptime_s is None:
+            return 0.0
+        return max(self.budget.work_limit_s - self.uptime_s, 0.0)
+
+    @property
+    def at_ceiling(self) -> bool:
+        return self.work_left_s <= 0.0
+
+    def line(self) -> str:
+        b = self.budget
+        if not self.ok:
+            return f"box clock UNREADABLE ({self.error}); treated as at the ceiling"
+        return (f"box up {self.uptime_s:.0f}s, spend ${self.spend_usd:.2f} of "
+                f"${b.usd:.2f} at ${b.usd_per_hour:.2f}/h (cap {b.wall_clock_cap_s:.0f}s); "
+                f"GPU work has {self.work_left_s:.0f}s left")
+
+    def numbers(self, reason: str, who: str) -> dict[str, Any]:
+        b = self.budget
+        return {
+            "reason": reason, "who": who, "at": time.time(),
+            "uptime_path": str(UPTIME_PATH), "uptime_s": self.uptime_s,
+            "uptime_error": self.error, "usd_per_hour": b.usd_per_hour,
+            "spend_usd": self.spend_usd, "box_usd": b.usd,
+            "wall_clock_cap_s": b.wall_clock_cap_s, "limit_s": b.limit_s,
+            "pull_grace_s": b.pull_grace_s, "work_limit_s": b.work_limit_s,
+            "approved_by": b.approved_by,
+        }
+
+
+def box_reading(budget: BoxBudget) -> BoxReading:
+    try:
+        return BoxReading(budget, read_uptime_s(), None)
+    except BoxClockUnreadable as exc:
+        return BoxReading(budget, None, str(exc))
 
 
 # --- config ---------------------------------------------------------------------------
@@ -156,6 +327,29 @@ class Unit:
     #: every row -- information, not a crash. A code listed here is accepted only if every
     #: row the unit wrote has status ``completed``; a crash writes a ``failed`` row or none.
     accept_returncodes: tuple[int, ...] = (0,)
+    #: Rule 8 stated up front: every row this unit writes must be quick, or the unit failed.
+    quick: bool = False
+
+
+@dataclass(frozen=True)
+class Marker:
+    path: Path
+    #: For a JSON marker: the key whose value must equal ``equals``. None: existence only.
+    json_key: str | None
+    equals: str | None
+
+
+@dataclass(frozen=True)
+class Requires:
+    markers: tuple[Marker, ...]
+    wait_max_s: float
+    poll_s: float
+
+
+@dataclass(frozen=True)
+class Pin:
+    path: Path
+    sha256: str
 
 
 @dataclass(frozen=True)
@@ -172,6 +366,7 @@ class Phase:
     cap: WallClockCap
     units: tuple[Unit, ...]
     gate: GateSpec | None
+    requires: Requires | None = None
 
 
 @dataclass(frozen=True)
@@ -193,6 +388,12 @@ class Config:
     kill_grace_s: float
     phases: tuple[Phase, ...]
     digest: str
+    #: None only off a rented box (cpu/mps without ``launch``); a cuda config always has one.
+    box: BoxBudget | None = None
+    pins: tuple[Pin, ...] = ()
+    #: Directories whose files travel in every snapshot beside the checkpoints: the small
+    #: outputs (verdicts, footprints, readings) that die with the box otherwise.
+    carry_dirs: tuple[Path, ...] = ()
 
     @property
     def sync_dir(self) -> Path:
@@ -312,7 +513,10 @@ def _phase(p: object, i: int, names: set[str]) -> Phase:
                                 "schedules)")
         if any(a.endswith("real_ft_run.py") for a in argv):
             _check_unit_cap(argv, phase_cap=cap, where=f"{uw} ({u['name']})")
-        units.append(Unit(u["name"], argv, expect, ck, tuple(accept)))
+        quick = u.get("quick", False)
+        if not isinstance(quick, bool):
+            raise ConfigRefused(f"{uw}.quick must be true or false, got {quick!r}")
+        units.append(Unit(u["name"], argv, expect, ck, tuple(accept), quick))
     if not units:
         raise ConfigRefused(f"{where} has no units")
     if cap.cap_hours > MAX_CHECKPOINT_INTERVAL_H and any(u.checkpoint is None for u in units):
@@ -330,7 +534,207 @@ def _phase(p: object, i: int, names: set[str]) -> Phase:
         if not all(isinstance(g.get(k), str) and g[k] for k in ("ledger", "name", "tool")):
             raise ConfigRefused(f"{where}.gate needs ledger, name and tool")
         gate = GateSpec(Path(g["ledger"]), g["name"], g["tool"], seeds)
-    return Phase(p["name"], cap, tuple(units), gate)
+    requires = _requires(p.get("requires"), where) if p.get("requires") is not None else None
+    return Phase(p["name"], cap, tuple(units), gate, requires)
+
+
+def _requires(raw: object, where: str) -> Requires:
+    rw = f"{where}.requires"
+    if not isinstance(raw, dict):
+        raise ConfigRefused(f"{rw} must be an object with markers, wait_max_s and poll_s")
+    wait = _num(raw, "wait_max_s", rw)
+    poll = _num(raw, "poll_s", rw)
+    if not 0 < wait <= CAMPAIGN_MAX_HOURS * 3600.0 or not 0 < poll <= 600:
+        raise ConfigRefused(f"{rw}: wait_max_s {wait:g} must be in (0, "
+                            f"{CAMPAIGN_MAX_HOURS * 3600:g}] and poll_s {poll:g} in (0, 600]")
+    raw_markers = raw.get("markers")
+    if not isinstance(raw_markers, list) or not raw_markers:
+        raise ConfigRefused(f"{rw}.markers must be a non-empty list")
+    markers = []
+    for k, m in enumerate(raw_markers):
+        mw = f"{rw}.markers[{k}]"
+        if not isinstance(m, dict) or not isinstance(m.get("path"), str) or not m["path"]:
+            raise ConfigRefused(f"{mw} needs a path")
+        key, equals = m.get("json_key"), m.get("equals")
+        if (key is None) != (equals is None):
+            raise ConfigRefused(f"{mw}: json_key and equals come together or not at all")
+        if key is not None and not (isinstance(key, str) and key and isinstance(equals, str)):
+            raise ConfigRefused(f"{mw}: json_key and equals must be non-empty strings")
+        markers.append(Marker(Path(m["path"]), key, equals))
+    return Requires(tuple(markers), wait, poll)
+
+
+def _fill_placeholders(node: object, values: dict[str, str], where: str) -> object:
+    """Replace ``{name}`` throughout the config. Keys starting ``_`` are prose, left alone."""
+    if isinstance(node, str):
+        def sub(m: re.Match[str]) -> str:
+            name = m.group(1)
+            if name in RESERVED_PLACEHOLDERS:
+                return m.group(0)
+            if name not in values:
+                raise ConfigRefused(f"{where} names {{{name}}}, which no placeholder declares")
+            return values[name]
+        return PLACEHOLDER_RE.sub(sub, node)
+    if isinstance(node, list):
+        return [_fill_placeholders(x, values, f"{where}[{i}]") for i, x in enumerate(node)]
+    if isinstance(node, dict):
+        return {k: (v if k.startswith("_") else _fill_placeholders(v, values, f"{where}.{k}"))
+                for k, v in node.items()}
+    return node
+
+
+def _placeholders(raw: dict[str, Any]) -> dict[str, str]:
+    ph = raw.get("placeholders", {})
+    if not isinstance(ph, dict):
+        raise ConfigRefused("placeholders must be an object of name -> value")
+    for name in ph:
+        if not isinstance(name, str) or not PLACEHOLDER_RE.fullmatch("{" + name + "}"):
+            raise ConfigRefused(f"placeholder name {name!r} must match [a-z][a-z0-9_]*")
+        if name in RESERVED_PLACEHOLDERS:
+            raise ConfigRefused(f"placeholder {name!r} is reserved: the driver fills it")
+    unfilled = sorted(k for k, v in ph.items() if not isinstance(v, str) or not v.strip())
+    if unfilled:
+        raise ConfigRefused(
+            f"placeholder(s) {unfilled} are not filled. They are values only the box knows; "
+            "fill each in this config on the box, then run --plan"
+        )
+    filled = {k: v for k, v in ph.items() if isinstance(v, str)}
+    nested = sorted(k for k, v in filled.items() if PLACEHOLDER_RE.search(v))
+    if nested:
+        raise ConfigRefused(f"placeholder(s) {nested} hold another placeholder; give the value")
+    return filled
+
+
+def _pins(raw: object) -> tuple[Pin, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ConfigRefused("pins must be a list of {path, sha256}")
+    pins = []
+    for i, p in enumerate(raw):
+        if (not isinstance(p, dict) or not isinstance(p.get("path"), str) or not p["path"]
+                or not isinstance(p.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", p["sha256"])):
+            raise ConfigRefused(f"pins[{i}] needs a path and a lower-case 64-hex sha256")
+        pins.append(Pin(Path(p["path"]), p["sha256"]))
+    return tuple(pins)
+
+
+def _carry(raw: object) -> tuple[Path, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(x, str) and x for x in raw):
+        raise ConfigRefused("carry must be a list of directory paths")
+    return tuple(Path(x) for x in raw)
+
+
+def _check_ft_row_tokens(cfg: Config) -> None:
+    """``{ft_row_id:<unit>}`` names a unit that runs EARLIER, and only one unit has the name."""
+    seen: list[str] = []
+    every = [u.name for ph in cfg.phases for u in ph.units]
+    for ph in cfg.phases:
+        for u in ph.units:
+            for a in u.argv:
+                for name in FT_ROW_TOKEN_RE.findall(a):
+                    if name not in seen:
+                        raise ConfigRefused(f"unit {u.name}: {{ft_row_id:{name}}} names no "
+                                            "earlier unit")
+                    if every.count(name) != 1:
+                        raise ConfigRefused(f"unit {u.name}: {{ft_row_id:{name}}} is ambiguous; "
+                                            "unit names it reads must be unique")
+            seen.append(u.name)
+
+
+def _resolve_ft_rows(argv: list[str], state: dict[str, Any]) -> list[str]:
+    if not any(FT_ROW_TOKEN_RE.search(a) for a in argv):
+        return argv
+    units = {n: u for ph in state.get("phases", {}).values()
+             for n, u in ph.get("units", {}).items()}
+
+    def sub(m: re.Match[str]) -> str:
+        name = m.group(1)
+        info = units.get(name, {})
+        ft = [rid for rid, kind in info.get("row_ids", []) if kind == "ft"]
+        if info.get("status") != "done" or len(ft) != 1:
+            raise ConfigRefused(
+                f"{{ft_row_id:{name}}}: unit {name} is {info.get('status', 'not run')} with "
+                f"{len(ft)} ft row(s) recorded; it needs exactly one"
+            )
+        return str(ft[0])
+
+    return [FT_ROW_TOKEN_RE.sub(sub, a) for a in argv]
+
+
+def verify_pins(cfg: Config) -> list[str]:
+    """Every pinned file, hashed now. Returns the failures; empty means every pin held."""
+    bad = []
+    for pin in cfg.pins:
+        if not pin.path.is_file():
+            bad.append(f"{pin.path}: missing or not a file")
+            continue
+        got = sha256_file(pin.path)
+        if got != pin.sha256:
+            bad.append(f"{pin.path}: sha256 {got}, pinned {pin.sha256}")
+    return bad
+
+
+def _box_rate(raw: dict[str, Any]) -> float:
+    """The box's rate, in the guard's own words: a zero, negative or NaN rate never reaches a
+    ceiling, so it is refused before the generic number check could word it otherwise."""
+    rate = raw.get("usd_per_hour")
+    if (isinstance(rate, bool) or not isinstance(rate, int | float)
+            or not math.isfinite(rate) or rate <= 0):
+        raise ConfigRefused(
+            f"the box rate usd_per_hour {rate!r} must be a finite number above zero: the guard "
+            "prices the box's uptime at it, and a zero, negative or NaN rate never reaches a "
+            "ceiling"
+        )
+    return float(rate)
+
+
+def _box_budget(raw: dict[str, Any], *, device: object, pull_grace_min: float
+                ) -> BoxBudget | None:
+    """``launch.approved``: refused when missing on a rented box, or not a usable number.
+
+    The rate is checked here with its own words, before the generic number check: a zero,
+    negative or NaN rate makes every box look unspent, which is the failure this guards.
+    """
+    launch = raw.get("launch")
+    if launch is None:
+        if device == "cuda":
+            raise ConfigRefused(
+                "no launch.approved.box_usd. A rented box bills its wall clock from boot, "
+                "including every wait; the guard needs the human's box ceiling (box_usd, "
+                "wall_clock_cap_s, by) before it starts (precaution 4)"
+            )
+        return None
+    if not isinstance(launch, dict) or not isinstance(launch.get("approved"), dict):
+        raise ConfigRefused("launch.approved must be an object with box_usd, "
+                            "wall_clock_cap_s and by")
+    ap = launch["approved"]
+    if "box_usd" not in ap:
+        raise ConfigRefused("launch.approved.box_usd is missing: no box ceiling, no start")
+    rate = _box_rate(raw)
+    usd = ap.get("box_usd")
+    if (isinstance(usd, bool) or not isinstance(usd, int | float)
+            or not math.isfinite(usd) or usd <= 0):
+        raise ConfigRefused(f"launch.approved.box_usd {usd!r} must be a finite number above "
+                            "zero")
+    cap_s = _num(ap, "wall_clock_cap_s", "launch.approved")
+    if not 0 < cap_s <= CAMPAIGN_MAX_HOURS * 3600.0:
+        raise ConfigRefused(f"launch.approved.wall_clock_cap_s {cap_s:g} must be in (0, "
+                            f"{CAMPAIGN_MAX_HOURS * 3600:g}]")
+    by = ap.get("by")
+    if not isinstance(by, str) or not by.strip():
+        raise ConfigRefused("launch.approved.by is empty: name who approved the box ceiling")
+    budget = BoxBudget(float(usd), float(rate), cap_s, by, pull_grace_min * 60.0)
+    if budget.work_limit_s <= 0:
+        raise ConfigRefused(
+            f"the box limit of {budget.limit_s:.0f}s since boot leaves nothing after the "
+            f"{pull_grace_min:g} min pull grace window it reserves; raise the approval or "
+            "shorten the window"
+        )
+    return budget
 
 
 def load_config(path: Path) -> Config:
@@ -339,6 +743,12 @@ def load_config(path: Path) -> Config:
     raw = json.loads(text)
     if not isinstance(raw, dict):
         raise ConfigRefused("the config must be a JSON object")
+    values = _placeholders(raw)
+    filled = _fill_placeholders({k: v for k, v in raw.items() if k != "placeholders"},
+                                values, "config")
+    if not isinstance(filled, dict):
+        raise ConfigRefused("the config must be a JSON object")
+    raw = filled
     if "terminate_command" not in raw:
         raise ConfigRefused(
             "no terminate_command. Rule 4 requires every long job to auto-terminate, and "
@@ -349,12 +759,19 @@ def load_config(path: Path) -> Config:
         raise ConfigRefused("sync_command is retired: the Mac pulls (tools/campaign_pull_loop.sh)"
                             " and termination waits for its acknowledgement")
     terminate = _argv(raw["terminate_command"], "terminate_command")
+    pull_grace = (_num(raw, "pull_grace_minutes", "config") if "pull_grace_minutes" in raw
+                  else DEFAULT_PULL_GRACE_MIN)
+    if not 0 < pull_grace <= MAX_PULL_GRACE_MIN:
+        raise ConfigRefused(f"pull_grace_minutes {pull_grace:g} must be in "
+                            f"(0, {MAX_PULL_GRACE_MIN:g}]")
     cap_h = _num(raw, "campaign_cap_hours", "config")
     if not 0 < cap_h <= CAMPAIGN_MAX_HOURS:
         raise ConfigRefused(
             f"campaign_cap_hours {cap_h:g} is outside (0, {CAMPAIGN_MAX_HOURS:g}]: the user "
             "approved one GH200 for up to 2-3 days, and the cap is read-only (rule 2)"
         )
+    if raw.get("launch") is not None:
+        _box_rate(raw)
     rate = _num(raw, "usd_per_hour", "config")
     n_gpus = raw.get("n_gpus")
     if not isinstance(n_gpus, int) or isinstance(n_gpus, bool) or n_gpus < 0:
@@ -374,17 +791,15 @@ def load_config(path: Path) -> Config:
                 "usd_per_hour_source is empty: the rate is read from the provider's price page "
                 "at launch (say which page and when), never carried over from a template"
             )
+    # After the device's own rate checks, so a free-priced GPU is refused in those words.
+    box = _box_budget(raw, device=device, pull_grace_min=pull_grace)
+    pins = _pins(raw.get("pins"))
     instance = raw.get("instance")
     if not isinstance(instance, str) or not instance.strip():
         raise ConfigRefused("instance must name the machine being priced")
     grace = _num(raw, "kill_grace_s", "config") if "kill_grace_s" in raw else 30.0
     if not 0 < grace <= 600:
         raise ConfigRefused(f"kill_grace_s {grace:g} must be in (0, 600]")
-    pull_grace = (_num(raw, "pull_grace_minutes", "config") if "pull_grace_minutes" in raw
-                  else DEFAULT_PULL_GRACE_MIN)
-    if not 0 < pull_grace <= MAX_PULL_GRACE_MIN:
-        raise ConfigRefused(f"pull_grace_minutes {pull_grace:g} must be in "
-                            f"(0, {MAX_PULL_GRACE_MIN:g}]")
     poll = _num(raw, "pull_poll_s", "config") if "pull_poll_s" in raw else 30.0
     if not 0 < poll <= 600:
         raise ConfigRefused(f"pull_poll_s {poll:g} must be in (0, 600]")
@@ -410,8 +825,10 @@ def load_config(path: Path) -> Config:
         terminate_command=terminate, pull_grace_minutes=pull_grace, pull_poll_s=poll,
         durable_copy_dir=Path(durable) if durable else None, approved_by=approved,
         kill_grace_s=grace, phases=tuple(phases),
-        digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        digest=hashlib.sha256(text.encode("utf-8")).hexdigest(), box=box, pins=pins,
+        carry_dirs=_carry(raw.get("carry")),
     )
+    _check_ft_row_tokens(cfg)
     ck = [str(d.resolve()) for d in cfg.checkpoint_dirs]
     if len(ck) != len(set(ck)):
         raise ConfigRefused(
@@ -464,6 +881,14 @@ def cost_lines(cfg: Config) -> list[str]:
            if cfg.durable_copy_dir else "no durable copy is configured, so without it the box "
            f"is KEPT ALIVE at ${cfg.usd_per_hour:.2f}/h")
     )
+    if cfg.box is not None:
+        b = cfg.box
+        lines.append(
+            f"  box guard: ${b.usd:.2f} approved by {b.approved_by}, wall cap "
+            f"{b.wall_clock_cap_s:.0f}s, both from boot (uptime) at ${b.usd_per_hour:.2f}/h: "
+            f"the box may bill {b.limit_s / 3600:.2f} h since boot, GPU work stops at "
+            f"{b.work_limit_s / 3600:.2f} h to leave the pull window inside it"
+        )
     return lines
 
 
@@ -578,11 +1003,19 @@ def write_snapshot(cfg: Config, state: dict[str, Any], *, phase: str, final: boo
     logs = cfg.state_dir / "logs"
     if logs.is_dir():
         shutil.copytree(logs, tmp / "logs")
+    ceiling = cfg.state_dir / BOX_CEILING_NAME
+    if ceiling.is_file():
+        shutil.copy2(ceiling, tmp / BOX_CEILING_NAME)
     for i, ck in enumerate(cfg.checkpoint_dirs):
         if ck.is_dir():
             for f in sorted(ck.rglob("*")):
                 if f.is_file():
                     _link_or_copy(f, tmp / "checkpoints" / f"{i}-{ck.name}" / f.relative_to(ck))
+    for i, carried in enumerate(cfg.carry_dirs):
+        if carried.is_dir():
+            for f in sorted(carried.rglob("*")):
+                if f.is_file():
+                    _link_or_copy(f, tmp / "carry" / f"{i}-{carried.name}" / f.relative_to(carried))
     final_dir = sync / f"phase-{seq}"
     if final_dir.exists():
         shutil.rmtree(final_dir)
@@ -736,12 +1169,52 @@ def run_terminate(cfg: Config) -> tuple[bool, str]:
 
 
 def wait_for_pull(cfg: Config, seq: int) -> tuple[bool, str]:
-    deadline = time.time() + cfg.pull_grace_minutes * 60.0
+    """Bounded by the grace window and, on a box, by what is left before its ceiling."""
+    deadline = _now() + cfg.pull_grace_minutes * 60.0
     while True:
         ok, why = pulled_ok(cfg, seq)
-        if ok or time.time() >= deadline:
+        if ok:
             return ok, why
-        time.sleep(min(cfg.pull_poll_s, max(deadline - time.time(), 0.01)))
+        left = deadline - _now()
+        if cfg.box is not None:
+            reading = box_reading(cfg.box)
+            if reading.left_s < left:
+                left = reading.left_s
+                if left <= 0:
+                    return False, f"{why}; the wait ended at the box ceiling ({reading.line()})"
+        if left <= 0:
+            return ok, why
+        _sleep(min(cfg.pull_poll_s, max(left, 0.01)))
+
+
+def write_box_ceiling(cfg: Config, reading: BoxReading, reason: str, who: str) -> Path:
+    """The marker the human reads: why the box guard stopped, with its numbers.
+
+    The first writer's record stands (the moment the ceiling was met); a later one is an
+    event in the state, not a rewrite of the marker.
+    """
+    path = cfg.state_dir / BOX_CEILING_NAME
+    if not path.exists():
+        write_json_atomic(path, reading.numbers(reason, who))
+    print(f"!!! BOX_CEILING ({who}): {reason}. {reading.line()}. Written to {path}", flush=True)
+    return path
+
+
+def box_stop(cfg: Config, state: dict[str, Any], reading: BoxReading, reason: str, *,
+             phase: str, who: str = "driver") -> int:
+    """At the ceiling: stop the unit's process group, write BOX_CEILING, gated finalize.
+
+    Returns finalize's code: 5 once the human's terminate command ran, or the louder 3 (it
+    failed) or 4 (kept alive: nothing proved the data is off the box).
+    """
+    pgid = state.get("running_pgid")
+    if pgid is not None:
+        _stop_group(pgid, cfg.kill_grace_s)
+        state["running_pgid"] = None
+    write_box_ceiling(cfg, reading, reason, who)
+    event(state, f"{who}: BOX_CEILING: {reason}; {reading.line()}")
+    return finalize(cfg, state, f"box ceiling: {reason}", EXIT_BOX_CEILING, phase=phase,
+                    who=who)
 
 
 def finalize(cfg: Config, state: dict[str, Any], outcome: str, code: int, *, phase: str,
@@ -800,21 +1273,28 @@ def finalize(cfg: Config, state: dict[str, Any], outcome: str, code: int, *, pha
 # --- the guard --------------------------------------------------------------------------
 
 
-def ensure_guard(cfg: Config, state: dict[str, Any], config_path: Path) -> None:
-    """The deadman: finalizes at the campaign cap even if this driver is dead.
+def ensure_guard(cfg: Config, state: dict[str, Any], config_path: Path, *,
+                 quiet: bool = False) -> None:
+    """The deadman: finalizes at the campaign cap, or the box ceiling, if this driver is dead.
 
     The guard loads its config once, at start, and holds it in memory: a config moved or
-    edited while it sleeps cannot stop it from firing.
+    edited while it sleeps cannot stop it from firing. It reads the box's uptime itself, from
+    the same path the driver reads. Called before every unit, so a guard that was killed is
+    re-armed rather than silently missing.
     """
-    if _is_guard(state.get("guard_pid")):
-        print(f"guard: pid {state['guard_pid']} alive, deadline unchanged")
+    previous = state.get("guard_pid")
+    if _is_guard(previous):
+        if not quiet:
+            print(f"guard: pid {previous} alive, deadline unchanged")
         return
+    if previous is not None:
+        event(state, f"guard: pid {previous} is not running; re-arming it")
     deadline = float(state["started_at"]) + cfg.campaign_cap_hours * 3600.0
     cfg.state_dir.mkdir(parents=True, exist_ok=True)
     with (cfg.state_dir / "guard.log").open("a", encoding="utf-8") as log:
         proc = subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "--guard", repr(deadline),
-             "--config", str(config_path)],
+             "--config", str(config_path), "--uptime-path", str(UPTIME_PATH)],
             stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
@@ -844,17 +1324,18 @@ def _stop_group(pid: object, grace_s: float) -> None:
         os.killpg(pid, signal.SIGKILL)
 
 
-def guard_fire(cfg: Config) -> int:
-    """At the cap: stop the driver and its unit, then the same gated finalize."""
+def guard_fire(cfg: Config, box: BoxReading | None = None) -> int:
+    """At the cap (or the box ceiling): stop the driver and its unit, then gated finalize."""
     path = cfg.state_dir / STATE_NAME
     state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {
         "phases": {}, "events": [], "sync_seq": 0}
     if state.get("finalized") == "terminated":
         print("guard: the campaign already terminated the instance; nothing to do")
         return EXIT_DONE
+    what = "the box ceiling" if box is not None else "the campaign cap"
     driver = state.get("driver_pid")
     if _is_campaign_process(driver, guard=False):
-        print(f"guard: campaign cap reached; stopping driver pid {driver}", flush=True)
+        print(f"guard: {what} reached; stopping driver pid {driver}", flush=True)
         _stop_group(driver, cfg.kill_grace_s)
     if state.get("running_pgid") is not None:
         print(f"guard: stopping unit process group {state['running_pgid']}", flush=True)
@@ -863,15 +1344,31 @@ def guard_fire(cfg: Config) -> int:
     if path.exists():
         state = json.loads(path.read_text(encoding="utf-8"))
     state["running_pgid"] = None
+    if box is not None:
+        reason = ("the box clock could not be read" if not box.ok
+                  else "the box reached its ceiling")
+        return box_stop(cfg, state, box, f"{reason} (guard)", phase="guard", who="guard")
     return finalize(cfg, state, "capped: the campaign cap was reached (guard)", EXIT_FAILED,
                     phase="guard", who="guard")
 
 
 def run_guard(deadline: float, config_path: Path) -> int:
+    """Sleep to the campaign deadline or the box's work limit, whichever comes first.
+
+    The box is re-read every pass, so a deadline computed at start cannot drift from the box's
+    own clock; an unreadable clock fires the guard at once rather than reading as time left.
+    """
     cfg = load_config(config_path)
-    while (left := deadline - time.time()) > 0:
-        time.sleep(min(left, 60.0))
-    return guard_fire(cfg)
+    while True:
+        left = deadline - _now()
+        if cfg.box is not None:
+            reading = box_reading(cfg.box)
+            if reading.at_ceiling:
+                return guard_fire(cfg, box=reading)
+            left = min(left, reading.work_left_s)
+        if left <= 0:
+            return guard_fire(cfg)
+        _sleep(min(left, 60.0))
 
 
 # --- running units --------------------------------------------------------------------
@@ -902,7 +1399,13 @@ def run_group(argv: list[str], *, timeout_s: float, log: Path, grace_s: float,
             except subprocess.TimeoutExpired:
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
+                try:
+                    proc.wait(timeout=REAP_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    print(f"!!! unit pid {proc.pid} did not exit {REAP_TIMEOUT_S:g}s after "
+                          "SIGKILL (uninterruptible sleep?); moving on without reaping it",
+                          flush=True)
+                    return "capped", -int(signal.SIGKILL)
             return "capped", proc.returncode
     return ("ok" if rc == 0 else "failed"), rc
 
@@ -923,7 +1426,7 @@ def throughput(state: dict[str, Any], cfg: Config, phase_name: str) -> float | N
 
 
 def unit_argv(unit: Unit, cfg: Config, state: dict[str, Any], resuming: bool) -> list[str]:
-    argv = list(unit.argv)
+    argv = _resolve_ft_rows(list(unit.argv), state)
     if unit.checkpoint is None:
         return argv
     rate = throughput(state, cfg, unit.checkpoint.throughput_from)
@@ -968,11 +1471,82 @@ def gate_verdict(gate: GateSpec, start: int) -> tuple[bool, str]:
     return True, f"{gate.name} passed on seeds {sorted(seeds)} ({len(rows)} row(s))"
 
 
+# --- gated phases: markers -------------------------------------------------------------
+
+
+def check_marker(m: Marker) -> tuple[str, str]:
+    """``("met" | "absent" | "refuted", why)``. A marker that cannot be parsed is absent,
+    never met: a half-written verdict file must not read as admissible."""
+    if not m.path.is_file():
+        return "absent", f"{m.path} does not exist"
+    if m.json_key is None:
+        return "met", f"{m.path} exists"
+    try:
+        body = json.loads(m.path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return "absent", f"{m.path} unreadable as JSON ({type(exc).__name__})"
+    if not isinstance(body, dict) or m.json_key not in body:
+        return "absent", f"{m.path} has no {m.json_key!r}"
+    value = body[m.json_key]
+    if value == m.equals:
+        return "met", f"{m.path} {m.json_key} = {value!r}"
+    return "refuted", f"{m.path} {m.json_key} = {value!r}, not {m.equals!r}"
+
+
+def wait_for_markers(cfg: Config, req: Requires, *, deadline: float
+                     ) -> tuple[str, str, BoxReading | None]:
+    """``(status, why, reading)``; status ``met``, ``refuted``, ``timeout`` or ``box``.
+
+    Bounded three ways: ``wait_max_s``, the caller's deadline (the campaign cap) and the box's
+    remaining work time, re-read every poll.
+    """
+    end_at = min(_now() + req.wait_max_s, deadline)
+    while True:
+        results = [check_marker(m) for m in req.markers]
+        refuted = [why for s, why in results if s == "refuted"]
+        if refuted:
+            return "refuted", "; ".join(refuted), None
+        absent = [why for s, why in results if s != "met"]
+        if not absent:
+            return "met", "; ".join(why for _, why in results), None
+        left = end_at - _now()
+        if cfg.box is not None:
+            reading = box_reading(cfg.box)
+            if reading.at_ceiling:
+                return "box", "; ".join(absent), reading
+            left = min(left, reading.work_left_s)
+        if left <= 0:
+            return "timeout", "; ".join(absent), None
+        _sleep(min(req.poll_s, max(left, 0.01)))
+
+
 # --- the campaign ---------------------------------------------------------------------
 
 
+def box_preflight(cfg: Config) -> BoxReading | None:
+    """Refuse to start on an unreadable box clock or a box already at its ceiling."""
+    if cfg.box is None:
+        return None
+    reading = box_reading(cfg.box)
+    if not reading.ok:
+        raise BoxRefused(
+            f"the box's uptime could not be read ({reading.error}). Without it the box's spend "
+            "is unknown, and unknown is not within budget"
+        )
+    if reading.at_ceiling:
+        raise BoxRefused(
+            f"{reading.line()}: nothing is left before the ceiling (less the pull window). "
+            "Run --finalize to hand the data home"
+        )
+    return reading
+
+
 def run_campaign(cfg: Config, config_path: Path) -> int:
-    now = time.time()
+    bad_pins = verify_pins(cfg)
+    if bad_pins:
+        raise ConfigRefused("pinned input(s) do not match: " + "; ".join(bad_pins))
+    start_reading = box_preflight(cfg)
+    now = _now()
     state = load_state(cfg, now)
     state_path = cfg.state_dir / STATE_NAME
     resumed = bool(state["phases"])
@@ -980,6 +1554,8 @@ def run_campaign(cfg: Config, config_path: Path) -> int:
     event(state, f"{'RESUME' if resumed else 'START'} campaign {cfg.name} "
                  f"(elapsed {now - float(state['started_at']):.0f}s of "
                  f"{cfg.campaign_cap_hours * 3600:.0f}s)")
+    if start_reading is not None:
+        event(state, f"box guard: {start_reading.line()}")
     state["driver_pid"] = os.getpid()
     ensure_guard(cfg, state, config_path)
     write_state(state_path, state)
@@ -989,14 +1565,43 @@ def run_campaign(cfg: Config, config_path: Path) -> int:
     def end(outcome: str, code: int, phase: str) -> int:
         return finalize(cfg, state, outcome, code, phase=phase)
 
+    def ceiling() -> BoxReading | None:
+        if cfg.box is None:
+            return None
+        reading = box_reading(cfg.box)
+        return reading if reading.at_ceiling else None
+
+    def at_box(reading: BoxReading, where: str, phase: str) -> int:
+        why = ("the box clock could not be read" if not reading.ok
+               else "the box reached its ceiling")
+        return box_stop(cfg, state, reading, f"{why} {where}", phase=phase)
+
     for phase in cfg.phases:
         last = phase.name
         info = state["phases"].setdefault(phase.name, {"status": "pending", "units": {}})
         if info["status"] == "done":
             print(f"phase {phase.name}: done earlier, skipped")
             continue
+        if (hit := ceiling()) is not None:
+            return at_box(hit, f"before phase {phase.name}", phase.name)
+        if info["status"] == "pending" and phase.requires is not None:
+            event(state, f"phase {phase.name}: waiting up to {phase.requires.wait_max_s:.0f}s "
+                         "for its markers")
+            write_state(state_path, state)
+            status, why, reading = wait_for_markers(cfg, phase.requires,
+                                                    deadline=campaign_deadline)
+            if status == "box" and reading is not None:
+                return at_box(reading, f"waiting for phase {phase.name}'s markers ({why})",
+                              phase.name)
+            if status != "met":
+                info["status"] = "not_run"
+                event(state, f"phase {phase.name}: NOT RUN, its markers did not hold "
+                             f"({status}): {why}")
+                return end(f"not run: phase {phase.name}'s markers did not hold", EXIT_STOPPED,
+                           phase.name)
+            event(state, f"phase {phase.name}: markers hold: {why}")
         if info["status"] == "pending":
-            info.update(status="running", started_at=time.time(),
+            info.update(status="running", started_at=_now(),
                         ledger_lines_at_start=ledger_lines(cfg.ledger),
                         gate_lines_at_start=(ledger_lines(phase.gate.ledger)
                                              if phase.gate else None))
@@ -1016,12 +1621,21 @@ def run_campaign(cfg: Config, config_path: Path) -> int:
                 event(state, f"  unit {unit.name}: {exc}")
                 info["status"] = "failed"
                 return end(f"failed at {phase.name}/{unit.name}", EXIT_FAILED, phase.name)
+            if (hit := ceiling()) is not None:
+                return at_box(hit, f"before unit {phase.name}/{unit.name}", phase.name)
+            ensure_guard(cfg, state, config_path, quiet=True)
             u.update(status="running", attempts=u["attempts"] + 1,
                      ledger_lines_at_start=ledger_lines(cfg.ledger), argv=argv)
             write_state(state_path, state)
-            timeout = min(phase_deadline, campaign_deadline) - time.time()
+            now = _now()
+            bounds = {"phase": phase_deadline - now, "campaign": campaign_deadline - now}
+            if cfg.box is not None:
+                bounds["box"] = box_reading(cfg.box).work_left_s
+            binding = min(bounds, key=lambda k: bounds[k])
+            timeout = bounds[binding]
             event(state, f"  unit {unit.name}: {'RESUMING' if resuming else 'start'} "
-                         f"(attempt {u['attempts']}, {max(timeout, 0):.0f}s left)")
+                         f"(attempt {u['attempts']}, {max(timeout, 0):.0f}s left, bound by "
+                         f"the {binding})")
 
             def record_pgid(pgid: int) -> None:
                 state["running_pgid"] = pgid
@@ -1041,12 +1655,22 @@ def run_campaign(cfg: Config, config_path: Path) -> int:
                     event(state, f"  unit {unit.name}: exit {rc} accepted by config -- all "
                                  f"{new_rows} row(s) it wrote are completed (a failed claim, "
                                  "not a crash; read the rows)")
-            u.update(status=status, returncode=rc, rows=new_rows)
+            u.update(status=status, returncode=rc, rows=new_rows,
+                     row_ids=[[r.row_id, r.run_kind] for r in written])
             if status == "ok" and new_rows < unit.expect_rows:
                 u["status"] = status = "failed"
                 event(state, f"  unit {unit.name}: exited {rc} but wrote {new_rows} ledger "
                              f"row(s), expected {unit.expect_rows}")
+            not_quick = [r.row_id[:8] for r in written if not r.quick]
+            if status == "ok" and unit.quick and not_quick:
+                u["status"] = status = "failed"
+                event(state, f"  unit {unit.name}: declared quick (rule 8) but wrote row(s) "
+                             f"{not_quick} that are not quick")
             write_state(state_path, state)
+            if status == "capped" and binding == "box" and cfg.box is not None:
+                info["status"] = "capped"
+                return at_box(box_reading(cfg.box),
+                              f"during unit {phase.name}/{unit.name} (exit {rc})", phase.name)
             if status != "ok":
                 which = ("campaign" if campaign_deadline <= phase_deadline else "phase")
                 why = f"the {which} cap" if status == "capped" else f"exit {rc}"
@@ -1092,13 +1716,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--finalize", action="store_true",
                         help="re-run the gated termination for a campaign left alive")
     parser.add_argument("--guard", type=float, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--uptime-path", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.uptime_path is not None:
+        global UPTIME_PATH
+        UPTIME_PATH = args.uptime_path
     if args.guard is not None:
         return run_guard(args.guard, args.config)
     cfg = load_config(args.config)
     if args.plan:
         print("\n".join(cost_lines(cfg)))
-        return 0
+        bad = verify_pins(cfg)
+        for line in bad:
+            print(f"  PIN FAILS: {line}")
+        if cfg.box is not None:
+            print(f"  {box_reading(cfg.box).line()}")
+        return EXIT_FAILED if bad else 0
     if args.finalize:
         return rerun_finalize(cfg)
     return run_campaign(cfg, args.config.resolve())
