@@ -176,6 +176,8 @@ REQUIRED_DECISIONS: tuple[str, ...] = (
     "degenerate_head_floor",
     "privileged_hunk_pass_rule",
     "transfer_gate_definition",
+    "paired_margin_population",
+    "shuffled_label_seeds",
 )
 #: A decisions record is a page of JSON; anything larger is not one.
 MAX_DECISIONS_BYTES: Final[int] = 1 << 20
@@ -198,6 +200,13 @@ RETIRABLE_CONTROLS: Final[Mapping[str, str]] = {
 #: The ece_population value (as a prefix) the verdict applies: ``ece`` per slot shape over the
 #: decided promotion population's families, from each ``ece.family.<family>.choice.*`` metric.
 ECE_OVER_THE_POPULATION: Final[str] = "the promotion population's letter rows"
+#: The paired_margin_population value (as a prefix) the verdict applies: ``paired_margin_vs_linear``
+#: from each ``paired_margin_vs_linear.choice.<family>`` metric of the decided promotion
+#: population's families (tools/ft_linear_control.py writes them on the control row that
+#: supplements the eval row); every other family is report-only.
+PAIRED_MARGIN_OVER_THE_POPULATION: Final[str] = "the promotion population"
+#: The per-family margin metric tools/ft_linear_control.py ``_family_margins`` writes.
+PAIRED_MARGIN_FAMILY_PREFIX: Final[str] = "paired_margin_vs_linear.choice."
 #: The degenerate_head_floor value (as a prefix) the verdict applies: the class-share half
 #: alone, from each slot shape's ``degenerate_head.choice.<shape>.top_class_share`` metric.
 DEGENERATE_SHARE_ONLY: Final[str] = "no predicted class above 0.95"
@@ -1316,7 +1325,7 @@ class Ledger:
                 "differing only in seed"
             )
 
-        unit_reasons, readings = _unit_refusals(units, decisions)
+        unit_reasons, readings = _unit_refusals(units, decisions, across_seeds=True)
         reasons.extend(unit_reasons)
         reasons.extend(record_refusal)
 
@@ -1491,6 +1500,10 @@ class Ledger:
 #: Rule 8's seed count: promotion reads at least this many seeds, as three rows differing only
 #: in seed or as the inputs of one average.
 PROMOTION_MIN_SEEDS: Final[int] = 3
+#: The shuffled_label_seeds value (as a prefix) the verdict applies, on the seed-family verdict:
+#: at least :data:`PROMOTION_MIN_SEEDS` distinct seeds carry a shuffled_label control that ran
+#: and passed at complete coverage, and a control that ran and failed on any seed still blocks.
+SHUFFLED_LABEL_ON_MIN_SEEDS: Final[str] = f"{PROMOTION_MIN_SEEDS}:"
 #: The recipe key an averaged eval row carries (real_ft_run.py ``SCORED_CHECKPOINT_KEYS``):
 #: its seeds, ft rows, manifest sha256 and source.
 AVERAGED_RECIPE_KEY: Final[str] = "averaged"
@@ -1713,16 +1726,62 @@ def _record_rule(decisions: PromotionDecisions, name: str, rule: str) -> str:
     return f"record {decisions.sha256[:12]}, {name} = {rule}"
 
 
+def _population_paired_margin(
+    unit: Sequence[LedgerRow], families: tuple[str, ...]
+) -> TriState:
+    """``paired_margin_vs_linear`` over the population: each family's
+    ``paired_margin_vs_linear.choice.<family>`` metric, joined across the unit's rows (the
+    control row that supplements the eval row carries them). A family whose metric is absent
+    or did not run makes the gate not_run; any family that ran and failed fails it; a capped
+    sample on any family is what the gate reports, so condition 7 still refuses it."""
+    states: list[Ran] = []
+    for family in families:
+        name = PAIRED_MARGIN_FAMILY_PREFIX + family
+        m = _joined(None, [r.metrics.get(name) for r in unit])
+        where = ", ".join(r.row_id for r in unit)
+        if m is None:
+            return NotRun(reason=f"paired_margin_vs_linear over the promotion population: "
+                          f"{name} is absent from rows {where}")
+        if isinstance(m, NotRun):
+            return NotRun(reason=f"paired_margin_vs_linear over the promotion population: "
+                          f"{name} did not run on rows {where} ({m.reason})")
+        states.append(m)
+    chosen = _joined(None, list(states))
+    if not isinstance(chosen, Ran):  # pragma: no cover - families is non-empty, all Ran
+        return NotRun(reason="paired_margin_vs_linear over the promotion population: no family")
+    shown = "; ".join(f"{f} {_brief(s)}" for f, s in zip(families, states, strict=True))
+    return replace(chosen, detail=(
+        f"over the promotion population ({', '.join(families)}): {shown}; every other "
+        "family is report-only"))
+
+
 def _judged_gate(
-    gate: str, row: LedgerRow, as_built: TriState | None, decisions: PromotionDecisions | None
+    gate: str, unit: Sequence[LedgerRow], as_built: TriState | None,
+    decisions: PromotionDecisions | None,
 ) -> tuple[TriState | None, str | None]:
     """The gate as the verdict judges it, and the line naming both readings when the decided
     record moved it."""
     if decisions is None:
         return as_built, None
+    row = unit[0]
     families = _population_families(decisions)
     derived: TriState
-    if gate in ("permutation_consistency", "ood_abstain") and families is not None:
+    if (gate == "paired_margin_vs_linear"
+            and decisions.decisions["paired_margin_population"].status == "decided"):
+        d = decisions.decisions["paired_margin_population"]
+        if not (isinstance(d.value, str)
+                and d.value.startswith(PAIRED_MARGIN_OVER_THE_POPULATION)):
+            derived = NotRun(reason=f"paired_margin_population is decided as {d.value!r}, a "
+                             "value this verdict does not know how to apply")
+        elif families is None:
+            derived = NotRun(reason="paired_margin_population is decided over the promotion "
+                             "population, and promotion_population is not decided to a list "
+                             "of families")
+        else:
+            derived = _population_paired_margin(unit, families)
+        rule = _record_rule(decisions, "paired_margin_population",
+                            "per family over the population")
+    elif gate in ("permutation_consistency", "ood_abstain") and families is not None:
         derived = (_population_permutation(row, families) if gate == "permutation_consistency"
                    else _population_ood(row, families))
         rule = _record_rule(decisions, "promotion_population", ", ".join(families))
@@ -1780,19 +1839,43 @@ def _required_controls(decisions: PromotionDecisions | None) -> tuple[tuple[str,
     return tuple(required), retired
 
 
+def _shuffled_label_rule(decisions: PromotionDecisions | None) -> int | NotRun | None:
+    """How shuffled_label_seeds says to read the shuffled_label control across a seed family:
+    ``None`` while the decision is open (every seed, as built), the seed count when decided to
+    a value this verdict applies, and a NotRun naming the value when it cannot apply it."""
+    if decisions is None:
+        return None
+    d = decisions.decisions["shuffled_label_seeds"]
+    if d.status != "decided":
+        return None
+    if isinstance(d.value, str) and d.value.startswith(SHUFFLED_LABEL_ON_MIN_SEEDS):
+        return PROMOTION_MIN_SEEDS
+    return NotRun(reason=f"shuffled_label_seeds is decided as {d.value!r}, a value this verdict "
+                  "does not know how to apply")
+
+
 def _unit_refusals(
-    units: list[tuple[LedgerRow, list[LedgerRow]]], decisions: PromotionDecisions | None
+    units: list[tuple[LedgerRow, list[LedgerRow]]], decisions: PromotionDecisions | None,
+    *, across_seeds: bool = False,
 ) -> tuple[list[str], tuple[str, ...]]:
     """Conditions 4, 5 and 7 on each unit: every required gate and control, joined, ran and
     passed at complete coverage, each read under the decisions record (``RETIRED_VALUE_PREFIX``
-    and the rules beside it). Returns the refusals and the readings the record moved."""
+    and the rules beside it). Returns the refusals and the readings the record moved.
+
+    ``across_seeds`` is the seed-family verdict: there a decided ``shuffled_label_seeds`` reads
+    the shuffled_label control across the units' seeds rather than on each unit. The ``avg``
+    verdict judges one row, which has no seeds to count, so its row keeps the control as
+    built."""
     reasons: list[str] = []
     controls, readings = _required_controls(decisions)
+    shuffled_rule = _shuffled_label_rule(decisions) if across_seeds else None
+    shuffled_passed: set[int] = set()
+    shuffled_uncounted: list[str] = []
     for r, sups in units:
         label = r.row_id + "".join(f" + {s.row_id}" for s in sups)
         for gate in REQUIRED_GATES:
             g, moved = _judged_gate(
-                gate, r, _joined(r.gates.get(gate), [s.gates.get(gate) for s in sups]),
+                gate, [r, *sups], _joined(r.gates.get(gate), [s.gates.get(gate) for s in sups]),
                 decisions,
             )
             if moved is not None:
@@ -1827,6 +1910,23 @@ def _unit_refusals(
                 ctl, r, _joined(r.controls.get(ctl), [s.controls.get(ctl) for s in sups]),
                 decisions,
             )
+            if (ctl == "shuffled_label" and isinstance(shuffled_rule, NotRun)
+                    and decisions is not None):
+                rule = _record_rule(decisions, "shuffled_label_seeds", "as decided")
+                c, moved = shuffled_rule, (f"control {ctl!r}: as built {_brief(c)}; under "
+                                           f"{rule}: {_brief(shuffled_rule)}")
+            elif ctl == "shuffled_label" and isinstance(shuffled_rule, int):
+                # Counted across the family below. Only a ran-and-FAILED control refuses here.
+                if isinstance(c, Ran) and not c.passed:
+                    reasons.append(
+                        f"{label}: control {ctl!r} ran and FAILED [{c.coverage_str()}]; under "
+                        "shuffled_label_seeds a failure on any seed still blocks promotion"
+                    )
+                elif isinstance(c, Ran) and not _states_partial_coverage(c):
+                    shuffled_passed.add(r.protocol.seed)
+                else:
+                    shuffled_uncounted.append(f"seed {r.protocol.seed} ({label}): {_brief(c)}")
+                continue
             if moved is not None:
                 readings.append(f"{label}: {moved}")
             under = " (read under the decisions record)" if moved is not None else ""
@@ -1844,6 +1944,21 @@ def _unit_refusals(
                     "eligible population; a capped sample is not complete coverage "
                     "and does not promote"
                 )
+    if isinstance(shuffled_rule, int) and decisions is not None:
+        seeds = sorted(shuffled_passed)
+        rule = _record_rule(decisions, "shuffled_label_seeds",
+                            f"at least {shuffled_rule} seeds")
+        readings.append(
+            f"control 'shuffled_label': as built required on every seed; under {rule}: ran and "
+            f"passed at complete coverage on {len(seeds)} seed(s) {seeds}"
+            + (f"; not counted: {'; '.join(shuffled_uncounted)}" if shuffled_uncounted else "")
+        )
+        if len(seeds) < shuffled_rule:
+            reasons.append(
+                f"control 'shuffled_label' ran and passed at complete coverage on {len(seeds)} "
+                f"seed(s) {seeds}; under {rule} at least {shuffled_rule} must, and a control "
+                "that did not run never counts as passed"
+            )
     return reasons, tuple(readings)
 
 

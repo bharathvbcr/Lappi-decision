@@ -22,6 +22,11 @@ from qd_train.tristate import Ran
 #: Captured at import, so a test that points the verdict's default elsewhere still builds its
 #: record from the committed one.
 REPO_RECORD: Final[Path] = DEFAULT_DECISIONS_PATH
+#: The two entries the human approved on 2026-10-08 and has yet to copy into the record. Fixture
+#: records take an entry from here only where the committed record lacks it, so once the human
+#: applies the patch this file stops contributing anything.
+RESPEC_PATCH: Final[Path] = (
+    DEFAULT_DECISIONS_PATH.parent / "promotion-decisions.respec-2026-10-08.patch.json")
 
 #: The record as built, before any human ruled (main a8c22ae^).
 AS_BUILT: Final[dict[str, dict[str, object]]] = {
@@ -40,6 +45,10 @@ AS_BUILT: Final[dict[str, dict[str, object]]] = {
     "privileged_hunk_pass_rule": {"status": "open", "value": "not set: the control stays not_run"},
     "transfer_gate_definition": {"status": "open",
                                  "value": "not specified: the control stays not_run"},
+    "paired_margin_population": {
+        "status": "open",
+        "value": "pooled: every family's letter rows, not_run when any task's control did not run"},
+    "shuffled_label_seeds": {"status": "open", "value": "every seed: the control on every row"},
 }
 
 #: F's score-val decode (f4feac15, b45406b5, c962cdd9): every eligible val row decoded.
@@ -49,9 +58,13 @@ COMPLETE_DECODE: Final[tuple[int, int]] = (18223, 18223)
 def write_record(directory: Path, *, base: str = "as_built",
                  **changes: dict[str, object]) -> Path:
     """The committed record with some entries changed -- what a human edit would look like.
-    ``base`` is ``"as_built"`` (every question open) or ``"repo"`` (the record as committed).
+    ``base`` is ``"as_built"`` (every question open) or ``"repo"`` (the record as committed,
+    with :data:`RESPEC_PATCH`'s entries where it lacks them).
     Each call writes a new file, so one test can hold several records."""
     record = json.loads(REPO_RECORD.read_text(encoding="utf-8"))
+    patch = json.loads(RESPEC_PATCH.read_text(encoding="utf-8"))["decisions"]
+    for name, entry in patch.items():
+        record["decisions"].setdefault(name, entry)
     if base == "as_built":
         for name, fields in AS_BUILT.items():
             record["decisions"][name].update(
