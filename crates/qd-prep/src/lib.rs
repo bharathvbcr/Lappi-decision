@@ -61,6 +61,7 @@ pub mod minhash;
 pub mod natural_bugs;
 pub mod ngram;
 pub mod own_repos;
+pub mod own_swift;
 pub mod pairwise;
 pub mod pool;
 pub mod pyunicode;

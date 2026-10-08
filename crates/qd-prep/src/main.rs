@@ -23,6 +23,9 @@
 //! - `qd-prep own-repos --code-root ROOT --out FILE`: the human's own repositories, admitted
 //!   and split by the v6 holdout rule (see `qd_prep::own_repos`), written before any commit is
 //!   read.
+//! - `qd-prep own-swift --manifest M --out-dir DIR`: the Swift files of the manifest's train
+//!   repositories at their pinned heads (see `qd_prep::own_swift`) -> `DIR/{pool.jsonl,
+//!   manifest.json}`, the pool `qd-mutate generate` reads.
 //! - `qd-prep natural-bugs --manifest M --cutoff YYYY-MM-DD --cutoff-basis TEXT --v5-files F
 //!   --out-dir DIR`: single-statement fix commits from the manifest's held-out repositories
 //!   (see `qd_prep::natural_bugs`) -> `DIR/{natural-bugs.jsonl, report.json}`; `DIR` must carry
@@ -43,7 +46,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use qd_prep::{containment, decisions, dedupe, linwire, lsh, spancheck, wire};
-use qd_prep::{natural_bugs, own_repos};
+use qd_prep::{natural_bugs, own_repos, own_swift};
 
 /// Threads are bounded whatever the host reports.
 const MAX_THREADS: usize = 256;
@@ -97,6 +100,10 @@ enum Command {
     /// The human's own repositories under a code root, admitted and split by the v6 holdout
     /// rule; the manifest every own-repo family reads before it reads a commit.
     OwnRepos(OwnReposIo),
+    /// The Swift files of an own-repos manifest's train repositories at their pinned heads,
+    /// as the pool `qd-mutate generate` reads (R3 of the v6 data-design ruling); held-out
+    /// repositories are never read.
+    OwnSwift(OwnSwiftIo),
     /// Single-statement bug-fix commits from an own-repos manifest's held-out repositories:
     /// a held-out evaluation set, never training data.
     NaturalBugs(NaturalBugsIo),
@@ -252,6 +259,18 @@ struct OwnReposIo {
     /// Where to write the manifest; refused if it exists.
     #[arg(long)]
     out: PathBuf,
+}
+
+/// `qd-prep own-swift`' inputs.
+#[derive(clap::Args, Debug)]
+struct OwnSwiftIo {
+    /// A `qd-prep own-repos` manifest; only its train repositories are read.
+    #[arg(long)]
+    manifest: PathBuf,
+    /// The directory to create (`pool.jsonl`, `manifest.json`); refused if it, or
+    /// DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
 }
 
 /// `qd-prep natural-bugs`' inputs. Every one is required; none has a default.
@@ -432,6 +451,7 @@ fn main() -> ExitCode {
         Command::DecisionCaps(io) => run_decision_caps(io),
         Command::Dedupe(io) => run(io, dedupe::MAX_INPUT_BYTES, dedupe::run_dedupe),
         Command::OwnRepos(io) => own_repos::run(&io.code_root, &io.out),
+        Command::OwnSwift(io) => own_swift::run(&io.manifest, &io.out_dir),
         Command::NaturalBugs(io) => run_natural_bugs(io),
         Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),
         Command::Synth(io) => run_synth(io),
