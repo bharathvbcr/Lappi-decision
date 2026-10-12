@@ -96,7 +96,7 @@ import contextlib
 import dataclasses
 import json
 import warnings
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -448,6 +448,7 @@ def load_text_tower(
     spec: ModelSpec = QWEN3_5_2B_TEXT,
     config_overrides: Mapping[str, Any] | None = None,
     checkpoint_skip_layers: int = 0,
+    keep_stored_dtype: Collection[str] = (),
 ) -> TextTower:
     """Build the text tower from ``snapshot`` and load exactly its 320 text tensors.
 
@@ -484,6 +485,13 @@ def load_text_tower(
         config_overrides: applied to the text config before construction. Present so a test
             can build a tiny tower through this same function; a production caller passes
             nothing.
+        keep_stored_dtype: text-tower tensor names (without ``TEXT_PREFIX``) that stay in the
+            dtype the checkpoint stores them in instead of being cast to ``dtype``. Empty by
+            default, which is the v5/v6 load byte for byte. Qwen3.5-2B stores exactly 36 F32
+            tensors (``linear_attn.A_log`` and ``linear_attn.norm.weight`` in each of 18 GDN
+            layers); the LoRA-2B recipe keeps them f32-resident (ruling 2a), and the torch
+            reference arm passes them here to match ojas's loader. A name the checkpoint does
+            not hold is refused.
 
     Returns:
         A [`TextTower`] carrying the model and what the load measured.
@@ -606,6 +614,13 @@ def load_text_tower(
             "model that trains and never says it is not the checkpoint."
         )
 
+    kept = frozenset(keep_stored_dtype)
+    unknown_kept = sorted(kept - set(index))
+    if unknown_kept:
+        raise BackboneContractViolation(
+            f"{snapshot}: keep_stored_dtype names tensors the checkpoint does not hold: "
+            f"{unknown_kept[:8]}"
+        )
     model = Qwen3_5TextModel(text_config).to(dtype=torch_dtype)
     state: dict[str, torch.Tensor] = {}
     by_shard: dict[Path, list[str]] = {}
@@ -614,7 +629,13 @@ def load_text_tower(
     for shard, names in by_shard.items():
         with safe_open(shard, framework="pt", device="cpu") as handle:
             for short in names:
-                state[short] = handle.get_tensor(TEXT_PREFIX + short).to(torch_dtype)
+                stored = handle.get_tensor(TEXT_PREFIX + short)
+                state[short] = stored if short in kept else stored.to(torch_dtype)
+    # load_state_dict copies into the parameter's existing dtype, so a kept tensor needs its
+    # parameter re-typed first or the copy would cast it straight back.
+    for short in kept:
+        param = model.get_parameter(short)
+        param.data = param.data.to(state[short].dtype)
 
     incompatible = model.load_state_dict(state, strict=True)
     if getattr(incompatible, "missing_keys", ()) or getattr(incompatible, "unexpected_keys", ()):
