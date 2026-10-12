@@ -204,7 +204,16 @@ fn scan_path(path: &Path, what: &str, line_bytes: usize, max_bytes: u64) -> Resu
     {
         return Ok(());
     }
-    match scan_caller_records(BufReader::new(file), line_bytes, max_bytes) {
+    scan_label(BufReader::new(file), &label, line_bytes, max_bytes)
+}
+
+fn scan_label(
+    reader: impl BufRead,
+    label: &str,
+    line_bytes: usize,
+    max_bytes: u64,
+) -> Result<(), String> {
+    match scan_caller_records(reader, line_bytes, max_bytes) {
         Ok(()) => Ok(()),
         Err(Verdict::Record(n)) => Err(format!(
             "{label}: line {n} is a caller record (`{CALLER_RECORD_PREFIX}`). Caller records are \
@@ -216,6 +225,15 @@ fn scan_path(path: &Path, what: &str, line_bytes: usize, max_bytes: u64) -> Resu
              that could not run is not a check that passed)."
         )),
     }
+}
+
+/// [`refuse_caller_records`] over bytes a bounded read already holds: the same rule and line
+/// bound, without a second open of the file (so nothing can be swapped in between the scan and
+/// the use). The bytes are already in memory under the caller's own bound (a MinHash request may
+/// exceed the 8 GiB file budget), so every one is scanned and the byte budget cannot truncate
+/// the check. `label` names the input in the error.
+pub fn refuse_caller_record_bytes(bytes: &[u8], label: &str) -> Result<(), String> {
+    scan_label(bytes, label, MAX_GUARD_LINE_BYTES, bytes.len() as u64)
 }
 
 /// Refuse to read `path` as an input to training rows when it, or the file it resolves to,
@@ -432,6 +450,25 @@ mod tests {
         assert!(
             refuse_training_input(&dir.join("data"), "src").is_ok(),
             "a directory"
+        );
+    }
+
+    #[test]
+    fn bytes_already_read_are_scanned_whole_whatever_the_file_budget() {
+        let mut big = vec![b'x'; 4096];
+        big.push(b'\n');
+        big.extend_from_slice(REC.as_bytes());
+        assert!(
+            refuse_caller_record_bytes(&big, "in")
+                .unwrap_err()
+                .contains("caller record")
+        );
+        assert!(refuse_caller_record_bytes(b"{\"a\":1}\n", "in").is_ok());
+        assert!(refuse_caller_record_bytes(b"", "in").is_ok());
+        assert!(
+            refuse_caller_record_bytes(&[0x1f, 0x8b, 8], "in")
+                .unwrap_err()
+                .contains("refused rather")
         );
     }
 

@@ -264,8 +264,11 @@ fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     if io.output.exists() {
         return Err(format!("{} exists; refusing to overwrite it", io.output.display()));
     }
-    let read =
-        |p: &PathBuf| qd_prep::files::read_bounded(p, qd_prep::files::MAX_RECORD_BYTES, "input");
+    let read = |p: &PathBuf| {
+        let bytes = qd_prep::files::read_bounded(p, qd_prep::files::MAX_RECORD_BYTES, "input")?;
+        qd_prep::heldout::refuse_caller_record_bytes(&bytes, &format!("input {}", p.display()))?;
+        Ok::<_, String>(bytes)
+    };
     let (config, before, after) = (read(&io.config)?, read(&io.before)?, read(&io.after)?);
     let cfg = decisions::Config::parse(&config)?;
     let (caps, moved) = decisions::refresh_train_caps(
@@ -451,6 +454,7 @@ fn read_input(
     max_input_bytes: u64,
 ) -> Result<(Vec<u8>, usize), String> {
     let buf = qd_prep::files::read_bounded(input, max_input_bytes, "--input")?;
+    qd_prep::heldout::refuse_caller_record_bytes(&buf, &format!("--input {}", input.display()))?;
     Ok((buf, bounded_threads(threads)?))
 }
 
