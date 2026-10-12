@@ -8,8 +8,11 @@
 //!
 //! A path is not the only guard. A copy of an app's caller-record file anywhere else carries no
 //! marker, so [`refuse_caller_records`] reads the content: any line whose parsed `"record"` starts
-//! with `lappi.caller_record` refuses the whole file, wherever it lives. It mirrors
-//! `crates/qd-train/src/held_out.rs::assert_no_caller_records` (same prefix, same line budget).
+//! with `lappi.caller_record` refuses the whole file, wherever it lives; compressed or UTF-16
+//! bytes and a file over the byte budget are refused as unscannable, never passed. The rule is
+//! shared with `crates/qd-train/src/held_out.rs::assert_no_caller_records` and
+//! `python/qd_data/caller_records.py`: all three run the oracle
+//! `fixtures/caller/guard-cases.json` (this crate cannot depend on `qd-train`).
 //!
 //! Segments match ASCII case-insensitively, as `natural-bugs` always has. The trainer's door also
 //! folds the few non-ASCII code points whose case folding is ASCII; this crate does not depend on
@@ -63,17 +66,20 @@ pub fn check_held_out_path(path: &Path) -> Result<(), String> {
 pub const CALLER_RECORD_PREFIX: &str = "lappi.caller_record";
 /// A longer line is skipped unparsed: the contract writes no record over 64 KiB.
 pub const MAX_GUARD_LINE_BYTES: usize = 1 << 20;
-/// A JSON-lines file longer than this is refused as unscanned, never passed as clean.
+/// A file longer than this is refused as unscanned, never passed as clean.
 pub const MAX_GUARD_BYTES: u64 = 8 << 30;
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
 
-/// One line is a caller record when it parses to an object whose `"record"` starts with the
-/// prefix, or carries both the `"record"` key text and the prefix (a damaged line, a BOM, a
-/// duplicated key). Errs toward refusing: this only ever narrows admission.
+/// One line (terminator already removed) is a caller record when it parses to an object whose
+/// `"record"` starts with the prefix, or carries both the `"record"` key text and the prefix (a
+/// damaged line, a BOM, a duplicated key, a JSON array holding one). Errs toward refusing: this
+/// only ever narrows admission. The budget is on the content, so a record of exactly
+/// `line_bytes` is read.
 fn is_caller_record_line(line: &[u8], line_bytes: usize) -> bool {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
     if line.len() > line_bytes {
         return false;
     }
@@ -88,39 +94,67 @@ fn is_caller_record_line(line: &[u8], line_bytes: usize) -> bool {
     contains(line, b"\"record\"") && contains(line, CALLER_RECORD_PREFIX.as_bytes())
 }
 
-/// The content guard over a reader: refuse on the first caller-record line, and refuse as
-/// unscanned a stream longer than `max_bytes`. Memory is bounded by `line_bytes`.
+/// Compressed or UTF-16 bytes hide a record from a line scan.
+fn unscannable_magic(head: &[u8]) -> Option<&'static str> {
+    const MAGIC: [(&[u8], &str); 4] = [
+        (&[0x1f, 0x8b], "gzip"),
+        (&[0x28, 0xb5, 0x2f, 0xfd], "zstd"),
+        (&[0xff, 0xfe], "UTF-16 (little-endian BOM)"),
+        (&[0xfe, 0xff], "UTF-16 (big-endian BOM)"),
+    ];
+    MAGIC
+        .iter()
+        .find(|(m, _)| head.starts_with(m))
+        .map(|(_, name)| *name)
+}
+
+/// The guard's three outcomes besides clean, the oracle's words (`fixtures/caller/guard-cases.json`).
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    /// Line `n` (1-based) is a caller record.
+    Record(usize),
+    /// The bytes could not be scanned: why.
+    Unscannable(String),
+}
+
+/// The content guard over a reader: the first caller-record line is `Record`; compressed or
+/// UTF-16 bytes and a stream longer than `max_bytes` are `Unscannable`. Memory is bounded by
+/// `line_bytes`. There is no sniff of the first byte: garbage, a comment or an array first line
+/// is scanned like any other.
 fn scan_caller_records(
     mut reader: impl BufRead,
-    what: &str,
     line_bytes: usize,
     max_bytes: u64,
-) -> Result<(), String> {
-    let refuse_record = |n: usize| {
-        Err(format!(
-            "{what}: line {n} is a caller record (`{CALLER_RECORD_PREFIX}`). Caller records are never \
-             training data, wherever the file lives; the whole file is refused (CLAUDE.md rule 3)."
+) -> Result<(), Verdict> {
+    let io_err = |e: io::Error| Verdict::Unscannable(e.to_string());
+    if let Some(name) = unscannable_magic(reader.fill_buf().map_err(io_err)?) {
+        return Err(Verdict::Unscannable(format!("{name} bytes")));
+    }
+    let over_budget = || {
+        Verdict::Unscannable(format!(
+            "longer than the {max_bytes}-byte budget, so it was not fully scanned"
         ))
     };
+    // Room for the content, a '\r' and a '\n': a record of exactly `line_bytes` is scanned.
+    let read_cap = line_bytes as u64 + 2;
     let mut total: u64 = 0;
     let mut line_no = 0usize;
     let mut buf: Vec<u8> = Vec::new();
     loop {
         buf.clear();
         let n = (&mut reader)
-            .take(line_bytes as u64 + 1)
+            .take(read_cap)
             .read_until(b'\n', &mut buf)
-            .map_err(|e| format!("{what}: {e}"))?;
+            .map_err(io_err)?;
         if n == 0 {
             return Ok(());
         }
         line_no += 1;
         total += n as u64;
-        let mut oversize = buf.len() > line_bytes && buf.last() != Some(&b'\n');
-        if oversize {
-            // Drain the rest of the line unparsed, still counting every byte against the budget.
+        if buf.last() != Some(&b'\n') && buf.len() as u64 == read_cap {
+            // Over-long: drain the rest of the line unparsed, still counting every byte.
             loop {
-                let chunk = reader.fill_buf().map_err(|e| format!("{what}: {e}"))?;
+                let chunk = reader.fill_buf().map_err(io_err)?;
                 if chunk.is_empty() {
                     break;
                 }
@@ -134,24 +168,24 @@ fn scan_caller_records(
                     break;
                 }
             }
-            oversize = true;
-        }
-        if !oversize && is_caller_record_line(&buf, line_bytes) {
-            return refuse_record(line_no);
+        } else {
+            let content = buf.strip_suffix(b"\n").unwrap_or(&buf);
+            if is_caller_record_line(content, line_bytes) {
+                return Err(Verdict::Record(line_no));
+            }
         }
         if total > max_bytes {
-            return Err(format!(
-                "{what}: longer than the {max_bytes}-byte budget of the caller-record guard, so \
-                 it was not fully scanned; refused rather than passed as clean."
-            ));
+            return Err(over_budget());
         }
     }
 }
 
-/// Refuse a JSON-lines input that holds a caller record, by content (layer 5 of the trainer's
-/// door, `qd-train`'s `assert_no_caller_records`). A file whose first non-blank byte is not `{`
-/// (a zip, parquet, a JSON array) is not JSON lines and is not scanned. A directory or a missing
-/// path is the read that follows's to refuse.
+/// Refuse an input that holds a caller record by content, or that cannot be scanned (layer 5 of
+/// the trainer's door, `qd-train`'s `assert_no_caller_records`; the same rule as
+/// `qd_data.caller_records`, one oracle in `fixtures/caller/guard-cases.json`). Every regular
+/// file is scanned, whatever its first byte; compressed and UTF-16 bytes and a file over 8 GiB
+/// are refused as unscannable, never passed. A missing path or a directory has no bytes to scan
+/// and is left to the read that follows, which names it.
 pub fn refuse_caller_records(path: &Path, what: &str) -> Result<(), String> {
     scan_path(path, what, MAX_GUARD_LINE_BYTES, MAX_GUARD_BYTES)
 }
@@ -170,21 +204,18 @@ fn scan_path(path: &Path, what: &str, line_bytes: usize, max_bytes: u64) -> Resu
     {
         return Ok(());
     }
-    let mut reader = BufReader::new(file);
-    loop {
-        let chunk = reader.fill_buf().map_err(|e| format!("{label}: {e}"))?;
-        match chunk.iter().position(|b| !b.is_ascii_whitespace()) {
-            Some(i) if chunk[i] == b'{' => break,
-            Some(i) if chunk[i..].starts_with(&[0xef, 0xbb, 0xbf]) => break,
-            Some(_) => return Ok(()),
-            None if chunk.is_empty() => return Ok(()),
-            None => {
-                let n = chunk.len();
-                reader.consume(n);
-            }
-        }
+    match scan_caller_records(BufReader::new(file), line_bytes, max_bytes) {
+        Ok(()) => Ok(()),
+        Err(Verdict::Record(n)) => Err(format!(
+            "{label}: line {n} is a caller record (`{CALLER_RECORD_PREFIX}`). Caller records are \
+             never training data, wherever the file lives; the whole file is refused (CLAUDE.md \
+             rule 3)."
+        )),
+        Err(Verdict::Unscannable(why)) => Err(format!(
+            "{label}: {why}; refused rather than passed as clean (CLAUDE.md rule 3: a check \
+             that could not run is not a check that passed)."
+        )),
     }
-    scan_caller_records(reader, &label, line_bytes, max_bytes)
 }
 
 /// Refuse to read `path` as an input to training rows when it, or the file it resolves to,
@@ -266,68 +297,94 @@ mod tests {
 
     const REC: &str = r#"{"record":"lappi.caller_record","record_version":1,"kind":"decision"}"#;
 
-    fn scan(bytes: &[u8], line_bytes: usize, max: u64) -> Result<(), String> {
-        scan_caller_records(bytes, "x", line_bytes, max)
+    fn oracle_bytes(case: &serde_json::Value) -> Vec<u8> {
+        if let Some(t) = case["text"].as_str() {
+            return t.as_bytes().to_vec();
+        }
+        if let Some(h) = case["hex"].as_str() {
+            return (0..h.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+                .collect();
+        }
+        let g = &case["gen"];
+        let eol = g["eol"].as_str().unwrap_or("\n");
+        let core = if let Some(n) = g["record_padded_to"].as_u64() {
+            let head = r#"{"record":"lappi.caller_record","pad":""#;
+            format!("{head}{}\"}}{eol}", "x".repeat(n as usize - head.len() - 2))
+        } else if let Some(n) = g["filler_line"].as_u64() {
+            format!("{{\"pad\":\"{}\"}}{eol}", "x".repeat(n as usize - 10))
+        } else {
+            g["repeat"]
+                .as_str()
+                .unwrap()
+                .repeat(g["times"].as_u64().unwrap() as usize)
+        };
+        let first = g["first"].as_str().unwrap_or("");
+        let then = g["then"].as_str().unwrap_or("");
+        format!("{first}{core}{then}").into_bytes()
     }
 
+    fn oracle() -> Vec<serde_json::Value> {
+        let doc: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/caller/guard-cases.json"))
+                .unwrap();
+        doc["cases"].as_array().unwrap().clone()
+    }
+
+    /// One oracle, three implementations (python/tests/test_caller_records_guard.py, qd-train's
+    /// tests/caller_records_are_held_out.rs): every case has the same verdict here.
     #[test]
-    fn a_caller_record_line_refuses_the_file_by_content() {
-        let big = MAX_GUARD_BYTES;
-        for (name, body) in [
-            ("plain", format!("{{\"a\":1}}\n{REC}\n{{\"b\":2}}\n")),
-            ("no final newline", REC.to_string()),
-            (
-                "later version",
-                r#"{"record":"lappi.caller_record.v2"}"#.to_string(),
-            ),
-            ("crlf", format!("{{\"a\":1}}\r\n{REC}\r\n")),
-            (
-                "escaped",
-                r#"{"rec\u006frd":"lappi.caller_re\u0063ord"}"#.to_string(),
-            ),
-            ("unparseable beside", format!("garbage\n{REC}\n")),
-            (
-                "damaged",
-                "{\"record\":\"lappi.caller_record\",\"kind\":\n".to_string(),
-            ),
-            ("bom", format!("{}{REC}\n", '\u{feff}')),
-            (
-                "duplicate key",
-                r#"{"record":"lappi.caller_record","record":"x"}"#.to_string(),
-            ),
-        ] {
-            let err = scan(body.as_bytes(), MAX_GUARD_LINE_BYTES, big).unwrap_err();
-            assert!(err.contains("caller record"), "{name}: {err}");
-        }
-        for ok in [
-            "",
-            "{\"record\":\"decisions.json\"}\n",
-            "{\"record\":7}\n",
-            "{\"text\":\"lappi.caller_record\"}\n",
-            "[\"lappi.caller_record\"]\n",
-            "garbage\n\u{ff}\n{\"a\":1}\n",
-        ] {
-            assert!(
-                scan(ok.as_bytes(), MAX_GUARD_LINE_BYTES, big).is_ok(),
-                "{ok:?}"
-            );
+    fn the_shared_oracle_cases_have_the_same_verdicts_here() {
+        let cases = oracle();
+        assert!(
+            cases.len() >= 30,
+            "the oracle shrank to {} cases",
+            cases.len()
+        );
+        for case in &cases {
+            let name = case["name"].as_str().unwrap();
+            let line_bytes = case["line_bytes"].as_u64().map_or(1 << 20, |n| n as usize);
+            let total = case["total_bytes"].as_u64().unwrap_or(8 << 30);
+            let bytes = oracle_bytes(case);
+            let got = match scan_caller_records(&bytes[..], line_bytes, total) {
+                Ok(()) => "clean",
+                Err(Verdict::Record(_)) => "record",
+                Err(Verdict::Unscannable(_)) => "unscannable",
+            };
+            assert_eq!(got, case["expect"].as_str().unwrap(), "{name}");
         }
     }
 
+    /// The same cases through the door a producer actually calls, from files, whatever their name.
     #[test]
-    fn the_guard_is_bounded_and_unfinished_is_a_refusal() {
-        let many = "{\"a\":1}\n".repeat(100);
-        let err = scan(many.as_bytes(), 64, 256).unwrap_err();
-        assert!(err.contains("not fully scanned"), "{err}");
-        let pad = "x".repeat(200);
-        let long_then_record = format!("{{\"pad\":\"{pad}\"}}\n{REC}\n");
-        let err = scan(long_then_record.as_bytes(), 150, 4096).unwrap_err();
-        assert!(err.contains("caller record"), "{err}");
-        let only_long = format!("{{\"pad\":\"{pad}\"}}\n");
-        assert!(scan(only_long.as_bytes(), 150, 4096).is_ok());
-        // an over-long line still counts against the byte budget
-        let err = scan(only_long.as_bytes(), 150, 100).unwrap_err();
-        assert!(err.contains("not fully scanned"), "{err}");
+    fn the_input_door_gives_the_oracle_verdicts_on_files() {
+        let dir = scratch("oracle-files");
+        for (i, case) in oracle().iter().enumerate() {
+            let name = case["name"].as_str().unwrap();
+            let path = dir.join(format!("input-{i}.dat"));
+            std::fs::write(&path, oracle_bytes(case)).unwrap();
+            // the production limits, so the cases with their own limits are scanned directly
+            if case["line_bytes"].is_null() && case["total_bytes"].is_null() {
+                let got = refuse_training_input(&path, "--config");
+                match case["expect"].as_str().unwrap() {
+                    "clean" => assert!(got.is_ok(), "{name}: {got:?}"),
+                    "record" => assert!(got.unwrap_err().contains("caller record"), "{name}"),
+                    _ => assert!(
+                        got.unwrap_err().contains("refused rather than passed"),
+                        "{name}"
+                    ),
+                }
+            } else {
+                let line_bytes = case["line_bytes"].as_u64().map_or(1 << 20, |n| n as usize);
+                let total = case["total_bytes"].as_u64().unwrap_or(8 << 30);
+                let got = scan_path(&path, "x", line_bytes, total);
+                match case["expect"].as_str().unwrap() {
+                    "clean" => assert!(got.is_ok(), "{name}: {got:?}"),
+                    _ => assert!(got.is_err(), "{name}"),
+                }
+            }
+        }
     }
 
     #[test]
@@ -344,10 +401,34 @@ mod tests {
         let clean = dir.join("data/pool/clean.jsonl");
         std::fs::write(&clean, "{\"a\":1}\n").unwrap();
         assert!(refuse_training_input(&clean, "--config").is_ok());
-        // not JSON lines: not scanned, even with the prefix inside
+        // nothing is skipped on its first byte: a binary-looking file is scanned like any other
         let zip = dir.join("x.zip");
         std::fs::write(&zip, b"PK\x03\x04 {\"record\":\"lappi.caller_record\"}").unwrap();
-        assert!(refuse_training_input(&zip, "src").is_ok());
+        assert!(
+            refuse_training_input(&zip, "src")
+                .unwrap_err()
+                .contains("caller record")
+        );
+        let gz = dir.join("x.gz");
+        std::fs::write(&gz, [0x1f, 0x8b, 8, 0, 0]).unwrap();
+        assert!(
+            refuse_training_input(&gz, "src")
+                .unwrap_err()
+                .contains("refused rather than")
+        );
+        // the repo's own fixture of real record lines, copied under another name and tree
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/caller/valid-records.jsonl");
+        let copy = dir.join("data/pool/commitpackft/rows.jsonl");
+        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+        std::fs::copy(&fixture, &copy).unwrap();
+        assert!(
+            refuse_training_input(&copy, "pool")
+                .unwrap_err()
+                .contains("caller record")
+        );
+        // a missing path and a directory have no bytes: left to the read that follows
+        assert!(refuse_training_input(&dir.join("missing.jsonl"), "src").is_ok());
         assert!(
             refuse_training_input(&dir.join("data"), "src").is_ok(),
             "a directory"
