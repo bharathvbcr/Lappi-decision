@@ -3057,15 +3057,21 @@ def _real_step(
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
     span_channel_off: bool = False, checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", noul_weight: NoulWeight | None = None,
+    training: bool = True,
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
 
     ``noul_weight`` is ``--noul-weight``'s, for a training step only.
 
+    ``training=False`` is the scoring step (:func:`_scoring_step`, which every ``--score-*``
+    path builds through): the same tower, remap and weights, but no optimizer object and no
+    fp32 master copy, and a budget of weights + no-grad activations + the logit slab
+    (``memory.estimate_scoring``) instead of a training step's. This is still the one owner of
+    step construction; ``training`` is carried on the tower, which prices and builds from it.
+
     ``eval_widths`` are the widths of batches the step will only DECODE -- the needle
     suite's ~8K cases. They raise the step's ``max_width`` bound and nothing else: the
-    budget prices ``plan``'s forward+backward with optimizer state, which would misprice a
-    no-grad forward, so an eval-only shape is not budgeted here. A step bounded by
+    budget prices ``plan``'s shapes, so an eval-only shape is not budgeted here. A step bounded by
     ``plan`` alone refused the needle suite after a full val pass on 2026-09-30.
 
     The one place the real backbone becomes a step: ``_train`` builds it in bf16 to train (in
@@ -3101,6 +3107,7 @@ def _real_step(
         width=int(plan[0].tokens.shape[1]),
         spec=model_spec,
         checkpoint_skip_layers=checkpoint_skip_layers,
+        training=training,
     )
     # On CUDA the linear-attention layers must be on fla's kernels. transformers falls back
     # to its torch reference silently apart from a log line, and puts that path at more
@@ -7628,7 +7635,8 @@ def _scoring_step(
     recipe: Mapping[str, Any], seed: int, optimizer_step: int, eval_widths: Sequence[int],
 ) -> Any:
     """The step a scored checkpoint's weights load into: the ft row's recipe, built at
-    ``--score-dtype``, bounded by the val plan's widest batch and ``eval_widths``."""
+    ``--score-dtype``, bounded by the val plan's widest batch and ``eval_widths``. A scoring
+    step: no optimizer, no master copy, a scoring footprint (:func:`_real_step`)."""
     step, _, _ = _real_step(
         backbone=args.real_backbone, reader=reader, plan=val.plan, device=device,
         dtype=args.score_dtype,
@@ -7637,6 +7645,7 @@ def _scoring_step(
         lr=float(recipe["lr"]), total_steps=optimizer_step,
         span_weight=float(recipe["span_weight"]),
         width=max(int(b.tokens.shape[1]) for b in val.plan), eval_widths=eval_widths,
+        training=False,
     )
     return step
 

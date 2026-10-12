@@ -116,6 +116,7 @@ from .memory import (
     OptimizerSpec,
     StepFootprint,
     checkpoint_tensor_index,
+    estimate_scoring,
     estimate_step,
     head_is_tied,
 )
@@ -246,6 +247,11 @@ class TextTower:
     #: reference fallback, which transformers itself puts at more than an order of magnitude
     #: slower. A row that does not say which ran cannot be compared with one that does.
     linear_attention_kernels: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    #: ``False`` for a tower that will only be scored: its [`footprint`] is the scoring one
+    #: (weights + no-grad activations + the logit slab) and a [`QwenDecisionStep`] over it
+    #: builds no optimizer. ``optimizer`` is still validated at load, and still names the
+    #: recipe the weights were trained under; it is never built.
+    training: bool = True
 
     @property
     def lm_head_weight(self) -> torch.Tensor:
@@ -271,6 +277,8 @@ class TextTower:
             "footprint_provenance": self.footprint.provenance,
             "remap": None if self.remap is None else self.remap.to_json(),
             "linear_attention_kernels": dict(self.linear_attention_kernels),
+            # Only when scoring, so a training tower describes itself as it always did.
+            **({} if self.training else {"training": False}),
             # Only when on, so a tower checkpointed everywhere describes itself as before.
             **(
                 {"checkpoint_skip_layers": list(self.checkpoint_skip_layers)}
@@ -449,6 +457,7 @@ def load_text_tower(
     config_overrides: Mapping[str, Any] | None = None,
     checkpoint_skip_layers: int = 0,
     keep_stored_dtype: Collection[str] = (),
+    training: bool = True,
 ) -> TextTower:
     """Build the text tower from ``snapshot`` and load exactly its 320 text tensors.
 
@@ -497,6 +506,10 @@ def load_text_tower(
         A [`TextTower`] carrying the model and what the load measured.
 
     Raises:
+        training: ``False`` for a tower that will only be scored. The loaded tower is the same;
+            its footprint is [`memory.estimate_scoring`]'s (no gradient, optimizer state or
+            master copy) and [`QwenDecisionStep`] builds no optimizer over it. ``optimizer``
+            is still required and validated, and never built.
         BackboneContractViolation: if the snapshot's text key set and the model class's
             ``state_dict`` key set are not identical, in either direction or in any shape.
     """
@@ -678,14 +691,13 @@ def load_text_tower(
     embedding = model.get_input_embeddings().weight
     _verify_spec_describes(spec, model=model, config=text_config, tied=tied)
     layer_types = list(text_config.layer_types)
-    footprint = estimate_step(
+    footprint = _footprint(
         spec,
         rows=rows,
         width=width,
+        training=training,
         optimizer=optimizer,
-        param_dtype=dtype,
-        grad_dtype=dtype,
-        activation_dtype=dtype,
+        dtype=dtype,
         activations=activation_model(
             gradient_checkpointing=gradient_checkpointing,
             skip_layers=skip_layers,
@@ -710,6 +722,7 @@ def load_text_tower(
         footprint=footprint,
         checkpoint_skip_layers=skip_layers,
         linear_attention_kernels=linear_attention_kernels(model),
+        training=training,
     )
 
 
@@ -776,25 +789,57 @@ def linear_attention_on_reference_path(kernels: Mapping[str, str]) -> list[str]:
 # --- the remap ------------------------------------------------------------------------------
 
 
-def footprint_at(
-    tower: TextTower, *, rows: int, width: int, vocab_size: int | None = None
+def _footprint(
+    spec: ModelSpec,
+    *,
+    rows: int,
+    width: int,
+    training: bool,
+    optimizer: OptimizerSpec,
+    dtype: str,
+    activations: ActivationModel,
+    vocab_size: int,
 ) -> StepFootprint:
-    """``estimate_step`` for this tower at a ``rows x width`` batch.
-
-    The one place a loaded tower's step is priced, so a caller budgeting several batch
-    shapes uses the arithmetic the load recorded. ``vocab_size`` defaults to the tower's own.
-    """
+    """The one place a tower's step is priced: training's (``estimate_step``) or scoring's
+    (``estimate_scoring``), by the tower's own purpose. ``footprint_at`` and the load both
+    come here, so the two cannot disagree about which arithmetic a tower gets."""
+    if not training:
+        return estimate_scoring(
+            spec, rows=rows, width=width, param_dtype=dtype, activation_dtype=dtype,
+            activations=activations, vocab_size=vocab_size,
+        )
     return estimate_step(
-        tower.spec,
+        spec,
         rows=rows,
         width=width,
         # The tower's own optimizer spec, carried rather than reconstructed: rebuilding it
         # from the footprint's byte totals would hardcode AdamW's two fp32 states and
         # silently re-budget an SGD run as an AdamW one.
+        optimizer=optimizer,
+        param_dtype=dtype,
+        grad_dtype=dtype,
+        activation_dtype=dtype,
+        activations=activations,
+        vocab_size=vocab_size,
+    )
+
+
+def footprint_at(
+    tower: TextTower, *, rows: int, width: int, vocab_size: int | None = None
+) -> StepFootprint:
+    """The footprint of this tower's step at a ``rows x width`` batch: training's, or
+    scoring's when the tower was loaded with ``training=False``.
+
+    The one place a loaded tower's step is priced, so a caller budgeting several batch
+    shapes uses the arithmetic the load recorded. ``vocab_size`` defaults to the tower's own.
+    """
+    return _footprint(
+        tower.spec,
+        rows=rows,
+        width=width,
+        training=tower.training,
         optimizer=tower.optimizer,
-        param_dtype=tower.dtype,
-        grad_dtype=tower.dtype,
-        activation_dtype=tower.dtype,
+        dtype=tower.dtype,
         activations=activation_model(
             gradient_checkpointing=tower.gradient_checkpointing,
             skip_layers=tower.checkpoint_skip_layers,
@@ -1167,6 +1212,12 @@ class QwenDecisionStep:
         # `qd_train.optim.layerwise_param_groups`): the tower's first `lower_layers_n`
         # decoder layers train at `lower_lr_scale` times the schedule. Zero, the default,
         # builds exactly the single-group optimizer this class always built.
+        if not tower.training and (lower_layers_n or fused_adamw or allow_frozen_moments):
+            raise ValueError(
+                "a scoring step (a tower loaded with training=False) builds no optimizer, so "
+                "lower_layers_n, fused_adamw and allow_frozen_moments would be discarded "
+                "while a recipe recorded them"
+            )
         if lower_layers_n < 0:
             raise ValueError(f"lower_layers_n must not be negative, got {lower_layers_n}")
         if not lower_layers_n and lower_lr_scale != 1.0:
@@ -1184,14 +1235,20 @@ class QwenDecisionStep:
             if lower_layers_n
             else list(self.parameters())
         )
-        self.optimizer = build_optimizer(
-            params,
-            spec=tower.optimizer,
-            lr=lr,
-            total_steps=total_steps,
-            allow_frozen_moments=allow_frozen_moments,
-            beta2=beta2,
-            fused=fused_adamw,
+        #: ``None`` on a scoring step: no optimizer object, no fp32 master copy, no moments.
+        #: Everything that needs one goes through [`_require_optimizer`].
+        self.optimizer: Any = (
+            build_optimizer(
+                params,
+                spec=tower.optimizer,
+                lr=lr,
+                total_steps=total_steps,
+                allow_frozen_moments=allow_frozen_moments,
+                beta2=beta2,
+                fused=fused_adamw,
+            )
+            if tower.training
+            else None
         )
         #: Component losses per micro-batch. ``TrainResult.loss_log`` carries the combined
         #: number only, and a falling total with a flat span term is a model that learned
@@ -1206,6 +1263,15 @@ class QwenDecisionStep:
 
     def parameters(self) -> list[torch.nn.Parameter]:
         return [*self.tower.model.parameters(), *self.span_head.parameters()]
+
+    def _require_optimizer(self, what: str) -> None:
+        """Refuse ``what`` on a scoring step, which has weights to load and nothing to train."""
+        if self.optimizer is None:
+            raise BackboneContractViolation(
+                f"{what} needs an optimizer and this is a scoring step (its tower was loaded "
+                "with training=False): it holds no optimizer state and no master copy. Load "
+                "the tower with training=True to train, resume or checkpoint it."
+            )
 
     # -- forward ---------------------------------------------------------------------------
 
@@ -1313,6 +1379,7 @@ class QwenDecisionStep:
     # -- TrainStep -------------------------------------------------------------------------
 
     def accumulate(self, batch: Batch, supervision: Supervision) -> float:
+        self._require_optimizer("accumulate")
         with self.training_attention():
             loss = self._letter_loss(
                 self.hidden(batch, padding_mask=self.train_attention_mask == "padding"),
@@ -1330,6 +1397,7 @@ class QwenDecisionStep:
         return value
 
     def accumulate_span(self, batch: Batch, supervision: Supervision) -> float:
+        self._require_optimizer("accumulate_span")
         span = supervision.span
         if span is None:  # pragma: no cover - `_train` only routes here when span is set
             raise RuntimeError(
@@ -1362,6 +1430,7 @@ class QwenDecisionStep:
         return float(total.detach())
 
     def apply(self, *, lr: float) -> None:
+        self._require_optimizer("apply")
         # `apply_lr` rather than `group["lr"] = lr`, which flattened a layer-wise split back
         # to one rate at the first step. It refuses a non-positive lr, as this did.
         apply_lr(self.optimizer, lr)
@@ -1393,6 +1462,7 @@ class QwenDecisionStep:
         called unconditionally. It is: the tensors are detached and copied to host memory,
         which is the same work the sidecar would do anyway.
         """
+        self._require_optimizer("state")
         import torch
 
         from .run_control import TensorRef
@@ -1543,6 +1613,7 @@ class QwenDecisionStep:
 
     def load_state(self, state: Mapping[str, Any]) -> None:
         """Revive what [`state`] produced. The digests were already checked by ``Checkpoint``."""
+        self._require_optimizer("load_state")
         missing = {"tower", "span_head", "span_weight", "vocab_size", "optimizer"} - set(
             state
         )

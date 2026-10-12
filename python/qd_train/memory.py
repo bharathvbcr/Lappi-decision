@@ -71,6 +71,7 @@ __all__ = [
     "StepFootprint",
     "TensorRange",
     "checkpoint_tensor_index",
+    "estimate_scoring",
     "estimate_step",
     "head_is_tied",
     "max_positions_that_fit",
@@ -860,7 +861,8 @@ class ActivationModel:
 
 @dataclass(frozen=True, slots=True)
 class StepFootprint:
-    """What one training step needs, with every component kept separately.
+    """What one training step (or, ``purpose="scoring"``, one scoring forward) needs, with every
+    component kept separately.
 
     Nothing here is a single total with its parts folded in: a number that cannot be
     attributed cannot be argued with, and the first question anyone asks of a budget is
@@ -883,6 +885,12 @@ class StepFootprint:
     recompute: str
     attention: str
     safety_fraction: float
+    #: The full-vocabulary head over every position, materialised: what a SCORING step holds
+    #: where a training step holds the fused-CE accumulator (``loss_head_bytes``). Zero on a
+    #: training footprint.
+    logit_slab_bytes: int = 0
+    #: ``"train"`` (``estimate_step``) or ``"scoring"`` (``estimate_scoring``).
+    purpose: str = "train"
 
     @property
     def static_bytes(self) -> int:
@@ -901,7 +909,9 @@ class StepFootprint:
 
     @property
     def total_bytes(self) -> int:
-        return self.static_bytes + self.dynamic_bytes + self.loss_head_bytes
+        return (
+            self.static_bytes + self.dynamic_bytes + self.loss_head_bytes + self.logit_slab_bytes
+        )
 
     @property
     def positions(self) -> int:
@@ -937,8 +947,17 @@ class StepFootprint:
             f"{self.score_matrix_bytes/gb:8.2f} GB",
             f"  recurrent state           {self.recurrent_state_bytes:>15,} B  "
             f"{self.recurrent_state_bytes/gb:8.2f} GB",
-            f"  loss head (fused CE)      {self.loss_head_bytes:>15,} B  "
-            f"{self.loss_head_bytes/gb:8.2f} GB",
+            *(
+                [
+                    f"  logit slab (full vocab)   {self.logit_slab_bytes:>15,} B  "
+                    f"{self.logit_slab_bytes/gb:8.2f} GB"
+                ]
+                if self.purpose == "scoring"
+                else [
+                    f"  loss head (fused CE)      {self.loss_head_bytes:>15,} B  "
+                    f"{self.loss_head_bytes/gb:8.2f} GB"
+                ]
+            ),
             f"  stated allowance ({self.safety_fraction:.0%})     {self.safety_bytes:>15,} B  "
             f"{self.safety_bytes/gb:8.2f} GB",
             f"  TOTAL                     {self.total_bytes:>15,} B  "
@@ -1072,6 +1091,84 @@ def estimate_step(
         recompute=acts.describe(),
         attention=acts.attention,
         safety_fraction=float(safety_fraction),
+    )
+
+
+def estimate_scoring(
+    model: ModelSpec,
+    *,
+    rows: int,
+    width: int,
+    param_dtype: str,
+    activation_dtype: str,
+    activations: ActivationModel | None = None,
+    vocab_size: int | None = None,
+    safety_fraction: float = SAFETY_FRACTION,
+) -> StepFootprint:
+    """One no-grad scoring forward's memory: weights + no-grad activations + the logit slab.
+
+    A scoring step holds no gradient, no optimizer state and no master copy, so none of them
+    is priced (pricing them refused a 9B scored fp32 at 133.4 GiB against 33.4 GiB of weights).
+    Under ``no_grad`` nothing is saved for a backward: one layer is live at a time, so the
+    activation term is one layer's enumerated set (the larger of the two layer kinds, an upper
+    bound on what that layer transiently holds) plus its input and output residuals, and the
+    attention score matrix and the recurrent state are one layer's. The logit slab is the
+    full-vocabulary head over every position in the tower's dtype -- what
+    ``QwenDecisionStep.lm_head`` materialises and ``real_ft_run._readout`` indexes -- and is
+    exact rather than allowed-for. ``activations`` contributes only its ``attention`` kind.
+    """
+    for name, value in (("rows", rows), ("width", width)):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"{name} must be a positive int, got {value!r}")
+    if not isinstance(safety_fraction, (int, float)) or isinstance(safety_fraction, bool):
+        raise TypeError(
+            f"safety_fraction must be a real number, got {type(safety_fraction).__name__}"
+        )
+    if not 0.0 <= safety_fraction <= MAX_SAFETY_FRACTION:
+        raise ValueError(
+            f"safety_fraction must be in [0, {MAX_SAFETY_FRACTION}], got {safety_fraction!r}. "
+            "An allowance larger than the thing it covers is a guess, not an allowance."
+        )
+    acts = activations if activations is not None else ActivationModel()
+    p_bytes = _dtype_bytes(param_dtype, what="param_dtype")
+    a_bytes = _dtype_bytes(activation_dtype, what="activation_dtype")
+    positions = rows * width
+    one_layer = ActivationModel(recompute="full", attention=acts.attention)
+    per_token = (
+        max(one_layer.linear_layer_elements(model), one_layer.full_layer_elements(model))
+        + 2 * model.hidden_size
+    )
+    activation_bytes = positions * per_token * a_bytes
+    score_bytes = one_layer.score_matrix_elements(model, rows=rows, width=width) * a_bytes
+    recurrent_bytes = (
+        rows
+        * model.linear_value_heads
+        * model.linear_head_dim
+        * model.linear_value_head_dim
+        * model.recurrent_state_bytes
+        if model.n_linear_attention_layers
+        else 0
+    )
+    effective_vocab = vocab_size if vocab_size is not None else model.vocab_size
+    return StepFootprint(
+        model=model.name,
+        trainable_params=model.trainable_params(vocab_size=vocab_size),
+        rows=rows,
+        width=width,
+        param_bytes=model.trainable_params(vocab_size=vocab_size) * p_bytes,
+        grad_bytes=0,
+        optimizer_bytes=0,
+        master_bytes=0,
+        activation_bytes=activation_bytes,
+        score_matrix_bytes=score_bytes,
+        recurrent_state_bytes=recurrent_bytes,
+        loss_head_bytes=0,
+        safety_bytes=int((activation_bytes + score_bytes + recurrent_bytes) * safety_fraction),
+        recompute="none (no_grad)",
+        attention=acts.attention,
+        safety_fraction=float(safety_fraction),
+        logit_slab_bytes=positions * effective_vocab * p_bytes,
+        purpose="scoring",
     )
 
 
