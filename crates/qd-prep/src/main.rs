@@ -37,6 +37,9 @@
 //! - `qd-prep synth --config C [--target NAME=FILE ...] --out-dir DIR`: decision rows
 //!   synthesised by rule for the email sorter, Jarvis or tool selection (see `qd_prep::synth`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, the pool shape `decisions` writes.
+//! - `qd-prep commit-type --manifest M --out-dir DIR`: `gitpulse.commit_type` rows from the
+//!   manifest's train repositories' commit history (see `qd_prep::commit_type`) ->
+//!   `DIR/{examples.jsonl, manifest.json}`, the pool shape `decisions` writes.
 //! - `qd-prep convert --config C --view-record VR --pool NAME [--licence-cache F] --out-dir DIR`:
 //!   one downloaded v6 dataset as a decision pool (see `qd_prep::convert`), the same pool shape
 //!   `decisions` writes; `swe-rebench-filter` and `injections` write a view and a corpus.
@@ -117,6 +120,9 @@ enum Command {
     /// A downloaded v6 dataset made into a decision pool, licence-filtered and decontaminated
     /// (`qd_prep::convert`), or SWE-rebench's filtered view, or the injection-text corpus.
     Convert(ConvertIo),
+    /// `gitpulse.commit_type` rows from the own-repos manifest's train repositories' commit
+    /// history (`qd_prep::commit_type`); GitPulse itself is refused as a producer.
+    CommitType(CommitTypeIo),
     /// The one v6 cap table: every candidate pool (`convert`, `synth`) and v5's as-built pool
     /// in, one applied pool out (`qd_prep::allocate`).
     Allocate(AllocateIo),
@@ -290,6 +296,21 @@ struct OwnReposIo {
     /// Where to write the manifest; refused if it exists.
     #[arg(long)]
     out: PathBuf,
+}
+
+/// `qd-prep commit-type`'s inputs.
+#[derive(clap::Args, Debug)]
+struct CommitTypeIo {
+    /// A `qd-prep own-repos` manifest; only its train repositories are read.
+    #[arg(long)]
+    manifest: PathBuf,
+    /// The directory to create (`examples.jsonl`, `manifest.json`); refused if it, or
+    /// DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// The seed of the per-repository draw and the val split.
+    #[arg(long, default_value_t = 20261008)]
+    seed: u64,
 }
 
 /// `qd-prep own-swift`' inputs.
@@ -488,6 +509,7 @@ fn main() -> ExitCode {
         Command::Synth(io) => run_synth(io),
         Command::Convert(io) => run_convert(io),
         Command::Allocate(io) => run_allocate(io),
+        Command::CommitType(io) => qd_prep::commit_type::run(&io.manifest, &io.out_dir, io.seed),
     };
     match result {
         Ok(line) => {

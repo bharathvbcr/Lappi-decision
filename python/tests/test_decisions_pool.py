@@ -66,8 +66,9 @@ def _row(**over: object) -> TypedDecisionRow:
 
 
 def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source() -> None:
-    # v5's 15, then v6's 10 (registered 2026-10-08 with the human's licence rulings of that day).
-    assert len(DECISION_FAMILIES) == 25
+    # v5's 15, then v6's 10 (registered 2026-10-08 with the human's licence rulings of that day),
+    # then the two caller families (2026-10-12, docs/caller-contract.md section 4).
+    assert len(DECISION_FAMILIES) == 27
     for family_id, source_id, description in DECISION_FAMILIES:
         family = task_family_by_id(family_id)
         assert family.source_id == source_id
@@ -77,7 +78,7 @@ def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source(
         assert dict(source.pinned_splits) == {"train": "train", "val": "val"}
         assert source.licence_policy.licence_id in {
             "cc-by-4.0", "apache-2.0", "mit", "cc-by-sa-3.0", "cc-by-sa-4.0",
-            "oanc", "odc-by-1.0", "synthetic-by-rule",
+            "oanc", "odc-by-1.0", "synthetic-by-rule", "owner-granted",
         }
         assert source.licence_policy.tier is LicenceTier.ALLOW
 
@@ -338,6 +339,9 @@ _V6_ROWS: tuple[tuple[str, str, str, str], ...] = (
 def _v6_lines() -> list[dict[str, object]]:
     return [
         _line(id=f"{fam}:0", source_id=src, family_id=fam, stratum=f"{fam}/choice",
+    # The caller families (card ft-2d0a5e4b27e), as their builders write them.
+    ("gitpulse.commit_type", "lappi/own-commits", "owner-granted", "commit_type"),
+    ("devtype.route", "lappi/synth-route", "synthetic-by-rule", "route"),
               licence=lic, slot_name=slot)
         for fam, src, lic, slot in _V6_ROWS
     ]

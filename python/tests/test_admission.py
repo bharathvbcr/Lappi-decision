@@ -61,6 +61,9 @@ def test_exactly_these_sources_are_admitted_unattended() -> None:
         "nyu-mll/multi_nli", "allenai/scirepeval", "code-search-net/code_search_net",
         "nvidia/When2Call", "Team-ACE/ToolACE",
         "lappi/synth-email", "lappi/synth-jarvis", "lappi/synth-tools",
+        # The caller families (2026-10-12): DevType's route by rule, GitPulse's commit type from
+        # the human's own commit history.
+        "lappi/synth-route", "lappi/own-commits",
     }
 
 

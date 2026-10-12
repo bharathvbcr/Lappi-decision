@@ -1,0 +1,34 @@
+{
+ "schema": "qd-caller-request-fixtures/v1",
+ "why": "Each app's own request builder output, pinned read-only from the app repository, for the byte-identity tests of the v6 caller-family builders (card ft-2d0a5e4b27e). `line` is the literal the app's own test asserts its builder produces; nothing here was written by a Lappi builder.",
+ "apps": [
+  {
+   "app": "devtype",
+   "repo": "~/Code/apps/DevType",
+   "commit": "24cc8d8c4edb94f8b1393bfbdfd9be543377c4d3",
+   "builder": "Sources/ExpanderEngine/Lappi/LappiRouteRequest.swift",
+   "builder_sha256": "c4987e191eaa5333ab33d4d1a9529a02766c610521cc1d14c81364802194867c",
+   "pinned_from": "Tests/ExpanderEngineTests/LappiRequestTests.swift testTheRequestLineIsExactlyTheContractShape (sha256 ee614229a4a5f66471618c4f1d954f957572ea89114ee0213b3b912b4d7f5a7a at 24cc8d8)",
+   "key_order": "sorted (JSONSerialization .sortedKeys, .withoutEscapingSlashes)",
+   "input": {
+    "context": "date three weeks out",
+    "record_id": "0123456789abcdef0123456789abcdef"
+   },
+   "line": "{\"context_b64\":\"ZGF0ZSB0aHJlZSB3ZWVrcyBvdXQ=\",\"context_len\":20,\"example_id\":\"devtype:devtype.route:0123456789abcdef0123456789abcdef\",\"metadata\":{},\"question\":\"Which DevType tool should answer this palette query?\",\"route\":\"generic\",\"schema_version\":1,\"slots\":[{\"name\":\"route\",\"options\":[\"resolveDate\",\"runMacro\",\"findSnippet\",\"none\"],\"type\":\"choice\"}],\"task\":\"devtype.route\"}"
+  },
+  {
+   "app": "gitpulse",
+   "repo": "~/Code/devtools/GitPulse",
+   "commit": "b9370ece9dd7c47d54dab7d2e17fbd1474353506",
+   "builder": "src-tauri/src/lappi/request.rs commit_type_request",
+   "builder_sha256": "d7962abbeaa514f68809d98585cb8925b1dc9d94814753d5a77f3e2cb27e0879",
+   "pinned_from": "src-tauri/src/lappi/request.rs tests::the_request_is_exactly_the_pinned_shape (the working tree was clean at the pinned sha when read)",
+   "key_order": "struct field order (schema-api.md)",
+   "input": {
+    "context": "diff --git a/x b/x\n",
+    "record_id": "0123456789abcdef0123456789abcdef"
+   },
+   "line": "{\"schema_version\":1,\"task\":\"gitpulse.commit_type\",\"context_b64\":\"ZGlmZiAtLWdpdCBhL3ggYi94Cg==\",\"context_len\":19,\"question\":\"Which conventional commit type describes this staged change?\",\"slots\":[{\"name\":\"commit_type\",\"type\":\"choice\",\"options\":[\"feat\",\"fix\",\"refactor\",\"docs\",\"test\",\"chore\",\"perf\",\"build\",\"ci\",\"style\",\"revert\"]}],\"route\":\"generic\",\"example_id\":\"gitpulse:gitpulse.commit_type:0123456789abcdef0123456789abcdef\",\"metadata\":{}}"
+  }
+ ]
+}

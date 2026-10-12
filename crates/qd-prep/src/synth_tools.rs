@@ -774,6 +774,289 @@ pub fn generate(cfg: &Config) -> Result<Generated, String> {
     })
 }
 
+// ---------------------------------------------------------------------------------------------
+// `devtype.route`: DevType's palette route, by rule (Fable 2026-10-12, ruling 2i).
+//
+// The shape is closed and is the app's own (`LappiRouteRequest.swift` at DevType 24cc8d8,
+// `docs/caller-contract.md` section 4): question [`ROUTE_QUESTION`], slot [`ROUTE_SLOT`], options
+// [`ROUTE_OPTIONS`] in that order, context the query's bytes and nothing else. The gold is the
+// tool the app's deterministic resolver would run: `resolveDate` iff its date grammar accepts the
+// query ([`route_date_accepts`]), `runMacro` iff the query names a synthetic macro, `findSnippet`
+// iff it names a synthetic snippet, `none` otherwise -- and `none` only from the generator's
+// unable and direct classes (R5). No model labels a row and no real DevType query is read.
+
+/// `devtype.route`, the task and the family.
+pub const ROUTE_FAMILY: &str = "devtype.route";
+pub const ROUTE_SCHEMA: &str = "qd-route-phrasings/v1";
+/// `docs/caller-contract.md` section 4, `LappiRouteRequest.question`.
+pub const ROUTE_QUESTION: &str = "Which DevType tool should answer this palette query?";
+/// `LappiRouteRequest.slotName`.
+pub const ROUTE_SLOT: &str = "route";
+/// `LappiRouteRequest.options`, in the app's order.
+pub const ROUTE_OPTIONS: [&str; 4] = ["resolveDate", "runMacro", "findSnippet", "none"];
+/// `CommandPaletteCatalog.maximumQueryCharacters`: `boundedQuery` cuts a query to this many
+/// characters, so no row is longer.
+pub const ROUTE_MAX_QUERY_CHARS: usize = 512;
+const ROUTE_NONE: usize = 3;
+
+/// The palette-route generator's pinned data file (`"route"` in a `qd-synth-config/v1`).
+#[derive(Clone, Debug)]
+pub struct RouteConfig {
+    pub phrasings: PathBuf,
+    pub phrasings_sha256: String,
+}
+
+impl RouteConfig {
+    pub fn parse(v: &Value) -> Result<Self, String> {
+        let what = "config.route";
+        Ok(Self {
+            phrasings: PathBuf::from(decisions::get_str(v, "phrasings", what)?),
+            phrasings_sha256: decisions::get_str(v, "phrasings_sha256", what)?.to_owned(),
+        })
+    }
+}
+
+/// `DateOffset.parse` on text already lowercased: one or more `<sign><1-6 ASCII digits><unit>`
+/// groups, unit one of `y m w d h s` (the Swift `M` for months cannot survive the lowercasing the
+/// palette applies first). Whether the offsets sum to zero is the caller's question.
+fn route_offset_is_nonzero(text: &str) -> Option<bool> {
+    let b = text.trim().as_bytes();
+    if b.is_empty() {
+        return None;
+    }
+    let (mut i, mut any) = (0usize, false);
+    let mut total: [i64; 6] = [0; 6];
+    while i < b.len() {
+        let sign = match b[i] {
+            b'+' => 1i64,
+            b'-' => -1i64,
+            _ => return None,
+        };
+        i += 1;
+        let start = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        let digits = i - start;
+        if digits == 0 || digits > 6 || i >= b.len() {
+            return None;
+        }
+        let magnitude: i64 = text.trim()[start..i].parse().ok()?;
+        let slot = match b[i] {
+            b'y' => 0,
+            b'm' => 1,
+            b'w' => 2,
+            b'd' => 3,
+            b'h' => 4,
+            b's' => 5,
+            _ => return None,
+        };
+        i += 1;
+        total[slot] += sign * magnitude;
+        any = true;
+    }
+    any.then(|| total.iter().any(|t| *t != 0))
+}
+
+/// `^date\s*([+-])\s*(\d{1,3})\s*d?$` (`prefix` = "date", `d_required` false) and
+/// `^([+-])\s*(\d{1,3})\s*d$` (`prefix` empty, `d_required` true), nonzero. ASCII digits only:
+/// the Swift `Int(...)` of a non-ASCII digit is nil, which skips the pattern.
+fn route_day_pattern(text: &str, prefix: &str, d_required: bool) -> bool {
+    let Some(rest) = text.strip_prefix(prefix) else {
+        return false;
+    };
+    let rest = rest.trim_start_matches(char::is_whitespace);
+    let Some(rest) = rest.strip_prefix(['+', '-']) else {
+        return false;
+    };
+    let rest = rest.trim_start_matches(char::is_whitespace);
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() || digits.len() > 3 || digits.parse::<u32>().unwrap_or(0) == 0 {
+        return false;
+    }
+    let tail = rest[digits.len()..].trim_start_matches(char::is_whitespace);
+    matches!((tail, d_required), ("d", _) | ("", false))
+}
+
+/// Whether the palette's date grammar accepts `query`: `CommandPaletteCatalog.parseTypedQuery`'s
+/// `relativeDays` and `relativeOffset` results (`parseRelativeDayQuery`, `DateOffset.parse`,
+/// `parseNextWeekdayQuery`), copied from DevType (commit in the data file's provenance). `=` and
+/// `>` queries are the palette's math and instruction modes, not dates.
+pub fn route_date_accepts(query: &str) -> bool {
+    let trimmed = query.trim_matches(char::is_whitespace);
+    if trimmed.is_empty() || trimmed.starts_with(['=', '>']) {
+        return false;
+    }
+    let lower = trimmed.to_lowercase();
+    if route_offset_is_nonzero(&lower) == Some(true) {
+        return true;
+    }
+    if route_day_pattern(&lower, "date", false) || route_day_pattern(&lower, "", true) {
+        return true;
+    }
+    if lower == "next full date" || lower == "full date tomorrow" {
+        return true;
+    }
+    ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+        .iter()
+        .any(|d| lower == format!("next {d}") || lower == format!("next {d} date"))
+}
+
+/// The tool the resolver would run for `query`, as an index into [`ROUTE_OPTIONS`], or an error
+/// when the query satisfies more than one tool (a generator defect: the gold would be a guess).
+fn route_gold(query: &str, macros: &[String], snippets: &[String]) -> Result<usize, String> {
+    let lower = query.to_lowercase();
+    let names = |xs: &[String]| xs.iter().any(|x| lower.contains(x.as_str()));
+    let hits: Vec<usize> = [
+        (0, route_date_accepts(query)),
+        (1, names(macros)),
+        (2, names(snippets)),
+    ]
+    .iter()
+    .filter(|(_, hit)| *hit)
+    .map(|(i, _)| *i)
+    .collect();
+    match hits.as_slice() {
+        [] => Ok(ROUTE_NONE),
+        [one] => Ok(*one),
+        _ => Err(format!(
+            "query {query:?} satisfies more than one tool ({hits:?}); its gold would be a guess"
+        )),
+    }
+}
+
+/// The generator for `kind route`: every row's gold is re-derived from its query by the resolver
+/// mirror and must equal the template class's, or the generator is refused.
+pub fn generate_route(cfg: &Config) -> Result<Generated, String> {
+    let rc = cfg
+        .route
+        .as_ref()
+        .ok_or("kind route without a route config")?;
+    let (doc, sha) = read_pinned(&rc.phrasings, &rc.phrasings_sha256)?;
+    if str_of(&doc, "schema", "route data")? != ROUTE_SCHEMA {
+        return Err(format!("route data: schema is not {ROUTE_SCHEMA:?}"));
+    }
+    let names = |key: &str| -> Result<Vec<String>, String> {
+        let xs = list_of(&doc, key, "route data")?
+            .iter()
+            .map(|x| x.as_str().map(str::to_owned))
+            .collect::<Option<Vec<String>>>()
+            .ok_or_else(|| format!("route data: {key} holds a non-string"))?;
+        let set: BTreeSet<&String> = xs.iter().collect();
+        if xs.is_empty() || set.len() != xs.len() || xs.iter().any(|x| x.trim().is_empty() || x != &x.to_lowercase()) {
+            return Err(format!(
+                "route data: {key} must be non-empty, unique, lowercase names"
+            ));
+        }
+        Ok(xs)
+    };
+    let (macros, snippets, weekdays) = (names("macros")?, names("snippets")?, names("weekdays")?);
+    if macros.iter().any(|m| snippets.contains(m)) {
+        return Err("route data: a name is both a macro and a snippet".into());
+    }
+    // The fill pools: the data file's `fills`, plus the three name lists the gold rule reads.
+    let mut pools: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let fills = decisions::get(&doc, "fills", "route data")?
+        .as_object()
+        .ok_or("route data: fills is not an object")?;
+    for (name, list) in fills {
+        let xs = list
+            .as_array()
+            .and_then(|a| a.iter().map(|x| x.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>())
+            .ok_or_else(|| format!("route data: fills.{name} is not a list of strings"))?;
+        let set: BTreeSet<&String> = xs.iter().collect();
+        if xs.is_empty() || set.len() != xs.len() || xs.iter().any(|x| x.trim() != x || x.is_empty()) {
+            return Err(format!("route data: fills.{name} must be non-empty, unique, trimmed strings"));
+        }
+        if ["n", "n2", "macro", "snippet", "weekday"].contains(&name.as_str()) {
+            return Err(format!("route data: fills.{name} shadows a built-in placeholder"));
+        }
+        pools.insert(name.clone(), xs);
+    }
+    pools.insert("macro".to_owned(), macros.clone());
+    pools.insert("snippet".to_owned(), snippets.clone());
+    pools.insert("weekday".to_owned(), weekdays.clone());
+    let class_gold = |class: &str| -> Result<usize, String> {
+        match class {
+            "resolveDate" => Ok(0),
+            "runMacro" => Ok(1),
+            "findSnippet" => Ok(2),
+            // `none` is ruled to come only from the unable and direct classes (R5).
+            "none_unable" | "none_direct" => Ok(ROUTE_NONE),
+            other => Err(format!(
+                "route data: class {other:?} is not resolveDate, runMacro, findSnippet, \
+                 none_unable or none_direct"
+            )),
+        }
+    };
+    let mut drafts = Vec::new();
+    let mut per_class: BTreeMap<String, usize> = BTreeMap::new();
+    let mut seen_ids = BTreeSet::new();
+    for t in list_of(&doc, "templates", "route data")? {
+        let id = str_of(t, "id", "route template")?;
+        let class = str_of(t, "class", "route template")?;
+        let text = str_of(t, "text", "route template")?;
+        if !seen_ids.insert(id.to_owned()) {
+            return Err(format!("route data: template id {id:?} is used twice"));
+        }
+        let want = class_gold(class)?;
+        for k in 0..cfg.rows_per_template {
+            let scope = Scope::new(cfg.seed, &format!("route\u{1f}{id}\u{1f}{k}"));
+            // Every pool is walked in a seeded per-template order, so a template's rows draw
+            // distinct fills until a pool runs out (then it wraps and the dedupe counts it).
+            let mut vars: BTreeMap<&str, String> = BTreeMap::new();
+            vars.insert("n", (1 + scope.below("n", 365)).to_string());
+            vars.insert("n2", (1 + scope.below("n2", 99)).to_string());
+            for (name, pool) in &pools {
+                let order = Scope::new(cfg.seed, &format!("route\u{1f}{id}\u{1f}pool\u{1f}{name}"))
+                    .shuffle("order", pool);
+                vars.insert(name.as_str(), order[k % order.len()].clone());
+            }
+            let query = crate::synth::fill(text, &vars)?;
+            if query != query.trim_matches(char::is_whitespace)
+                || query.is_empty()
+                || query.chars().count() > ROUTE_MAX_QUERY_CHARS
+            {
+                return Err(format!(
+                    "template {id}: query {query:?} is not a trimmed query of at most \
+                     {ROUTE_MAX_QUERY_CHARS} characters (what the app sends)"
+                ));
+            }
+            let got = route_gold(&query, &macros, &snippets)
+                .map_err(|e| format!("template {id}: {e}"))?;
+            if got != want {
+                return Err(format!(
+                    "template {id} ({class}): query {query:?} resolves to {:?}, not {:?}",
+                    ROUTE_OPTIONS[got], ROUTE_OPTIONS[want]
+                ));
+            }
+            *per_class.entry(class.to_owned()).or_default() += 1;
+            drafts.push(Draft {
+                family_id: ROUTE_FAMILY,
+                stratum: format!("{ROUTE_FAMILY}/{class}"),
+                template: id.to_owned(),
+                template_class: class.to_owned(),
+                context: query,
+                question: String::new(),
+                slot_name: ROUTE_SLOT,
+                options: ROUTE_OPTIONS.iter().map(|o| (*o).to_owned()).collect(),
+                gold: Gold::Option(want),
+                fixed_options: true,
+            });
+        }
+    }
+    Ok(Generated {
+        drafts,
+        report: json!({
+            "rows_drafted_by_class": per_class,
+            "gold_rule": "the resolver mirror re-derives every row's gold from its query; a row whose class disagrees refuses the build",
+            "question": ROUTE_QUESTION, "slot": ROUTE_SLOT, "options": ROUTE_OPTIONS,
+            "max_query_chars": ROUTE_MAX_QUERY_CHARS,
+        }),
+        inputs: [("route_phrasings".to_owned(), sha)].into(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -54,6 +54,7 @@ pub const LICENCE: &str = "synthetic-by-rule";
 pub const EMAIL_SOURCE: &str = "lappi/synth-email";
 pub const JARVIS_SOURCE: &str = "lappi/synth-jarvis";
 pub const TOOLS_SOURCE: &str = "lappi/synth-tools";
+pub const ROUTE_SOURCE: &str = "lappi/synth-route";
 /// `qd_data.decisions.MAX_POOL_ROWS`: a pool past it is refused at load, so it is refused here.
 pub const MAX_ROWS: usize = 400_000;
 pub const MAX_ROWS_PER_TEMPLATE: usize = 10_000;
@@ -69,6 +70,8 @@ pub enum Kind {
     Email,
     Jarvis,
     Tools,
+    /// DevType's palette route (`devtype.route`), by rule.
+    Route,
 }
 
 impl Kind {
@@ -77,8 +80,9 @@ impl Kind {
             "email" => Ok(Self::Email),
             "jarvis" => Ok(Self::Jarvis),
             "tools" => Ok(Self::Tools),
+            "route" => Ok(Self::Route),
             other => Err(format!(
-                "config: kind {other:?} is not \"email\", \"jarvis\" or \"tools\""
+                "config: kind {other:?} is not \"email\", \"jarvis\", \"tools\" or \"route\""
             )),
         }
     }
@@ -88,6 +92,7 @@ impl Kind {
             Self::Email => "email",
             Self::Jarvis => "jarvis",
             Self::Tools => "tools",
+            Self::Route => "route",
         }
     }
 
@@ -96,6 +101,7 @@ impl Kind {
             Self::Email => EMAIL_SOURCE,
             Self::Jarvis => JARVIS_SOURCE,
             Self::Tools => TOOLS_SOURCE,
+            Self::Route => ROUTE_SOURCE,
         }
     }
 }
@@ -135,6 +141,8 @@ pub struct Config {
     pub probe: Probe,
     /// Present iff `kind` is `tools`: the tool-selection generator's inputs and bounds.
     pub tools: Option<crate::synth_tools::ToolsConfig>,
+    /// Present iff `kind` is `route`: the palette-route generator's pinned data file.
+    pub route: Option<crate::synth_tools::RouteConfig>,
 }
 
 impl Config {
@@ -148,6 +156,10 @@ impl Config {
             let dir = path.parent().unwrap_or(Path::new("."));
             t.catalog = dir.join(&t.catalog);
             t.phrasings = dir.join(&t.phrasings);
+        }
+        if let Some(r) = cfg.route.as_mut() {
+            let dir = path.parent().unwrap_or(Path::new("."));
+            r.phrasings = dir.join(&r.phrasings);
         }
         Ok((cfg, bytes))
     }
@@ -253,6 +265,12 @@ impl Config {
             (_, Some(_)) => return Err("config: a \"tools\" object is only for kind tools".into()),
             (_, None) => None,
         };
+        let route = match (kind, v.get("route")) {
+            (Kind::Route, Some(r)) => Some(crate::synth_tools::RouteConfig::parse(r)?),
+            (Kind::Route, None) => return Err("config: kind route needs a \"route\" object".into()),
+            (_, Some(_)) => return Err("config: a \"route\" object is only for kind route".into()),
+            (_, None) => None,
+        };
         Ok(Config {
             kind,
             seed: get_u64(&v, "seed", "config")?,
@@ -268,6 +286,7 @@ impl Config {
             target_sha256: str_map(&v, "target_sha256")?,
             probe,
             tools,
+            route,
         })
     }
 }
@@ -478,7 +497,15 @@ pub fn assemble_heldout(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, Str
 
 /// Families whose module states `noul` as a zero. A `noul` gold there is a generator defect:
 /// refused and counted as `noul_on_a_family_stating_zero`, never admitted.
-const NOUL_STATED_ZERO: [&str; 1] = [crate::synth_tools::FAMILY];
+const NOUL_STATED_ZERO: [&str; 2] = [
+    crate::synth_tools::FAMILY,
+    crate::synth_tools::ROUTE_FAMILY,
+];
+
+/// Families whose option order is the caller's, in the contract (section 4): the app sends the
+/// same list in the same order every time, so a row with the options shuffled is a prompt the app
+/// never sends. Every other family is shuffled per row (the PriDe lever).
+const CALLER_ORDER_FAMILIES: [&str; 1] = [crate::synth_tools::ROUTE_FAMILY];
 
 /// Both sides go through one dedupe in one order (held-out first, then val, then train), so a
 /// pool row that duplicates a held-out row is the one dropped, and counted.
@@ -533,8 +560,12 @@ fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assem
             *refused.entry("noul_on_a_family_stating_zero").or_default() += 1;
             continue;
         }
-        let perm = Scope::new(cfg.seed, &digest)
-            .shuffle("options", &(0..d.options.len()).collect::<Vec<_>>());
+        let identity: Vec<usize> = (0..d.options.len()).collect();
+        let perm = if CALLER_ORDER_FAMILIES.contains(&d.family_id) {
+            identity
+        } else {
+            Scope::new(cfg.seed, &digest).shuffle("options", &identity)
+        };
         let options: Vec<String> = perm.iter().map(|&i| d.options[i].clone()).collect();
         let gold = match d.gold {
             Gold::Option(g) => Gold::Option(
@@ -578,6 +609,17 @@ fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assem
     });
     Ok(Assembled { candidates, report })
 }
+
+/// Families whose label is a deterministic function of the context's surface by the family's own
+/// definition, so a linear control reading it is the task, not a leak. The probe still runs and
+/// its accuracy is in the manifest; its bound is not a gate for these (`passed` is null).
+const LEAK_PROBE_REPORT_ONLY: [(&str, &str); 1] = [(
+    crate::synth_tools::ROUTE_FAMILY,
+    "the gold is the tool DevType's deterministic resolver would run on the query (ruling 2i): \
+     a date grammar match, a macro name, a snippet name, or neither. A control on the query \
+     reading that is the task, so the bound (a format-leak control) cannot apply; the measured \
+     accuracy is recorded",
+)];
 
 /// The leak probe for one fixed-option family: a linear control on char n-grams of the
 /// rendered context, fitted on the train rows (its L2 picked on a seeded tenth of them) and
@@ -735,6 +777,7 @@ pub fn generate(cfg: &Config) -> Result<Generated, String> {
         Kind::Email => Ok(plain(crate::synth_email::drafts(cfg)?)),
         Kind::Jarvis => Ok(plain(crate::synth_jarvis::drafts(cfg)?)),
         Kind::Tools => crate::synth_tools::generate(cfg),
+        Kind::Route => crate::synth_tools::generate_route(cfg),
     }
 }
 
@@ -773,7 +816,15 @@ pub fn build(
             .filter(|c| c.family_id == *family)
             .collect();
         let probe = if *is_fixed {
-            leak_probe(cfg, family, &rows, threads)?
+            let mut p = leak_probe(cfg, family, &rows, threads)?;
+            if let Some((_, why)) = LEAK_PROBE_REPORT_ONLY.iter().find(|(f, _)| f == family)
+                && p.get("state") == Some(&json!("ran"))
+            {
+                // Measured and recorded, not a gate: `passed` is null, never true.
+                p["passed"] = Value::Null;
+                p["report_only"] = json!(why);
+            }
+            p
         } else {
             json!({"state": "not_run", "reason": "options differ per row (enumerated elements), so \
                    a class-label probe has no fixed class set; the per-option control \
@@ -976,6 +1027,7 @@ pub(crate) mod tests {
                 max_val_accuracy: 0.95,
             },
             tools: None,
+            route: None,
         }
     }
 

@@ -125,11 +125,27 @@ pub struct Candidate {
     pub split: &'static str,
 }
 
+/// Families whose request context is the caller's bytes and nothing else (`docs/caller-contract.md`
+/// section 4: the staged diff, the palette query). Their rows carry an empty `question` and
+/// render as the bare context, because a question paragraph in front would train a prompt the
+/// app never sends. The request's own question is the family's description
+/// (`qd_data.sources.DECISION_FAMILIES`), which must be the contract's string.
+pub const BARE_CONTEXT_FAMILIES: [&str; 2] = ["gitpulse.commit_type", "devtype.route"];
+
 impl Candidate {
+    /// Whether this row is of a [`BARE_CONTEXT_FAMILIES`] family.
+    pub fn is_bare_context(&self) -> bool {
+        BARE_CONTEXT_FAMILIES.contains(&self.family_id.as_str())
+    }
+
     /// The context the row is rendered with: the question, a blank line, then the record --
     /// the repo's convention (`rewrite_squad`, `rewrite_mmlu`), where the request's own
     /// question is the task family's description and the item's question is in the context.
+    /// A [`BARE_CONTEXT_FAMILIES`] row is its context, byte for byte.
     pub fn rendered_context(&self) -> String {
+        if self.is_bare_context() {
+            return self.context.clone();
+        }
         format!("{}\n\n{}", self.question, self.context)
     }
 
@@ -689,17 +705,29 @@ pub fn structural_refusal(c: &Candidate) -> Option<&'static str> {
             return Some("option_too_long");
         }
     }
-    if c.question.trim().is_empty() {
-        return Some("empty_question");
-    }
-    if c.question.len() > MAX_QUESTION_BYTES {
-        return Some("question_too_long");
-    }
-    if c.context.trim().is_empty() {
-        return Some("empty_context");
-    }
-    if c.question.len() + 2 + c.context.len() > MAX_CONTEXT_BYTES {
-        return Some("context_too_long");
+    if c.is_bare_context() {
+        if !c.question.is_empty() {
+            return Some("question_in_bare_context_family");
+        }
+        if c.context.trim().is_empty() {
+            return Some("empty_context");
+        }
+        if c.context.len() > MAX_CONTEXT_BYTES {
+            return Some("context_too_long");
+        }
+    } else {
+        if c.question.trim().is_empty() {
+            return Some("empty_question");
+        }
+        if c.question.len() > MAX_QUESTION_BYTES {
+            return Some("question_too_long");
+        }
+        if c.context.trim().is_empty() {
+            return Some("empty_context");
+        }
+        if c.question.len() + 2 + c.context.len() > MAX_CONTEXT_BYTES {
+            return Some("context_too_long");
+        }
     }
     if c.id.chars().any(|ch| matches!(ch, '\t' | '\n' | '\r')) {
         return Some("id_not_a_field");
