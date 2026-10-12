@@ -1,13 +1,15 @@
 //! Safetensors, read and written by hand: an 8-byte little-endian header length, a JSON header
 //! of `{name: {dtype, shape, data_offsets}}`, then the raw little-endian data.
 //!
-//! **Why a reader here as well as in qd-metal.** `qd_metal::safetensors` is the serving loader's
-//! reader, and this crate cannot depend on it: qd-metal links tessl, and tessl links Metal
-//! unconditionally, so the dependency would make this binary unbuildable for the Linux box the
-//! averaged checkpoint lives on. The two readers are kept honest against each other rather than
-//! trusted: `tests/roundtrip.rs` parses every file this crate writes with qd-metal's reader and
-//! requires the same `(name, dtype, shape, offsets)` set. Extracting one tessl-free reader both
-//! crates use is recorded as `GAP-J7-EXPORT-SAFETENSORS-READER-DUPLICATED`.
+//! **The one Rust reader.** `qd_metal::safetensors` is the serving loader's reader, and it is a
+//! thin adapter over [`SafeTensorsFile`] here: header parsing, the header bound and every offset
+//! check live in this module only. The dependency points this way because this crate must stay
+//! tessl-free (tessl links Metal unconditionally, so a dependency on qd-metal would make this
+//! binary unbuildable on the Linux box the averaged checkpoint lives on); qd-metal already
+//! reaches this crate through qd-train, so the edge adds no third-party dependency. The adapter
+//! keeps qd-metal's own three-dtype admission (BF16/F16/F32) and its public API.
+//! `tests/safetensors_adversarial.rs` drives both callers from one JSON case list that the Python
+//! reader (`qd_train.memory.safetensors_header`) is held to as well.
 //!
 //! This reader knows every dtype the format names, so a tensor of a dtype the export refuses is
 //! refused *as a dtype*, by name, rather than failing as an unparseable header.
@@ -30,9 +32,12 @@ use sha2::{Digest, Sha256};
 
 use crate::refusal::{Refusal, RefusalKind, Result};
 
-/// The format's own limit on the header (safetensors spec: 100 MB), the same bound qd-metal
-/// applies.
-pub const MAX_HEADER_BYTES: u64 = 100 * 1024 * 1024;
+/// The bound on the JSON header, in bytes; a longer header is refused before it is read, and the
+/// writer refuses to produce one. 64 MiB is the bound `qd_train.memory.MAX_SAFETENSORS_HEADER_BYTES`
+/// already carries (tested in `python/tests/test_memory.py`). It refuses nothing real: the 2B's
+/// header is ~70 KB, and `MAX_CHECKPOINT_TENSORS` (65,536 tensors) times a ~150-byte entry is
+/// ~10 MB. (The format spec's own ceiling is 100 MB; this is deliberately tighter.)
+pub const MAX_HEADER_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Bytes read per positioned read when streaming a file or a tensor. A multiple of every
 /// element size, so a chunk never splits an element.

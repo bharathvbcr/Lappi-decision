@@ -749,6 +749,7 @@ name = "qd-metal"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "qd-export",
  "qd-runtime",
  "qd-train",
  "serde_json",

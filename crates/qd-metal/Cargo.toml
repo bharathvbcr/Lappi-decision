@@ -42,14 +42,18 @@ path = "src/bin/record_parity.rs"
 #   (progressbar, esaxx_fast) are training-only and are left off.
 #
 # Everything else is already in the workspace. Safetensors are parsed by hand (8-byte header
-# length + serde_json), because the format is that small and a crate for it would be a new
-# dependency for capability std already has.
+# length + serde_json), once, in `qd_export::safetensors`; `src/safetensors.rs` here is an adapter
+# over it (2026-10-12, ft-e0211ba7412). qd-export is a workspace path dependency, not a new
+# third-party one, and qd-metal already reached it through qd-train. It stays tessl-free, so the
+# edge points qd-metal -> qd-export only; qd-export's dev-dependency on qd-metal (the round-trip
+# tests) is a dev-only cycle, which cargo allows.
 #
 # Two workspace crates were added 2026-10-02 (L-metal), neither third-party: `qd-train` for the
 # ledger row and its chained append (one owner of the lock and the chain; `ledger.rs`), and
 # `clap` for `qd-metal-serve`'s flags, the same derive `qd serve` parses with.
 [dependencies]
 clap.workspace = true
+qd-export = { path = "../qd-export" }
 qd-runtime = { path = "../qd-runtime" }
 qd-train = { path = "../qd-train" }
 serde_json.workspace = true

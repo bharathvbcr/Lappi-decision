@@ -1,25 +1,20 @@
-//! A safetensors reader, by hand: `u64` little-endian header length, a JSON header, then the data.
+//! The serving loader's safetensors reader: a thin adapter over `qd_export::safetensors`, which
+//! owns the format (header length, the 64 MiB header bound, JSON parsing, shape/offset/overlap
+//! checks; zero-length headers are refused there). What this module adds is serving-side only:
+//! the three-dtype admission (this loader reads BF16, F16 and F32 and nothing else, checked when
+//! the file is opened), `Refusal` -> [`MetalError`], and the typed accessors tessl's loaders use.
 //!
 //! tessl has no safetensors or mmap helper (`rg -i "safetensor|mmap" tessl/src` is empty; its
-//! loader is `npy.rs`), and the format is small enough that a crate for it would be a new
-//! dependency for what `std` and `serde_json` already do. Reads are positioned
-//! (`FileExt::read_exact_at`) straight into the destination, so a tensor bound for a GPU buffer is
-//! read into the buffer's own mapping with no intermediate copy.
-//!
-//! Everything the header claims is checked before any tensor is read: a tensor's byte length is
-//! its shape times its element size, every range lies inside the file, and no two ranges overlap.
+//! loader is `npy.rs`). Reads are positioned (`FileExt::read_exact_at`, inside qd-export's
+//! reader) straight into the destination, so a tensor bound for a GPU buffer is read into the
+//! buffer's own mapping with no intermediate copy.
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use qd_export::safetensors::SafeTensorsFile;
 
 use crate::error::{MetalError, Result};
-
-/// The format's own limit on the header (safetensors spec: 100 MB).
-const MAX_HEADER_BYTES: u64 = 100 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dtype {
@@ -67,7 +62,7 @@ impl TensorInfo {
 
 pub struct SafeTensors {
     path: PathBuf,
-    file: File,
+    file: SafeTensorsFile,
     tensors: BTreeMap<String, TensorInfo>,
 }
 
@@ -77,25 +72,26 @@ fn bad(path: &Path, msg: impl std::fmt::Display) -> MetalError {
 
 impl SafeTensors {
     pub fn open(path: &Path) -> Result<Self> {
-        let file = File::open(path).map_err(|e| bad(path, e))?;
-        let file_len = file.metadata().map_err(|e| bad(path, e))?.len();
-        if file_len < 8 {
-            return Err(bad(path, format!("{file_len} bytes is too short for a header length")));
+        // A refusal's detail already names the path.
+        let file = SafeTensorsFile::open(path).map_err(|r| MetalError::Weights(r.detail))?;
+        let mut tensors = BTreeMap::new();
+        for (name, t) in file.tensors() {
+            let dtype = Dtype::parse(t.dtype.as_str()).ok_or_else(|| {
+                bad(
+                    path,
+                    format!("{name}: dtype {} is not one this reader loads (BF16, F16, F32)", t.dtype.as_str()),
+                )
+            })?;
+            tensors.insert(
+                name.clone(),
+                TensorInfo {
+                    dtype,
+                    shape: t.shape.clone(),
+                    start: t.start,
+                    end: t.end,
+                },
+            );
         }
-        let mut len_bytes = [0u8; 8];
-        file.read_exact_at(&mut len_bytes, 0).map_err(|e| bad(path, e))?;
-        let header_len = u64::from_le_bytes(len_bytes);
-        if header_len > MAX_HEADER_BYTES {
-            return Err(bad(path, format!("header length {header_len} exceeds {MAX_HEADER_BYTES}")));
-        }
-        let data_start = 8 + header_len;
-        if data_start > file_len {
-            return Err(bad(path, format!("header length {header_len} runs past the end of a {file_len}-byte file")));
-        }
-        // header_len <= 100 MB, so it fits usize.
-        let mut header = vec![0u8; usize::try_from(header_len).map_err(|e| bad(path, e))?];
-        file.read_exact_at(&mut header, 8).map_err(|e| bad(path, e))?;
-        let tensors = parse_header(&header, data_start, file_len).map_err(|m| bad(path, m))?;
         Ok(Self {
             path: path.to_path_buf(),
             file,
@@ -144,9 +140,14 @@ impl SafeTensors {
                 format!("{name}: {} bytes, destination holds {}", info.nbytes(), dst.len()),
             ));
         }
+        let owned = self
+            .file
+            .tensors()
+            .get(name)
+            .ok_or_else(|| bad(&self.path, format!("no tensor named {name}")))?;
         self.file
-            .read_exact_at(dst, info.start)
-            .map_err(|e| bad(&self.path, format!("{name}: {e}")))
+            .read_tensor_range(owned, 0, dst)
+            .map_err(|r| bad(&self.path, format!("{name}: {}", r.detail)))
     }
 
     /// A bf16 tensor of `shape`, as raw bit patterns.
@@ -182,89 +183,10 @@ pub fn widen(dtype: Dtype, bytes: &[u8]) -> Vec<f32> {
     }
 }
 
-fn parse_header(header: &[u8], data_start: u64, file_len: u64) -> std::result::Result<BTreeMap<String, TensorInfo>, String> {
-    let root: Value =
-        serde_json::from_slice(header).map_err(|e| format!("header is not JSON: {e}"))?;
-    let obj = root.as_object().ok_or("header is not a JSON object")?;
-    let data_len = file_len - data_start;
-    let mut tensors = BTreeMap::new();
-    for (name, entry) in obj {
-        if name == "__metadata__" {
-            continue;
-        }
-        let dtype_s = entry
-            .get("dtype")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{name}: no dtype"))?;
-        let dtype = Dtype::parse(dtype_s)
-            .ok_or_else(|| format!("{name}: dtype {dtype_s} is not one this reader loads (BF16, F16, F32)"))?;
-        let shape = entry
-            .get("shape")
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("{name}: no shape"))?
-            .iter()
-            .map(|d| {
-                d.as_u64()
-                    .and_then(|d| usize::try_from(d).ok())
-                    .ok_or_else(|| format!("{name}: shape entry {d} is not a usize"))
-            })
-            .collect::<std::result::Result<Vec<usize>, String>>()?;
-        let offsets = entry
-            .get("data_offsets")
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("{name}: no data_offsets"))?;
-        let [b, e] = offsets.as_slice() else {
-            return Err(format!("{name}: data_offsets has {} entries, not 2", offsets.len()));
-        };
-        let (b, e) = (
-            b.as_u64().ok_or_else(|| format!("{name}: data_offsets[0] is not a u64"))?,
-            e.as_u64().ok_or_else(|| format!("{name}: data_offsets[1] is not a u64"))?,
-        );
-        if e < b || e > data_len {
-            return Err(format!(
-                "{name}: data_offsets [{b}, {e}) do not fit the {data_len}-byte data section"
-            ));
-        }
-        let numel = shape
-            .iter()
-            .try_fold(1usize, |acc, &d| acc.checked_mul(d))
-            .ok_or_else(|| format!("{name}: shape {shape:?} overflows"))?;
-        let want = numel
-            .checked_mul(dtype.size())
-            .ok_or_else(|| format!("{name}: byte size overflows"))?;
-        if u64::try_from(want).map_err(|e| e.to_string())? != e - b {
-            return Err(format!(
-                "{name}: {shape:?} x {} bytes = {want}, but data_offsets span {}",
-                dtype.size(),
-                e - b
-            ));
-        }
-        tensors.insert(
-            name.clone(),
-            TensorInfo {
-                dtype,
-                shape,
-                start: data_start + b,
-                end: data_start + e,
-            },
-        );
-    }
-    let mut ranges: Vec<(&str, u64, u64)> = tensors
-        .iter()
-        .map(|(n, t)| (n.as_str(), t.start, t.end))
-        .collect();
-    ranges.sort_by_key(|r| (r.1, r.2));
-    for w in ranges.windows(2) {
-        if w[1].1 < w[0].2 {
-            return Err(format!("tensors {} and {} overlap", w[0].0, w[1].0));
-        }
-    }
-    Ok(tensors)
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
 

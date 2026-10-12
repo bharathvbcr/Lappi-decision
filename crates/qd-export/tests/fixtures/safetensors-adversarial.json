@@ -1,0 +1,184 @@
+{
+ "schema_version": 1,
+ "readme": "One list of adversarial safetensors files. Every reader (qd_export::SafeTensorsFile, qd_metal::SafeTensors, qd_train.memory) must give `expect` on each case. Build each file as: u64-LE length prefix, header bytes, data_len zero bytes. header = the header text (UTF-8); pad_header_to = if set, append spaces until the header is this many bytes (still valid JSON); header_len = if set, the length prefix instead of the header's real byte length; truncate_to = if set, cut the finished file to this many bytes. rust_error_contains = a substring both Rust readers' error must hold (Python matches on the refusal alone, not the text).",
+ "cases": [
+  {
+   "name": "valid_one_tensor",
+   "why": "baseline: the smallest real file",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "expect": "ok"
+  },
+  {
+   "name": "valid_space_padded_header",
+   "why": "the writer pads the header with spaces to an 8-byte boundary",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "pad_header_to": 64,
+   "data_len": 4,
+   "expect": "ok"
+  },
+  {
+   "name": "valid_header_exactly_64_mib",
+   "why": "the bound is inclusive",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "pad_header_to": 67108864,
+   "data_len": 4,
+   "expect": "ok"
+  },
+  {
+   "name": "header_64_mib_plus_one",
+   "why": "one byte past the bound",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "pad_header_to": 67108865,
+   "data_len": 4,
+   "rust_error_contains": "outside (0, 67108864]",
+   "expect": "refuse"
+  },
+  {
+   "name": "header_65_mib",
+   "why": "a header the old 100 MiB bound accepted",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "pad_header_to": 68157440,
+   "data_len": 4,
+   "rust_error_contains": "outside (0, 67108864]",
+   "expect": "refuse"
+  },
+  {
+   "name": "length_prefix_u64_max",
+   "why": "oversized declared length on a tiny file",
+   "header": "{}",
+   "header_len": 18446744073709551615,
+   "rust_error_contains": "outside (0, 67108864]",
+   "expect": "refuse"
+  },
+  {
+   "name": "zero_length_header",
+   "why": "an empty tensor set is not a model; the old qd-metal reader accepted it",
+   "header": "",
+   "data_len": 16,
+   "rust_error_contains": "outside (0, 67108864]",
+   "expect": "refuse"
+  },
+  {
+   "name": "length_past_end_of_file",
+   "why": "declared header longer than the file",
+   "header": "{}",
+   "header_len": 1000,
+   "rust_error_contains": "runs past",
+   "expect": "refuse"
+  },
+  {
+   "name": "file_shorter_than_length_prefix",
+   "why": "3 bytes: no room for the u64",
+   "header": "{}",
+   "truncate_to": 3,
+   "rust_error_contains": "too short",
+   "expect": "refuse"
+  },
+  {
+   "name": "file_truncated_inside_header",
+   "why": "cut 10 bytes in, mid header",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "truncate_to": 10,
+   "rust_error_contains": "runs past",
+   "expect": "refuse"
+  },
+  {
+   "name": "data_section_shorter_than_offsets",
+   "why": "offsets claim 8 bytes, the file holds 4",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[2],\"data_offsets\":[0,8]}}",
+   "data_len": 4,
+   "rust_error_contains": "do not fit",
+   "expect": "refuse"
+  },
+  {
+   "name": "offsets_out_of_bounds",
+   "why": "a tensor whose end is past the data section",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[4,8]}}",
+   "data_len": 4,
+   "rust_error_contains": "do not fit",
+   "expect": "refuse"
+  },
+  {
+   "name": "offsets_end_before_begin",
+   "why": "reversed range",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[0],\"data_offsets\":[4,0]}}",
+   "data_len": 8,
+   "rust_error_contains": "do not fit",
+   "expect": "refuse"
+  },
+  {
+   "name": "overlapping_offsets",
+   "why": "two tensors sharing bytes",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]},\"b\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[2,6]}}",
+   "data_len": 8,
+   "rust_error_contains": "overlap",
+   "expect": "refuse"
+  },
+  {
+   "name": "offsets_disagree_with_shape",
+   "why": "2 x F32 = 8 bytes but the range spans 4",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[2],\"data_offsets\":[0,4]}}",
+   "data_len": 8,
+   "rust_error_contains": "span 4",
+   "expect": "refuse"
+  },
+  {
+   "name": "shape_product_overflows",
+   "why": "element count overflows usize",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[4294967296,4294967296],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "overflows",
+   "expect": "refuse"
+  },
+  {
+   "name": "negative_shape_entry",
+   "why": "shape entries are unsigned",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[-1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "not a usize",
+   "expect": "refuse"
+  },
+  {
+   "name": "data_offsets_wrong_arity",
+   "why": "one offset instead of two",
+   "header": "{\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0]}}",
+   "data_len": 4,
+   "rust_error_contains": "not 2",
+   "expect": "refuse"
+  },
+  {
+   "name": "missing_dtype",
+   "why": "entry without a dtype",
+   "header": "{\"a\":{\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "no dtype",
+   "expect": "refuse"
+  },
+  {
+   "name": "unknown_dtype",
+   "why": "a dtype the format does not name",
+   "header": "{\"a\":{\"dtype\":\"F7\",\"shape\":[1],\"data_offsets\":[0,1]}}",
+   "data_len": 4,
+   "rust_error_contains": "F7",
+   "expect": "refuse"
+  },
+  {
+   "name": "header_not_json",
+   "why": "text that is not JSON",
+   "header": "not json",
+   "data_len": 4,
+   "rust_error_contains": "not JSON",
+   "expect": "refuse"
+  },
+  {
+   "name": "header_json_array",
+   "why": "JSON, but not an object",
+   "header": "[1]",
+   "data_len": 4,
+   "rust_error_contains": "not a JSON object",
+   "expect": "refuse"
+  }
+ ]
+}
