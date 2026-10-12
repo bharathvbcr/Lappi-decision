@@ -187,6 +187,14 @@
     "average": "A seed average of LoRA-2B averages merged weights only (tools/ckpt_average.py --from lora-merged); averaging A and B separately is refused with a typed error, because mean(B)mean(A) differs from mean(BA). average_may_promote stays false (docs/promotion-decisions.json).",
     "span_head": "Whichever average is ever taken, its span head is declared by the averaging command: either --span-head-seed N (the head of the input whose checkpoint body says seed == N) or the averaged head, recorded in the manifest as span_head_source {mode, seed, input, payload_digest}. Every LoRA-2B seed starts from the same pinned span-head init above. The choice for a promotion-grade average is made in that campaign's own pre-registration before the average is scored; no Mac row averages (one seed)."
   },
+  "controls": {
+    "shuffled_label": {
+      "seeds": 3,
+      "rule": "For any promotion-grade LoRA-2B campaign: 3 seeds on the full schedule, with at least three seeds carrying a shuffled_label control that ran and passed; a control that ran and failed on any seed still blocks. This is docs/promotion-decisions.json shuffled_label_seeds (the human, 2026-10-08); D6 states no other count.",
+      "mac": "No Mac row carries it: a Mac row is one seed and quick, and cannot promote.",
+      "added_by": "amendment, see amendments[0]"
+    }
+  },
   "ledger": {
     "label": "recipe.optimizer_recipe = 'lora'",
     "kind": "every Mac row quick=true with a quick_reason naming the one seed and the truncated schedule",
@@ -199,7 +207,14 @@
     "The 4B base (a box, not this track).",
     "The peft round-trip export test (needs the human to install peft; not asked)."
   ],
-  "amendments": [],
+  "amendments": [
+    {
+      "n": 0,
+      "recorded": "2026-10-12, after commit 8ad00b0 and before any LoRA-2B result exists anywhere",
+      "what": "added controls.shuffled_label (3 seeds, per the human's 2026-10-08 re-spec) to the pre-registration, which had said only 'plus controls'",
+      "why": "a verifier found D6's shuffled-label control count missing from the file; no result had been read, so this is an amendment before any result"
+    }
+  ],
   "amendments_rule": "An amendment made after any LoRA-2B result has been read is void. A change before that is a commit that says what changed and why, and leaves the original text in the history.",
   "committed_by": "fix lane lane4-lora-ckpt (Sonnet), board-sweep fix lanes 2026-10-12, from the rulings named in design_by. Written without reading a result: none exists."
 }
