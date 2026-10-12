@@ -31,11 +31,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from .caller_records import assert_no_caller_records
+from .caller_records import assert_no_caller_records, jsonl_lines
 from .errors import QdRefusal
 from .sources import Reachability, source_by_id
 
@@ -585,7 +586,7 @@ def read_jsonl(
     assert_no_caller_records(path)
     out: list[dict[str, Any]] = []
     capped = False
-    with path.open("r", encoding="utf-8") as fh:
+    with closing(jsonl_lines(path)) as fh:
         for lineno, line in enumerate(fh, start=1):
             if not line.strip():
                 continue

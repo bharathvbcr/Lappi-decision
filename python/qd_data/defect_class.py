@@ -73,11 +73,12 @@ import json
 import re
 from collections import Counter
 from collections.abc import Mapping
+from contextlib import closing
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final
 
-from .caller_records import assert_no_caller_records
+from .caller_records import assert_no_caller_records, jsonl_lines
 from .config import DataConfig
 from .errors import NOUL, LicenceRefused
 from .licences import admit_licence, normalise_licence
@@ -483,7 +484,7 @@ def _load_licences(download_root: Path) -> dict[str, str]:
         path = download_root / f"{lang}.jsonl"
         assert_no_caller_records(path)
         _check_sha(path, str(meta["sha256"]), recorded_in=manifest_path)
-        with path.open(encoding="utf-8") as fh:
+        with closing(jsonl_lines(path)) as fh:
             for lineno, line in enumerate(fh, 1):
                 if not line.strip():
                     continue
@@ -506,7 +507,7 @@ def _load_pool_ids(pool_path: Path) -> dict[str, str]:
     """``pool id -> repo``. The repo is kept to cross-check the example's own claim."""
     assert_no_caller_records(pool_path)
     out: dict[str, str] = {}
-    with pool_path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(pool_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -744,7 +745,7 @@ def load_defect_rows(
     unresolved_pool: list[str] = []
     unresolved_licence: list[str] = []
     repo_mismatch: list[str] = []
-    with examples_path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(examples_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -1027,7 +1028,7 @@ def _load_noul(
     rows: list[DefectRow] = []
     bad: Counter[str] = Counter()
     first_bad: list[str] = []
-    with examples_path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(examples_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -1126,7 +1127,7 @@ def own_prose_ascii_ratio(text: str) -> float:
 def _json_lines(path: Path, *, config: DataConfig, limit: int) -> list[dict[str, Any]]:
     assert_no_caller_records(path)
     out: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -1642,7 +1643,7 @@ def noul_allowlist(
     assert_no_caller_records(squad)
 
     titles: set[str] = set()
-    with Path(squad).open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(Path(squad))) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -1772,7 +1773,7 @@ def noul_v5_allowlist(
         before: Counter[str] = Counter()
         excluded: Counter[str] = Counter()
         admitted: list[list[Any]] = []
-        with path.open(encoding="utf-8") as fh:
+        with closing(jsonl_lines(path)) as fh:
             for lineno, line in enumerate(fh, 1):
                 if not line.strip():
                     continue

@@ -77,6 +77,7 @@ import torch  # noqa: E402
 from repo_git import git_bytes, tracked_paths  # noqa: E402
 from run_cost import n_gpus_for_device  # noqa: E402
 
+from qd_data.caller_records import jsonl_lines  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa: E402
@@ -241,11 +242,7 @@ def generate_examples(
         ],
         check=True, capture_output=True, text=True,
     )
-    examples = [
-        json.loads(line)
-        for line in examples_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    examples = [json.loads(line) for line in jsonl_lines(examples_path) if line.strip()]
     return examples, json.loads(manifest_path.read_text(encoding="utf-8"))
 
 

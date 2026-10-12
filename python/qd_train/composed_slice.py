@@ -41,10 +41,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from qd_data.caller_records import jsonl_lines
 from qd_data.defect_class import CONTEXT_HEADER_LINES
 
 from .needle import DEPTH_BUCKETS, depth_bucket_label, wilson_interval
@@ -304,7 +306,7 @@ def load_cases(paths: Iterable[Path], *, max_rows: int = MAX_SLICE_ROWS) -> dict
     """Every row of the slice's corpus files, keyed by shard row id; a repeat is refused."""
     cases: dict[str, ComposedCase] = {}
     for path in paths:
-        with path.open(encoding="utf-8") as fh:
+        with closing(jsonl_lines(path)) as fh:
             for n, raw in enumerate(fh, 1):
                 if not raw.strip():
                     continue

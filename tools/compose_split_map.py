@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
-from qd_data.caller_records import scan_stream
+from qd_data.caller_records import scan_stream, split_jsonl_text
 from qd_data.config import DataConfig
 from qd_data.split import assign_repo
 from qd_train.data_access import assert_path_not_held_out
@@ -53,7 +53,7 @@ def split_map(
     scan_stream(io.BytesIO(raw), label=str(pool), max_bytes=max(len(raw), 1))
     repos: dict[str, str] = {}
     records = 0
-    for lineno, line in enumerate(raw.decode("utf-8").splitlines(), 1):
+    for lineno, line in enumerate(split_jsonl_text(raw.decode("utf-8")), 1):
         if not line.strip():
             continue
         if len(line.encode("utf-8")) > 12 * 1024 * 1024:

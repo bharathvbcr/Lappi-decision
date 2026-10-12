@@ -32,8 +32,9 @@ verdicts:
   writes no record over 64 KiB). The budget is on the line's content, without its ``\\n`` or
   ``\\r\\n``, so a record of exactly the bound is scanned.
 
-**A line is what ends in ``\\n``, with an optional preceding ``\\r`` stripped.** The separator
-refusal above is defence in depth for a reader that splits on more.
+**A line is what ends in ``\\n``, with an optional preceding ``\\r`` stripped.** Every reader on
+the way to training splits that way (:func:`jsonl_lines`, :func:`split_jsonl_text`); the
+separator refusal above is defence in depth for a reader that does not.
 
 There is no sniff of the first byte: a file whose first line is garbage, a comment, a JSON string
 or an array is scanned like any other.
@@ -51,6 +52,7 @@ from __future__ import annotations
 import json
 import re
 import stat
+from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO, Final
 
@@ -61,7 +63,9 @@ __all__ = [
     "CallerRecordRefusal",
     "assert_no_caller_records",
     "is_caller_record_line",
+    "jsonl_lines",
     "scan_stream",
+    "split_jsonl_text",
 ]
 
 #: ``qd_runtime::caller_record::RECORD``. A prefix, so a later version is refused too.
@@ -228,6 +232,35 @@ def _refuse_foreign_break(label: str, line_no: int, what: str) -> CallerRecordRe
         "guard does not; a reader that did could read a record behind it. Refused rather than "
         "passed as clean (CLAUDE.md rule 3)",
     )
+
+
+def split_jsonl_text(text: str) -> list[str]:
+    """``text`` as the guard splits it: on ``\\n`` alone, a preceding ``\\r`` stripped.
+
+    The canonical split for a JSONL reader that holds the whole text. Not ``str.splitlines()``
+    (which also splits on ``\\r``, ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e``, U+0085, U+2028 and
+    U+2029, so a row whose string value holds one is cut in two and a record can be hidden
+    behind one) and not a universal-newline read (which splits on a bare ``\\r``). Terminators
+    are dropped, and a final ``\\n`` does not open an empty last line.
+    """
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return [line[:-1] if line.endswith("\r") else line for line in lines]
+
+
+def jsonl_lines(path: Path | str) -> Iterator[str]:
+    """Each line of a UTF-8 JSONL file, split exactly as the guard splits it, streaming.
+
+    A line keeps its ``\\n`` and a ``\\r\\n`` ending reads as ``\\n``, which is what a
+    universal-newline text read yielded before, so a row-byte bound sees the same length. A bare
+    ``\\r`` is data here (the guard refuses a file that holds one). The one iterator every
+    JSONL reader on the way to training uses; a reader that opens the file itself in text mode
+    splits on more than the guard does.
+    """
+    with Path(path).open(encoding="utf-8", newline="\n") as fh:
+        for line in fh:
+            yield line[:-2] + "\n" if line.endswith("\r\n") else line
 
 
 def scan_stream(

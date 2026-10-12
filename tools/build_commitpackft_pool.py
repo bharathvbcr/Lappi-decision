@@ -49,7 +49,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 
-from qd_data.caller_records import assert_no_caller_records  # noqa: E402
+from qd_data.caller_records import assert_no_caller_records, jsonl_lines  # noqa: E402
 from qd_data.licences import LicenceTier, classify  # noqa: E402
 from qd_data.loaders import parse_commitpackft  # noqa: E402
 
@@ -96,7 +96,7 @@ def build(source_dir: Path, out_path: Path, *, max_records: int | None) -> dict[
 
     with out_path.open("w", encoding="utf-8") as sink:
         for path in sources:
-            for index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+            for index, line in enumerate(jsonl_lines(path)):
                 if not line.strip():
                     continue
                 if max_records is not None and kept >= max_records:

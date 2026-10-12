@@ -71,7 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from repo_git import git_bytes, git_text, require_full_sha, resolve_rev, tracked_paths
 
-from qd_data.caller_records import assert_no_caller_records
+from qd_data.caller_records import assert_no_caller_records, jsonl_lines, split_jsonl_text
 from qd_data.config import DataConfig
 from qd_data.decisions import load_decision_pool, pool_data_config
 from qd_data.dedupe import dedupe
@@ -329,7 +329,7 @@ def commitpackft_pool_rows(
                 f"{path} hashes to {actual} but {root / 'manifest.json'} records {sha}: the "
                 "file changed after it was downloaded, so which rows it holds cannot be stated"
             )
-        for index, line in enumerate(data.decode("utf-8").splitlines()):
+        for index, line in enumerate(split_jsonl_text(data.decode("utf-8"))):
             if line.strip():
                 rows.append(parse_commitpackft(json.loads(line), index=index))
     total = len(rows)
@@ -1124,7 +1124,7 @@ def load_report_only_slice(
     halves: collections.Counter[str] = collections.Counter()
     bad: collections.Counter[str] = collections.Counter()
     first_bad: list[str] = []
-    with examples_path.open(encoding="utf-8") as fh:
+    with contextlib.closing(jsonl_lines(examples_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
