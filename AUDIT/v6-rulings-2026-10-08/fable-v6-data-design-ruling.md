@@ -69,7 +69,7 @@ The new train rows total about 69,900, roughly 40M tokens [I]. The defect share 
   - The pipeline asserts that the built train count for `knowledge.multiple_choice` is 0, or it refuses.
   - The 1,200 `knowledge.multiple_choice` contrast rows move to `commonsense.multiple_choice`, which holds 2,000 in total.
   - Both rules are in the fingerprint. That is correct for v6 and leaves v5's pins alone.
-  - GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND is closed for v6 by this wiring; v5 stays lexical.
+  - GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND-2026-10-03 is closed for v6 by this wiring; v5 stays lexical.
 - **convert-injections is not in v6.**
   - The email pool already carries label-flip injections from its own templates (`injection_rate 0.1`).
   - The external corpus is not a decisions pool.

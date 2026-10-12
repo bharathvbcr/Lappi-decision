@@ -124,7 +124,7 @@ pins may fail on either kernel [I]. 9c563ed is on `origin/main` [R, reconciler D
 - After the revert: `bash tools/mac_heavy.sh gpu-pin cargo test --release -p qd-metal --test gpu --
   --ignored` (all 7). If the pins pass on tessl 0b1124f: done, no new pin, `PIN_TESSL_HEAD` is
   updated to 0b1124f in the same commit with the ledger row id of that run. If they fail: that is
-  tessl drift, not Lappi's; the lane records a `GAP-QD-METAL-PINS-MOVED-WITH-TESSL-0b1124f-2026-10-12`
+  tessl drift, not Lappi's; the lane records a `GAP-QD-METAL-PINS-MOVED-WITH-TESSL-0B1124F-2026-10-12`
   with the four digests observed, and the re-pin + `qd-metal-parity` run becomes a human-owned item
   (public numbers rest on it). No re-pin on `attn_prefill_by_length` in this sweep.
 - **The "halves" claim is removed now**, not hedged: `docs/schema-api.md:471-472` becomes "packs both
