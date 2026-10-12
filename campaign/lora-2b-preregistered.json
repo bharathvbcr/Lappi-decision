@@ -1,0 +1,205 @@
+{
+  "name": "lora-2b",
+  "recorded": "2026-10-12, before any LoRA-2B smoke, memory row, trajectory or score exists anywhere: no LoRA-2B run has been made on any stack and no result of one has been read. The only reads behind this record are the rulings and decisions named in design_by, the safetensors headers of the two downloaded base snapshots (dtype names and shapes, no tensor data; AUDIT/lora-2b-2026-10-09/downloads.md) and the pinned init files' digests. Written from Fable's D6 table; amendments made after any LoRA-2B result is read are void (see amendments).",
+  "status": "quick, Mac only, report-only for promotion. Every Mac row of this family is quick (one seed, truncated schedule; rule 8) and cannot promote anything. A promotion-grade LoRA-2B campaign is a box campaign with its own pre-registration (3 seeds on the full schedule plus controls); nothing here registers it.",
+  "design_by": "AUDIT/lora-2b-2026-10-09/fable-ft-decisions.md D1-D8 (Fable, 2026-10-09; D6 is the table below); AUDIT/lora-2b-2026-10-09/human-decisions.md (the human, 2026-10-09: approved the table, D2 head, D4 base and downloads, D8 GPU plan); AUDIT/board-sweep-2026-10-12/fable-board-sweep-ruling.md rulings 2a (stored-F32 tensors), 2g (span-head source) and 2h (this file, the optimizer_recipe labels).",
+  "words": {
+    "not_comparable": "LoRA-2B rows are not comparable to v5 rows (or to v0.1/v6 full-fine-tune rows) and are never pooled with them. Every knob below differs from v5's recipe, so no row-for-row reading exists. The comparison is gate verdicts and val metrics on identical sets (the same gates, thresholds, held-out and val sets as v5; rule 2: nothing here moves a threshold, a seed count or a held-out set).",
+    "quick": "A Mac row is quick (one seed, truncated schedule) and cannot promote.",
+    "letter_ce": "The full-vocabulary letter cross entropy at the answer positions is logged on every LoRA-2B row, report-only, with no gradient. It exists so the v0.1 'letter floor' number is available; it gates nothing.",
+    "claim_the_mac_row_may_make": "a Rust trainer in ojas over canonical tessl kernels trained a Lappi LoRA checkpoint on the M5 Pro; the campaign's scorer scored it at X; row <id>, quick=True. Nothing stronger."
+  },
+  "family": {
+    "id": "lora-2b",
+    "optimizer_recipe": "lora",
+    "optimizer_recipe_note": "A new value in tools/real_ft_run.py OPTIMIZER_RECIPES, so precaution 5's filter never pools a LoRA row with 'master'. The Metal full-fine-tune path's AdamW over f32 parameters is labelled 'f32' (ruling 2h) and is a different family from this one.",
+    "ledger_pooling": "A ledger reader that pools by optimizer_recipe must not pool 'lora' with 'master', 'bf16', 'kahan' or 'f32'."
+  },
+  "base": {
+    "run_model": {
+      "repo": "Qwen/Qwen3.5-2B-Base",
+      "snapshot": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+      "safetensors_sha256": "928acbf11878c32185bbd863514d191769285065ab9ea14fbfe431303f5fdf2d",
+      "tokenizer_json_sha256": "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927",
+      "hidden": 2048,
+      "layers": 24,
+      "gdn_layers": 18,
+      "full_attention_layers": 6
+    },
+    "smoke_model": {
+      "repo": "Qwen/Qwen3.5-0.8B-Base",
+      "snapshot": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68",
+      "safetensors_sha256": "c2b1e5a17d9c1e27685d92ed9b382911ebb99955ecd89052d1721241adfbab6c",
+      "tokenizer_json_sha256": "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927",
+      "hidden": 1024,
+      "layers": 24
+    },
+    "source": "AUDIT/lora-2b-2026-10-09/downloads.md",
+    "precision": "D3: frozen base resident in bf16, GEMM operands bf16 with f32 accumulation, f32 residual stream, f32 LoRA/head/norm parameters and optimizer state. No 8-bit or 4-bit (gated on Fable's D3 measurement; not built here).",
+    "stored_f32_tensors": {
+      "rule": "The 36 tensors the checkpoint stores as F32 (layers.<i>.linear_attn.A_log and layers.<i>.linear_attn.norm.weight in each of the 18 GDN layers) stay f32-resident in the frozen base (ruling 2a). The torch reference arm loads with load_text_tower(..., keep_stored_dtype=<those 36 names>); the default load (v5/v6) casts them to bf16 and is unchanged.",
+      "count": 36,
+      "dtype_map_sha256": "f03e32c6115fe57e701de501b202232e53b0ec28339cc25aa75d7b6c85c5641a",
+      "dtype_map_formula": "sha256 over '\\n'.join(f'{name}\\t{dtype}' for name in sorted(text tensor names)), the 'model.language_model.' prefix stripped, dtype as the safetensors header spells it (F32, BF16)",
+      "f32_names_sha256": "e8f4db87650ee41693ee41fbb719ed14782b1d984d3b924b7a06ac99109ab9b1",
+      "f32_names_formula": "sha256 over '\\n'.join(sorted names stored F32), same prefix stripped",
+      "holds_for": "both snapshots above (identical digests)"
+    }
+  },
+  "data": {
+    "shape": "v5's: the v5r shard set read by Lappi's shard reader unchanged, width-bucketed rows up to 9,638 tokens, --batch-order seed. Seq 2048 and an 8x4 sequence batch are refused as the training width and batch.",
+    "train_shard": {"path": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train", "shard_hash": "108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4", "sequences": 558790, "tokens": 386246788, "max_width": 9638},
+    "val_shard": {"path": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/val", "shard_hash": "a485e7f7056d22b9f7e6baf8f19ae64b313db9f3b77b504a094ff1caae3f5d0f"},
+    "remap_hash": "e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab",
+    "source_of_pins": "campaign/v5-preregistered.json amendments_pending (filled 2026-10-03). A LoRA-2B row whose train shard hash differs from the one above is not a LoRA-2B-registered row.",
+    "held_out": "Held-out data and the two task-holdout families are never read by a training process (rule 3); the held-out set is read by the scorer only, as for v5.",
+    "gates": "The gates, thresholds, val set and held-out set are v5's, unchanged (rule 2). This file defines no new gate."
+  },
+  "recipe": {
+    "width": {
+      "max_seq_len": 10240,
+      "widest_row_tokens": 9638,
+      "bucketing": "v5's token-budget buckets",
+      "fallback": "If a measured step at T=9,638, micro-batch 1, gradient checkpointing on, does not fit the Metal working set: cap the bucket at 8,192 and drop (not truncate) every row above it, record the dropped-row count in the row, and read the needle gate as is. This is the only width change permitted, and only on that measurement.",
+      "memory_row": "The T=9,638 memory row is measured before the Mac run (peak device bytes, ledger row, quick)."
+    },
+    "batch": {"token_budget": 35403, "grad_accum": 1, "batch_order": "seed", "note": "The corpus plan is drawn at the run seed, as v5's was (corpus.plan_seed). One step is one batch, so the accumulation-weighting question (audit G7/B5) does not arise for the run; a smoke that uses grad_accum > 1 must weight by valid share."},
+    "loss": {
+      "reduction": "mean over the supervised positions of the batch",
+      "choice": "17-way cross entropy over the 17 answer rows, f32, from the f32 residual stream (D2)",
+      "span": "the span pointer head's loss as in v5 (weight 1.0)",
+      "report_only": "full-vocabulary letter CE at the same positions, no gradient"
+    },
+    "lora": {
+      "r": 16,
+      "alpha": 16,
+      "scaling": "alpha / r",
+      "dropout": 0,
+      "target_suffixes": [
+        "self_attn.q_proj",
+        "self_attn.k_proj",
+        "self_attn.v_proj",
+        "self_attn.o_proj",
+        "linear_attn.in_proj_qkv",
+        "linear_attn.in_proj_z",
+        "linear_attn.out_proj",
+        "mlp.gate_proj",
+        "mlp.up_proj",
+        "mlp.down_proj"
+      ],
+      "not_adapted": ["linear_attn.in_proj_a", "linear_attn.in_proj_b"],
+      "adapted_linears_at_2b": 150,
+      "adapted_linears_count_rule": "24 MLPs x 3 + 6 attention layers x 4 + 18 GDN layers x 3",
+      "embedding": "frozen",
+      "frozen": "every parameter outside the adapters, D17 and the span head (embedding, norms, the 36 stored-F32 tensors, conv, dt_bias, in_proj_a/b)",
+      "ablation": "One r=64 arm if budget allows; it is a separate row with its own label, and not registered as a gate.",
+      "reference": "python/qd_train/lora.py (plain torch; no peft, bitsandbytes or unsloth)"
+    },
+    "head": {
+      "readout": "Lappi's 17-row readout kept: up to 16 letters plus noul, softmax over those rows of the tied embedding. No Clef head for this model.",
+      "d17": "A trainable f32 delta D17 [17, H] over the frozen embedding's answer rows, init 0; served as embed[answer ids] + D17.",
+      "d17_rows": 17,
+      "span_head": "SpanPointerHead as v5's, host f32, init pinned below"
+    },
+    "optimizer": {
+      "algorithm": "AdamW",
+      "betas": [0.9, 0.999],
+      "eps": 1e-8,
+      "weight_decay": 0.01,
+      "weight_decay_scope": "every trainable tensor (no bias or norm trains)",
+      "lr": {"lora": 2e-4, "d17": 1e-4, "span_head": 1e-4},
+      "lr_scale_form": "one schedule at peak 2e-4; D17 and the span head run at lr_scale 0.5 (1e-4 at the peak, same warmup and cosine)",
+      "layerwise_split": "None. v5's 0.1x lower-layer split is dropped for LoRA. RSI-Jev's recorded prior (python/qd_train/optim.py: 'freezing those layers instead costs decision accuracy') is a prior against a frozen base; the shuffled-label control and the gates are what test it.",
+      "implementation_note": "Reference arm: qd_train.optim.build_optimizer(ADAMW_FP32) over fp32 leaves is torch.optim.AdamW (MasterWeightAdamW refuses an all-fp32 list by design), driven by apply_lr over the groups; both are unchanged."
+    },
+    "schedule": {
+      "class": "qd_train.run_control.LRSchedule",
+      "warmup_steps": "max(1, steps // 20)",
+      "min_lr": 0.0,
+      "shape": "linear warmup (step+1)/warmup then cosine to min_lr 0",
+      "not": "not warmup 10, not HF's step/W form"
+    },
+    "steps": {
+      "full_recipe": "1 epoch (v5's 12,176 steps per seed). Registered as the full recipe; no Mac row runs it.",
+      "mac": "a truncated schedule of about 200 to 400 steps inside the approved 3-6 h window; quick."
+    }
+  },
+  "init": {
+    "span_head": {
+      "h2048": {
+        "file": "data/checkpoints/span-head-init/span_head_init-seed0.safetensors",
+        "sha256": "d2dafb2c1f466632ae72dbc0b811cd7ebed1230cb3952a2ac9710b3ff710b163",
+        "content_digest": "1c30346c9ea8c1fe12cbc41d556587187ad5a27fe165ac7bc9c69d6bcd7def68",
+        "manifest": "crates/qd-train/tests/fixtures/span-head-init-seed0.manifest.json"
+      },
+      "h1024": {
+        "what": "the seed-0 init at the 0.8B smoke model's hidden size, built by the same generator",
+        "sha256": "63088ca9085f18f3252c292aa587813b0c6174113397336c25e8d9978cf2c2a0",
+        "content_digest": "8005f2c329fc679cadf8a408eaa2ebaabeec8682dd3ad4a5183d741559ad327c",
+        "command": "PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python tools/qd_train_oracle_span_head_init.py --hidden 1024 --seed 0 --out <path> --manifest <path>",
+        "generated_with": "python 3.14.7, torch 2.12.1, safetensors 0.8.0, cpu; the content digest is the one that binds, the file sha256 depends on the safetensors writer"
+      }
+    },
+    "d17": {
+      "value": "all zeros, float32, shape [17, hidden]",
+      "tensor_ref_digest_h2048": "3cc3a7841d5ed3eb42c91252514a6c2211f207923fb0406c3fe18e87a07cfbbf",
+      "tensor_ref_digest_h1024": "6b042150cbda948d9cba9be68cb31666b55a456dfbfd4d3b52aa550c2974dfe9",
+      "formula": "run_control.TensorRef.digest of a float32 zero tensor of that shape"
+    },
+    "lora_a": {
+      "rule": "kaiming_uniform_(a=sqrt(5)) on each [r, in] A (so U(+-1/sqrt(in))), drawn from one CPU torch.Generator seeded with the run seed, visiting the adapted modules in model.named_modules() order (qd_train.lora.attach_lora). B = 0.",
+      "pinned_as": "a rule: the A digest is not fixed here, because it is a function of the run seed. The value is recorded in the row and checked against this rule by recomputing it with attach_lora at that seed; a mismatch voids the row.",
+      "shapes": "[16, in_features] per adapted linear, in_features read from the snapshot"
+    },
+    "record_in_every_row": ["span-head init content digest", "D17 init digest", "LoRA-A digest (recomputed against the rule)", "base snapshot and safetensors sha256", "dtype_map_sha256", "corpus.plan_seed", "train shard hash"]
+  },
+  "smoke": {
+    "model": "Qwen/Qwen3.5-0.8B-Base",
+    "steps": 60,
+    "warmup": "max(1, steps // 20), as the recipe (Unsloth's warmup 10 is not used)",
+    "objectives": "The smoke runs both objectives (17-way over the answer rows vs the full-vocabulary letter CE) on the same seed and batch order.",
+    "default_registered": "17-way (D2).",
+    "switch_rule": "If the full-vocabulary objective beats the 17-way objective on val_top1.choice by more than 2 points AND gives a lower in-distribution abstention count, this pre-registration names the full-vocabulary objective instead for the 2B reduced run. The rule is written here, before the smoke exists; it is a decision between two registered arms and not a gate.",
+    "quick": true,
+    "promotes": false
+  },
+  "bounds": {
+    "source": "Fable D7, written before any run",
+    "a_prime": "op level, CPU f32, tiny fixture (batch >= 2, >= 2 GDN heads, vocab > 8192, -100 labels): LoRA forward loss <= 1e-5 relative; dX, dA, dB within 1e-5 of each tensor's max; no dW allocated; frozen leaves' gradients absent, not zero. The reference arm's own tests (python/tests/test_lora_reference.py) hold the Python side of this.",
+    "b_prime": "20-step tiny trajectory, torch fp32 CPU vs ojas CPU Exact: per-step loss <= 1e-5 relative (steps 0-5), <= 1e-4 (to 20); final A, B, D17 within 1e-5 of each tensor's max; two ojas runs bit-identical; Metal vs CPU <= 2^-8 on loss with bf16 operands.",
+    "c_prime": "real 2B Tape vs provider at T=128, and Tape-with-LoRA at B=0 loss bit-equal to Tape-without-LoRA on CPU.",
+    "d_prime": "0.8B 60-step smoke and the 2B reduced run vs torch MPS bf16 autocast, same seed, init digests and batch order: |delta loss| <= 0.02 nats steps 1-50, EMA(0.9) <= 0.05 after; the fp32 torch arm on CPU for the 0.8B smoke is the tight pin (report-only at 2B). If the torch arm cannot run the 2B at T=9,638 on MPS, d' is applied to the 0.8B smoke only and the 2B row says 'no reference arm at this shape' in its quick reason.",
+    "not_run": "b', c' and d' need the ojas Tape StepProvider and the heavy slot; this record registers them and does not run them."
+  },
+  "mac_rows": {
+    "rule": "Every Mac row below is quick and cannot promote. A row that is not quick is not a Mac row.",
+    "rows": [
+      {"id": "gating-2b-instruct-tape", "what": "the real-2B Tape run on the local Qwen3.5-2B instruct weights (D1's gate), about 1 h", "quick": true, "promotes": false},
+      {"id": "memory-T2048-and-T9638", "what": "peak device bytes at T=2,048 and T=9,638, micro-batch 1, checkpointing on, about 1 h", "quick": true, "promotes": false},
+      {"id": "smoke-0.8b-60step", "what": "the 0.8B-Base 60-step smoke with its torch arm, about 2 h", "quick": true, "promotes": false},
+      {"id": "reduced-2b", "what": "the reduced 2B-Base run, a truncated schedule inside the approved 3-6 h window", "quick": true, "promotes": false}
+    ],
+    "quick_reason": "one seed; a truncated schedule; neither is a full recipe (rule 8)",
+    "no_full_mac_campaign": "A full-schedule 3-seed Mac campaign (about 500-600 GPU-hours) is not requested and not registered."
+  },
+  "release_and_averaging": {
+    "release": "A merged dense bf16 tower (W' = W + (alpha/r) B A in f32, rounded once to bf16, RNE), D17 and span_head.safetensors (f32), through ckpt_average to qd-export to qd-metal. Adapters (with D17 and the span head) are the checkpoint and resume unit and are not served.",
+    "average": "A seed average of LoRA-2B averages merged weights only (tools/ckpt_average.py --lora-merged); averaging A and B separately is refused with a typed error, because mean(B)mean(A) differs from mean(BA). average_may_promote stays false (docs/promotion-decisions.json).",
+    "span_head": "Whichever average is ever taken, its span head is declared by the averaging command: either --span-head-seed N (the head of the input whose checkpoint body says seed == N) or the averaged head, recorded in the manifest as span_head_source {mode, seed, input, payload_digest}. Every LoRA-2B seed starts from the same pinned span-head init above. The choice for a promotion-grade average is made in that campaign's own pre-registration before the average is scored; no Mac row averages (one seed)."
+  },
+  "ledger": {
+    "label": "recipe.optimizer_recipe = 'lora'",
+    "kind": "every Mac row quick=true with a quick_reason naming the one seed and the truncated schedule",
+    "numbers": "A number in a report cites a ledger row id (rule 5); a suite that could not run is reported as not run."
+  },
+  "not_decided_here": [
+    "The Tape StepProvider, the ojas-train move and the b'/c'/d' runs (ojas side).",
+    "D17 in qd-export and qd-metal (wave 2, lane 2b).",
+    "Any 8-bit or 4-bit format (Fable D3: gated on the mlx measurement and a demonstrated memory need).",
+    "The 4B base (a box, not this track).",
+    "The peft round-trip export test (needs the human to install peft; not asked)."
+  ],
+  "amendments": [],
+  "amendments_rule": "An amendment made after any LoRA-2B result has been read is void. A change before that is a commit that says what changed and why, and leaves the original text in the history.",
+  "committed_by": "fix lane lane4-lora-ckpt (Sonnet), board-sweep fix lanes 2026-10-12, from the rulings named in design_by. Written without reading a result: none exists."
+}
