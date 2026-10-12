@@ -235,6 +235,52 @@
    "data_len": 4,
    "rust_error_contains": "not JSON",
    "expect": "refuse"
+  },
+  {
+   "name": "integer_literal_overflows_to_infinity_positive",
+   "why": "a 401-digit integer is out of range for serde_json (it falls to f64 and is infinite); python's int() takes it",
+   "header": "{\"__metadata__\":{\"x\":10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "not JSON",
+   "expect": "refuse"
+  },
+  {
+   "name": "integer_literal_overflows_to_infinity_negative",
+   "why": "the negative twin of the 401-digit integer",
+   "header": "{\"__metadata__\":{\"x\":-10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "not JSON",
+   "expect": "refuse"
+  },
+  {
+   "name": "integer_two_pow_64_is_accepted",
+   "why": "2^64 does not fit u64 but is a finite f64: serde_json and python both accept it",
+   "header": "{\"__metadata__\":{\"x\":18446744073709551616},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "expect": "ok"
+  },
+  {
+   "name": "lone_surrogate_escape_in_metadata_value",
+   "why": "\\ud800 is a lone surrogate: serde_json refuses it; python's json.loads decodes it to an unencodable str",
+   "header": "{\"__metadata__\":{\"x\":\"\\ud800\"},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "not JSON",
+   "expect": "refuse"
+  },
+  {
+   "name": "lone_surrogate_escape_in_key",
+   "why": "the same escape in an object key",
+   "header": "{\"__metadata__\":{\"\\ud800\":\"x\"},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "not JSON",
+   "expect": "refuse"
+  },
+  {
+   "name": "paired_surrogate_escape_is_accepted",
+   "why": "\\ud83d\\ude00 is a valid pair (one scalar): both sides accept",
+   "header": "{\"__metadata__\":{\"x\":\"\\ud83d\\ude00\"},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "expect": "ok"
   }
  ]
 }

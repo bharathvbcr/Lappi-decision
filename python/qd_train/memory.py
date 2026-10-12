@@ -431,6 +431,22 @@ def _json_depth(value: Any) -> int:
     return deepest
 
 
+def _require_encodable_strings(value: Any) -> None:
+    """Refuse a lone surrogate in any decoded string, keys included (serde_json refuses the
+    escape; Python's `json` decodes it to a str that cannot be encoded)."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            item.encode("utf-8")
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                key.encode("utf-8")
+                stack.append(child)
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
 def safetensors_header(path: Path) -> dict[str, Any]:
     """The JSON header of one safetensors file, without reading a byte of tensor data."""
     path = Path(path)
@@ -457,14 +473,24 @@ def safetensors_header(path: Path) -> dict[str, Any]:
     def _finite(text: str) -> float:
         value = float(text)
         if math.isinf(value):
-            raise ValueError(f"number {text} is out of range")
+            raise ValueError(f"number {text[:24]}... is out of range")
         return value
+
+    def _finite_int(text: str) -> int:
+        # serde_json reads an integer too big for u64/i64 as an f64 and refuses an infinite one;
+        # 2**64 is finite and accepted by both.
+        _finite(text)
+        return int(text)
 
     try:
         header = json.loads(
-            raw.decode("utf-8"), parse_constant=_no_constant, parse_float=_finite
+            raw.decode("utf-8"),
+            parse_constant=_no_constant,
+            parse_float=_finite,
+            parse_int=_finite_int,
         )
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        _require_encodable_strings(header)
+    except (UnicodeError, ValueError, RecursionError) as exc:
         raise CheckpointRefused(f"{path}: safetensors header is not JSON: {exc}") from exc
     if _json_depth(header) > _MAX_JSON_DEPTH:
         raise CheckpointRefused(
