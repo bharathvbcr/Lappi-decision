@@ -71,6 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from repo_git import git_bytes, git_text, require_full_sha, resolve_rev, tracked_paths
 
+from qd_data.caller_records import assert_no_caller_records
 from qd_data.config import DataConfig
 from qd_data.decisions import load_decision_pool, pool_data_config
 from qd_data.dedupe import dedupe
@@ -320,6 +321,7 @@ def commitpackft_pool_rows(
     rows: list[CommitPackFtRow] = []
     for lang, sha in expected.items():
         path = root / f"{lang}.jsonl"
+        assert_no_caller_records(path)
         data = path.read_bytes()
         actual = hashlib.sha256(data).hexdigest()
         if actual != sha:
@@ -1088,6 +1090,7 @@ def load_report_only_slice(
     manifest_path = slice_dir / "manifest.json"
     for p in (examples_path, manifest_path, download_root):
         assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
+    assert_no_caller_records(examples_path)
     manifest_bytes = manifest_path.read_bytes()
     manifest = json.loads(manifest_bytes)
     if manifest.get("mode") != REPORT_ONLY_MODE:

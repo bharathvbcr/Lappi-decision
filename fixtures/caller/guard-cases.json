@@ -1,0 +1,197 @@
+{
+ "about": "One oracle for the caller-record content guard. Python (qd_data.caller_records), qd-train (held_out.rs layer 5) and qd-prep (heldout.rs) each run every case here and must agree on the three verdicts: record, clean, unscannable. Cases carry `text` (utf-8), `hex`, or `gen`. gen: record_padded_to N builds one record line whose content is exactly N bytes; filler_line N one non-record line of N content bytes; repeat/times a repeated chunk; first/then prepend/append a string; eol the line terminator. Defaults: line_bytes 1048576, total_bytes 8589934592.",
+ "cases": [
+  {
+   "name": "record in the middle",
+   "text": "{\"a\":1}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n{\"b\":2}\n",
+   "expect": "record"
+  },
+  {
+   "name": "record with no trailing newline",
+   "text": "{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}",
+   "expect": "record"
+  },
+  {
+   "name": "later version prefix",
+   "text": "{\"record\":\"lappi.caller_record.v2\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "crlf line ends",
+   "text": "{\"a\":1}\r\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\r\n",
+   "expect": "record"
+  },
+  {
+   "name": "json-escaped key and value",
+   "text": "{\"rec\\u006frd\":\"lappi.caller_re\\u0063ord\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "garbage first line then a record",
+   "text": "not json at all\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "comment first line then a record",
+   "text": "# a comment\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "json string first line then a record",
+   "text": "\"just a string\"\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "json array holding a record",
+   "text": "[{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}]\n",
+   "expect": "record"
+  },
+  {
+   "name": "damaged record line",
+   "text": "{\"record\":\"lappi.caller_record\",\"kind\":\n",
+   "expect": "record"
+  },
+  {
+   "name": "utf-8 bom then a record",
+   "text": "\ufeff{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "duplicated record key",
+   "text": "{\"record\":\"lappi.caller_record\",\"record\":\"x\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "leading whitespace",
+   "text": "   {\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "empty file",
+   "text": "",
+   "expect": "clean"
+  },
+  {
+   "name": "blank lines",
+   "text": "\n\n  \n",
+   "expect": "clean"
+  },
+  {
+   "name": "another record name",
+   "text": "{\"record\":\"decisions.json\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record not a string",
+   "text": "{\"record\":7}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "prefix only in another key",
+   "text": "{\"text\":\"lappi.caller_record\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "prefix in an array of strings",
+   "text": "[\"lappi.caller_record\"]\n",
+   "expect": "clean"
+  },
+  {
+   "name": "garbage only",
+   "text": "not json at all\n{\"a\":1}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "invalid utf-8 only",
+   "hex": "ffff0a7b2261223a317d0a",
+   "expect": "clean"
+  },
+  {
+   "name": "gzip magic",
+   "hex": "1f8b0800000000000003",
+   "expect": "unscannable"
+  },
+  {
+   "name": "zstd magic",
+   "hex": "28b52ffd0000",
+   "expect": "unscannable"
+  },
+  {
+   "name": "utf-16le bom",
+   "hex": "fffe7b002200",
+   "expect": "unscannable"
+  },
+  {
+   "name": "utf-16be bom",
+   "hex": "feff007b0022",
+   "expect": "unscannable"
+  },
+  {
+   "name": "record line of exactly the bound",
+   "gen": {
+    "record_padded_to": 100,
+    "eol": "\n"
+   },
+   "line_bytes": 100,
+   "expect": "record"
+  },
+  {
+   "name": "record line of exactly the bound with crlf",
+   "gen": {
+    "record_padded_to": 100,
+    "eol": "\r\n"
+   },
+   "line_bytes": 100,
+   "expect": "record"
+  },
+  {
+   "name": "record line one byte over the bound is skipped (accepted limit)",
+   "gen": {
+    "record_padded_to": 101,
+    "eol": "\n"
+   },
+   "line_bytes": 100,
+   "expect": "clean"
+  },
+  {
+   "name": "over-long non-record line only",
+   "gen": {
+    "filler_line": 300,
+    "eol": "\n"
+   },
+   "line_bytes": 100,
+   "expect": "clean"
+  },
+  {
+   "name": "over-long line then a record",
+   "gen": {
+    "filler_line": 300,
+    "eol": "\n",
+    "then": "{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n"
+   },
+   "line_bytes": 100,
+   "expect": "record"
+  },
+  {
+   "name": "over the byte budget with no record in the prefix",
+   "gen": {
+    "repeat": "{\"a\":1}\n",
+    "times": 100
+   },
+   "line_bytes": 100,
+   "total_bytes": 256,
+   "expect": "unscannable"
+  },
+  {
+   "name": "a record inside the prefix wins over the budget",
+   "gen": {
+    "repeat": "{\"a\":1}\n",
+    "times": 100,
+    "first": "{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n"
+   },
+   "line_bytes": 1000,
+   "total_bytes": 256,
+   "expect": "record"
+  }
+ ]
+}

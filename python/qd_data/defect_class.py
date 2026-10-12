@@ -77,6 +77,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final
 
+from .caller_records import assert_no_caller_records
 from .config import DataConfig
 from .errors import NOUL, LicenceRefused
 from .licences import admit_licence, normalise_licence
@@ -480,6 +481,7 @@ def _load_licences(download_root: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     for lang, meta in sorted(manifest[_DOWNLOAD_LANGUAGES_KEY].items()):
         path = download_root / f"{lang}.jsonl"
+        assert_no_caller_records(path)
         _check_sha(path, str(meta["sha256"]), recorded_in=manifest_path)
         with path.open(encoding="utf-8") as fh:
             for lineno, line in enumerate(fh, 1):
@@ -502,6 +504,7 @@ def _load_licences(download_root: Path) -> dict[str, str]:
 
 def _load_pool_ids(pool_path: Path) -> dict[str, str]:
     """``pool id -> repo``. The repo is kept to cross-check the example's own claim."""
+    assert_no_caller_records(pool_path)
     out: dict[str, str] = {}
     with pool_path.open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, 1):
@@ -708,6 +711,7 @@ def load_defect_rows(
     manifest_path = corpus_dir / "manifest.json"
     for p in (examples_path, manifest_path, download_root):
         assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
+    assert_no_caller_records(examples_path)
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     base: DefectLoad | None = None
@@ -989,6 +993,7 @@ def _load_noul(
     manifest_path = noul_dir / "manifest.json"
     for p in (examples_path, manifest_path):
         assert_path_not_held_out(p, config=config, repo_root=repo_root)
+    assert_no_caller_records(examples_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for key in ("examples_sha256", "pool", "split", "totals"):
         if key not in manifest:
@@ -1119,6 +1124,7 @@ def own_prose_ascii_ratio(text: str) -> float:
 
 
 def _json_lines(path: Path, *, config: DataConfig, limit: int) -> list[dict[str, Any]]:
+    assert_no_caller_records(path)
     out: list[dict[str, Any]] = []
     with path.open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, 1):
@@ -1384,6 +1390,7 @@ def _load_g6(part_dir: Path, *, config: DataConfig, repo_root: Path) -> NoulLoad
     examples_path = part_dir / "examples.jsonl"
     for p in (manifest_path, examples_path):
         assert_path_not_held_out(p, config=config, repo_root=repo_root)
+    assert_no_caller_records(examples_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema") != G6_SCHEMA:
         raise DefectCorpusError(
@@ -1632,6 +1639,7 @@ def noul_allowlist(
 
     for p in (squad, pool, download_root):
         assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
+    assert_no_caller_records(squad)
 
     titles: set[str] = set()
     with Path(squad).open(encoding="utf-8") as fh:
@@ -1754,6 +1762,7 @@ def noul_v5_allowlist(
     for lang in G6_LANGUAGES:
         path = Path(g6_root) / lang / "data.jsonl"
         assert_path_not_held_out(path, config=config, repo_root=Path(repo_root))
+        assert_no_caller_records(path)
         sha = sha256_file(path)
         if sha != g6_pins[lang]:
             raise DefectCorpusError(

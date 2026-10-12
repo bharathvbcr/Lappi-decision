@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from .caller_records import assert_no_caller_records
 from .errors import QdRefusal
 from .sources import Reachability, source_by_id
 
@@ -581,6 +582,7 @@ def read_jsonl(
         raise ValueError(f"limit must be >= 0, got {limit}")
     if max_row_bytes < 1:
         raise ValueError(f"max_row_bytes must be >= 1, got {max_row_bytes}")
+    assert_no_caller_records(path)
     out: list[dict[str, Any]] = []
     capped = False
     with path.open("r", encoding="utf-8") as fh:
