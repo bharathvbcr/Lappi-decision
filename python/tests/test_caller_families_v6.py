@@ -1,7 +1,7 @@
 """The v6 caller families, as the loader renders them, against each app's own request builder.
 
 Card ft-2d0a5e4b27e. ``crates/qd-prep/tests/fixtures/caller-requests-v6.json`` pins each app's
-own builder output (DevType 24cc8d8 ``LappiRouteRequest.line``, GitPulse b9370ece
+own builder output (DevType 24cc8d8 ``LappiRouteRequest.line``, GitPulse 211cd903
 ``commit_type_request``), read from the app repositories; nothing in it was written by Lappi.
 A row a v6 pool carries must become, through ``rewrite_typed_decision``, the request the app
 sends: same task, question, slot name, options in order, and the context bytes untouched.

@@ -333,24 +333,37 @@ fn check_lappi(lappi: &Map<String, Value>) -> Result<String, RecordError> {
     Ok(reading.to_string())
 }
 
+/// The first credential-shaped prefix in `s`: one of [`SECRET_PREFIXES`] at a word boundary (a
+/// prefix inside a word, `TASKAKIA`, is not a credential's start) followed by at least twelve
+/// token characters (a PEM header needs none). Every occurrence is considered, so a benign
+/// first hit does not hide a real later one. The one screen: `qd-prep commit-type` screens commit
+/// diffs with this function rather than carrying a second pattern set.
+pub fn secret_like_prefix(s: &str) -> Option<&'static str> {
+    for prefix in SECRET_PREFIXES {
+        for (at, _) in s.match_indices(prefix) {
+            let boundary = at == 0
+                || !s[..at].chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric());
+            let body = &s[at + prefix.len()..];
+            let long_enough = prefix.starts_with("-----")
+                || body
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                    .count()
+                    >= 12;
+            if boundary && long_enough {
+                return Some(prefix);
+            }
+        }
+    }
+    None
+}
+
 fn screen_secrets(value: &Value, path: &str) -> Result<(), RecordError> {
     match value {
-        Value::String(s) => {
-            for prefix in SECRET_PREFIXES {
-                if let Some(at) = s.find(prefix) {
-                    // A prefix inside a word (`TASKAKIA`) is not a credential's start.
-                    let boundary = at == 0
-                        || !s[..at].chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric());
-                    let body = &s[at + prefix.len()..];
-                    let long_enough = prefix.starts_with("-----")
-                        || body.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').count() >= 12;
-                    if boundary && long_enough {
-                        return Err(RecordError::SecretLike { path: path.into(), prefix: prefix.into() });
-                    }
-                }
-            }
-            Ok(())
-        }
+        Value::String(s) => match secret_like_prefix(s) {
+            Some(prefix) => Err(RecordError::SecretLike { path: path.into(), prefix: prefix.into() }),
+            None => Ok(()),
+        },
         Value::Array(items) => {
             for (i, item) in items.iter().enumerate() {
                 screen_secrets(item, &format!("{path}[{i}]"))?;

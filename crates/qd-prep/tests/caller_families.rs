@@ -3,7 +3,7 @@
 //! (`docs/caller-contract.md` section 4).
 //!
 //! The pinned fixture `fixtures/caller-requests-v6.json` holds each app's own builder output,
-//! read from the app repository (DevType 24cc8d8, GitPulse b9370ece); nothing in it was written
+//! read from the app repository (DevType 24cc8d8, GitPulse 211cd903); nothing in it was written
 //! by a Lappi builder. The tests compare what the Lappi builders render against it, and against
 //! section 4's table.
 
@@ -339,10 +339,19 @@ fn view_of(root: &Path, repos: &[(&str, &str)]) -> View {
 }
 
 fn mk_repo(root: &Path, name: &str) -> PathBuf {
+    mk_repo_at(root, name, &format!("bharathvbcr/{}", name.rsplit('/').next().unwrap()))
+}
+
+fn mk_repo_at(root: &Path, name: &str, slug: &str) -> PathBuf {
     let dir = root.join(name);
     fs::create_dir_all(&dir).unwrap();
     git(&dir, &["init", "-q"]);
+    git(&dir, &["remote", "add", "origin", &format!("https://github.com/{slug}.git")]);
     dir
+}
+
+fn no_blobs() -> std::collections::BTreeSet<String> {
+    std::collections::BTreeSet::new()
 }
 
 #[test]
@@ -354,7 +363,7 @@ fn commit_rows_are_the_commits_diff_bytes_with_the_apps_options_and_the_prefix_a
     commit_file(&a, "y.txt", b"y\n", "Update y");
     commit_file(&a, "z.txt", b"z\n", "wip: scratch");
     let view = view_of(&root, &[("a", "bharathvbcr/a")]);
-    let (rows, report) = commit_type::candidates(&view, 7).unwrap();
+    let (rows, report) = commit_type::candidates(&view, 7, &no_blobs()).unwrap();
     assert_eq!(rows.len(), 2, "{report}");
     let by_gold: BTreeMap<String, &qd_prep::decisions::Candidate> = rows
         .iter()
@@ -372,11 +381,11 @@ fn commit_rows_are_the_commits_diff_bytes_with_the_apps_options_and_the_prefix_a
         assert_eq!(c.rendered_context(), c.context, "bare context");
     }
     // The context is `git diff <parent> <commit>`'s bytes, the empty tree for a root commit.
-    let want_fix = git(&a, &["diff", "--no-color", "--no-ext-diff", "--no-textconv", &format!("{second}^"), &second]);
+    let want_fix = git(&a, &["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "-U3", &format!("{second}^"), &second]);
     assert_eq!(by_gold["fix"].context.as_bytes(), want_fix.as_slice());
     let want_feat = git(
         &a,
-        &["diff", "--no-color", "--no-ext-diff", "--no-textconv", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", &root_sha],
+        &["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "-U3", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", &root_sha],
     );
     assert_eq!(by_gold["feat"].context.as_bytes(), want_feat.as_slice());
     // Counted, never silent.
@@ -394,14 +403,14 @@ fn gitpulse_is_refused_as_a_producer_and_held_out_repos_are_never_read() {
     let g = mk_repo(&root, "gp");
     commit_file(&g, "x.txt", b"x\n", "feat: x");
     let view = view_of(&root, &[("gp", "bharathvbcr/gitpulse")]);
-    let e = commit_type::candidates(&view, 7).unwrap_err();
+    let e = commit_type::candidates(&view, 7, &no_blobs()).unwrap_err();
     assert!(e.contains("held-out eval") && e.contains("refused as a producer"), "{e}");
     // The held-out name in the view points at a path that does not exist: reading it would fail.
     let a = mk_repo(&root, "a");
     commit_file(&a, "x.txt", b"x\n", "feat: x");
     let ok = view_of(&root, &[("a", "bharathvbcr/a")]);
     assert_eq!(ok.heldout, vec!["held".to_owned()]);
-    commit_type::candidates(&ok, 7).expect("a view with a held-out repo that is absent reads fine");
+    commit_type::candidates(&ok, 7, &no_blobs()).expect("a view with a held-out repo that is absent reads fine");
 }
 
 #[test]
@@ -416,14 +425,14 @@ fn the_cap_the_bound_and_utf8_each_drop_a_row_and_say_so() {
     commit_file(&a, "bad.txt", b"caf\xe9 not utf-8\n", "fix: latin1");
     commit_file(&a, "same1.txt", b"same\n", "docs: s1");
     let view = view_of(&root, &[("a", "bharathvbcr/a")]);
-    let (rows, report) = commit_type::candidates_capped(&view, 7, 3).unwrap();
+    let (rows, report) = commit_type::candidates_capped(&view, 7, 3, &no_blobs()).unwrap();
     assert_eq!(rows.len(), 3, "{report}");
     let d = &report["per_repo"]["a"]["dropped"];
     // 8 prefixed commits, 3 kept by the cap, 5 dropped: the cap is applied among the rows that
     // pass every other rule, in a seeded order, so which of the 5 is dropped depends on the draw.
     let total: usize = d.as_object().unwrap().values().map(|v| v.as_u64().unwrap() as usize).sum();
     assert_eq!(total + rows.len(), 8, "{report}");
-    let (all, all_report) = commit_type::candidates_capped(&view, 7, 400).unwrap();
+    let (all, all_report) = commit_type::candidates_capped(&view, 7, 400, &no_blobs()).unwrap();
     assert_eq!(all.len(), 6, "{all_report}");
     let d = &all_report["per_repo"]["a"]["dropped"];
     assert_eq!(d["context_over_bound"], 1);
@@ -440,7 +449,7 @@ fn a_pool_is_whole_or_not_at_all_and_its_manifest_says_not_applied() {
     let view = view_of(&root, &[("a", "bharathvbcr/a")]);
     let manifest_path = root.join("own-repos.json");
     fs::write(&manifest_path, b"{}").unwrap();
-    let (bytes, manifest) = commit_type::build_from_view(&view, &manifest_path, b"{}", 7).unwrap();
+    let (bytes, manifest) = commit_type::build_from_view(&view, &manifest_path, b"{}", 7, &no_blobs()).unwrap();
     assert_eq!(manifest["allocation"]["state"], "not_applied");
     assert_eq!(manifest["decontamination"]["state"], "not_run");
     assert_eq!(manifest["family"], commit_type::FAMILY);
@@ -453,7 +462,7 @@ fn a_pool_is_whole_or_not_at_all_and_its_manifest_says_not_applied() {
     let e = mk_repo(&empty, "e");
     commit_file(&e, "x.txt", b"x\n", "Update");
     let none = view_of(&empty, &[("e", "bharathvbcr/e")]);
-    assert!(commit_type::build_from_view(&none, &manifest_path, b"{}", 7).unwrap_err().contains("nothing"));
+    assert!(commit_type::build_from_view(&none, &manifest_path, b"{}", 7, &no_blobs()).unwrap_err().contains("nothing"));
 }
 
 #[test]
@@ -482,4 +491,87 @@ fn a_bare_context_row_with_a_question_is_refused_and_other_families_still_need_o
     assert_eq!(structural_refusal(&row("apps.tool_select", "")), Some("empty_question"));
     assert_eq!(row(ROUTE_FAMILY, "").rendered_context(), "date+3");
     assert_eq!(row("apps.tool_select", "Q?").rendered_context(), "Q?\n\ndate+3");
+}
+
+fn view_with(root: &Path, repos: &[(&str, &str)], all: &[&str], struck: &[(&str, &str)]) -> View {
+    let mut v = view_of(root, repos);
+    v.all_repos = all.iter().map(|s| (*s).to_owned()).collect();
+    v.struck = struck.iter().map(|(r, p)| ((*r).to_owned(), (*p).to_owned())).collect();
+    v
+}
+
+#[test]
+fn a_commit_touching_a_struck_path_or_a_nested_repo_is_dropped_and_counted() {
+    let root = scratch("ct-struck");
+    let a = mk_repo(&root, "a");
+    fs::create_dir_all(a.join("docs/business")).unwrap();
+    fs::create_dir_all(a.join("inner")).unwrap();
+    fs::create_dir_all(a.join("docs/public")).unwrap();
+    commit_file(&a, "docs/business/plan.md", b"secret plan\n", "docs: business plan");
+    commit_file(&a, "inner/f.txt", b"nested\n", "feat: nested repo file");
+    // One commit touching a struck file among others is refused whole.
+    fs::write(a.join("docs/public/ok.md"), b"ok\n").unwrap();
+    fs::write(a.join("docs/business/more.md"), b"more\n").unwrap();
+    git(&a, &["add", "-A"]);
+    git(&a, &["commit", "-q", "-m", "fix: mixed commit"]);
+    commit_file(&a, "docs/public/fine.md", b"fine\n", "docs: fine");
+    let view = view_with(&root, &[("a", "bharathvbcr/a")], &["a", "a/inner"], &[("a", "docs/business/")]);
+    let (rows, report) = commit_type::candidates(&view, 7, &no_blobs()).unwrap();
+    let d = &report["per_repo"]["a"]["dropped"];
+    assert_eq!(d["struck_path"], 2, "{report}");
+    assert_eq!(d["inside_nested_repository"], 1, "{report}");
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().all(|c| !c.context.contains("docs/business/") && !c.context.contains("inner/")));
+}
+
+#[test]
+fn a_blob_of_a_held_out_repository_is_refused_under_any_path() {
+    let root = scratch("ct-heldout-blob");
+    let a = mk_repo(&root, "a");
+    fs::create_dir_all(a.join("vendored")).unwrap();
+    commit_file(&a, "vendored/copy.txt", b"held-out repo content\n", "feat: vendored copy");
+    commit_file(&a, "other.txt", b"mine\n", "feat: mine");
+    let id = String::from_utf8(git(&a, &["hash-object", "vendored/copy.txt"])).unwrap().trim().to_owned();
+    let view = view_of(&root, &[("a", "bharathvbcr/a")]);
+    let blobs: std::collections::BTreeSet<String> = [id].into();
+    let (rows, report) = commit_type::candidates(&view, 7, &blobs).unwrap();
+    assert_eq!(report["per_repo"]["a"]["dropped"]["heldout_repository_content"], 1, "{report}");
+    assert_eq!(rows.len(), 1);
+}
+
+#[test]
+fn a_credential_in_a_diff_drops_the_commit_and_a_word_boundary_miss_does_not() {
+    let root = scratch("ct-secret");
+    let a = mk_repo(&root, "a");
+    commit_file(&a, "env.txt", b"apiKey: \"AIzaSyA7abcdefghijklmnopqrstuvwxyz012345\"\n", "chore: firebase env");
+    commit_file(&a, "word.txt", b"TASKAKIA0123456789012345 is a task id\n", "chore: not a key");
+    commit_file(&a, "late.txt", b"see AKIA short then AKIAABCDEFGHIJKLMNOP\n", "chore: later key");
+    let view = view_of(&root, &[("a", "bharathvbcr/a")]);
+    let (rows, report) = commit_type::candidates(&view, 7, &no_blobs()).unwrap();
+    assert_eq!(report["per_repo"]["a"]["dropped"]["secret_like"], 2, "{report}");
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().all(|c| qd_runtime::caller_record::secret_like_prefix(&c.context).is_none()));
+}
+
+#[test]
+fn gitpulse_is_refused_by_case_by_directory_by_origin_and_a_substituted_slug() {
+    let root = scratch("ct-producer");
+    let g = mk_repo_at(&root, "devtools/GitPulse", "bharathvbcr/gitpulse");
+    commit_file(&g, "x.txt", b"x\n", "feat: x");
+    // A case variant of the slug.
+    let v = view_of(&root, &[("devtools/GitPulse", "BharathVBCR/GitPulse")]);
+    assert!(commit_type::candidates(&v, 7, &no_blobs()).unwrap_err().contains("refused as a producer"));
+    // Another slug on GitPulse's directory.
+    let v = view_of(&root, &[("devtools/GitPulse", "bharathvbcr/academiatrack")]);
+    assert!(commit_type::candidates(&v, 7, &no_blobs()).unwrap_err().contains("refused as a producer"));
+    // GitPulse's content under a renamed directory and an honest-looking slug: its origin says so.
+    let r = mk_repo_at(&root, "apps/Renamed", "bharathvbcr/gitpulse");
+    commit_file(&r, "x.txt", b"x\n", "feat: x");
+    let v = view_of(&root, &[("apps/Renamed", "bharathvbcr/renamed")]);
+    assert!(commit_type::candidates(&v, 7, &no_blobs()).unwrap_err().contains("origin remote"));
+    // A slug that is not the repository's origin is refused too.
+    let m = mk_repo_at(&root, "apps/Mismatch", "bharathvbcr/other");
+    commit_file(&m, "x.txt", b"x\n", "feat: x");
+    let v = view_of(&root, &[("apps/Mismatch", "bharathvbcr/mismatch")]);
+    assert!(commit_type::candidates(&v, 7, &no_blobs()).unwrap_err().contains("not the repository's origin"));
 }

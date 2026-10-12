@@ -179,7 +179,7 @@ pub fn parse_ls_tree(out: &[u8]) -> Result<Vec<TreeEntry>, String> {
 }
 
 /// The nested repository (as a prefix inside `repo`) that holds `path`, if any.
-fn nested_owner<'a>(all_repos: &'a [String], repo: &str, path: &str) -> Option<&'a str> {
+pub fn nested_owner<'a>(all_repos: &'a [String], repo: &str, path: &str) -> Option<&'a str> {
     all_repos
         .iter()
         .filter_map(|other| {

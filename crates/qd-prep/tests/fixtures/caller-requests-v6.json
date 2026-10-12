@@ -19,16 +19,18 @@
   {
    "app": "gitpulse",
    "repo": "~/Code/devtools/GitPulse",
-   "commit": "b9370ece9dd7c47d54dab7d2e17fbd1474353506",
+   "commit": "211cd9032fe1e2276f0a3aff7af81747cb867248",
    "builder": "src-tauri/src/lappi/request.rs commit_type_request",
    "builder_sha256": "d7962abbeaa514f68809d98585cb8925b1dc9d94814753d5a77f3e2cb27e0879",
-   "pinned_from": "src-tauri/src/lappi/request.rs tests::the_request_is_exactly_the_pinned_shape (the working tree was clean at the pinned sha when read)",
+   "pinned_from": "src-tauri/src/lappi/request.rs tests::the_request_is_exactly_the_pinned_shape at 211cd903, where GitPulse sends the staged patch as git's exact bytes (ai/mod.rs read_staged_patch). The builder file is byte-identical to b9370ece (sha256 unchanged); the pin moved because b9370ece sent a lossy-UTF-8 context.",
    "key_order": "struct field order (schema-api.md)",
    "input": {
     "context": "diff --git a/x b/x\n",
     "record_id": "0123456789abcdef0123456789abcdef"
    },
-   "line": "{\"schema_version\":1,\"task\":\"gitpulse.commit_type\",\"context_b64\":\"ZGlmZiAtLWdpdCBhL3ggYi94Cg==\",\"context_len\":19,\"question\":\"Which conventional commit type describes this staged change?\",\"slots\":[{\"name\":\"commit_type\",\"type\":\"choice\",\"options\":[\"feat\",\"fix\",\"refactor\",\"docs\",\"test\",\"chore\",\"perf\",\"build\",\"ci\",\"style\",\"revert\"]}],\"route\":\"generic\",\"example_id\":\"gitpulse:gitpulse.commit_type:0123456789abcdef0123456789abcdef\",\"metadata\":{}}"
+   "line": "{\"schema_version\":1,\"task\":\"gitpulse.commit_type\",\"context_b64\":\"ZGlmZiAtLWdpdCBhL3ggYi94Cg==\",\"context_len\":19,\"question\":\"Which conventional commit type describes this staged change?\",\"slots\":[{\"name\":\"commit_type\",\"type\":\"choice\",\"options\":[\"feat\",\"fix\",\"refactor\",\"docs\",\"test\",\"chore\",\"perf\",\"build\",\"ci\",\"style\",\"revert\"]}],\"route\":\"generic\",\"example_id\":\"gitpulse:gitpulse.commit_type:0123456789abcdef0123456789abcdef\",\"metadata\":{}}",
+   "context_argv": "git -c core.quotepath=false diff --cached --no-color --no-ext-diff -U3 (ai/mod.rs read_staged_patch; engine/git_cli.rs)",
+   "builder_sha256_check": "git show 211cd903:src-tauri/src/lappi/request.rs | shasum -a 256 = d7962abb..."
   }
  ]
 }

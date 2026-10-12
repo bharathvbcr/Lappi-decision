@@ -257,3 +257,18 @@ fn the_store_is_under_a_held_out_segment_and_nothing_else_is() {
         check_store_path(&root.join("devtype/2026-10-06.jsonl")).expect("the default root is held out");
     }
 }
+
+/// The one secret screen, used by `qd-prep commit-type` on commit diffs as well: a Firebase web
+/// key is caught, a prefix inside a word is not, and a benign first occurrence does not hide a
+/// real later one.
+#[test]
+fn the_secret_screen_is_shared_and_considers_every_occurrence() {
+    use qd_runtime::caller_record::secret_like_prefix;
+    assert_eq!(
+        secret_like_prefix("apiKey: \"AIzaSyA7abcdefghijklmnopqrstuvwxyz012345\""),
+        Some("AIza")
+    );
+    assert_eq!(secret_like_prefix("TASKAKIA0123456789012345 is an id"), None);
+    assert_eq!(secret_like_prefix("AKIA short, then AKIAABCDEFGHIJKLMNOP"), Some("AKIA"));
+    assert_eq!(secret_like_prefix("a plain sentence"), None);
+}

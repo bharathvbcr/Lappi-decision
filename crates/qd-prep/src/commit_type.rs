@@ -17,14 +17,17 @@
 //!   [`SLOT`]; options exactly [`KNOWN_TYPES`], in order (`commit_brief.rs` `KNOWN_TYPES`);
 //! - context: the commit's unified diff **as bytes**, with nothing in front of it
 //!   ([`decisions::BARE_CONTEXT_FAMILIES`]). The app sends the staged diff; the commit's
-//!   equivalent is `git diff --no-color --no-ext-diff --no-textconv <parent> <commit>` (the empty
-//!   tree for a root commit). Whether GitPulse passes further flags to its own `git diff --cached`
-//!   is not verified (`GAP-COMMIT-TYPE-STAGED-DIFF-FLAGS-UNVERIFIED-2026-10-12`);
+//!   equivalent is `git -c core.quotepath=false diff --no-color --no-ext-diff -U3 <parent> <commit>` (the empty
+//!   tree for a root commit): GitPulse's own argv is `diff --cached --no-color --no-ext-diff -U3`
+//!   under `core.quotepath=false` (`ai/mod.rs` `read_staged_patch`, `engine/git_cli.rs`, at 211cd903);
 //! - gold: the `type` of the commit subject's conventional prefix `type(scope)!: `, when it is
 //!   one of [`KNOWN_TYPES`]. A subject with another prefix, or none, is counted and dropped.
 //!   The message is never in the context, so the label is not readable from it.
 //!
 //! **Drops, each counted and none silent:** `no_conventional_prefix`, `type_not_in_known_types`,
+//! `struck_path`, `inside_nested_repository` and `heldout_repository_content` (a commit touching a
+//! struck path, a nested repository's path, or a blob of a held-out repository), `secret_like` (a
+//! credential-shaped string in the diff, by `qd_runtime::caller_record::secret_like_prefix`),
 //! `empty_diff`, `context_over_bound` (a diff past [`decisions::MAX_CONTEXT_BYTES`], the
 //! 131,072-byte bound), `context_not_utf8`, `unassigned_code_point`, `repo_cap` and
 //! `exact_duplicate`. `context_not_utf8` departs from the ruling's "invalid UTF-8 is not a drop
@@ -43,6 +46,8 @@ use serde_json::{Value, json};
 
 use crate::decisions::{self, Candidate, Gold};
 use crate::gitcli::{self, GitError};
+use crate::natural_bugs;
+use crate::own_repos;
 use crate::own_swift::{self, TrainRepo, View};
 use crate::pool;
 use crate::sha256::sha256_hex;
@@ -64,8 +69,13 @@ pub const LICENCE: &str = "owner-granted";
 pub const PER_REPO_CAP: usize = 400;
 /// R5: "Val is 5%, within the train repos."
 pub const VAL_SHARE: f64 = 0.05;
-/// Repositories that are never a producer of this family: its held-out eval.
+/// Repositories that are never a producer of this family: its held-out eval. A repository is
+/// refused by ANY of: its manifest slug, its repository directory name, its origin remote's
+/// `owner/name` (all compared lowercased), or one of its root commits ([`REFUSED_ROOT_COMMITS`]):
+/// an edited slug or a renamed directory does not change what a repository is.
 pub const REFUSED_PRODUCERS: [&str; 1] = ["bharathvbcr/gitpulse"];
+/// GitPulse's root commit(s) (`git rev-list --max-parents=0`, read 2026-10-12).
+pub const REFUSED_ROOT_COMMITS: [&str; 1] = ["5a633d91b505b44e23bb0ed761605a0f383205d1"];
 /// `git log` output one repository may produce.
 const MAX_LOG_BYTES: u64 = 256 << 20;
 /// A manifest is read whole.
@@ -172,10 +182,12 @@ fn diff_bytes(
     match gitcli::run(
         &repo,
         &[
+            "-c",
+            "core.quotepath=false",
             "diff",
             "--no-color",
             "--no-ext-diff",
-            "--no-textconv",
+            "-U3",
             base,
             sha,
         ],
@@ -185,6 +197,111 @@ fn diff_bytes(
         Err(GitError::TooLarge(_)) => Ok(None),
         Err(e) => Err(format!("{}: {e}", t.repo)),
     }
+}
+
+/// Why `t` may not produce rows, by any of the identities of [`REFUSED_PRODUCERS`].
+fn refuse_producer(view: &View, t: &TrainRepo) -> Result<(), String> {
+    let refused = |why: String| {
+        Err(format!(
+            "{} ({}) is {why}, and it is the held-out eval of {FAMILY}: refused as a producer, \
+             whole run",
+            t.repo, t.slug
+        ))
+    };
+    let name = t.repo.rsplit('/').next().unwrap_or(&t.repo).to_lowercase();
+    if REFUSED_PRODUCERS.contains(&t.slug.to_lowercase().as_str())
+        || REFUSED_PRODUCERS
+            .iter()
+            .any(|p| p.rsplit('/').next() == Some(name.as_str()))
+    {
+        return refused("named as GitPulse by its slug or directory".to_owned());
+    }
+    let repo = view.code_root.join(&t.repo);
+    let origin = gitcli::run(&repo, &["config", "--get", "remote.origin.url"], 4096)
+        .map_err(|e| format!("{}: no readable origin remote: {e}", t.repo))?;
+    let origin = String::from_utf8_lossy(&origin);
+    let Some(origin_slug) = crate::own_repos::slug(origin.trim()) else {
+        return Err(format!("{}: origin {:?} is not a github owner/name", t.repo, origin.trim()));
+    };
+    if REFUSED_PRODUCERS.contains(&origin_slug.as_str()) {
+        return refused(format!("GitPulse by its origin remote {origin_slug}"));
+    }
+    if origin_slug != t.slug.to_lowercase() {
+        return Err(format!(
+            "{}: the manifest's slug {} is not the repository's origin {origin_slug}: refused",
+            t.repo, t.slug
+        ));
+    }
+    let roots = gitcli::run(&repo, &["rev-list", "--max-parents=0", &t.head], 1 << 20)
+        .map_err(|e| format!("{}: {e}", t.repo))?;
+    for root in String::from_utf8_lossy(&roots).split_whitespace() {
+        if REFUSED_ROOT_COMMITS.contains(&root) {
+            return refused(format!("GitPulse by its root commit {root}"));
+        }
+    }
+    Ok(())
+}
+
+/// The blob ids of the held-out repositories nested inside the code root, at their pinned heads:
+/// object ids only, never content. A commit of a train repository whose diff touches one of them
+/// carries a held-out repository's file whatever path it sits under.
+pub fn heldout_blob_ids(
+    code_root: &Path,
+    held: &[natural_bugs::HeldOutRepo],
+) -> Result<BTreeSet<String>, String> {
+    let mut ids = BTreeSet::new();
+    for h in held {
+        let out = gitcli::run(
+            &code_root.join(&h.repo),
+            &["ls-tree", "-r", "--full-tree", &h.head],
+            256 << 20,
+        )
+        .map_err(|e| format!("{}: {e}", h.repo))?;
+        for line in String::from_utf8_lossy(&out).lines() {
+            let mut f = line.split_whitespace();
+            if let (Some(_), Some("blob"), Some(id)) = (f.next(), f.next(), f.next()) {
+                ids.insert(id.to_owned());
+            }
+        }
+    }
+    Ok(ids)
+}
+
+/// A changed file of a commit: its path and its old and new blob ids.
+struct Changed {
+    path: String,
+    blobs: [String; 2],
+}
+
+fn changed_files(
+    root: &Path,
+    t: &TrainRepo,
+    parent: Option<&str>,
+    sha: &str,
+) -> Result<Vec<Changed>, String> {
+    let out = gitcli::run(
+        &root.join(&t.repo),
+        &[
+            "diff", "--raw", "-z", "--no-abbrev", "--no-renames", "--no-ext-diff",
+            parent.unwrap_or(EMPTY_TREE), sha,
+        ],
+        64 << 20,
+    )
+    .map_err(|e| format!("{}: {e}", t.repo))?;
+    let mut parts = out.split(|b| *b == 0).filter(|p| !p.is_empty());
+    let mut files = Vec::new();
+    while let Some(meta) = parts.next() {
+        let meta = String::from_utf8_lossy(meta);
+        let f: Vec<&str> = meta.trim_start_matches(':').split_whitespace().collect();
+        let (Some(path), true) = (parts.next(), f.len() >= 5) else {
+            return Err(format!("{}: a diff --raw record is malformed: {meta:?}", t.repo));
+        };
+        files.push(Changed {
+            path: String::from_utf8_lossy(path).into_owned(),
+            blobs: [f[2].to_owned(), f[3].to_owned()],
+        });
+    }
+    Ok(files)
 }
 
 /// Counts of one repository's commits by outcome, and by who authored them.
@@ -212,8 +329,12 @@ impl Tally {
 }
 
 /// The candidates `view` yields at the ruled per-repository cap, and the report of how.
-pub fn candidates(view: &View, seed: u64) -> Result<(Vec<Candidate>, Value), String> {
-    candidates_capped(view, seed, PER_REPO_CAP)
+pub fn candidates(
+    view: &View,
+    seed: u64,
+    heldout_blobs: &BTreeSet<String>,
+) -> Result<(Vec<Candidate>, Value), String> {
+    candidates_capped(view, seed, PER_REPO_CAP, heldout_blobs)
 }
 
 /// [`candidates`] with the per-repository cap named (tests use a small one).
@@ -221,17 +342,10 @@ pub fn candidates_capped(
     view: &View,
     seed: u64,
     per_repo_cap: usize,
+    heldout_blobs: &BTreeSet<String>,
 ) -> Result<(Vec<Candidate>, Value), String> {
-    if let Some(bad) = view
-        .train
-        .iter()
-        .find(|t| REFUSED_PRODUCERS.contains(&t.slug.as_str()))
-    {
-        return Err(format!(
-            "{} ({}) is a train repository in the manifest, and it is the held-out eval of {FAMILY}: \
-             refused as a producer, whole run",
-            bad.repo, bad.slug
-        ));
+    for t in &view.train {
+        refuse_producer(view, t)?;
     }
     let mut out: Vec<Candidate> = Vec::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
@@ -260,6 +374,25 @@ pub fn candidates_capped(
                 tally.drop("repo_cap", agent);
                 continue;
             }
+            // The human's struck paths, nested repositories (admitted, excluded or held out) and
+            // held-out blobs, by every file the commit touches: one such file refuses the commit.
+            let mut refusal: Option<&'static str> = None;
+            for c in changed_files(&view.code_root, t, parent.as_deref(), &sha)? {
+                if own_repos::struck_path(&view.struck, &t.repo, &c.path).is_some() {
+                    refusal = Some("struck_path");
+                } else if own_swift::nested_owner(&view.all_repos, &t.repo, &c.path).is_some() {
+                    refusal = Some("inside_nested_repository");
+                } else if c.blobs.iter().any(|b| heldout_blobs.contains(b)) {
+                    refusal = Some("heldout_repository_content");
+                }
+                if refusal.is_some() {
+                    break;
+                }
+            }
+            if let Some(reason) = refusal {
+                tally.drop(reason, agent);
+                continue;
+            }
             let Some(bytes) = diff_bytes(&view.code_root, t, &sha, parent.as_deref())? else {
                 tally.drop("context_over_bound", agent);
                 continue;
@@ -270,6 +403,10 @@ pub fn candidates_capped(
             };
             if context.trim().is_empty() {
                 tally.drop("empty_diff", agent);
+                continue;
+            }
+            if qd_runtime::caller_record::secret_like_prefix(&context).is_some() {
+                tally.drop("secret_like", agent);
                 continue;
             }
             if crate::pyunicode::check_assigned(&context).is_err() {
@@ -337,6 +474,8 @@ pub fn candidates_capped(
         "val_share": VAL_SHARE,
         "heldout_repos_not_read": view.heldout,
         "refused_producers": REFUSED_PRODUCERS,
+        "heldout_blob_ids_checked": heldout_blobs.len(),
+        "secret_screen": "qd_runtime::caller_record::secret_like_prefix over every diff",
     });
     Ok((out, report))
 }
@@ -350,7 +489,9 @@ pub fn build(
     let doc: Value = serde_json::from_slice(manifest_bytes)
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     let view = own_swift::read_view(&doc)?;
-    build_from_view(&view, manifest_path, manifest_bytes, seed)
+    let held = natural_bugs::read_manifest(&doc)?.held;
+    let blobs = heldout_blob_ids(&view.code_root, &held)?;
+    build_from_view(&view, manifest_path, manifest_bytes, seed, &blobs)
 }
 
 /// [`build`] over a view already read from the manifest at `manifest_path`.
@@ -359,11 +500,12 @@ pub fn build_from_view(
     manifest_path: &Path,
     manifest_bytes: &[u8],
     seed: u64,
+    heldout_blobs: &BTreeSet<String>,
 ) -> Result<(Vec<u8>, Value), String> {
     if view.train.is_empty() {
         return Err("the manifest admits no train repository; there is nothing to emit".into());
     }
-    let (rows, report) = candidates(view, seed)?;
+    let (rows, report) = candidates(view, seed, heldout_blobs)?;
     if rows.is_empty() {
         return Err("no commit passed the rules: a pool of nothing is refused".into());
     }

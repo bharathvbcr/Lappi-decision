@@ -26,3 +26,8 @@ serde_json.workspace = true
 # A workspace crate (no C, serde only), not a new dependency: `natural-bugs` admits a file by
 # the one owner of the path-to-language map, as the runtime's admission check does.
 qd-lang = { path = "../qd-lang" }
+# A workspace crate, not a third-party dependency: `commit-type` screens commit diffs with the
+# caller-record screen's own secret-prefix function (`qd_runtime::caller_record::secret_like_prefix`)
+# rather than carrying a second pattern set. Its transitive crates (base64, sha2, thiserror) are
+# already in the workspace lock.
+qd-runtime = { path = "../qd-runtime" }
