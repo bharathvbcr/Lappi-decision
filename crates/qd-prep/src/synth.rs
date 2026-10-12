@@ -656,7 +656,11 @@ const REPORT_ONLY_CRITERION: &str = "surface-rule gold";
 /// The two keys of a report-only family, or the refusal naming the one that is missing. Run for
 /// every family in the code list and every key in the config, whether or not the probe ran.
 fn check_report_only(cfg: &Config) -> Result<(), String> {
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    check_report_only_in(cfg, &Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+}
+
+/// `check_report_only` against an explicit repo root, where the ruling files are looked up.
+fn check_report_only_in(cfg: &Config, repo: &Path) -> Result<(), String> {
     for (family, ruling, _, _) in LEAK_PROBE_REPORT_ONLY {
         if cfg.kind.name() == "route" || cfg.probe.report_only.contains_key(family) {
             match cfg.probe.report_only.get(family) {
@@ -1547,6 +1551,25 @@ pub(crate) mod tests {
         let mut e = cfg(Kind::Email);
         e.probe.report_only.insert("email.category".to_owned(), ruling.to_owned());
         assert!(check_report_only(&e).unwrap_err().contains("stays gated"));
+    }
+
+    /// Fable 2026-10-12 3.1: a report-only entry stands only while its ruling file exists. The
+    /// check takes the repo root, so a tmp tree without the file proves the refusal.
+    #[test]
+    fn a_missing_ruling_file_refuses_report_only() {
+        let (_, ruling, _, _) = LEAK_PROBE_REPORT_ONLY[0];
+        let mut c = cfg(Kind::Route);
+        c.probe.report_only.insert(crate::synth_tools::ROUTE_FAMILY.to_owned(), ruling.to_owned());
+        let tmp = std::env::temp_dir().join(format!("qd-ruling-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let err = check_report_only_in(&c, &tmp).unwrap_err();
+        assert!(err.contains("does not exist"), "{err}");
+        // A directory at the ruling path is not the file.
+        std::fs::create_dir_all(tmp.join(ruling)).unwrap();
+        assert!(check_report_only_in(&c, &tmp).unwrap_err().contains("does not exist"));
+        std::fs::remove_dir_all(&tmp).unwrap();
+        // The real repo root has the file.
+        check_report_only(&c).unwrap();
     }
 
     #[test]
