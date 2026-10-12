@@ -1,0 +1,84 @@
+{
+  "name": "v6-arm-b-mining",
+  "recorded": "2026-10-12, before any candidate row was scored, selected or read for yield. The only reads behind this record: the v5 seed-1 checkpoint's sha256 (campaign/span-refit-mac-preregistered.json), the committed source of choice_rule_abstentions at d930579, the sha256 of the existing pool and corpus files named below, and Fable's rulings. No scorer output of any candidate exists.",
+  "status": "pre-registration of the mining rule, driver and 200-row probe. The full scan is wave 3 and is not started by this record. Mac rows are quick-labelled where they cannot promote (CLAUDE.md rule 8); the mined rows themselves are training data for the v6 run, whose own pre-registration (campaign/v6-preregistered.json) is the promotion instrument.",
+  "design_by": "Fable v6 data-design ruling R4 and R8 (AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md); human rulings 2026-10-08 (Arm B mining runs on the Mac under the lock; synthetic and own-repo data only); Fable board-sweep ruling 2026-10-12 section 3 lane 6.",
+  "question": "Which in-distribution rows does v5 seed 1 abstain on although their constructed gold is not noul? Arm B teaches when not to abstain: the binding half of ood_abstain is the in-distribution cap (v5 8.2%, cap 5%).",
+  "scorer": {
+    "what": "v5 seed 1's checkpoint, not the average: average_may_promote is false, and the average abstains least, so it would mine the fewest rows (R4).",
+    "path": "/Users/bharath/qd-campaign/weights-2026-10-05/v5-seed1/epoch-seed1-cuda-step12176.259933b9cac3ad67.safetensors",
+    "sha256": "84edcc912d1bdb21e0e9a3b571ccde8fab3bb8f7da11148db33fc8b266405e59",
+    "dtype": "fp32 (score_dtype fp32)",
+    "path_through": "tools/real_ft_run.py --score-checkpoint over a candidate shard set, with --verdicts-out; Mac/MPS under tools/mac_heavy.sh. qd-metal is refused: its batched decode is KNOWN RED on the GPU digest pin (9c563ed) and serves bf16."
+  },
+  "selection_rule": {
+    "citation": "tools/real_ft_run.py choice_rule_abstentions (lines 5900-5941 at d930579)",
+    "function_sha256": "088e80a46ff5c1d26689379448d3f91eb45c3a84041f488f1b33f2558c30daaa",
+    "function_sha256_of": "the source text of that function (ast.get_source_segment) in tools/real_ft_run.py at commit d930579; the driver recomputes it from the committed blob and refuses to run on a mismatch",
+    "rule": "a candidate row is KEPT iff the runtime's generic-route choice rule would abstain on it (the first pass's top row is noul, or the permuted pass's top row is noul, or the permuted pass's winner maps back to a different option) AND its constructed gold is not noul (expected_abstain is false). tools/arm_b_mine.py re-implements the rule over --verdicts-out lines and a parity test holds it to choice_rule_abstentions.",
+    "label": "the row's constructed class, untouched."
+  },
+  "candidates": {
+    "rule": "fresh rows, labelled by construction, never duplicates. Every corpus is pinned here by sha256 BEFORE the first row is scored; a corpus whose entry below has sha256 null is refused by the driver. Pinning a null is done by an amendment commit that records only the file's sha256 and row count, with no scorer output read.",
+    "corpora": [
+      {
+        "name": "commitpackft-composed-ts-v1",
+        "ruling": "R3 item 1: corpus-v3 restricted to TypeScript mutants (2,161 examples); 4,000 composed rows; seed 20261008; v2's compose Options except train_rows and seed; v2's split map sha f5621909...",
+        "rows": 4000,
+        "seed": 20261008,
+        "path": null,
+        "sha256": null
+      },
+      {
+        "name": "own-swift-composed-v1",
+        "ruling": "R3 item 2: Swift mutants of the admitted own TRAIN repositories (qd-prep own-swift, then qd-mutate generate --language swift --seed 20261008, then compose); GitPulse and every held-out repository are never read.",
+        "rows": 4000,
+        "seed": 20261008,
+        "path": null,
+        "sha256": null
+      },
+      {
+        "name": "single-file-mutants-v1",
+        "ruling": "R4: 12,000 single-file mutants from `qd-mutate generate --seed 20261008` over the existing pool data/pool/commitpackft-pool-v2.jsonl.",
+        "rows": 12000,
+        "seed": 20261008,
+        "pool": {"path": "data/pool/commitpackft-pool-v2.jsonl", "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2"},
+        "path": null,
+        "sha256": null
+      }
+    ],
+    "scan_cap_rows": 20000
+  },
+  "exclusion": {
+    "exact_identity_dedupe": "a candidate whose id, identity_key or content digest sha256(before NUL after) equals a key of any set below is dropped and counted by set; within-candidate duplicates are dropped and counted. A candidate whose repo is a held-out repository of the own-repos manifest, or whose path carries a held-out marker, is refused whole (CLAUDE.md rule 3). Duplicating v5 train rows is refused.",
+    "sets": [
+      {"name": "v5-train-corpus-v3", "path": "data/pool/commitpackft-corpus-v3/examples.jsonl", "sha256": "610bb1f0f1d86dc23f419001d8670e01418485644bea93e2b33631e5650c62e0", "key": "id"},
+      {"name": "v5-val-verdict-row-ids", "path": "/Users/bharath/qd-campaign/preview-2026-10-05/v5-avg-verdicts/verdicts-avg.jsonl", "sha256": "4ea2539f36a2649ac85e3ca87d5e73b8edf8d51f6313c13f8814a7deaec7da4f", "key": "row_id"}
+    ],
+    "leakage_scans": "the containment scan against val, held-out and target texts (qd-prep containment, the v5 scan), the v2 split map (sha f5621909...) and the pipeline's v6 split-priority dedupe. The driver records each as ran (with its attestation sha256) or not_run; an absent scan is never recorded as clean."
+  },
+  "throughput": {
+    "probe": "the first 200 deduped candidate rows, in the corpus order the seed fixed, scored once as a heavy MPS job under tools/mac_heavy.sh. It measures rows_per_s. Its abstention count is recorded, gates nothing and is not read as a yield estimate.",
+    "formula": "rows_scanned = min(20000, floor(rows_per_s x 36 x 3600)); the scan runs in lock chunks of at most 6 h; total wall cap 36 h.",
+    "cost": "$0 (the Mac). No 8xH100 job is involved (rule 4)."
+  },
+  "caps": {
+    "train_cap_mined_rows": 5000,
+    "floor_rows": 300,
+    "no_data": "fewer than 300 kept rows reads `no_data`: v6 runs without them, and Arm B's reading is `not_run`. Nothing is promoted or padded to reach the floor.",
+    "applied_pool": "mined rows enter no pool until the caller families' rows exist and Arm B has rows or reads no_data (board-sweep ruling 2f(ii)); this record writes no applied pool."
+  },
+  "reading_rule": {
+    "source": "R8, pre-registered 2026-10-08; restated, not changed.",
+    "arm_b": "ood_abstain.in_distribution over code.defect_class: Wilson upper <= 5% on at least 2 of 3 seeds, with the OOD suite half >= v5's same seed on every seed.",
+    "needle": "worst depth bucket >= 0.95 on every seed, with Swift and TS reported per language.",
+    "guards": "val choice top-1 >= 0.8278 and span >= 0.9066 on every seed.",
+    "new_families": "report-only."
+  },
+  "driver": {
+    "path": "tools/arm_b_mine.py",
+    "refuses": ["a pre-registration that is not committed or differs from HEAD", "a corpus or scorer whose sha256 is null or differs from this record", "any input path with a held-out marker, or an input file holding a caller record (rule 3)", "a candidate that duplicates a v5 train or val key", "a candidate from a held-out repository"],
+    "records": "every count (offered, refused by reason, duplicates by set, kept, abstained) and the sha256 of every input and output, in the plan and report files it writes beside the rows."
+  },
+  "amendments": "an amendment is a new commit that changes a null above to a sha256 and a row count, before any scoring; any other change after a candidate was scored is void."
+}
