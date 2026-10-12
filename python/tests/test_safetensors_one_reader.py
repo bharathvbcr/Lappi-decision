@@ -22,7 +22,9 @@ sys.path.insert(0, str(REPO / "tools"))
 
 #: A refusal about the length prefix or the header text, which `safetensors_header` (the
 #: header-only reader) answers; the rest need the data section and belong to `tensor_ranges`.
-_HEADER_LEVEL = ("outside", "runs past", "too short", "not JSON", "not a JSON object")
+_HEADER_LEVEL = (
+    "outside", "runs past", "too short", "not JSON", "not a JSON object", "recursion limit",
+)
 
 
 def _cases() -> list[dict]:
