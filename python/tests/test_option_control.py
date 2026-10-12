@@ -425,8 +425,13 @@ def test_the_option_row_changes_nothing_the_ledger_joins_or_promotion_reads(
     assert isinstance(joined(after_rows)[0][ftc.GATE], Ran)  # the letter row's gate
     after = Ledger(ledger).promotion_verdict(family)
     assert after.promoted == before.promoted
+    # The unit's label names one more row, and so does a reason that lists the rows it searched
+    # (paired_margin_vs_linear over the promotion population, since the 2026-10-08 re-spec).
     label_tail = f" + {option.row_id}"
-    assert [r.replace(label_tail, "") for r in after.reasons] == list(before.reasons)
+    searched = f", {option.row_id}"
+    assert [r.replace(label_tail, "").replace(searched, "") for r in after.reasons] == list(
+        before.reasons
+    )
 
 
 def test_the_option_control_refuses_the_flags_it_would_ignore(

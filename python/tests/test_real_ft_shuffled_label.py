@@ -485,7 +485,9 @@ def test_the_control_row_supplements_the_target_and_promotion_counts_it(
     target_eval, target_ft = _target(corpus)
     family = target_eval.protocol.hash_without_seed()
     ledger_path = _copy_ledger(corpus, tmp_path)
-    unmeasured = f"{target_eval.row_id}: control 'shuffled_label' did not run"
+    # docs/promotion-decisions.json records shuffled_label_seeds = 3 (the human, 2026-10-08), so
+    # the verdict counts the control across the family's seeds instead of refusing each row.
+    unmeasured = "control 'shuffled_label' ran and passed at complete coverage on 0 seed(s) []"
     before = Ledger(ledger_path).promotion_verdict(family)
     assert any(r.startswith(unmeasured) for r in before.reasons), before.reasons
 
@@ -572,6 +574,8 @@ def test_the_control_row_supplements_the_target_and_promotion_counts_it(
         for r in after.reasons
     ), after.reasons
     assert not any(r.startswith(f"{control.row_id}: supplements") for r in after.reasons)
+    counted = f"ran and passed at complete coverage on 1 seed(s) [{target_eval.protocol.seed}]"
+    assert any(counted in r for r in after.readings), after.readings
 
 
 def test_a_seed_other_than_the_targets_is_refused_before_training(
