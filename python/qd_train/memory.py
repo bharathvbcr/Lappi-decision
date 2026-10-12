@@ -408,6 +408,29 @@ class CheckpointRefused(ValueError):
     """The checkpoint on disk is not one this module will describe, and it says why."""
 
 
+#: serde_json's recursion limit is 128 and it refuses the 128th nested container, so 127 is the
+#: deepest it reads (measured by the shared fixture's json_nesting_127/128 cases). Python's own
+#: parser would take ~1000.
+_MAX_JSON_DEPTH: Final[int] = 127
+
+
+def _json_depth(value: Any) -> int:
+    """Container nesting depth of a parsed JSON value, iteratively (no recursion limit)."""
+    deepest = 0
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, dict):
+            children = node.values()
+        elif isinstance(node, list):
+            children = node
+        else:
+            continue
+        deepest = max(deepest, depth)
+        stack.extend((child, depth + 1) for child in children)
+    return deepest
+
+
 def safetensors_header(path: Path) -> dict[str, Any]:
     """The JSON header of one safetensors file, without reading a byte of tensor data."""
     path = Path(path)
@@ -431,10 +454,23 @@ def safetensors_header(path: Path) -> dict[str, Any]:
     def _no_constant(name: str) -> Any:
         raise ValueError(f"{name} is not JSON")
 
+    def _finite(text: str) -> float:
+        value = float(text)
+        if math.isinf(value):
+            raise ValueError(f"number {text} is out of range")
+        return value
+
     try:
-        header = json.loads(raw.decode("utf-8"), parse_constant=_no_constant)
-    except (UnicodeDecodeError, ValueError) as exc:
+        header = json.loads(
+            raw.decode("utf-8"), parse_constant=_no_constant, parse_float=_finite
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise CheckpointRefused(f"{path}: safetensors header is not JSON: {exc}") from exc
+    if _json_depth(header) > _MAX_JSON_DEPTH:
+        raise CheckpointRefused(
+            f"{path}: safetensors header is not JSON: recursion limit exceeded "
+            f"(nesting deeper than {_MAX_JSON_DEPTH})"
+        )
     if not isinstance(header, dict):
         raise CheckpointRefused(
             f"{path}: safetensors header is a {type(header).__name__}, not an object"

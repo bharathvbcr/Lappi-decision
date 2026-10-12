@@ -212,6 +212,29 @@
    "data_len": 0,
    "rust_error_contains": "overflows",
    "expect": "refuse"
+  },
+  {
+   "name": "json_nesting_127_deep",
+   "why": "serde_json refuses the 128th nested container (recursion limit 128); this is 127 (the object, __metadata__, 125 arrays)",
+   "header": "{\"__metadata__\":{\"x\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "expect": "ok"
+  },
+  {
+   "name": "json_nesting_128_deep",
+   "why": "the 128th nested container: serde_json's recursion limit; python's json parses it (its own limit is ~1000)",
+   "header": "{\"__metadata__\":{\"x\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "recursion limit",
+   "expect": "refuse"
+  },
+  {
+   "name": "number_literal_overflows_to_infinity",
+   "why": "1e400 is out of range for serde_json; python's json.loads returns inf",
+   "header": "{\"__metadata__\":{\"x\":1e400},\"a\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+   "data_len": 4,
+   "rust_error_contains": "not JSON",
+   "expect": "refuse"
   }
  ]
 }
