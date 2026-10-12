@@ -64,6 +64,26 @@
       "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
       "decided_on": "2026-10-03",
       "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2. No specification exists beyond docs/teacher-plan.md:126, and no natural held-out set labelled with these classes exists. Producing one means a human judging real commits. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
+    },
+    "paired_margin_population": {
+      "question": "Which families does paired_margin_vs_linear judge promotion on: every family pooled (as built, which includes synth.general, whose linear control cannot run for lack of training rows), or the promotion population's families with every other family report-only?",
+      "gap": "GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05",
+      "status": "decided",
+      "value": "the promotion population: each seed's metrics.paired_margin_vs_linear.choice.<family> for the promotion population's families must run and pass; every other family is report-only",
+      "source": "the pooled gate as built (tools/ft_linear_control.py via the joined control row); v5 seed 0's row 0b0ac9a8 shows it not_run on synth.general",
+      "decided_by": "the human, 2026-10-08, in the lead's session (v6prep lane), answering the re-spec question",
+      "decided_on": "2026-10-08",
+      "decision_ref": "HANDOFF/promotion-respec-proposal-2026-10-05.md; the human's answer recorded in the v6prep handoff of 2026-10-08"
+    },
+    "shuffled_label_seeds": {
+      "question": "On how many of a family's seeds must the shuffled_label control run and pass: every seed (as built) or PROMOTION_MIN_SEEDS (3), with any further seed's control still required to pass where it ran?",
+      "gap": "GAP-SHUFFLED-LABEL-REQUIRED-ON-EVERY-SEED-2026-10-05",
+      "status": "decided",
+      "value": "3: at least three seeds of the family carry a ran-and-passed shuffled_label control; a control that ran and failed on any seed still blocks",
+      "source": "the verdict as built requires it per row; v5 pre-registered J5' on seeds 0-2",
+      "decided_by": "the human, 2026-10-08, in the lead's session (v6prep lane), answering the re-spec question",
+      "decided_on": "2026-10-08",
+      "decision_ref": "HANDOFF/promotion-respec-proposal-2026-10-05.md; the human's answer recorded in the v6prep handoff of 2026-10-08"
     }
   }
 }
