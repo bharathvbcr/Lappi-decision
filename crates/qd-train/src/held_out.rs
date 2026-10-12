@@ -311,29 +311,135 @@ impl Default for GuardLimits {
     }
 }
 
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|w| w == needle)
+/// The end (exclusive) of the JSON string token that starts at `bytes[start] == b'"'`. The text
+/// is valid JSON, so an unescaped quote ends the token.
+fn string_token_end(bytes: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    bytes.len()
 }
 
-/// Whether one line is a caller record: it parses to an object whose `"record"` starts with
-/// [`CALLER_RECORD_PREFIX`], or, for a line that does not parse or whose parse hides it
-/// (a duplicated key, a BOM, damage), it carries both the `"record"` key text and the prefix.
-/// The text test errs toward refusing: this guard only ever narrows admission.
+/// The JSON string token `token` (quotes included) as text.
+fn decode_string(token: &[u8]) -> Option<String> {
+    serde_json::from_slice::<String>(token).ok()
+}
+
+/// Whether `json`, which is valid JSON, has a TOP-LEVEL `"record"` key (any copy of a
+/// duplicated key) holding a string that starts with the prefix: in a top-level object, or in an
+/// object that is a direct element of a top-level array. Nothing nested deeper is read, and a
+/// string value that quotes the format is never a key. A parse into a map would keep only the
+/// last copy of a duplicated key, hence the token walk.
+fn top_level_record(json: &[u8]) -> bool {
+    let mut stack: Vec<u8> = Vec::new();
+    let mut expect_key = false;
+    let mut want_value = false;
+    let mut i = 0;
+    while i < json.len() {
+        let c = json[i];
+        if matches!(c, b' ' | b'\t' | b'\r' | b'\n') {
+            i += 1;
+            continue;
+        }
+        let is_colon = c == b':';
+        let mut end = i + 1;
+        match c {
+            b'{' => {
+                stack.push(b'{');
+                expect_key = true;
+            }
+            b'[' => {
+                stack.push(b'[');
+                expect_key = false;
+            }
+            b'}' | b']' => {
+                stack.pop();
+                expect_key = false;
+            }
+            b',' => expect_key = stack.last() == Some(&b'{'),
+            b':' => expect_key = false,
+            b'"' => {
+                end = string_token_end(json, i);
+                let token = &json[i..end];
+                let at_target = matches!(stack.as_slice(), [b'{'] | [b'[', b'{']);
+                if want_value {
+                    if decode_string(token).is_some_and(|r| r.starts_with(CALLER_RECORD_PREFIX)) {
+                        return true;
+                    }
+                } else if expect_key && at_target && decode_string(token).as_deref() == Some("record")
+                {
+                    want_value = true;
+                    expect_key = false;
+                    i = end;
+                    continue;
+                }
+                expect_key = false;
+            }
+            _ => {
+                // A number or literal: scan to its end.
+                while end < json.len()
+                    && !matches!(json[end], b',' | b'}' | b']' | b' ' | b'\t' | b'\r' | b'\n')
+                {
+                    end += 1;
+                }
+                expect_key = false;
+            }
+        }
+        if want_value && !is_colon {
+            want_value = false;
+        }
+        i = end;
+    }
+    false
+}
+
+/// A line that does not parse (a BOM, damage, invalid UTF-8) is a record only when it starts,
+/// in column 0 after an optional UTF-8 BOM, with `{` or `[` and carries the key and the prefix
+/// side by side: `"record"`, optional JSON whitespace, `:`, optional whitespace, `"lappi.caller_record`.
+/// A line that merely contains both strings (source code, prose) is not one.
+fn damaged_record_line(line: &[u8]) -> bool {
+    const BOM: &[u8] = &[0xef, 0xbb, 0xbf];
+    let head = line.strip_prefix(BOM).unwrap_or(line);
+    if !matches!(head.first(), Some(b'{' | b'[')) {
+        return false;
+    }
+    let ws = |b: &u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
+    let key = b"\"record\"";
+    let prefix = CALLER_RECORD_PREFIX.as_bytes();
+    line.windows(key.len()).enumerate().any(|(i, w)| {
+        if w != key {
+            return false;
+        }
+        let rest = &line[i + key.len()..];
+        let rest = &rest[rest.iter().take_while(|b| ws(b)).count()..];
+        let Some(rest) = rest.strip_prefix(b":") else {
+            return false;
+        };
+        let rest = &rest[rest.iter().take_while(|b| ws(b)).count()..];
+        rest.strip_prefix(b"\"")
+            .is_some_and(|r| r.starts_with(prefix))
+    })
+}
+
+/// One line (terminator already removed) is a caller record when it is JSONL whose top-level
+/// `"record"` key (any copy of a duplicated key) starts with the prefix, or a JSON array holding
+/// such an object; a line that parses and is not that is clean, however much text it quotes. A
+/// line that does not parse is read by [`damaged_record_line`]. The budget is on the content, so
+/// a record of exactly `line_bytes` is read.
 fn is_caller_record_line(line: &[u8], line_bytes: usize) -> bool {
-    // The budget is on the content, without the terminator: a record of exactly the bound is read.
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     if line.len() > line_bytes {
         return false;
     }
-    if let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(line)
-        && map
-            .get("record")
-            .and_then(Value::as_str)
-            .is_some_and(|r| r.starts_with(CALLER_RECORD_PREFIX))
-    {
-        return true;
+    match serde_json::from_slice::<serde_json::Value>(line) {
+        Ok(_) => top_level_record(line),
+        Err(_) => damaged_record_line(line),
     }
-    contains(line, b"\"record\"") && contains(line, CALLER_RECORD_PREFIX.as_bytes())
 }
 
 /// Layer 5 on bytes already read: refuse the whole file if any line is a caller record, or if
@@ -355,7 +461,29 @@ pub fn assert_no_caller_records(
     }
     let scanned_len =
         usize::try_from(limits.total_bytes).map_or(bytes.len(), |n| n.min(bytes.len()));
-    for (i, line) in bytes[..scanned_len].split(|b| *b == b'\n').enumerate() {
+    let scanned = &bytes[..scanned_len];
+    let last = scanned.iter().filter(|b| **b == b'\n').count();
+    for (i, line) in scanned.split(|b| *b == b'\n').enumerate() {
+        // The line without its CRLF's '\r' (a '\r' on the last line has no '\n' after it, so it
+        // is a bare one); any other '\r' is a separator the text-mode readers honour and this
+        // scan does not, so a record could sit behind it.
+        let content = if i == last {
+            line
+        } else {
+            line.strip_suffix(b"\r").unwrap_or(line)
+        };
+        if content.contains(&b'\r') {
+            return Err(HeldOutViolation {
+                layer: HeldOutLayer::GuardIncomplete,
+                expected: "lines the caller-record guard can split exactly as the readers do"
+                    .to_owned(),
+                actual: format!("{label}: line {} holds a bare carriage return", i + 1),
+                detail: "the readers split on a bare '\\r' (text mode) or do not ('\\n' only), so a \
+                         record could sit behind it; refused, not passed as clean (CLAUDE.md \
+                         rule 3: a check that could not run is not a check that passed)."
+                    .to_owned(),
+            });
+        }
         if is_caller_record_line(line, limits.line_bytes) {
             return Err(HeldOutViolation {
                 layer: HeldOutLayer::CallerRecord,
@@ -409,6 +537,23 @@ pub fn assert_jsonl_file_not_caller_records(
     limits: GuardLimits,
 ) -> Result<(), DoorError> {
     let label = path.display().to_string();
+    // Decide by stat, never by open: opening a FIFO for reading blocks with no writer. A path
+    // that is missing or a directory has no bytes and is left to the read, which names it.
+    if let Ok(meta) = std::fs::metadata(path)
+        && !meta.is_dir()
+        && !meta.is_file()
+    {
+        return Err(HeldOutViolation {
+            layer: HeldOutLayer::GuardIncomplete,
+            expected: "a regular file the caller-record guard can scan".to_owned(),
+            actual: format!("{label}: not a regular file"),
+            detail: "a FIFO, device or socket has no stable bytes to scan, so it is refused, \
+                     not passed as clean (CLAUDE.md rule 3: a check that could not run is not \
+                     a check that passed)."
+                .to_owned(),
+        }
+        .into());
+    }
     let bytes = match files.read(path, limits.total_bytes) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::InvalidData => {

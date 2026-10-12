@@ -284,6 +284,18 @@ mod tests {
         assert_eq!(read_jsonl(line.as_bytes()).unwrap().len(), 1);
     }
 
+    /// Text that only quotes the format is not a caller record: a pool row of this repository's
+    /// own source, with another `record` key, reads as a pool row.
+    #[test]
+    fn a_row_that_quotes_the_record_format_is_not_a_caller_record() {
+        let src = "let rec = r#\"{\\\"record\\\":\\\"lappi.caller_record\\\"}\"#;";
+        let line = serde_json::json!({
+            "record": "decisions.json", "id": "a", "repo": "o/r", "path": "a.rs", "source": src,
+        })
+        .to_string();
+        assert_eq!(read_jsonl(line.as_bytes()).unwrap().len(), 1);
+    }
+
     #[test]
     fn identity_is_not_the_diff_hash() {
         let record = PoolRecord {

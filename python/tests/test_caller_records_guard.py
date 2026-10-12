@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -74,6 +75,31 @@ def test_the_oracle_pins_the_three_verdicts_and_the_boundary_cases():
 def test_a_missing_path_and_a_directory_have_no_bytes_and_are_left_to_the_read(tmp_path):
     assert_no_caller_records(tmp_path / "missing.jsonl")
     assert_no_caller_records(tmp_path)
+
+
+def test_a_fifo_is_refused_unscanned_and_never_opened(tmp_path):
+    fifo = tmp_path / "rows.jsonl"
+    os.mkfifo(fifo)
+    # Opening a FIFO for reading blocks forever with no writer: the guard must decide by stat.
+    with pytest.raises(CallerRecordRefusal) as err:
+        assert_no_caller_records(fifo)
+    assert err.value.verdict == "unscannable"
+    assert "not a regular file" in str(err.value)
+
+
+def test_a_cr_separated_file_is_refused_not_passed_as_one_clean_line(tmp_path):
+    """Text-mode readers split on a bare ``\\r``; the guard once passed this file and
+    ``read_jsonl`` then returned 601 rows, one of them the record."""
+    from qd_data.loaders import read_jsonl
+
+    record = RECORDS.read_text(encoding="utf-8").splitlines()[0]
+    path = tmp_path / "rows.jsonl"
+    path.write_bytes("\r".join(['{"a":1}'] * 600 + [record]).encode("utf-8") + b"\n")
+    with pytest.raises(CallerRecordRefusal) as err:
+        assert_no_caller_records(path)
+    assert err.value.verdict == "unscannable"
+    with pytest.raises(CallerRecordRefusal):
+        list(read_jsonl(path, limit=10_000, max_row_bytes=1 << 20))
 
 
 # -- every Python path that opens rows ---------------------------------------------------------

@@ -192,6 +192,82 @@
    "line_bytes": 1000,
    "total_bytes": 256,
    "expect": "record"
+  },
+  {
+   "name": "quotes the format in a string value",
+   "text": "{\"text\": \"a line like {\\\"record\\\":\\\"lappi.caller_record\\\",\\\"record_version\\\":1,\\\"kind\\\":\\\"decision\\\"} is a record, key \\\"record\\\" and lappi.caller_record\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "source code mentioning it",
+   "text": "const P: &str = \"lappi.caller_record\"; // \"record\"\nlet rec = r#\"{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\"#;\n    {\"record\": \"lappi.caller_record\", \"id\": \"a\"},\n",
+   "expect": "clean"
+  },
+  {
+   "name": "nested record key",
+   "text": "{\"meta\":{\"record\":\"lappi.caller_record\"}}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "array whose element only quotes the format",
+   "text": "[{\"text\": \"\\\"record\\\": \\\"lappi.caller_record\\\"\"}]\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record key after other keys",
+   "text": "{\"id\":\"a\",\"record\":\"lappi.caller_record\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "damaged record line with spaced key",
+   "text": "{\"id\":\"a\",\"record\" : \"lappi.caller_record\",\n",
+   "expect": "record"
+  },
+  {
+   "name": "bare cr separates rows",
+   "text": "{\"a\":1}\r{\"b\":2}\r{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "bare cr at end of file",
+   "text": "{\"a\":1}\r",
+   "expect": "unscannable"
+  },
+  {
+   "name": "bare cr inside an over-long line",
+   "text": "{\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\r{\"b\":2}\n",
+   "line_bytes": 100,
+   "expect": "unscannable"
+  },
+  {
+   "name": "crlf on every line is not a bare cr",
+   "text": "{\"a\":1}\r\n{\"b\":2}\r\n",
+   "expect": "clean"
+  },
+  {
+   "name": "another record name with the prefix quoted in a string value",
+   "text": "{\"record\":\"decisions.json\",\"note\":\"mentions lappi.caller_record in prose\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "duplicated record key with the prefix first",
+   "text": "{\"record\":\"lappi.caller_record\",\"record\":\"x\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "record inside an array nested in an array",
+   "text": "[[{\"record\":\"lappi.caller_record\"}]]\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record inside an array under another key",
+   "text": "{\"rows\":[{\"record\":\"lappi.caller_record\"}]}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record key holding an object that holds the record",
+   "text": "{\"record\":{\"record\":\"lappi.caller_record\"}}\n",
+   "expect": "clean"
   }
  ]
 }

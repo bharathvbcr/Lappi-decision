@@ -448,13 +448,19 @@ fn run_containment(io: &DirIo) -> Result<String, String> {
 }
 
 /// The request's bytes, refused past `max_input_bytes`, and the thread count to use.
+///
+/// No caller-record content guard here. A request is a binary frame of documents or signatures
+/// (minhash, lsh, containment, ngrams, linfit, dedupe, spancheck), not a training row file: it
+/// is read to dedupe or measure text, and its output is signatures or measurements. A corpus that quotes the
+/// record format (this repository's own sources do) must sign. The guard sits where rows enter
+/// training: `refuse_training_input` on every row producer's inputs, and the Python readers
+/// that feed a request (`qd_data.caller_records`).
 fn read_input(
     input: &Path,
     threads: Option<usize>,
     max_input_bytes: u64,
 ) -> Result<(Vec<u8>, usize), String> {
     let buf = qd_prep::files::read_bounded(input, max_input_bytes, "--input")?;
-    qd_prep::heldout::refuse_caller_record_bytes(&buf, &format!("--input {}", input.display()))?;
     Ok((buf, bounded_threads(threads)?))
 }
 

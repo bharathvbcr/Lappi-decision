@@ -1,5 +1,6 @@
-//! A caller record placed in any request file `qd-prep` reads is refused by content, through
-//! the CLI, wherever the file lives and whatever it is called (CLAUDE.md rule 3). The rule is
+//! A caller record placed in an input `qd-prep` reads as data (`decision-caps`' files, a row
+//! producer's inputs) is refused by content, through the
+//! CLI, wherever the file lives and whatever it is called (CLAUDE.md rule 3). The rule is
 //! `qd_prep::heldout`'s, one oracle in `fixtures/caller/guard-cases.json`.
 
 use std::path::{Path, PathBuf};
@@ -38,22 +39,29 @@ fn refused_as_record(out: &Output, what: &str) {
     );
 }
 
-/// Every request-reading subcommand (`read_input`), given a copy of the record fixture.
+/// The request subcommands (`read_input`) read binary frames of documents and signatures, not
+/// training row files, so they have no content guard: a corpus that quotes the record format
+/// (this repository's own sources do) is read like any other, and a malformed frame is refused
+/// as a malformed frame, never as a caller record. The guard sits where rows enter training
+/// (`refuse_training_input`, the Python readers); see `main.rs::read_input`.
 #[test]
-fn every_request_subcommand_refuses_a_copied_record_file() {
+fn request_subcommands_do_not_refuse_text_that_quotes_the_record_format() {
     let dir = scratch("request");
     let input = dir.join("request.bin");
-    std::fs::write(&input, valid_records()).unwrap();
+    let mut quoting = br#"const P: &str = "lappi.caller_record"; // "record""#.to_vec();
+    quoting.extend_from_slice(b"\n");
+    quoting.extend_from_slice(&valid_records());
+    std::fs::write(&input, &quoting).unwrap();
     for command in ["minhash", "ngrams", "linfit", "lsh", "dedupe", "spancheck"] {
         let output = dir.join(format!("{command}.out"));
         let out = qd_prep(
             &[command, "--input"],
             &[&input, Path::new("--output"), &output],
         );
-        refused_as_record(&out, command);
+        let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(
-            !output.exists(),
-            "{command} wrote a reply for a caller record"
+            !stderr.contains("caller record"),
+            "{command}: refused a document as a caller record: {stderr}"
         );
     }
     let out = Command::new(env!("CARGO_BIN_EXE_qd-prep"))
@@ -63,8 +71,8 @@ fn every_request_subcommand_refuses_a_copied_record_file() {
         .arg(dir.join("containment-out"))
         .output()
         .expect("qd-prep runs");
-    refused_as_record(&out, "containment");
-    assert!(!dir.join("containment-out").exists());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("caller record"), "containment: {stderr}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

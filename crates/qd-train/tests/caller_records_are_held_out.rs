@@ -245,3 +245,45 @@ fn oracle_bytes(case: &serde_json::Value) -> Vec<u8> {
     format!("{}{core}{}", g["first"].as_str().unwrap_or(""), g["then"].as_str().unwrap_or(""))
         .into_bytes()
 }
+
+/// Opening a FIFO for reading blocks with no writer, and it has no stable bytes: the file door
+/// decides by stat and refuses it as unscannable rather than passing it unscanned.
+#[test]
+fn a_fifo_is_refused_as_unscannable_and_never_opened() {
+    let dir = scratch("fifo");
+    let fifo = dir.join("rows.jsonl");
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success(), "mkfifo");
+    let err = assert_jsonl_file_not_caller_records(&fifo, &OsFiles, GuardLimits::default())
+        .expect_err("a FIFO has nothing to scan");
+    assert!(
+        matches!(&err, DoorError::HeldOut(v) if v.layer == HeldOutLayer::GuardIncomplete),
+        "{err}"
+    );
+}
+
+/// The text-mode readers split rows on a bare `\r`; a scan that splits on `\n` alone saw one
+/// clean line and the readers then returned the record as a row.
+#[test]
+fn a_cr_separated_file_is_refused_not_scanned_as_one_clean_line() {
+    let mut rows = vec![r#"{"a":1}"#; 600];
+    rows.push(REC);
+    let file = format!("{}\n", rows.join("\r"));
+    assert_eq!(
+        layer_of(file.as_bytes(), GuardLimits::default()),
+        Some(HeldOutLayer::GuardIncomplete)
+    );
+}
+
+/// A document that only quotes the record format is not a caller record.
+#[test]
+fn text_that_quotes_the_format_is_clean() {
+    let l = GuardLimits::default();
+    let quoting = format!(
+        "const P: &str = \"lappi.caller_record\"; // \"record\"\nlet rec = r#\"{REC}\"#;\n{}\n",
+        serde_json::json!({"text": format!("see {REC}")}),
+    );
+    assert_eq!(layer_of(quoting.as_bytes(), l), None);
+    let nested = r#"{"meta":{"record":"lappi.caller_record"}}"#;
+    assert_eq!(layer_of(nested.as_bytes(), l), None);
+}
