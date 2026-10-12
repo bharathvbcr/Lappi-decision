@@ -79,18 +79,16 @@ FOOTPRINT_PY=$(dirname "$0")/mac_footprint.py
 RSS_POLL=${MAC_HEAVY_RSS_POLL_S-2}
 MAX_LOAD=${MAC_HEAVY_MAX_LOAD-12}
 MAX_PROCS=${MAC_HEAVY_MAX_PROCS-2500}
+# Every numeric setting is a canonical decimal: "0", or a digit 1-9 then digits, at most 9 of them.
+# A leading zero is refused, not normalised: bash arithmetic reads 09 as an invalid octal (the
+# lock loop then fell through and the job ran without the lock) and 0900 as 0 (a free-space floor
+# of nothing). Bounded too: a value too wide for bash's integer tests makes `[ -gt ]` error, and
+# an error read as "not over" is a guard that fails open.
 for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS"; do
   case "$v" in
-    ''|*[!0-9]*) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD and _MAX_PROCS must be non-negative integers" >&2; exit 64 ;;
+    0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    *) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD and _MAX_PROCS must each be a canonical non-negative decimal integer of at most 9 digits (no leading zeros, no sign, no fraction); got '$v'. Refusing" >&2; exit 64 ;;
   esac
-done
-# Bounded: a value too wide for bash's integer tests makes `[ -gt ]` error, and an error read as
-# "not over" is a guard that fails open.
-for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS"; do
-  if [ "${#v}" -gt 9 ]; then
-    echo "mac_heavy: a numeric setting has more than 9 digits ($v); refusing" >&2
-    exit 64
-  fi
 done
 if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ] && [ "${MAC_HEAVY_TEST_HOOK:-}" != 1 ]; then
   echo "mac_heavy: MAC_HEAVY_FOOTPRINT_CMD replaces the memory guard and is honoured only for tests (MAC_HEAVY_TEST_HOOK=1); refusing rather than running unguarded" >&2
@@ -118,7 +116,7 @@ until mkdir "$LOCK" 2>/dev/null; do
     last_note=$waited
   fi
   sleep "$POLL"
-  waited=$((waited + POLL))
+  waited=$((waited + 10#$POLL))
 done
 
 release() {
@@ -200,7 +198,7 @@ free_kb=$(df -k "$vol" | awk 'NR == 2 { print $4 }')
 case "$free_kb" in
   ''|*[!0-9]*) echo "mac_heavy: could not read free space on $vol; '$LABEL' did NOT run" >&2; exit 74 ;;
 esac
-if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
+if [ "$free_kb" -lt $((10#$MIN_FREE_GB * 1024 * 1024)) ]; then
   echo "mac_heavy: $vol has $((free_kb / 1024 / 1024)) GB free, under ${MIN_FREE_GB} GB; '$LABEL' did NOT run" >&2
   exit 74
 fi
@@ -224,7 +222,7 @@ while :; do
     busy_note=$waited
   fi
   sleep "$POLL"
-  waited=$((waited + POLL))
+  waited=$((waited + 10#$POLL))
 done
 
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}

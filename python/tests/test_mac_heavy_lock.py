@@ -327,6 +327,53 @@ def test_an_oversized_setting_is_refused_not_read_as_not_over(tmp_path: Path) ->
     assert not lock.exists()
 
 
+_NUMERIC_SETTINGS = (
+    "MAC_HEAVY_MAX_WAIT_S",
+    "MAC_HEAVY_MIN_FREE_GB",
+    "MAC_HEAVY_POLL_S",
+    "MAC_HEAVY_MAX_FOOTPRINT_MB",
+    "MAC_HEAVY_RSS_POLL_S",
+    "MAC_HEAVY_MAX_LOAD",
+    "MAC_HEAVY_MAX_PROCS",
+)
+
+
+@pytest.mark.parametrize("value", ["09", "0900", "08", "010", "00", "007", "09999"])
+@pytest.mark.parametrize("var", _NUMERIC_SETTINGS)
+def test_a_leading_zero_setting_is_refused_not_read_as_octal(
+    tmp_path: Path, var: str, value: str
+) -> None:
+    """Bash arithmetic reads ``09`` as an invalid octal (the lock loop then fell through and ran
+    the job unlocked) and ``0900`` as 0 under a free-space floor; both fail open. Only a
+    canonical decimal is a setting."""
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    proc = _run(lock, "t", "touch", str(marker), **{var: value})
+    assert proc.returncode == 64, (var, value, proc.stderr)
+    assert "canonical" in proc.stderr
+    assert not marker.exists()
+    assert not lock.exists()
+
+
+def test_a_leading_zero_poll_never_runs_through_or_breaks_a_held_lock(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    lock.mkdir()
+    (lock / "owner").write_text("label=other\npid=1\n")
+    marker = tmp_path / "ran"
+    proc = _run(lock, "t", "touch", str(marker), MAC_HEAVY_POLL_S="09")
+    assert proc.returncode == 64, proc.stderr
+    assert not marker.exists()
+    assert (lock / "owner").read_text() == "label=other\npid=1\n"
+
+
+def test_canonical_decimals_including_zero_are_accepted(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    proc = _run(
+        lock, "t", "true", MAC_HEAVY_MIN_FREE_GB="0", MAC_HEAVY_POLL_S="9", MAC_HEAVY_MAX_WAIT_S="900"
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
 def test_an_oversized_reader_answer_is_a_reader_failure(tmp_path: Path) -> None:
     proc = _run(
         tmp_path / "lock.d",
