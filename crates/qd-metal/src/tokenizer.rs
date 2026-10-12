@@ -16,6 +16,9 @@ use crate::error::{MetalError, Result};
 /// Rows of the letter slice: 16 option letters + the reserved noul row.
 pub const LETTER_ROWS: usize = 17;
 
+/// Token ids and each token's `(start, end)` byte span in the encoded text.
+pub type Encoded = (Vec<u32>, Vec<(usize, usize)>);
+
 pub struct QwenTokenizer {
     inner: tokenizers::Tokenizer,
     /// `A`..`P` then `Z`, in `qd_runtime::render::SlotRender::letter_for_row` order.
@@ -74,6 +77,14 @@ impl QwenTokenizer {
     /// snapshot's `<tool_call>` / `</tool_call>` are added tokens that are not marked special, and
     /// [`Self::encode`] still returns their ids. The renderer's `<|` escape does not cover them.
     pub fn encode_untrusted(&self, text: &str) -> Result<Vec<u32>> {
+        encode_text_without_added_tags(&self.inner, text).map(|(ids, _)| ids)
+    }
+
+    /// [`Self::encode_untrusted`], and each token's `(start, end)` byte span in `text`. The span
+    /// head maps a context line to the token whose span holds the line's first byte, so these are
+    /// the offsets of the very tokens the model reads: where a control tag is split into one
+    /// piece per character, each piece's offsets are shifted to its place in `text`.
+    pub fn encode_untrusted_with_offsets(&self, text: &str) -> Result<Encoded> {
         encode_text_without_added_tags(&self.inner, text)
     }
 
@@ -94,9 +105,24 @@ impl QwenTokenizer {
 }
 
 fn encode_ids(tok: &tokenizers::Tokenizer, text: &str) -> Result<Vec<u32>> {
-    tok.encode(text, false)
-        .map(|encoding| encoding.get_ids().to_vec())
-        .map_err(|error| MetalError::Tokenizer(format!("encode: {error}")))
+    encode_ids_offsets(tok, text, 0).map(|(ids, _)| ids)
+}
+
+/// Ids and byte offsets of `text`, the offsets shifted by `base`: `text`'s place in a longer string.
+fn encode_ids_offsets(
+    tok: &tokenizers::Tokenizer,
+    text: &str,
+    base: usize,
+) -> Result<Encoded> {
+    let encoding = tok
+        .encode(text, false)
+        .map_err(|error| MetalError::Tokenizer(format!("encode: {error}")))?;
+    let offsets = encoding
+        .get_offsets()
+        .iter()
+        .map(|&(s, e)| (s + base, e + base))
+        .collect();
+    Ok((encoding.get_ids().to_vec(), offsets))
 }
 
 fn looks_like_added_tag(content: &str) -> bool {
@@ -126,7 +152,10 @@ fn next_added_tag<'a>(text: &str, tags: &'a [(u32, String)]) -> Option<(usize, &
     best
 }
 
-fn encode_text_without_added_tags(tok: &tokenizers::Tokenizer, text: &str) -> Result<Vec<u32>> {
+fn encode_text_without_added_tags(
+    tok: &tokenizers::Tokenizer,
+    text: &str,
+) -> Result<Encoded> {
     let tags: Vec<(u32, String)> = tok
         .get_added_tokens_decoder()
         .into_iter()
@@ -134,24 +163,32 @@ fn encode_text_without_added_tags(tok: &tokenizers::Tokenizer, text: &str) -> Re
         .map(|(id, token)| (id, token.content))
         .collect();
     if tags.is_empty() || next_added_tag(text, &tags).is_none() {
-        return encode_ids(tok, text);
+        return encode_ids_offsets(tok, text, 0);
     }
     let mut ids = Vec::new();
+    let mut offsets = Vec::new();
     let mut rest = text;
     while let Some((index, tag)) = next_added_tag(rest, &tags) {
         let (before, at_tag) = rest.split_at(index);
+        let rest_at = text.len() - rest.len();
         if !before.is_empty() {
-            ids.extend(encode_ids(tok, before)?);
+            let (i, o) = encode_ids_offsets(tok, before, rest_at)?;
+            ids.extend(i);
+            offsets.extend(o);
         }
         // Encode the tag one character at a time so the added vocabulary cannot match it whole.
-        for ch in tag.chars() {
+        for (at, ch) in tag.char_indices() {
             let piece = ch.to_string();
-            ids.extend(encode_ids(tok, &piece)?);
+            let (i, o) = encode_ids_offsets(tok, &piece, rest_at + index + at)?;
+            ids.extend(i);
+            offsets.extend(o);
         }
         rest = &at_tag[tag.len()..];
     }
     if !rest.is_empty() {
-        ids.extend(encode_ids(tok, rest)?);
+        let (i, o) = encode_ids_offsets(tok, rest, text.len() - rest.len())?;
+        ids.extend(i);
+        offsets.extend(o);
     }
     if ids
         .iter()
@@ -161,7 +198,7 @@ fn encode_text_without_added_tags(tok: &tokenizers::Tokenizer, text: &str) -> Re
             "untrusted text still encoded an added special-looking token".into(),
         ));
     }
-    Ok(ids)
+    Ok((ids, offsets))
 }
 
 pub fn answer_ids(letters: &[u32; LETTER_ROWS], rows: usize) -> Result<Vec<u32>> {
@@ -212,14 +249,27 @@ mod tests {
              got {:?}",
             raw.get_ids()
         );
-        let safe = encode_text_without_added_tags(&tok, text).expect("untrusted encode");
+        let (safe, safe_offsets) = encode_text_without_added_tags(&tok, text).expect("untrusted encode");
         assert!(
             !safe.contains(&tool_id) && !safe.contains(&close_id),
             "untrusted encode emitted added ids {safe:?}"
         );
+        // The offsets are of `text` itself, with the per-character pieces of a split tag shifted to
+        // their place: the span head reads a line's token from them.
+        assert_eq!(safe_offsets.len(), safe.len(), "one offset pair per id");
+        let world = text.find("world").expect("fixture text");
+        assert!(safe_offsets.contains(&(0, 5)), "hello at (0, 5): {safe_offsets:?}");
+        assert!(safe_offsets.contains(&(world, world + 5)), "world at its byte place: {safe_offsets:?}");
+        let tag_at = text.find("<tool_call>").expect("fixture text");
+        for (k, ch) in "<tool_call>".char_indices() {
+            assert!(
+                safe_offsets.contains(&(tag_at + k, tag_at + k + ch.len_utf8())),
+                "tag character {ch:?} at its byte place: {safe_offsets:?}"
+            );
+        }
         let plain = "hello world";
         assert_eq!(
-            encode_text_without_added_tags(&tok, plain).expect("plain"),
+            encode_text_without_added_tags(&tok, plain).expect("plain").0,
             encode_ids(&tok, plain).expect("plain raw"),
             "text with no added tag must stay on the ordinary encode path"
         );

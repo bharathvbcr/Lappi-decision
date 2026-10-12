@@ -12,7 +12,7 @@
 //! | `model.safetensors` | `model.rs:870-901` | the 320 `model.language_model.*` tensors, BF16 |
 //! | `tokenizer.json` | `backend.rs:331`, `tokenizer.rs:28-37` | the base snapshot's, pinned |
 //! | `tokenizer_config.json`, `vocab.json`, `merges.txt` | (transformers) | the base snapshot's |
-//! | `span_head.safetensors` | none yet | the span pointer head, F32 |
+//! | `span_head.safetensors` | `qd-metal/src/span.rs` | the span pointer head, F32; served only from a manifest `span_head` block that says where the head came from |
 //! | `d17.safetensors` | `qd-metal/src/weights.rs` | optional: the 17-row readout delta `delta` `[17, H]`, F32; `qd-metal` serves `embed[answer ids] + D17` |
 //! | `calibration.json` | `qd_runtime::release` | optional here, validated; a release without it is refused at load |
 //! | `release_manifest.json` | `qd_runtime::release` | every file's sha256, the source, and `expected_identity`: the tower's `weight_hash` bound to `config.json`'s sha256 and the tokenizer's; `trained_families`, the train manifest's family set, which admission checks every request's task against |

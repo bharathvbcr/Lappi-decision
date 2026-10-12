@@ -241,6 +241,7 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
             &common::TRAINED_FAMILIES,
         ),
         allow_extra: Vec::new(),
+        averaged_head_preregistration: None,
         out: out.clone(),
     })
     .expect("the base weights export");

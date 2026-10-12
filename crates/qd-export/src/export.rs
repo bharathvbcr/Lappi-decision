@@ -20,7 +20,8 @@ use crate::safetensors::{sha256_file, Dtype, PlannedTensor, SafeTensorsFile, Ten
 /// The release's file names and manifest format. Owned by the reader, `qd_runtime::release`, so
 /// the writer and the runtime cannot spell a file two ways. The first three are what the loader
 /// opens (`qd-metal/src/config.rs:88`, `model.rs:896`, `backend.rs:331`); no serving loader reads
-/// the span head yet (`GAP-J7-EXPORT-SPAN-HEAD-UNSERVED`).
+/// the span head yet (`GAP-J7-EXPORT-SPAN-HEAD-UNSERVED`); `qd-metal`'s `span` module does now,
+/// and refuses a head whose provenance this export did not record ([`span_head_block`]).
 pub use qd_runtime::release::{
     CALIBRATION_FILE, CONFIG_FILE, MANIFEST_FILE, MANIFEST_FORMAT, MAX_SMALL_FILE_BYTES,
     SPAN_HEAD_FILE, TOKENIZER_FILE, TRAINED_FAMILIES_KEY, WEIGHTS_FILE,
@@ -30,6 +31,11 @@ use qd_runtime::release::validate_trained_families;
 /// The 17-row readout delta (D17), F32 `[17, H]` as the one tensor `delta`. Present only when the
 /// source carries `d17.delta`; `qd-metal` serves `embed[answer ids] + D17` when it is there.
 pub const D17_FILE: &str = "d17.safetensors";
+
+/// What the manifest's `span_head.serving_contract.version` names: the convention the head was
+/// trained under and the loader implements (`qd-metal/src/span.rs`). A head exported under any
+/// other version is refused by the loader, so a convention change cannot be read as the old one.
+pub const SPAN_CONTRACT_VERSION: &str = "qd-span-head.v1";
 
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
@@ -81,6 +87,12 @@ pub struct ExportRequest {
     /// item 4). Required: a release that cannot say what it trained admits nothing.
     pub train_manifest: PathBuf,
     pub allow_extra: Vec<AllowedExtra>,
+    /// The pre-registration that names the **averaged** span head as a primary row
+    /// (`campaign/v6-averaging-preregistered.json`). Required for the loader to serve an averaged
+    /// head at all: a five-seed weight average of independently initialised heads is a blend
+    /// (`GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06`), and only a pre-registered row is
+    /// served. Refused here when the source's `span_head_source` is not `mode: "averaged"`.
+    pub averaged_head_preregistration: Option<PathBuf>,
     /// The release directory; must not exist.
     pub out: PathBuf,
 }
@@ -158,6 +170,10 @@ struct SourceManifest {
     prompt_format: u64,
     /// Whether the source manifest stated `prompt_format` (`false`: the default above applied).
     prompt_format_stated: bool,
+    /// `span_head_source` as `tools/ckpt_average.py` wrote it (`mode` `"seed"` or `"averaged"`),
+    /// validated for shape. `None` when the manifest states none: an average made before the field
+    /// existed, whose head may be a blend. The loader refuses to serve such a head.
+    span_head_source: Option<Value>,
 }
 
 fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
@@ -215,6 +231,12 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
             )
         })?,
     };
+    let span_head_source = match v.get("span_head_source") {
+        None | Some(Value::Null) => None,
+        Some(block) => Some(check_span_head_source(block).map_err(|detail| {
+            refuse(k, format!("{}: span_head_source: {detail}", path.display()))
+        })?),
+    };
     Ok(SourceManifest {
         path: path.to_path_buf(),
         sha256: hex(&sha256(&bytes)),
@@ -225,6 +247,80 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
         tool: v.get("tool").and_then(Value::as_str).map(str::to_string),
         prompt_format,
         prompt_format_stated: v.get("prompt_format").is_some(),
+        span_head_source,
+    })
+}
+
+/// `span_head_source`'s shape (`tools/ckpt_average.py::span_head_source_block`): `mode` is
+/// `"averaged"` with no seed, input or digest, or `"seed"` with an integer seed, the input's path
+/// and its 64-hex payload digest. Anything else is a head whose origin cannot be read.
+fn check_span_head_source(block: &Value) -> std::result::Result<Value, String> {
+    let obj = block.as_object().ok_or("is not an object")?;
+    match obj.get("mode").and_then(Value::as_str) {
+        Some("averaged") => {
+            let stray: Vec<&str> = ["seed", "input", "payload_digest"]
+                .into_iter()
+                .filter(|key| obj.get(*key).is_some_and(|v| !v.is_null()))
+                .collect();
+            if stray.is_empty() {
+                Ok(block.clone())
+            } else {
+                Err(format!("is averaged and names {stray:?}"))
+            }
+        }
+        Some("seed") => {
+            let seed_ok = obj.get("seed").is_some_and(|s| s.as_u64().is_some());
+            let input_ok = obj.get("input").and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty());
+            let digest_ok = obj.get("payload_digest").and_then(Value::as_str).is_some_and(is_hex64);
+            if seed_ok && input_ok && digest_ok {
+                Ok(block.clone())
+            } else {
+                Err("is seed-mode but lacks an integer seed, an input path or a 64-hex payload_digest".into())
+            }
+        }
+        other => Err(format!("mode is {other:?}, not \"seed\" or \"averaged\"")),
+    }
+}
+
+/// A pre-registration of the averaged span head as a primary row, read and recorded by digest.
+struct AveragedPreregistration {
+    file: String,
+    sha256: String,
+    name: String,
+}
+
+/// Read the pre-registration `path`: a JSON object with a non-blank `name` whose `rows.primary`
+/// says the manifest must read `span_head_source.mode == 'averaged'` (the sentence
+/// `campaign/v6-averaging-preregistered.json` fixes). The file's digest is what the release records;
+/// the loader cannot re-read the campaign file, so the digest is the binding.
+fn read_averaged_preregistration(path: &Path) -> Result<AveragedPreregistration> {
+    let k = RefusalKind::SourceManifest;
+    let bytes = read_small(path, k)?;
+    let doc: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| refuse(k, format!("{}: not JSON: {e}", path.display())))?;
+    let name = doc
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|n| !qd_runtime::is_blank(n))
+        .ok_or_else(|| refuse(k, format!("{}: no non-blank name", path.display())))?;
+    let says = doc
+        .pointer("/rows/primary/manifest_must_say")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s.contains("span_head_source.mode == 'averaged'"));
+    if !says {
+        return Err(refuse(
+            k,
+            format!(
+                "{}: rows.primary.manifest_must_say does not name span_head_source.mode == \
+                 'averaged', so this file does not pre-register the averaged head as a primary row",
+                path.display()
+            ),
+        ));
+    }
+    Ok(AveragedPreregistration {
+        file: path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned()),
+        sha256: hex(&sha256(&bytes)),
+        name: name.to_string(),
     })
 }
 
@@ -448,6 +544,7 @@ struct Plan {
     head: Vec<(String, TensorInfo)>,
     /// `d17.delta`, when the source carries it.
     d17: Vec<(String, TensorInfo)>,
+    preregistration: Option<AveragedPreregistration>,
     dropped: Vec<AllowedExtra>,
     dtype_counts: BTreeMap<&'static str, usize>,
     tokenizer: Vec<(&'static str, Vec<u8>)>,
@@ -690,6 +787,33 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         return Err(refuse(RefusalKind::Dtype, bad_dtypes.join("; ")));
     }
 
+    // The averaged head is served only as a pre-registered primary row, so a pre-registration is
+    // refused beside any other kind of head: it would say a seed's head was an average.
+    let preregistration = match &req.averaged_head_preregistration {
+        None => None,
+        Some(path) => {
+            let averaged = manifest
+                .span_head_source
+                .as_ref()
+                .and_then(|b| b.get("mode"))
+                .and_then(Value::as_str)
+                == Some("averaged");
+            if !averaged {
+                return Err(refuse(
+                    RefusalKind::SourceManifest,
+                    format!(
+                        "--averaged-head-preregistration {} was given, but {} does not say \
+                         span_head_source.mode is \"averaged\"; a pre-registration of the averaged head \
+                         cannot cover another head",
+                        path.display(),
+                        manifest.path.display()
+                    ),
+                ));
+            }
+            Some(read_averaged_preregistration(path)?)
+        }
+    };
+
     // Last, because it reads the whole file: the manifest must describe these bytes.
     let source_sha256 = hex(&src.sha256()?);
     if source_sha256 != manifest.safetensors_sha256 {
@@ -712,6 +836,7 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         tower: tower_out,
         head: head.into_iter().map(|(k, v)| (k, v.clone())).collect(),
         d17: d17.into_iter().map(|(k, v)| (k, v.clone())).collect(),
+        preregistration,
         dropped,
         dtype_counts,
         tokenizer,
@@ -811,6 +936,36 @@ fn write_f32_file(
     w.finish()
 }
 
+/// The manifest's `span_head` block: where the head came from, what pre-registers it, and the
+/// convention it was trained under. `qd-metal`'s loader serves the span slot only from a block it
+/// can verify (a non-blended source, or an averaged head with a pre-registration).
+fn span_head_block(plan: &Plan, head_sha256: &str) -> Value {
+    json!({
+        "file": SPAN_HEAD_FILE,
+        "sha256": head_sha256,
+        "hidden_size": plan.layout.hidden,
+        "source": plan.manifest.span_head_source,
+        "averaged_head_preregistration": plan.preregistration.as_ref().map(|p| json!({
+            "file": p.file,
+            "sha256": p.sha256,
+            "name": p.name,
+            "row": "primary",
+        })),
+        "serving_contract": {
+            "version": SPAN_CONTRACT_VERSION,
+            "hidden_state": "the tower's last hidden state: the output of the final norm \
+                             (Qwen3_5TextModel.last_hidden_state), at the token positions below",
+            "query": "the last token of prefix + slot suffix (training's target_index)",
+            "candidates": "one row per context line, in line order: the first token whose offset \
+                           span contains the line's first byte; a line in no token, or two lines in \
+                           one token, refuse (span_collapse_policy refuse-any)",
+            "abstain_row": "last: row line_count",
+            "rows": "line_count + 1, the runtime's span_rows",
+            "scores": "start and end: (W h_query) . h_candidate, abstain: (W h_query) . abstain_vector",
+        },
+    })
+}
+
 fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &Path) -> Result<ExportSummary> {
     let mut files: BTreeMap<String, Value> = BTreeMap::new();
     let mut shas: BTreeMap<String, String> = BTreeMap::new();
@@ -870,7 +1025,8 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
 
     // span_head.safetensors and d17.safetensors: F32, bit for bit.
     let head = write_f32_file(src, &dir.join(SPAN_HEAD_FILE), SPAN_PREFIX, &plan.head, &mut buf)?;
-    record(SPAN_HEAD_FILE, hex(&head.sha256), head.bytes);
+    let head_sha = hex(&head.sha256);
+    record(SPAN_HEAD_FILE, head_sha.clone(), head.bytes);
     if !plan.d17.is_empty() {
         let d17 = write_f32_file(src, &dir.join(D17_FILE), D17_PREFIX, &plan.d17, &mut buf)?;
         record(D17_FILE, hex(&d17.sha256), d17.bytes);
@@ -915,7 +1071,7 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "weights": WEIGHTS_FILE,
             "tensor_prefix": TEXT_PREFIX,
             "tokenizer": TOKENIZER_FILE,
-            "span_head": format!("{SPAN_HEAD_FILE} (no serving loader reads it yet: GAP-J7-EXPORT-SPAN-HEAD-UNSERVED)"),
+            "span_head": format!("{SPAN_HEAD_FILE} (qd-metal's span module serves it, from the `span_head` block below)"),
             "d17": format!("{D17_FILE} (optional; qd-metal serves embed[answer ids] + D17)"),
         },
         "source": {
@@ -949,6 +1105,7 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "hidden_size": plan.layout.hidden,
             "num_hidden_layers": plan.layout.layer_kinds.len(),
         },
+        "span_head": span_head_block(plan, &head_sha),
         "d17": plan.d17.first().map(|(_, info)| json!({
             "file": D17_FILE,
             "sha256": shas[D17_FILE],

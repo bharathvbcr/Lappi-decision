@@ -85,6 +85,7 @@ pub fn tiny_release(tag: &str, edit_source_manifest: impl FnOnce(&mut Value)) ->
         calibration: None,
         train_manifest: tiny.join("train.json"),
         allow_extra: Vec::new(),
+        averaged_head_preregistration: None,
         out: out.clone(),
     })
     .expect("the tiny fixture exports");

@@ -21,13 +21,14 @@
 //! logits = score_answer_rows(resid[slot rows], final norm (w_offset 1), embed[answer ids])
 //! ```
 //!
-//! # The 17-row readout
+//! # The 17-row readout, and the span head's hidden state
 //!
 //! With a D17 ([`Model::set_answer_delta`], from a release's `d17.safetensors`) the last line reads
 //! `embed[answer ids] + D17`: the rows are composed on the host in f32 (a letter's embedding row
 //! widened from bf16, plus its D17 row) and scored from an f32 head by the same kernel
 //! (`qwen35_score_rows` is generic over the head's dtype and widens bf16 exactly), so a D17 of zero
-//! reproduces today's scores bit for bit (`tests/gpu_d17.rs`).
+//! reproduces today's scores bit for bit (`tests/gpu_span.rs`). [`Model::final_hidden`] is the
+//! tower's `last_hidden_state` rows for the span head (`crate::span`).
 //!
 //! # State, and what "read-only" means here
 //!
@@ -269,6 +270,9 @@ pub struct Model {
     attn: AttnProjLayout,
     layers: Vec<Layer>,
     final_norm: GpuBuffer,
+    /// The checkpoint's final-norm weight `w` (the kernel applies `1 + w`), for the span head's
+    /// host-side hidden state.
+    final_norm_host: Vec<f32>,
     /// `[vocab, hidden]` bf16: the embedding and, tied, the LM head.
     embed: Tensor,
     weight_hash: String,
@@ -548,6 +552,7 @@ impl Model {
             attn,
             layers,
             final_norm,
+            final_norm_host,
             embed,
             weight_hash,
             embed_digest,
@@ -583,6 +588,39 @@ impl Model {
     /// SHA-256 of the D17 file the answer rows carry, if any.
     pub fn answer_delta_digest(&self) -> Option<[u8; 32]> {
         self.readout.as_ref().map(|r| r.delta.file_sha256())
+    }
+
+    /// The tower's `last_hidden_state` at `rows` of `out`, row-major `[rows.len(), hidden]` f32: the
+    /// residual stream after the last layer, through the final norm, rounded to bf16 (what a bf16
+    /// tower emits and what the span head was trained on). Waits for the GPU.
+    pub fn final_hidden(&self, out: &RunOutput, rows: &[u32]) -> Result<Vec<f32>> {
+        let h = self.cfg.hidden;
+        let total = out
+            .batch
+            .checked_mul(out.seq)
+            .ok_or_else(|| MetalError::Input(format!("{} x {} rows overflow u32", out.batch, out.seq)))?;
+        if let Some(bad) = rows.iter().find(|&&r| r >= total) {
+            return Err(MetalError::Input(format!("hidden row {bad} is outside the {total} rows run")));
+        }
+        let resid = out.resid.buffer.try_contents_f32().gpu("map the residual stream")?;
+        let mut hidden = Vec::with_capacity(rows.len() * h);
+        for &r in rows {
+            let at = r as usize * h;
+            hidden.extend(crate::span::final_hidden_row(&resid[at..at + h], &self.final_norm_host, self.cfg.rms_eps));
+        }
+        Ok(hidden)
+    }
+
+    /// The pre-norm residual rows, for the convention test only: what a head that read the stream
+    /// before the final norm would have been fed.
+    pub fn residual_rows(&self, out: &RunOutput, rows: &[u32]) -> Result<Vec<f32>> {
+        let h = self.cfg.hidden;
+        let total = out.batch.checked_mul(out.seq).unwrap_or(0);
+        if let Some(bad) = rows.iter().find(|&&r| r >= total) {
+            return Err(MetalError::Input(format!("residual row {bad} is outside the {total} rows run")));
+        }
+        let resid = out.resid.buffer.try_contents_f32().gpu("map the residual stream")?;
+        Ok(rows.iter().flat_map(|&r| resid[r as usize * h..(r as usize + 1) * h].to_vec()).collect())
     }
 
     pub fn config(&self) -> &ModelConfig {

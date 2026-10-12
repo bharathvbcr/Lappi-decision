@@ -21,6 +21,18 @@
 //! `state_host_visible` is `true`: the check the runtime runs is a check of the device state,
 //! not of a host copy that could disagree with it.
 //!
+//! # The span slot, and D17
+//!
+//! A release that carries `span_head.safetensors` with provenance [`crate::span::open`] accepts
+//! serves `PointerStart` / `PointerEnd` queries: at **prefill** the worker maps the context's
+//! lines to token positions (from the tokenizer's offsets of the prefix) and keeps the tower's
+//! final-norm hidden state at them with the entry; at **decode** it reads the query's hidden state
+//! (the last token of the slot's suffix) and scores `line_count + 1` rows, abstain last. A head
+//! that is present and refused (no provenance, a blend that was not pre-registered, another
+//! contract) answers every span query with the reason; a release with no head answers with the old
+//! "the base weights have no pointer head". Choice and score slots are served either way. With a
+//! `d17.safetensors` the letter rows are `embed[answer ids] + D17` ([`crate::model::Model::set_answer_delta`]).
+//!
 //! # Snapshots and the prefix cache
 //!
 //! A prefill is cached by `prompt_digest` (SHA-256 of the prefix): a second request over the
@@ -46,6 +58,7 @@ use qd_runtime::backend::{
 
 use crate::error::{MetalError, Result};
 use crate::model::{Model, PrefixState};
+use crate::span::{SpanCandidates, SpanPrefix, SpanServing};
 use crate::tokenizer::QwenTokenizer;
 
 /// The name in every answer this backend produces.
@@ -150,8 +163,8 @@ impl QueryHead {
 ///
 /// The only admitted shape is exactly two [`DecodeMode::ReadOnly`] letter queries with the same
 /// row count. Write-back is excluded because `Model::run`'s `keep_state` is batch 1. A pointer
-/// head is excluded because the base weights have no such head and a batch would score letter
-/// rows for it. One query has nothing to batch. Three or more stay one decode each. Different
+/// head is excluded because it scores hidden states, not letter rows, and a batch would score
+/// letter rows for it. One query has nothing to batch. Three or more stay one decode each. Different
 /// row counts would score both passes with the first query's answer ids.
 fn batchable(mode: DecodeMode, queries: &[QueryHead]) -> bool {
     matches!(
@@ -391,6 +404,8 @@ struct Entry {
     prefix: Rc<str>,
     /// `prefix`'s tokens; always `state.tokens()` long.
     prefix_ids: Rc<[u32]>,
+    /// The span head's per-prefix inputs, computed at the prefill and shared by its snapshots.
+    span: Rc<SpanPrefix>,
     /// Set for a cached prefill, which decodes never touch (they go through a snapshot).
     is_prefill: bool,
     /// The original prefill's `prompt_digest`, which every handle and snapshot carries.
@@ -402,6 +417,8 @@ struct Entry {
 struct Worker {
     model: Model,
     tok: QwenTokenizer,
+    /// Whether this release serves a span head, and which.
+    span: SpanServing,
     entries: HashMap<u64, Entry>,
     /// prompt_digest -> the prefill entry for it (never written back to).
     prefills: HashMap<[u8; 32], u64>,
@@ -431,13 +448,15 @@ impl Worker {
         let mut model = Model::load(&rt, snapshot)?;
         let tok = QwenTokenizer::load(&snapshot.join("tokenizer.json"))?;
         // A D17 changes every letter score, so a release whose D17 is unbound or unreadable does
-        // not start.
+        // not start (a span head is refused lazily instead: choice does not depend on it).
         if let Some(delta) = crate::weights::open_answer_delta(snapshot, model.config().hidden)? {
             model.set_answer_delta(delta, *tok.letter_ids())?;
         }
+        let span = crate::span::open(snapshot, model.config().hidden);
         Ok(Self {
             model,
             tok,
+            span,
             entries: HashMap::new(),
             prefills: HashMap::new(),
             next_id: 1,
@@ -455,8 +474,8 @@ impl Worker {
             .iter()
             .flat_map(|id| id.to_le_bytes())
             .collect();
-        // The head the answers read: the tied embedding's letter rows, plus D17 when the release
-        // carries one. A release without it hashes exactly as it always did.
+        // The head the answers read: the tied embedding's letter rows, plus D17 and the span head
+        // when the release carries them. A release with neither hashes exactly as it always did.
         let mut head = match self.model.answer_delta_digest() {
             None => b"qd-metal.head.tied-embedding-letter-rows.v1\0".to_vec(),
             Some(_) => b"qd-metal.head.tied-embedding-letter-rows-plus-d17.v1\0".to_vec(),
@@ -466,6 +485,10 @@ impl Worker {
             head.extend_from_slice(&d17);
         }
         head.extend_from_slice(&letters);
+        if let SpanServing::Ready(span) = &self.span {
+            head.extend_from_slice(b"qd-metal.span-head.v1\0");
+            head.extend_from_slice(&span.file_sha256());
+        }
         let mut labels = b"qd-metal.label-set.v1\0ABCDEFGHIJKLMNOPZ\0".to_vec();
         labels.extend_from_slice(&letters);
         BackendIdentity {
@@ -589,7 +612,7 @@ impl Worker {
                 state: StateBuffer::from_bytes(rec.to_bytes()),
             });
         }
-        let ids = self.tok.encode_untrusted(prefix).map_err(prefill_failed)?;
+        let (ids, offsets) = self.tok.encode_untrusted_with_offsets(prefix).map_err(prefill_failed)?;
         if ids.is_empty() {
             return Err(prefill_failed(MetalError::Input(
                 "the prefix encodes to no tokens".into(),
@@ -602,11 +625,12 @@ impl Worker {
                 self.max_tokens
             ))));
         }
-        let result = self.model.prefill(&ids).and_then(|(_, state)| {
+        let result = self.model.prefill(&ids).and_then(|(out, state)| {
             let digest = state.digest()?;
-            Ok((state, digest))
+            let span = self.span_prefix(prefix, &offsets, &out)?;
+            Ok((state, digest, span))
         });
-        let (state, digest) = match result {
+        let (state, digest, span) = match result {
             Ok(v) => v,
             Err(e) => {
                 self.note(&e);
@@ -618,6 +642,7 @@ impl Worker {
             state: Rc::new(state),
             prefix: Rc::from(prefix),
             prefix_ids: Rc::from(ids),
+            span: Rc::new(span),
             is_prefill: true,
             prompt_digest,
             digest,
@@ -633,6 +658,32 @@ impl Worker {
             token_count: tokens,
             state: StateBuffer::from_bytes(rec.to_bytes()),
         })
+    }
+
+    /// The span head's inputs for a prefix just prefilled: the context's lines mapped to tokens, and
+    /// the tower's hidden state at them. A prefix whose lines cannot be mapped is not a failed
+    /// prefill (its choice slots are fine): it is a [`SpanPrefix::Refused`] that span queries
+    /// report. A GPU failure is an error.
+    fn span_prefix(
+        &self,
+        prefix: &str,
+        offsets: &[(usize, usize)],
+        out: &crate::model::RunOutput,
+    ) -> Result<SpanPrefix> {
+        if !matches!(self.span, SpanServing::Ready(_)) {
+            return Ok(SpanPrefix::NotComputed);
+        }
+        match crate::span::plan_candidates(prefix, offsets) {
+            Err(e) => Ok(SpanPrefix::Refused(e.to_string())),
+            Ok(tokens) => {
+                let rows = tokens
+                    .iter()
+                    .map(|&t| u32::try_from(t).map_err(|_| MetalError::Input(format!("token {t} exceeds u32"))))
+                    .collect::<Result<Vec<u32>>>()?;
+                let hidden = self.model.final_hidden(out, &rows)?;
+                Ok(SpanPrefix::Ready(SpanCandidates { tokens, hidden }))
+            }
+        }
     }
 
     fn lookup(
@@ -676,6 +727,7 @@ impl Worker {
             state: Rc::clone(&src.state),
             prefix: Rc::clone(&src.prefix),
             prefix_ids: Rc::clone(&src.prefix_ids),
+            span: Rc::clone(&src.span),
             is_prefill: false,
             prompt_digest: src.prompt_digest,
             digest: src.digest,
@@ -704,13 +756,24 @@ impl Worker {
         kind: QueryKind,
         mode: DecodeMode,
     ) -> std::result::Result<(Logits, StateSnapshot), BackendError> {
-        refuse_non_letter(kind, slot)?;
+        // A pointer query needs a served head; without one it is refused before any forward, with
+        // the reason (no head in the release, or a head the loader would not serve).
+        match (&self.span, kind) {
+            (_, QueryKind::Letters) => {}
+            (SpanServing::Absent, _) => refuse_non_letter(kind, slot)?,
+            (SpanServing::Refused(reason), _) => return Err(refuse_span_head(kind, slot, reason)),
+            (SpanServing::Ready(_), _) => {}
+        }
         let id = self
             .lookup(&snapshot.backend, &snapshot.state, &snapshot.prompt_digest)
             .map_err(decode_failed)?;
-        let answers = self.tok.answer_ids(rows).map_err(decode_failed)?;
+        let answers = if kind == QueryKind::Letters {
+            self.tok.answer_ids(rows).map_err(decode_failed)?
+        } else {
+            Vec::new()
+        };
         let now = self.tick();
-        let (state, prefix, prefix_ids) = {
+        let (state, prefix, prefix_ids, span_prefix) = {
             let e = self
                 .entries
                 .get_mut(&id)
@@ -721,7 +784,36 @@ impl Worker {
                 Rc::clone(&e.state),
                 Rc::clone(&e.prefix),
                 Rc::clone(&e.prefix_ids),
+                Rc::clone(&e.span),
             )
+        };
+        // The context's lines, mapped at the prefill. The runtime asks for `line_count + 1` rows;
+        // a head scored over any other count is refused here, not truncated or padded.
+        let candidates: Option<&SpanCandidates> = match (&*span_prefix, kind) {
+            (_, QueryKind::Letters) => None,
+            (SpanPrefix::Ready(c), _) => {
+                if rows != c.tokens.len() + 1 {
+                    return Err(decode_failed(format!(
+                        "slot `{slot}` asks the {} head for {rows} rows, but the context has {} lines \
+                         (line_count + 1 = {})",
+                        kind.as_str(),
+                        c.tokens.len(),
+                        c.tokens.len() + 1
+                    )));
+                }
+                Some(c)
+            }
+            (SpanPrefix::Refused(reason), _) => {
+                return Err(decode_failed(format!(
+                    "slot `{slot}`: the {} head cannot be read for this context: {reason}",
+                    kind.as_str()
+                )));
+            }
+            (SpanPrefix::NotComputed, _) => {
+                return Err(decode_failed(format!(
+                    "slot `{slot}`: this prefix was prefilled without the span head's inputs"
+                )));
+            }
         };
         let (cont, all, whole) = continuation_ids(
             &self.tok,
@@ -737,14 +829,22 @@ impl Worker {
         let keep = mode == DecodeMode::WriteBack;
         let result = (|| -> Result<(Vec<f32>, Option<PrefixState>, [u8; 32])> {
             let mut out = self.model.run(&cont, 1, seq, Some(&state), keep, None)?;
-            let scores = self.model.score(&out, &[seq - 1], &answers)?;
+            let values = match (candidates, &self.span) {
+                (Some(c), SpanServing::Ready(head)) => {
+                    // The query is the last token of the suffix: the position the letters read.
+                    let query = self.model.final_hidden(&out, &[seq - 1])?;
+                    let scores = head.scores(&c.hidden, c.tokens.len(), &query)?;
+                    if kind == QueryKind::PointerStart { scores.start } else { scores.end }
+                }
+                _ => self.model.score(&out, &[seq - 1], &answers)?.logits,
+            };
             let new_state = out.state.take();
             // The digest is re-read from the device after the decode ran.
             let digest = match &new_state {
                 Some(s) => s.digest()?,
                 None => state.digest()?,
             };
-            Ok((scores.logits, new_state, digest))
+            Ok((values, new_state, digest))
         })();
         let (values, new_state, digest) = match result {
             Ok(v) => v,
@@ -915,6 +1015,15 @@ fn refuse_non_letter(kind: QueryKind, slot: &str) -> std::result::Result<(), Bac
          the tied LM head's letter rows",
         kind.as_str()
     )))
+}
+
+/// A pointer query against a release whose span head is present but not served.
+fn refuse_span_head(kind: QueryKind, slot: &str, reason: &str) -> BackendError {
+    decode_failed(format!(
+        "slot `{slot}` asks for the {} head; this release carries a span head the loader does not \
+         serve: {reason}",
+        kind.as_str()
+    ))
 }
 
 fn refuse_prefill_handle(is_prefill: bool) -> std::result::Result<(), BackendError> {

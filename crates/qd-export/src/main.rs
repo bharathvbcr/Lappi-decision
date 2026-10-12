@@ -4,7 +4,7 @@
 //! qd-export --source AVG.safetensors --base-snapshot SNAP --tokenizer-sha256 HEX \
 //!           --expect-vocab-size 248320 --train-manifest TRAIN.json --out RELEASE \
 //!           [--calibration TABLE.json] [--source-manifest AVG.safetensors.manifest.json] \
-//!           [--allow-extra NAME=REASON]...
+//!           [--allow-extra NAME=REASON]... [--averaged-head-preregistration PATH]
 //! ```
 //!
 //! Exit codes: 0 a release was written; 2 the export was refused (nothing is left behind);
@@ -63,6 +63,13 @@ struct Cli {
     #[arg(long, value_name = "NAME=REASON", value_parser = AllowedExtra::parse)]
     allow_extra: Vec<AllowedExtra>,
 
+    /// The pre-registration naming the averaged span head as a primary row
+    /// (campaign/v6-averaging-preregistered.json). Without it, an averaged head is exported but
+    /// qd-metal will not serve it: a weight average of independently initialised heads is a blend.
+    /// Refused unless the source manifest says span_head_source.mode is "averaged".
+    #[arg(long, value_name = "PATH")]
+    averaged_head_preregistration: Option<PathBuf>,
+
     /// The release directory to create. It must not exist.
     #[arg(long, value_name = "DIR")]
     out: PathBuf,
@@ -79,6 +86,7 @@ fn main() -> ExitCode {
         calibration: cli.calibration,
         train_manifest: cli.train_manifest,
         allow_extra: cli.allow_extra,
+        averaged_head_preregistration: cli.averaged_head_preregistration,
         out: cli.out,
     };
     match export(&req) {
