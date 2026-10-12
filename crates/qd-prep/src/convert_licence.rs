@@ -9,10 +9,10 @@
 //! both until `qd_data.licences` registers it.
 //!
 //! One addition the loader already implies: a dataset-level licence the conversion can state but
-//! Python has not registered yet ([`PENDING`]) keeps its rows in the pool, stamped with that id.
-//! `qd_data.decisions.load_decision_pool` then default-denies them (`admit_licence`) until the
-//! id is registered with a human's note -- the `synthetic-by-rule` precedent of plan section 8.
-//! The parity test fails the day Python admits a pending id, so the two lists cannot drift.
+//! Python has not registered yet ([`PENDING`], empty today) keeps its rows in the pool, stamped
+//! with that id. `qd_data.decisions.load_decision_pool` then default-denies them
+//! (`admit_licence`) until the id is registered with a human's note. The parity test fails the
+//! day Python admits a pending id, so the two lists cannot drift.
 
 /// `qd_data.licences.LicenceTier`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -36,7 +36,7 @@ impl Tier {
 use Tier::{Allow as A, Disqualifying as D, NeedsHumanCall as H};
 
 /// `qd_data.licences.LICENCE_POLICY`: every id and its tier, in the table's order.
-pub const POLICY: [(&str, Tier); 24] = [
+pub const POLICY: [(&str, Tier); 27] = [
     ("mit", A),
     ("apache-2.0", A),
     ("bsd-2-clause", A),
@@ -49,6 +49,9 @@ pub const POLICY: [(&str, Tier); 24] = [
     ("cc-by-sa-3.0", A),
     ("cc-by-sa-4.0", A),
     ("owner-granted", A),
+    ("oanc", A),
+    ("odc-by-1.0", A),
+    ("synthetic-by-rule", A),
     ("agpl-3.0", H),
     ("lgpl-2.1", H),
     ("epl-1.0", H),
@@ -78,23 +81,28 @@ pub const ALIASES: [(&str, &str); 10] = [
 ];
 
 /// Dataset-level licences this conversion states but `qd_data.licences` has not registered.
-/// Each is `needs_human_call` in Python (the parity test checks it), so rows carrying one are
-/// built but cannot be loaded until a human registers the id. `(id, the note for the manifest)`.
-pub const PENDING: [(&str, &str); 2] = [
+/// Each must be `needs_human_call` in Python (the parity test checks it), so rows carrying one
+/// are built but cannot be loaded until a human registers the id. `(id, the note for the
+/// manifest)`. Empty since 2026-10-08, when the human registered `oanc`, `odc-by-1.0` and
+/// `synthetic-by-rule` (commit 7385e9d); the mechanism stays for the next unregistered id.
+pub const PENDING: [(&str, &str); 0] = [];
+
+/// Manifest notes for dataset-level licences the conversion states, registered or not.
+/// `(id, the note)`; [`note`] reads it.
+pub const NOTES: [(&str, &str); 2] = [
     (
         "odc-by-1.0",
         "allenai/scirepeval: ODC-BY 1.0 aggregate licence; attribution required (cite \
          SciRepEval, Singh et al. 2023, and the Allen Institute for AI). The search config has \
-         no external constituent per the SciRepEval GitHub README table. Not yet in \
-         qd_data.licences: the loader refuses these rows until it is registered",
+         no external constituent per the SciRepEval GitHub README table. Registered in \
+         qd_data.licences by the human on 2026-10-08",
     ),
     (
         "oanc",
         "nyu-mll/multi_nli non-fiction genres (government, slate, telephone, travel): the Open \
          American National Corpus licence, which the MultiNLI paper describes as allowing free \
          use, modification and sharing; the fiction genre (which includes CC-BY-SA-3.0 text) is \
-         refused per row. Not yet in qd_data.licences: the loader refuses these rows until it \
-         is registered",
+         refused per row. Registered in qd_data.licences by the human on 2026-10-08",
     ),
 ];
 
@@ -166,9 +174,9 @@ pub fn gate(raw: Option<&str>) -> Result<Verdict, String> {
     }
 }
 
-/// The manifest note for a pending id.
-pub fn pending_note(id: &str) -> Option<&'static str> {
-    PENDING.iter().find(|(p, _)| *p == id).map(|(_, n)| *n)
+/// The manifest note for a dataset-level id, from [`NOTES`].
+pub fn note(id: &str) -> Option<&'static str> {
+    NOTES.iter().find(|(p, _)| *p == id).map(|(_, n)| *n)
 }
 
 #[cfg(test)]
@@ -204,17 +212,20 @@ mod tests {
     }
 
     #[test]
-    fn a_pending_dataset_licence_is_kept_and_named_never_admitted() {
-        assert_eq!(
-            gate(Some("ODC-BY-1.0")),
-            Ok(Verdict::Pending("odc-by-1.0".to_owned()))
-        );
-        assert_eq!(gate(Some("oanc")), Ok(Verdict::Pending("oanc".to_owned())));
+    fn the_human_registered_dataset_licences_are_admitted_and_named() {
+        for (raw, id) in [
+            ("ODC-BY-1.0", "odc-by-1.0"),
+            ("oanc", "oanc"),
+            ("Synthetic-By-Rule", "synthetic-by-rule"),
+        ] {
+            assert_eq!(gate(Some(raw)), Ok(Verdict::Admitted(id.to_owned())), "{raw}");
+        }
         assert!(
             gate(Some("other"))
                 .unwrap_err()
                 .starts_with("licence_needs_human_call")
         );
-        assert!(pending_note("oanc").is_some());
+        assert!(note("oanc").is_some() && note("odc-by-1.0").is_some());
+        assert!(PENDING.is_empty());
     }
 }
