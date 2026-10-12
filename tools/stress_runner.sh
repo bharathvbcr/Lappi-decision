@@ -105,9 +105,10 @@ trap 'on_signal INT' INT
 # record `passed`, `failed:<rc>` or `timed_out`. A child the test itself killed at its own bound
 # ("ran past ... and was killed") is `timed_out` too: it is the same fact one level down.
 bounded_step() {
-  local name=$1 bound=$2 start pid rc waited=0 timed_out=0
+  local name=$1 bound=$2 start pid rc timed_out=0 began
   shift 2
   start=$(now)
+  began=$(date +%s)
   echo "== $name start $start (bound ${bound}s)"
   set -m
   "$@" > "$OUT/$name.log" 2>&1 < /dev/null &
@@ -117,13 +118,13 @@ bounded_step() {
   CURRENT_START=$start
   CURRENT_PGID=$pid
   while kill -0 "$pid" 2> /dev/null; do
-    if [ "$waited" -ge "$bound" ]; then
+    # Wall clock, not a count of sleeps: a slow `sleep` or a stalled runner cannot stretch it.
+    if [ $(($(date +%s) - began)) -ge "$bound" ]; then
       timed_out=1
       kill_group "$pid"
       break
     fi
     sleep 1
-    waited=$((waited + 1))
   done
   wait "$pid" 2> /dev/null
   rc=$?
@@ -166,7 +167,12 @@ pin_worktree() {
     echo "stress_runner: git worktree add $dir $sha failed; see $OUT/worktree-add.log" >&2
     return 70
   fi
-  check_head "$sha" "$dir"
+  # The cleanup trap is set only after the pin succeeds, so a failed check removes the worktree
+  # it just added (verify-lane6 D16).
+  check_head "$sha" "$dir" && return 0
+  got=$?
+  git -C "$REPO" worktree remove --force "$dir" > /dev/null 2>&1
+  return "$got"
 }
 
 # check_head <sha> <dir>

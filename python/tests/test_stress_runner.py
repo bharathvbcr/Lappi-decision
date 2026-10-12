@@ -309,3 +309,47 @@ def test_no_function_is_defined_twice_and_the_job_body_appears_once() -> None:
     assert {name: n for name, n in defs.items() if n > 1} == {}
     assert len(re.findall(r"^: > \"\$OUT/status.tsv\"$", text, flags=re.M)) == 1
     assert len(re.findall(r"^trap cleanup EXIT$", text, flags=re.M)) == 1
+
+
+def test_a_step_bound_is_wall_clock_not_a_count_of_sleeps(tmp_path: Path, out: Path) -> None:
+    """verify-lane6 D16: the bound counted loop iterations of `sleep 1`, so a slow `sleep` (or a
+    stalled runner) stretched it. Here each `sleep` takes 3 s: a 4 s bound must fire at the first
+    check after 4 s of wall clock (6 s), not after four iterations (12 s)."""
+    import time
+
+    t0 = time.monotonic()
+    res = _bash(
+        f"OUT={out}\nsleep() {{ command sleep 3; }}\n"
+        "bounded_step slow 4 bash -c 'command sleep 60'\necho rc=$?",
+        cwd=tmp_path,
+    )
+    elapsed = time.monotonic() - t0
+    assert "rc=124" in res.stdout, res.stdout + res.stderr
+    assert elapsed < 10, f"the bound took {elapsed:.1f}s of wall clock for a 4 s bound"
+
+
+def test_a_pin_whose_head_check_fails_leaves_no_worktree_behind(tmp_path: Path, out: Path) -> None:
+    """verify-lane6 D16: `pin_worktree` added the worktree and returned the check's failure; the
+    cleanup trap is set only after it succeeds, so the worktree leaked."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git[:3], "init", "-q"], check=True)
+    (repo / "f").write_text("x")
+    subprocess.run([*git, "add", "f"], check=True)
+    subprocess.run([*git, "commit", "-qm", "c"], check=True)
+    sha = subprocess.run(
+        [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    wt = tmp_path / "wt"
+    res = _bash(
+        f"OUT={out}\nREPO={repo}\ncheck_head() {{ return 70; }}\n"
+        f"pin_worktree {sha} {wt}\necho rc=$?",
+        cwd=tmp_path,
+    )
+    assert "rc=70" in res.stdout, res.stdout + res.stderr
+    assert not wt.exists()
+    listed = subprocess.run(
+        [*git, "worktree", "list", "--porcelain"], check=True, capture_output=True, text=True
+    ).stdout
+    assert listed.count("worktree ") == 1, listed
