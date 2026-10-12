@@ -117,6 +117,37 @@ enum Command {
     /// A downloaded v6 dataset made into a decision pool, licence-filtered and decontaminated
     /// (`qd_prep::convert`), or SWE-rebench's filtered view, or the injection-text corpus.
     Convert(ConvertIo),
+    /// The one v6 cap table: every candidate pool (`convert`, `synth`) and v5's as-built pool
+    /// in, one applied pool out (`qd_prep::allocate`).
+    Allocate(AllocateIo),
+}
+
+/// `qd-prep allocate`'s inputs.
+#[derive(clap::Args, Debug)]
+struct AllocateIo {
+    /// The allocation config (`data/decisions/v6-allocation.json`, schema
+    /// qd-allocation-config/v1).
+    #[arg(long)]
+    config: PathBuf,
+    /// An input pool, `NAME=DIR`; repeat per pool. Exactly the config's pools, each once.
+    #[arg(long = "pool", value_parser = parse_target)]
+    pools: Vec<(String, PathBuf)>,
+    /// The directory to create; refused if it, or DIR.partial, exists.
+    #[arg(long)]
+    out: PathBuf,
+    /// Worker threads for reading the pools; default every core, at most 256.
+    #[arg(long)]
+    threads: Option<usize>,
+}
+
+/// `qd-prep allocate`: the config and the pools in, the applied pool directory out.
+fn run_allocate(io: &AllocateIo) -> Result<String, String> {
+    let threads = bounded_threads(io.threads)?;
+    let inputs = qd_prep::allocate::Inputs {
+        config: io.config.clone(),
+        pools: io.pools.clone(),
+    };
+    qd_prep::allocate::run(&inputs, &io.out, threads)
 }
 
 /// `qd-prep synth`'s inputs.
@@ -456,6 +487,7 @@ fn main() -> ExitCode {
         Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),
         Command::Synth(io) => run_synth(io),
         Command::Convert(io) => run_convert(io),
+        Command::Allocate(io) => run_allocate(io),
     };
     match result {
         Ok(line) => {

@@ -86,3 +86,24 @@ def test_an_allocated_pool_loads_and_its_candidate_inputs_do_not(
     assert pool.manifest["rows_by_family_split"] == {
         "email.category": {"train": 6, "val": 2}, "mnli.nli": {"train": 5, "val": 3},
     }
+
+
+def test_every_v6_family_the_loader_registers_has_an_entry_in_the_cap_table() -> None:
+    """No v6 pool can enter a mixture uncapped: each family registered for a v6 source is
+    either capped in ``data/decisions/v6-allocation.json`` or a stated zero, and the table
+    caps nothing the loader would refuse. (Cap values are R2's and are not asserted here.)"""
+    from qd_data.decisions import DECISION_FAMILIES
+    from qd_data.sources import _V6_DECISION_SOURCES
+
+    config = json.loads(
+        (Path(__file__).resolve().parents[2] / "data/decisions/v6-allocation.json").read_text()
+    )
+    v6_sources = {s.source_id for s in _V6_DECISION_SOURCES}
+    v6_families = {f for f, source, _ in DECISION_FAMILIES if source in v6_sources}
+    assert v6_families, "no v6 family registered"
+    caps = set(config["train_caps"])
+    zero = set(config["stated_zero_train_families"])
+    assert v6_families <= caps | zero, sorted(v6_families - caps - zero)
+    registered = {f for f, _, _ in DECISION_FAMILIES}
+    assert caps <= registered, sorted(caps - registered)
+    assert caps == v6_families, "a capped family outside the v6 sources"

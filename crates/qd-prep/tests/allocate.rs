@@ -343,7 +343,8 @@ fn caps_are_per_family_and_drawn_per_stratum_by_largest_remainder() {
     assert_eq!(m["rows_by_family_split"]["fam.one"]["train"], 25);
     assert_eq!(m["rows_by_family_split"]["fam.one"]["val"], 4);
     assert_eq!(m["caps_applied"]["fam.one"]["cap"], 25);
-    assert_eq!(m["caps_applied"]["fam.one"]["strata"]["fam.one/b"]["taken"], 8);
+    assert_eq!(m["caps_applied"]["fam.one"]["strata"]["fam.one/b"]["taken"]["train"], 8);
+    assert_eq!(m["caps_applied"]["fam.one"]["strata"]["fam.one/b"]["taken"]["val"], 0);
 }
 
 /// An as-built pool's rows come out byte for byte, every one, splits unchanged, while a capped
@@ -486,4 +487,42 @@ fn the_output_is_byte_identical_across_thread_counts() {
             "{f} differs across --threads"
         );
     }
+}
+
+/// The committed v6 cap table (`data/decisions/v6-allocation.json`) is a config this tool
+/// accepts, and it leaves no pool outside the table: each pool is drawn `as_built` or `capped`
+/// (the parser refuses anything else), and a capped pool's families are refused at build unless
+/// `train_caps` names them, so no pool can enter a mixture uncapped.
+#[test]
+fn the_committed_v6_cap_table_parses_and_every_pool_is_drawn_one_way_or_the_other() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/decisions/v6-allocation.json");
+    let bytes = std::fs::read(&path).expect("v6-allocation.json");
+    let cfg = qd_prep::allocate::Config::parse(&bytes).expect("the committed config parses");
+    assert!(!cfg.pools.is_empty() && !cfg.train_caps.is_empty());
+    assert_eq!(
+        cfg.pools.values().filter(|p| p.as_built).count(),
+        1,
+        "exactly one as-built pool (v5's) is configured"
+    );
+    for family in cfg.stated_zero.keys() {
+        assert!(!cfg.train_caps.contains_key(family), "{family} is capped and stated zero");
+    }
+}
+
+/// A capped pool's family that the cap table does not name is refused, for each of several
+/// pools at once: the check is over every pool, not the first.
+#[test]
+fn an_uncapped_family_in_any_one_of_several_pools_is_refused() {
+    let d = scratch("uncapped-any-pool");
+    let (a, sha_a) = pool(&d, "a", &many("a", "fam.one", "fam.one/x", "train", 3));
+    let (b, sha_b) = pool(&d, "b", &many("b", "fam.two", "fam.two/x", "train", 3));
+    let cfg = config(
+        &d,
+        &[("a", &sha_a, "capped"), ("b", &sha_b, "capped")],
+        json!({"fam.one": 2}),
+        json!({}),
+    );
+    let out = d.join("out");
+    let err = refused(&run(&cfg, &[("a", &a), ("b", &b)], &out, 2), &out);
+    assert!(err.contains("fam.two") && err.contains("train_caps"), "{err}");
 }
