@@ -192,3 +192,56 @@ fn the_manifest_door_runs_the_content_guard_before_it_parses() {
         "refused for being a caller record, not for failing to parse: {err}"
     );
 }
+
+/// One oracle, three implementations: `fixtures/caller/guard-cases.json` is also run by
+/// `python/qd_data/caller_records.py` (python/tests/test_caller_records_guard.py) and by
+/// `crates/qd-prep/src/heldout.rs`.
+#[test]
+fn the_shared_oracle_cases_have_the_same_verdicts_here() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let doc: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(repo_root.join("fixtures/caller/guard-cases.json")).unwrap(),
+    )
+    .unwrap();
+    let cases = doc["cases"].as_array().unwrap();
+    assert!(cases.len() >= 30, "the oracle shrank to {} cases", cases.len());
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let bytes = oracle_bytes(case);
+        let limits = GuardLimits {
+            line_bytes: case["line_bytes"].as_u64().map_or(1 << 20, |n| n as usize),
+            total_bytes: case["total_bytes"].as_u64().unwrap_or(8 << 30),
+        };
+        let got = match assert_no_caller_records(&bytes, name, limits) {
+            Ok(()) => "clean",
+            Err(v) if v.layer == HeldOutLayer::CallerRecord => "record",
+            Err(v) if v.layer == HeldOutLayer::GuardIncomplete => "unscannable",
+            Err(v) => panic!("{name}: unexpected layer {:?}", v.layer),
+        };
+        assert_eq!(got, case["expect"].as_str().unwrap(), "{name}");
+    }
+}
+
+fn oracle_bytes(case: &serde_json::Value) -> Vec<u8> {
+    if let Some(t) = case["text"].as_str() {
+        return t.as_bytes().to_vec();
+    }
+    if let Some(h) = case["hex"].as_str() {
+        return (0..h.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+            .collect();
+    }
+    let g = &case["gen"];
+    let eol = g["eol"].as_str().unwrap_or("\n");
+    let core = if let Some(n) = g["record_padded_to"].as_u64() {
+        let head = r#"{"record":"lappi.caller_record","pad":""#;
+        format!("{head}{}\"}}{eol}", "x".repeat(n as usize - head.len() - 2))
+    } else if let Some(n) = g["filler_line"].as_u64() {
+        format!("{{\"pad\":\"{}\"}}{eol}", "x".repeat(n as usize - 10))
+    } else {
+        g["repeat"].as_str().unwrap().repeat(g["times"].as_u64().unwrap() as usize)
+    };
+    format!("{}{core}{}", g["first"].as_str().unwrap_or(""), g["then"].as_str().unwrap_or(""))
+        .into_bytes()
+}

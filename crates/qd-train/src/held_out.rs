@@ -24,12 +24,21 @@
 //! `open_training_data` refuses it.
 //!
 //! 5. **The content guard** ([`assert_no_caller_records`]). Layers 1-4 are by path or by what a
-//!    manifest says, so a copy of a caller-record file placed anywhere in the training tree
-//!    passes them (the store's `heldout` segment is the whole path mechanism). This layer reads
-//!    the bytes: any line whose parsed `"record"` starts with `lappi.caller_record` refuses the
-//!    whole file, wherever it lives and whatever it is called. It is bounded
-//!    ([`GuardLimits`]) and fails closed: a file it could not finish scanning is refused as
+//!    manifest says, so a copy of a caller-record file placed anywhere passes them (the store's
+//!    `heldout` segment is the whole path mechanism). This layer reads bytes: any line whose
+//!    parsed `"record"` starts with `lappi.caller_record` refuses the whole file, whatever it is
+//!    called and wherever it lives. It is bounded ([`GuardLimits`]) and fails closed: bytes it
+//!    cannot scan (gzip, zstd, UTF-16) or could not finish scanning are refused as
 //!    [`HeldOutLayer::GuardIncomplete`], never passed as clean. It narrows admission only.
+//!
+//!    **What calls it.** In this crate only [`open_training_manifest`], on the manifest bytes it
+//!    reads (a shard set's `manifest.json` is never a row file, so that call is a backstop, not
+//!    the data path). This crate reads token shards, not JSONL: pool and source rows reach shards
+//!    through Python, where the same rule is `python/qd_data/caller_records.py`, called at every
+//!    row-file open on that path, and through `qd-prep`, where it is
+//!    `crates/qd-prep/src/heldout.rs`. The three implementations run one oracle,
+//!    `fixtures/caller/guard-cases.json`. A Rust reader of JSONL rows added here must call
+//!    [`assert_jsonl_file_not_caller_records`].
 //!
 //! The refusal is [`HeldOutViolation`]: a typed error that names its layer, never a value a
 //! caller could mistake for an empty dataset.
@@ -311,6 +320,8 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 /// (a duplicated key, a BOM, damage), it carries both the `"record"` key text and the prefix.
 /// The text test errs toward refusing: this guard only ever narrows admission.
 fn is_caller_record_line(line: &[u8], line_bytes: usize) -> bool {
+    // The budget is on the content, without the terminator: a record of exactly the bound is read.
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
     if line.len() > line_bytes {
         return false;
     }
@@ -332,6 +343,16 @@ pub fn assert_no_caller_records(
     label: &str,
     limits: GuardLimits,
 ) -> Result<(), HeldOutViolation> {
+    if let Some(name) = unscannable_magic(bytes) {
+        return Err(HeldOutViolation {
+            layer: HeldOutLayer::GuardIncomplete,
+            expected: "bytes the caller-record guard can read as lines of text".to_owned(),
+            actual: format!("{label}: {name} bytes"),
+            detail: "bytes that cannot be scanned for caller records are refused, not passed as \
+                     clean (CLAUDE.md rule 3)."
+                .to_owned(),
+        });
+    }
     let scanned_len =
         usize::try_from(limits.total_bytes).map_or(bytes.len(), |n| n.min(bytes.len()));
     for (i, line) in bytes[..scanned_len].split(|b| *b == b'\n').enumerate() {
@@ -351,6 +372,20 @@ pub fn assert_no_caller_records(
         return Err(guard_incomplete(label, limits));
     }
     Ok(())
+}
+
+/// Compressed or UTF-16 bytes hide a record from a line scan.
+fn unscannable_magic(bytes: &[u8]) -> Option<&'static str> {
+    const MAGIC: [(&[u8], &str); 4] = [
+        (&[0x1f, 0x8b], "gzip"),
+        (&[0x28, 0xb5, 0x2f, 0xfd], "zstd"),
+        (&[0xff, 0xfe], "UTF-16 (little-endian BOM)"),
+        (&[0xfe, 0xff], "UTF-16 (big-endian BOM)"),
+    ];
+    MAGIC
+        .iter()
+        .find(|(m, _)| bytes.starts_with(m))
+        .map(|(_, name)| *name)
 }
 
 fn guard_incomplete(label: &str, limits: GuardLimits) -> HeldOutViolation {
