@@ -10,8 +10,10 @@
 
 use std::path::{Path, PathBuf};
 
+use qd_train::files::OsFiles;
 use qd_train::held_out::{
-    assert_path_not_held_out, DataConfig, DEFAULT_HELD_OUT_FAMILIES,
+    assert_jsonl_file_not_caller_records, assert_no_caller_records, assert_path_not_held_out,
+    DataConfig, DoorError, GuardLimits, HeldOutLayer, DEFAULT_HELD_OUT_FAMILIES,
     DEFAULT_HELD_OUT_PATH_MARKERS, DEFAULT_SEED,
 };
 
@@ -45,14 +47,148 @@ fn every_app_s_record_file_is_refused_by_the_marker_layer() {
     }
 }
 
+/// The marker is blind to a copy: the path guard passes it. The content guard is what refuses it.
 #[test]
-fn a_record_file_copied_into_the_training_tree_is_not_caught_by_the_marker() {
-    // The limit, stated as a test: the door refuses by path, so a copy under data/pool/ would pass
-    // the marker layer. The contract therefore forbids copying records anywhere (and
-    // `qd-caller-records` refuses a record file outside a held-out segment). This case documents
-    // that the path is the guard; it is not a hole this test claims to close.
+fn a_record_file_copied_into_the_training_tree_is_refused_by_the_content_guard() {
     let config = default_config();
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let copied = repo_root.join("data/pool/caller-copy/2026-10-06.jsonl");
-    assert!(assert_path_not_held_out(&copied, &config, &repo_root).is_ok());
+    let fixture = repo_root.join("fixtures/caller/valid-records.jsonl");
+    let dir = scratch("copy");
+    for rel in ["data/pool/caller-copy/2026-10-06.jsonl", "anywhere/else/rows.txt"] {
+        let copied = dir.join(rel);
+        std::fs::create_dir_all(copied.parent().unwrap()).unwrap();
+        std::fs::copy(&fixture, &copied).unwrap();
+        assert!(
+            assert_path_not_held_out(&copied, &config, &dir).is_ok(),
+            "the path layer cannot see this copy; that is why the content guard exists"
+        );
+        let err = assert_jsonl_file_not_caller_records(&copied, &OsFiles, GuardLimits::default())
+            .expect_err("a copy of a caller-record file must be refused wherever it lives");
+        assert!(
+            matches!(&err, DoorError::HeldOut(v) if v.layer == HeldOutLayer::CallerRecord),
+            "{err}"
+        );
+    }
+}
+
+fn scratch(tag: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("qd-train-cr-{tag}-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn layer_of(bytes: &[u8], limits: GuardLimits) -> Option<HeldOutLayer> {
+    assert_no_caller_records(bytes, "x.jsonl", limits).err().map(|v| v.layer)
+}
+
+const REC: &str = r#"{"record":"lappi.caller_record","record_version":1,"kind":"decision"}"#;
+
+#[test]
+fn a_record_line_anywhere_in_the_file_refuses_the_whole_file() {
+    let l = GuardLimits::default();
+    let rows = |a: &str| format!("{{\"text\":\"a\"}}\n{a}\n{{\"text\":\"b\"}}\n");
+    assert_eq!(layer_of(rows(REC).as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+    // a later version of the format, a leading-space key spelling, CRLF line ends
+    let v2 = r#"{"record":"lappi.caller_record.v2"}"#;
+    assert_eq!(layer_of(rows(v2).as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+    let crlf = format!("{{\"a\":1}}\r\n{REC}\r\n");
+    assert_eq!(layer_of(crlf.as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+    // JSON escapes spell the same string; the parsed value is what is compared
+    let escaped = r#"{"rec\u006frd":"lappi.caller_re\u0063ord"}"#;
+    assert_eq!(layer_of(escaped.as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+    // the last line with no trailing newline
+    assert_eq!(layer_of(REC.as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+}
+
+#[test]
+fn an_unparseable_line_beside_a_record_line_refuses_the_file_and_one_alone_does_not() {
+    let l = GuardLimits::default();
+    let beside = format!("not json at all\n{REC}\n");
+    assert_eq!(layer_of(beside.as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+    // a record line damaged so it no longer parses is still a record line
+    let damaged = "{\"record\":\"lappi.caller_record\",\"kind\":\n";
+    assert_eq!(layer_of(damaged.as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+    // a byte-order mark in front of a record line breaks the parse and not the refusal
+    let bom = format!("{}{REC}\n", '\u{feff}');
+    assert_eq!(layer_of(bom.as_bytes(), l), Some(HeldOutLayer::CallerRecord));
+    // garbage with no record line is not this guard's business
+    assert_eq!(layer_of(b"not json at all\n\xff\xfe\n{\"a\":1}\n", l), None);
+}
+
+#[test]
+fn other_records_and_other_shapes_are_not_caller_records() {
+    let l = GuardLimits::default();
+    for ok in [
+        "",
+        "\n\n",
+        r#"{"record":"decisions.json"}"#,
+        r#"{"record":7}"#,
+        r#"{"text":"lappi.caller_record"}"#,
+        r#"["lappi.caller_record"]"#,
+    ] {
+        assert_eq!(layer_of(ok.as_bytes(), l), None, "{ok}");
+    }
+}
+
+#[test]
+fn a_duplicated_record_key_cannot_hide_a_record_line() {
+    // serde_json keeps the last duplicate; the text test still sees the prefix beside the key
+    let dup = r#"{"record":"lappi.caller_record","record":"x"}"#;
+    assert_eq!(layer_of(dup.as_bytes(), GuardLimits::default()), Some(HeldOutLayer::CallerRecord));
+}
+
+#[test]
+fn the_budget_is_bounded_and_a_check_that_could_not_finish_is_a_refusal() {
+    let tight = GuardLimits { line_bytes: 64, total_bytes: 256 };
+    // over the total budget: refused as unexamined, never passed as clean
+    let big = format!("{}\n", "{\"a\":1}\n".repeat(100));
+    assert_eq!(layer_of(big.as_bytes(), tight), Some(HeldOutLayer::GuardIncomplete));
+    // an over-long line is skipped unparsed, but a record line beside it still refuses
+    let long = format!("{{\"pad\":\"{}\"}}\n{REC}\n", "x".repeat(200));
+    assert_eq!(
+        layer_of(long.as_bytes(), GuardLimits { line_bytes: 150, total_bytes: 4096 }),
+        Some(HeldOutLayer::CallerRecord)
+    );
+    let only_long = format!("{{\"pad\":\"{}\"}}\n", "x".repeat(200));
+    assert_eq!(
+        layer_of(only_long.as_bytes(), GuardLimits { line_bytes: 150, total_bytes: 4096 }),
+        None
+    );
+}
+
+#[test]
+fn a_file_over_the_byte_budget_is_refused_by_the_file_door() {
+    let dir = scratch("budget");
+    let path = dir.join("rows.jsonl");
+    std::fs::write(&path, "{\"a\":1}\n".repeat(100)).unwrap();
+    let err = assert_jsonl_file_not_caller_records(
+        &path,
+        &OsFiles,
+        GuardLimits { line_bytes: 64, total_bytes: 128 },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, DoorError::HeldOut(v) if v.layer == HeldOutLayer::GuardIncomplete),
+        "{err}"
+    );
+}
+
+#[test]
+fn the_manifest_door_runs_the_content_guard_before_it_parses() {
+    let config = default_config();
+    let dir = scratch("manifest");
+    let manifest = dir.join("data/pool/manifest.json");
+    std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::fs::copy(repo_root.join("fixtures/caller/valid-records.jsonl"), &manifest).unwrap();
+    let err = qd_train::held_out::open_training_manifest(&manifest, &config, &dir, false, &OsFiles)
+        .expect_err("a record file offered as a manifest is refused");
+    assert!(
+        matches!(&err, DoorError::HeldOut(v) if v.layer == HeldOutLayer::CallerRecord),
+        "refused for being a caller record, not for failing to parse: {err}"
+    );
 }

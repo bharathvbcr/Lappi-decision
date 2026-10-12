@@ -23,6 +23,14 @@
 //! a snapshot whose own pipeline status is `not_run` or `ran, passed=false` is refused the way
 //! `open_training_data` refuses it.
 //!
+//! 5. **The content guard** ([`assert_no_caller_records`]). Layers 1-4 are by path or by what a
+//!    manifest says, so a copy of a caller-record file placed anywhere in the training tree
+//!    passes them (the store's `heldout` segment is the whole path mechanism). This layer reads
+//!    the bytes: any line whose parsed `"record"` starts with `lappi.caller_record` refuses the
+//!    whole file, wherever it lives and whatever it is called. It is bounded
+//!    ([`GuardLimits`]) and fails closed: a file it could not finish scanning is refused as
+//!    [`HeldOutLayer::GuardIncomplete`], never passed as clean. It narrows admission only.
+//!
 //! The refusal is [`HeldOutViolation`]: a typed error that names its layer, never a value a
 //! caller could mistake for an empty dataset.
 
@@ -87,6 +95,12 @@ pub enum HeldOutLayer {
     /// Rule 3 at the shard boundary: the shard header declares `split: "heldout"` or a split
     /// that is not trainable.
     ShardSplit,
+    /// Layer 5: a line of the file is a `lappi.caller_record` (an app's record of what it saw
+    /// and chose, which is never training data).
+    CallerRecord,
+    /// Layer 5: the content guard could not scan the whole file within its budget. A check
+    /// that could not finish is a refusal, not a pass.
+    GuardIncomplete,
 }
 
 /// A held-out refusal. Raised, never returned as data.
@@ -259,6 +273,120 @@ impl Default for DataConfig {
             seed: DEFAULT_SEED,
         }
     }
+}
+
+// --- layer 5: the content guard --------------------------------------------------------------
+
+/// The `"record"` value every caller-record line carries (`qd_runtime::caller_record::RECORD`,
+/// `docs/caller-contract.md`). The guard matches the prefix, so a later version is refused too.
+pub const CALLER_RECORD_PREFIX: &str = "lappi.caller_record";
+/// A line longer than this is skipped unparsed. The contract writes no record over 64 KiB, so
+/// an over-long line is not one; 1 MiB leaves a wide margin.
+pub const MAX_GUARD_LINE_BYTES: usize = 1 << 20;
+
+/// The content guard's budget: bytes per line parsed, and bytes per file scanned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GuardLimits {
+    /// A longer line is not parsed (see [`MAX_GUARD_LINE_BYTES`]).
+    pub line_bytes: usize,
+    /// A file longer than this is refused as unscanned ([`HeldOutLayer::GuardIncomplete`]).
+    pub total_bytes: u64,
+}
+
+impl Default for GuardLimits {
+    fn default() -> Self {
+        Self {
+            line_bytes: MAX_GUARD_LINE_BYTES,
+            total_bytes: MAX_MANIFEST_BYTES,
+        }
+    }
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+/// Whether one line is a caller record: it parses to an object whose `"record"` starts with
+/// [`CALLER_RECORD_PREFIX`], or, for a line that does not parse or whose parse hides it
+/// (a duplicated key, a BOM, damage), it carries both the `"record"` key text and the prefix.
+/// The text test errs toward refusing: this guard only ever narrows admission.
+fn is_caller_record_line(line: &[u8], line_bytes: usize) -> bool {
+    if line.len() > line_bytes {
+        return false;
+    }
+    if let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(line)
+        && map
+            .get("record")
+            .and_then(Value::as_str)
+            .is_some_and(|r| r.starts_with(CALLER_RECORD_PREFIX))
+    {
+        return true;
+    }
+    contains(line, b"\"record\"") && contains(line, CALLER_RECORD_PREFIX.as_bytes())
+}
+
+/// Layer 5 on bytes already read: refuse the whole file if any line is a caller record, or if
+/// the file is longer than `limits.total_bytes` and the scanned prefix held none.
+pub fn assert_no_caller_records(
+    bytes: &[u8],
+    label: &str,
+    limits: GuardLimits,
+) -> Result<(), HeldOutViolation> {
+    let scanned_len =
+        usize::try_from(limits.total_bytes).map_or(bytes.len(), |n| n.min(bytes.len()));
+    for (i, line) in bytes[..scanned_len].split(|b| *b == b'\n').enumerate() {
+        if is_caller_record_line(line, limits.line_bytes) {
+            return Err(HeldOutViolation {
+                layer: HeldOutLayer::CallerRecord,
+                expected: "no line whose \"record\" starts with lappi.caller_record".to_owned(),
+                actual: format!("{label}: line {} is a caller record", i + 1),
+                detail: "caller records are never training data wherever the file lives \
+                         (CLAUDE.md rule 3; docs/caller-contract.md). The whole file is \
+                         refused. Removing this check is a refused change."
+                    .to_owned(),
+            });
+        }
+    }
+    if scanned_len < bytes.len() {
+        return Err(guard_incomplete(label, limits));
+    }
+    Ok(())
+}
+
+fn guard_incomplete(label: &str, limits: GuardLimits) -> HeldOutViolation {
+    HeldOutViolation {
+        layer: HeldOutLayer::GuardIncomplete,
+        expected: format!(
+            "a file the caller-record guard can scan within {} bytes",
+            limits.total_bytes
+        ),
+        actual: format!("{label}: longer than the budget"),
+        detail: "a file the content guard could not finish scanning is refused, not passed as \
+                 clean (CLAUDE.md: a check that could not run is not a check that passed)."
+            .to_owned(),
+    }
+}
+
+/// Layer 5 for a file on disk: read through `files` (bounded by `limits.total_bytes`) and scan.
+pub fn assert_jsonl_file_not_caller_records(
+    path: &Path,
+    files: &dyn ShardFiles,
+    limits: GuardLimits,
+) -> Result<(), DoorError> {
+    let label = path.display().to_string();
+    let bytes = match files.read(path, limits.total_bytes) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+            return Err(guard_incomplete(&label, limits).into());
+        }
+        Err(source) => {
+            return Err(DoorError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    assert_no_caller_records(&bytes, &label, limits).map_err(DoorError::from)
 }
 
 // --- layers 1 and 2: the path -----------------------------------------------------------------
@@ -739,6 +867,7 @@ pub fn open_training_manifest(
             path: path.to_path_buf(),
             source,
         })?;
+    assert_no_caller_records(&bytes, &path.display().to_string(), GuardLimits::default())?;
     let raw: RawManifest = serde_json::from_slice(&bytes).map_err(|e| DoorError::Manifest {
         path: path.to_path_buf(),
         detail: format!("not a manifest this door can read: {e}"),
