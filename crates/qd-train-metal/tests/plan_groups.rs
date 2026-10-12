@@ -27,7 +27,7 @@ fn the_layer_wise_split_is_the_loops_lr_scale_vector_bit_for_bit() {
     let entries = specs(&table);
     let wd = weight_decays(&entries);
     let scales = lr_scales(&entries, Some(LowerLayers { n: 1, lr_scale: 0.1 }), 1).unwrap();
-    assert!(scales.iter().any(|s| *s == 0.1) && scales.iter().any(|s| *s == 1.0));
+    assert!(scales.contains(&0.1) && scales.contains(&1.0));
     let plan = build_plan(&table, &scales, &wd).unwrap();
     assert!(plan.lr_scale().iter().map(|s| s.to_bits()).eq(scales.iter().map(|s| s.to_bits())));
     assert!(plan.weight_decay().iter().map(|w| w.to_bits()).eq(wd.iter().map(|w| (*w as f32).to_bits())));
