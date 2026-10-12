@@ -1491,73 +1491,93 @@ class _HostReadout:
     spans: dict[int, tuple[int, int, list[float], list[float], int, int, int, int, bool]]
 
 
-def _host_readout(readout: BatchReadout) -> _HostReadout:
-    """Copy a batch's readout to the host ONCE.
+def _pack_key(part: torch.Tensor) -> str:
+    """The device a packed part lives on: parts on one device are concatenated and copied
+    together, parts on another are never mixed into that copy (an ensemble's scores are CPU
+    float64 while the span plan stays on the step's device)."""
+    return str(part.device)
 
-    Every value the decode reads is reduced on the device exactly as it always was -- the
-    argmax and the softmax in the scores' own dtype, then ``.double()`` (exact for bf16/fp32,
-    and for an int index) -- and the results are packed into one float64 tensor, copied once
-    and read back as one list. Per row this was ``int(argmax)``, ``float(softmax[..])`` and
+
+def _widen(part: torch.Tensor) -> torch.Tensor:
+    """``.double()`` where the device has float64 -- exact for bf16/fp16/fp32 and for an int
+    index -- and float32 on MPS, which has no float64 (the same exact widening; the host list
+    is float64 either way)."""
+    return part.float() if part.device.type == "mps" else part.double()
+
+
+def _host_readout(readout: BatchReadout) -> _HostReadout:
+    """Copy a batch's readout to the host, ONE transfer per device the readout lives on.
+
+    Every value the decode reads is reduced on its device exactly as it always was -- the
+    argmax and the softmax in the scores' own dtype, then widened (exact for bf16/fp32, and for
+    an int index) -- and the results are packed, per device, into one tensor, copied once and
+    read back as one list. Per row this was ``int(argmax)``, ``float(softmax[..])`` and
     ``.double().tolist()`` (and, for a span row, five more scalar reads of its plan): a device
     sync each, ~22% GPU with one Python process at 100% on the J6 tail. The values are
-    bit-for-bit the ones those reads produced.
+    bit-for-bit the ones those reads produced. A single tower has one device; an ensemble's
+    combined scores are CPU float64 beside a plan on the step's device, so it has two, and the
+    parts of one device are never concatenated with another's.
     """
-    parts: list[torch.Tensor] = []
-    size = 0
+    groups: dict[str, list[torch.Tensor]] = {}
+    sizes: dict[str, int] = {}
 
-    def add(part: torch.Tensor) -> int:
-        nonlocal size
+    def add(part: torch.Tensor) -> tuple[str, int]:
+        key = _pack_key(part)
         flat = part.reshape(-1)
-        parts.append(flat)
-        at = size
-        size += int(flat.shape[0])
-        return at
+        groups.setdefault(key, []).append(flat)
+        at = sizes.get(key, 0)
+        sizes[key] = at + int(flat.shape[0])
+        return key, at
 
-    letter_at: dict[int, tuple[int, int]] = {}
+    letter_at: dict[int, tuple[str, int, int]] = {}
     for r, scores in readout.letters.items():
         n = int(scores.shape[0])
         noul_row = n - RESERVED_NOUL_ROWS
-        at = add(torch.stack([
-            scores.argmax().double(),
-            torch.softmax(scores, dim=-1)[noul_row].double(),
+        key, at = add(torch.stack([
+            _widen(scores.argmax()),
+            _widen(torch.softmax(scores, dim=-1)[noul_row]),
         ]))
-        add(scores.double())
-        letter_at[r] = (at, n)
+        add(_widen(scores))  # the same device as the pair above: both come from `scores`
+        letter_at[r] = (key, at, n)
     plan = readout.plan
-    meta_at = -1
+    meta: tuple[str, int] = ("", -1)
     n_spans = 0
-    span_at: dict[int, tuple[int, int, int]] = {}
+    span_at: dict[int, tuple[str, int, int, int]] = {}
     if plan is not None:
         n_spans = int(plan.n_candidates.shape[0])
-        meta_at = add(torch.stack([
+        meta = add(_widen(torch.stack([
             t.to(torch.int64) for t in (
                 plan.runtime_rows, plan.n_candidates, plan.gold_start, plan.gold_end,
                 plan.abstaining,
             )
-        ]).double())
+        ])))
         assert readout.starts is not None and readout.ends is not None
         for k in range(n_spans):
             start, end = readout.starts[k], readout.ends[k]
-            at = add(torch.stack([start.argmax().double(), end.argmax().double()]))
-            add(start.double())
-            add(end.double())
-            span_at[k] = (at, int(start.shape[0]), int(end.shape[0]))
-    flat_host: list[float] = torch.cat(parts).cpu().tolist() if parts else []
+            key, at = add(torch.stack([_widen(start.argmax()), _widen(end.argmax())]))
+            add(_widen(start))  # `start`/`end`: the device of the pair above
+            add(_widen(end))
+            span_at[k] = (key, at, int(start.shape[0]), int(end.shape[0]))
+    host: dict[str, list[float]] = {
+        key: torch.cat(parts).cpu().double().tolist() for key, parts in groups.items()
+    }
 
     letters = {
         r: (
-            int(flat_host[at]), flat_host[at + 1], flat_host[at + 2 : at + 2 + n],
+            int(host[key][at]), host[key][at + 1], host[key][at + 2 : at + 2 + n],
         )
-        for r, (at, n) in letter_at.items()
+        for r, (key, at, n) in letter_at.items()
     }
     spans = {}
-    for k, (at, n_start, n_end) in span_at.items():
-        meta = [int(flat_host[meta_at + i * n_spans + k]) for i in range(5)]
+    for k, (key, at, n_start, n_end) in span_at.items():
+        flat_host = host[key]
+        plan_host = host[meta[0]]
+        scalars = [int(plan_host[meta[1] + i * n_spans + k]) for i in range(5)]
         spans[k] = (
             int(flat_host[at]), int(flat_host[at + 1]),
             flat_host[at + 2 : at + 2 + n_start],
             flat_host[at + 2 + n_start : at + 2 + n_start + n_end],
-            meta[0], meta[1], meta[2], meta[3], bool(meta[4]),
+            scalars[0], scalars[1], scalars[2], scalars[3], bool(scalars[4]),
         )
     return _HostReadout(letters, spans)
 
@@ -3147,8 +3167,9 @@ def _real_step(
     step construction; ``training`` is carried on the tower, which prices and builds from it.
 
     ``eval_widths`` are the widths of batches the step will only DECODE -- the needle
-    suite's ~8K cases. They raise the step's ``max_width`` bound and nothing else: the
-    budget prices ``plan``'s shapes, so an eval-only shape is not budgeted here. A step bounded by
+    suite's ~8K cases. They raise the step's ``max_width`` bound; a scoring step also budgets
+    each at one row (its no-grad forward and logit slab are what the scoring footprint prices),
+    a training step does not (its plan's forward+backward dwarfs them). A step bounded by
     ``plan`` alone refused the needle suite after a full val pass on 2026-09-30.
 
     The one place the real backbone becomes a step: ``_train`` builds it in bf16 to train (in
@@ -3216,7 +3237,16 @@ def _real_step(
     tower = dataclasses.replace(
         tower,
         footprint=max(
-            (footprint_at(tower, rows=r, width=w) for r, w in _batch_shapes(plan)),
+            (
+                *(footprint_at(tower, rows=r, width=w) for r, w in _batch_shapes(plan)),
+                # A scoring step's no-grad forward and logit slab are priced, so the decode-only
+                # shapes (the needle suite's ~8K cases, one row each) are priced too. A training
+                # step's footprint dwarfs them, and `eval_widths` are not budgeted there.
+                *(
+                    footprint_at(tower, rows=1, width=int(w))
+                    for w in (() if training else eval_widths)
+                ),
+            ),
             key=lambda f: f.total_bytes,
         ),
     )

@@ -259,6 +259,23 @@ def test_every_scoring_path_builds_through_scoring_step_with_training_off():
     assert "training" not in train_call[: train_call.index(")\n")]
 
 
+def test_a_scoring_budget_prices_the_decode_only_widths_a_training_one_does_not(
+    tmp_path, monkeypatch
+):
+    """The needle suite's ~8K cases are decoded by the scoring step, whose forward and logit
+    slab the scoring footprint prices, so the budget is the costliest of the plan's shapes AND
+    each eval width at one row. (`max_width` took them since 2026-09-30; the budget did not.)"""
+    tiny = tiny_master_checkpoints(tmp_path, monkeypatch)
+    _, scoring, _ = real_ft_run._real_step(
+        **_real_step_args(tiny, training=False), eval_widths=(40, 24)
+    )
+    assert (scoring.footprint.rows, scoring.footprint.width) == (1, 40)
+    _, training, _ = real_ft_run._real_step(
+        **_real_step_args(tiny, training=True), eval_widths=(40, 24)
+    )
+    assert training.footprint.width == 8, "a training budget stays the plan's"
+
+
 # --- the verdicts did not move ----------------------------------------------------------------
 
 

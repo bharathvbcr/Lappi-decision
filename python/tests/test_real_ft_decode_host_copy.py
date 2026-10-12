@@ -11,6 +11,7 @@ verdicts are byte-identical.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -35,15 +36,16 @@ _TO_HOST = ("tolist", "item", "cpu", "numpy", "__float__", "__int__", "__index__
 
 @pytest.fixture
 def host_reads(monkeypatch):
-    """Records each tensor-to-Python read as ``(method, in_serving_scores)``: ``serving_scores``
-    (``qd_train.heads``, not ``_decode``'s) still reads per span row, and is counted apart."""
-    calls: list[tuple[str, bool]] = []
+    """Records each tensor-to-Python read as ``(method, in_serving_scores, in_host_readout)``.
+    ``serving_scores`` (``qd_train.heads``, not ``_decode``'s) still reads per span row, and is
+    counted apart."""
+    calls: list[tuple[str, bool, bool]] = []
     for name in _TO_HOST:
         original = getattr(torch.Tensor, name)
 
         def counting(self, *args, _name=name, _original=original, **kwargs):
-            in_heads = any(f.name == "serving_scores" for f in traceback.extract_stack())
-            calls.append((_name, in_heads))
+            names = {f.name for f in traceback.extract_stack()}
+            calls.append((_name, "serving_scores" in names, "_host_readout" in names))
             return _original(self, *args, **kwargs)
 
         monkeypatch.setattr(torch.Tensor, name, counting)
@@ -86,7 +88,7 @@ def _decode_reads(host_reads, n_choice: int, n_span: int) -> list[str]:
     host_reads.clear()
     decoded = rft._decode(step, [batch], labels, letter_id)
     assert decoded["rows_decoded"] == n_choice + n_span
-    return [name for name, in_heads in host_reads if not in_heads and name != "__bool__"]
+    return [name for name, in_heads, _ in host_reads if not in_heads and name != "__bool__"]
 
 
 def test_decode_reads_the_device_once_per_batch_not_once_per_row(host_reads):
@@ -164,3 +166,50 @@ def test_noul_probability_is_computed_in_the_scores_own_dtype_not_in_float64():
         differs += in_f64 != expected
         assert v["row_logits"] == scores.double().tolist()
     assert differs, "the fixture cannot tell a bf16 softmax from a float64 one"
+
+
+# --- an ensemble's readout lives on two devices ----------------------------------------------
+
+
+def _ensemble_mixed(n_choice: int, n_span: int, device: str = "cpu"):
+    step, batch, labels, letter_id = _mixed_batch(n_choice, n_span)
+    steps = [step]
+    for seed in (1, 2):
+        steps.append(rft.RealFtStep(seed=seed, device="cpu", vocab=64, width=32, hidden=8,
+                                    heads=2, lr=1e-3, span_weight=1.0))
+    if device != "cpu":
+        steps = [
+            rft.RealFtStep(seed=s, device=device, vocab=64, width=32, hidden=8, heads=2,
+                           lr=1e-3, span_weight=1.0)
+            for s in (0, 1, 2)
+        ]
+    return rft.TowerEnsemble(steps), batch, labels, letter_id
+
+
+def test_a_readout_split_across_devices_is_packed_and_copied_per_device(monkeypatch, host_reads):
+    """An ensemble's combined scores are CPU float64 while the span plan stays on the step's
+    device (MPS/CUDA): ``torch.cat`` of the two raised. Simulated on CPU by splitting the
+    packing key by shape (the plan block one "device", the scores another). Same verdicts as
+    unsplit, and one copy per group."""
+    ens, batch, labels, letter_id = _ensemble_mixed(4, 2)
+    whole = rft._decode(ens, [batch], labels, letter_id)
+    monkeypatch.setattr(
+        rft, "_pack_key", lambda part: "plan" if part.ndim == 2 else "scores"
+    )
+    host_reads.clear()
+    split = rft._decode(ens, [batch], labels, letter_id)
+    assert json.dumps(split["verdicts"]) == json.dumps(whole["verdicts"])
+    copies = [n for n, _, in_host in host_reads if n == "cpu" and in_host]
+    assert len(copies) == 2
+
+
+@pytest.mark.skipif(
+    os.environ.get("QD_TEST_MPS") != "1" or not torch.backends.mps.is_available(),
+    reason="opt-in: QD_TEST_MPS=1 on a host with MPS, under tools/mac_heavy.sh",
+)
+@pytest.mark.parametrize("n_choice,n_span", [(4, 2), (0, 2), (4, 0)])
+def test_an_ensemble_and_a_single_tower_decode_a_mixed_batch_on_mps(n_choice, n_span):
+    ens, batch, labels, letter_id = _ensemble_mixed(n_choice, n_span, device="mps")
+    assert rft._decode(ens, [batch], labels, letter_id)["rows_decoded"] == n_choice + n_span
+    out = rft._decode(ens.steps[0], [batch], labels, letter_id)
+    assert out["rows_decoded"] == n_choice + n_span
