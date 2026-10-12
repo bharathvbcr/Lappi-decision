@@ -248,6 +248,11 @@ if [ -n "$TREE" ]; then
 else
   WT="$REPO/build/stress-trees/$(printf '%s' "$SHA" | cut -c1-12)-$$"
   mkdir -p "$(dirname "$WT")"
+  # The workspace names path dependencies as <root>/../tessl and <root>/../ojas: make them
+  # resolve from the worktree's parent, to the same siblings the main checkout uses.
+  for sibling in tessl ojas; do
+    [ -e "$(dirname "$WT")/$sibling" ] || ln -s "$REPO/../$sibling" "$(dirname "$WT")/$sibling"
+  done
   pin_worktree "$SHA" "$WT" || exit 70
   OWN_TREE=1
 fi
