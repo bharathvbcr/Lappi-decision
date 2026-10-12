@@ -15,6 +15,14 @@
    "Sources/ExpanderEngine/Macros/DateFormatLibrary.swift DateOffset.parse"
   ],
   "tools": "Sources/ExpanderEngine/AI/PaletteToolRouter.swift exposes exactly resolveDate, runMacro, findSnippet; an empty reply is none (LappiPaletteRouting.swift routedTool ?? \"none\")",
+  "routing_floor": {
+   "min_chars": 4,
+   "refused_leading": [
+    "=",
+    ">"
+   ],
+   "source": "Sources/ExpanderEngine/AI/PaletteToolRouter.swift shouldAttemptRouting at DevType 6cba35525e84ec2b8c61434bcf4bbcf1fe0d496f: the trimmed query has at least 4 characters and does not start with = or >; a query under it is never sent (ruling 2026-10-12 3.1(f))"
+  },
   "max_query_chars": 512,
   "max_query_chars_source": "CommandPaletteCatalog.maximumQueryCharacters = 512; boundedQuery trims whitespace and cuts to 512 characters"
  },

@@ -991,6 +991,17 @@ pub fn generate_route(cfg: &Config) -> Result<Generated, String> {
     };
     let mut drafts = Vec::new();
     let mut per_class: BTreeMap<String, usize> = BTreeMap::new();
+    let mut refused: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let floor = decisions::get(
+        decisions::get(&doc, "provenance", "route data")?,
+        "routing_floor",
+        "route data provenance",
+    )?;
+    let floor_chars = decisions::get_u64(floor, "min_chars", "routing_floor")? as usize;
+    let floor_leading: Vec<String> = decisions::get(floor, "refused_leading", "routing_floor")?
+        .as_array()
+        .and_then(|a| a.iter().map(|x| x.as_str().map(str::to_owned)).collect())
+        .ok_or("route data: routing_floor.refused_leading is not a list of strings")?;
     let mut seen_ids = BTreeSet::new();
     for t in list_of(&doc, "templates", "route data")? {
         let id = str_of(t, "id", "route template")?;
@@ -1013,6 +1024,14 @@ pub fn generate_route(cfg: &Config) -> Result<Generated, String> {
                 vars.insert(name.as_str(), order[k % order.len()].clone());
             }
             let query = crate::synth::fill(text, &vars)?;
+            // The app never sends a query under its routing floor (`shouldAttemptRouting`): refused
+            // and counted, not drafted (ruling 2026-10-12 3.1(f)).
+            if query.trim().chars().count() < floor_chars
+                || floor_leading.iter().any(|l| query.trim().starts_with(l.as_str()))
+            {
+                *refused.entry("under_app_floor").or_default() += 1;
+                continue;
+            }
             if query != query.trim_matches(char::is_whitespace)
                 || query.is_empty()
                 || query.chars().count() > ROUTE_MAX_QUERY_CHARS
@@ -1049,6 +1068,7 @@ pub fn generate_route(cfg: &Config) -> Result<Generated, String> {
         drafts,
         report: json!({
             "rows_drafted_by_class": per_class,
+            "refused": refused,
             "gold_rule": "the resolver mirror re-derives every row's gold from its query; a row whose class disagrees refuses the build",
             "question": ROUTE_QUESTION, "slot": ROUTE_SLOT, "options": ROUTE_OPTIONS,
             "max_query_chars": ROUTE_MAX_QUERY_CHARS,

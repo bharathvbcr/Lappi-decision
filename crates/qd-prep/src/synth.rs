@@ -118,6 +118,10 @@ pub struct Probe {
     pub lr: f64,
     pub l2_grid: Vec<f64>,
     pub max_val_accuracy: f64,
+    /// Families whose probe is report-only by a ruling: family -> the ruling's repo path, as the
+    /// config recorded it before the build (`probe.report_only.<family>.ruling`). Honoured only
+    /// together with a matching [`LEAK_PROBE_REPORT_ONLY`] entry in code.
+    pub report_only: BTreeMap<String, String>,
 }
 
 /// `data/synth/<name>.json`.
@@ -211,6 +215,22 @@ impl Config {
             lr: get_f64(p, "lr", "probe")?,
             l2_grid,
             max_val_accuracy: get_f64(p, "max_val_accuracy", "probe")?,
+            report_only: match p.get("report_only") {
+                None => BTreeMap::new(),
+                Some(m) => m
+                    .as_object()
+                    .ok_or("config: probe.report_only is not an object")?
+                    .iter()
+                    .map(|(family, v)| {
+                        match v.get("ruling").and_then(Value::as_str).filter(|r| !r.is_empty()) {
+                            Some(r) => Ok((family.clone(), r.to_owned())),
+                            None => Err(format!(
+                                "config: probe.report_only.{family}.ruling is not a non-empty path"
+                            )),
+                        }
+                    })
+                    .collect::<Result<_, String>>()?,
+            },
         };
         NGramSpec::new(probe.n_min, probe.n_max, probe.dim)?;
         if probe.tol < 0.0 || probe.lr <= 0.0 {
@@ -610,16 +630,65 @@ fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assem
     Ok(Assembled { candidates, report })
 }
 
-/// Families whose label is a deterministic function of the context's surface by the family's own
-/// definition, so a linear control reading it is the task, not a leak. The probe still runs and
-/// its accuracy is in the manifest; its bound is not a gate for these (`passed` is null).
-const LEAK_PROBE_REPORT_ONLY: [(&str, &str); 1] = [(
+/// Families whose leak probe is report-only, each by a ruling that names the family (Fable
+/// 2026-10-12, `AUDIT/board-sweep-2026-10-12/fable-leak-probe-devtype-route-ruling.md`):
+/// `(family, ruling path, date, why)`. Only a *surface-rule family* qualifies: its gold is, by a
+/// ruling, computed from the context bytes alone by a committed mirror of the caller's own
+/// resolver, which the generator runs on every row and refuses on disagreement
+/// (`synth_tools::route_gold`). "The label is a deterministic function of the generator's inputs"
+/// does not qualify; every synthetic family satisfies it. `email.*` and `jarvis.*` stay gated.
+/// Adding a family here is a ruling, not a card, and its config must carry
+/// `probe.report_only.<family>.ruling` with the same path, recorded before the build: one key
+/// without the other refuses the build. `passed: null` is "measured, not a pass" and no reader may
+/// treat it as one.
+const LEAK_PROBE_REPORT_ONLY: [(&str, &str, &str, &str); 1] = [(
     crate::synth_tools::ROUTE_FAMILY,
-    "the gold is the tool DevType's deterministic resolver would run on the query (ruling 2i): \
-     a date grammar match, a macro name, a snippet name, or neither. A control on the query \
-     reading that is the task, so the bound (a format-leak control) cannot apply; the measured \
-     accuracy is recorded",
+    "AUDIT/board-sweep-2026-10-12/fable-leak-probe-devtype-route-ruling.md",
+    "2026-10-12",
+    "the gold is the tool DevType's deterministic resolver would run on the query, computed by \
+     synth_tools::route_gold from the query bytes alone; the label-bearing surface is shared \
+     across templates by that rule, so a template-disjoint split cannot hide it",
 )];
+
+/// The criterion a report-only entry is granted under (recorded in the manifest).
+const REPORT_ONLY_CRITERION: &str = "surface-rule gold";
+
+/// The two keys of a report-only family, or the refusal naming the one that is missing. Run for
+/// every family in the code list and every key in the config, whether or not the probe ran.
+fn check_report_only(cfg: &Config) -> Result<(), String> {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (family, ruling, _, _) in LEAK_PROBE_REPORT_ONLY {
+        if cfg.kind.name() == "route" || cfg.probe.report_only.contains_key(family) {
+            match cfg.probe.report_only.get(family) {
+                None => {
+                    return Err(format!(
+                        "{family} is report-only in code ({ruling}) but the config has no \
+                         probe.report_only.{family}.ruling: both keys or neither"
+                    ));
+                }
+                Some(r) if r != ruling => {
+                    return Err(format!(
+                        "probe.report_only.{family}.ruling is {r:?}, not the ruling the code names \
+                         ({ruling})"
+                    ));
+                }
+                Some(_) if !repo.join(ruling).is_file() => {
+                    return Err(format!("the ruling {ruling} for {family} does not exist"));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    for family in cfg.probe.report_only.keys() {
+        if !LEAK_PROBE_REPORT_ONLY.iter().any(|(f, ..)| f == family) {
+            return Err(format!(
+                "config names probe.report_only.{family}, which no ruling in code grants: \
+                 {family} stays gated"
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// The leak probe for one fixed-option family: a linear control on char n-grams of the
 /// rendered context, fitted on the train rows (its L2 picked on a seeded tenth of them) and
@@ -803,6 +872,7 @@ pub fn build(
     )?;
     let clean = &scanned.clean;
 
+    check_report_only(cfg)?;
     let fixed: BTreeMap<&str, bool> = drafts
         .iter()
         .map(|d| (d.family_id, d.fixed_options))
@@ -817,12 +887,16 @@ pub fn build(
             .collect();
         let probe = if *is_fixed {
             let mut p = leak_probe(cfg, family, &rows, threads)?;
-            if let Some((_, why)) = LEAK_PROBE_REPORT_ONLY.iter().find(|(f, _)| f == family)
+            if let Some((_, ruling, date, why)) =
+                LEAK_PROBE_REPORT_ONLY.iter().find(|(f, ..)| f == family)
                 && p.get("state") == Some(&json!("ran"))
             {
-                // Measured and recorded, not a gate: `passed` is null, never true.
+                // Measured and recorded, not a gate: `passed` is null, never true. The two keys
+                // were checked above (`check_report_only`).
                 p["passed"] = Value::Null;
-                p["report_only"] = json!(why);
+                p["report_only"] = json!({
+                    "ruling": ruling, "date": date, "criterion": REPORT_ONLY_CRITERION, "why": why,
+                });
             }
             p
         } else {
@@ -1025,6 +1099,7 @@ pub(crate) mod tests {
                 lr: 0.05,
                 l2_grid: vec![1e-4, 1e-3],
                 max_val_accuracy: 0.95,
+                report_only: BTreeMap::new(),
             },
             tools: None,
             route: None,
@@ -1439,6 +1514,41 @@ pub(crate) mod tests {
 
     /// The break-it-first pair's first half: a pool whose context names its label reads
     /// ~1.0 on held-out templates, so the probe does detect a planted leak.
+    /// The build-level refusal (it had no test): a family that no ruling lists, with a probe over
+    /// the bound, refuses the build.
+    #[test]
+    fn an_unlisted_family_over_the_bound_refuses_the_build() {
+        let mut c = cfg(Kind::Email);
+        c.probe.max_val_accuracy = 0.001;
+        let g = generate(&c).unwrap();
+        let target: TargetSet = (
+            "stand-in".to_owned(),
+            vec![("t0".to_owned(), "lighthouse keepers counting migrating cranes over a frozen northern estuary at dawn".to_owned())],
+        );
+        let e = match build(&c, "sha", &g.drafts, &[target], BTreeMap::new(), &Value::Null, 1) {
+            Err(e) => e,
+            Ok(_) => panic!("a probe over its bound built"),
+        };
+        assert!(e.contains("leak probe over its bound"), "{e}");
+    }
+
+    #[test]
+    fn report_only_needs_the_code_entry_the_config_key_and_the_ruling_file() {
+        let mut c = cfg(Kind::Route);
+        // Neither key: the route family is listed in code, the config lacks its key.
+        assert!(check_report_only(&c).unwrap_err().contains("both keys or neither"));
+        let (_, ruling, _, _) = LEAK_PROBE_REPORT_ONLY[0];
+        c.probe.report_only.insert(crate::synth_tools::ROUTE_FAMILY.to_owned(), ruling.to_owned());
+        check_report_only(&c).unwrap();
+        // The config key names another path.
+        c.probe.report_only.insert(crate::synth_tools::ROUTE_FAMILY.to_owned(), "AUDIT/x.md".to_owned());
+        assert!(check_report_only(&c).unwrap_err().contains("not the ruling the code names"));
+        // A config key for a family no ruling grants.
+        let mut e = cfg(Kind::Email);
+        e.probe.report_only.insert("email.category".to_owned(), ruling.to_owned());
+        assert!(check_report_only(&e).unwrap_err().contains("stays gated"));
+    }
+
     #[test]
     fn the_probe_reads_a_planted_label_leak() {
         let classes = ["alpha", "beta", "gamma"];

@@ -250,7 +250,12 @@ fn route_rows_are_the_apps_request_and_none_is_only_unable_or_direct() {
     // The leak probe ran and is recorded; for this family it is a report, never a pass.
     let probe = &manifest["leak_probe"][ROUTE_FAMILY];
     assert_eq!(probe["state"], "ran");
-    assert!(probe["passed"].is_null() && probe["report_only"].is_string(), "{probe}");
+    assert!(probe["passed"].is_null(), "{probe}");
+    assert_eq!(
+        probe["report_only"]["ruling"],
+        "AUDIT/board-sweep-2026-10-12/fable-leak-probe-devtype-route-ruling.md"
+    );
+    assert_eq!(probe["report_only"]["criterion"], "surface-rule gold");
     assert!(probe["val_accuracy"].as_f64().is_some());
     let mut by_gold: BTreeMap<String, usize> = BTreeMap::new();
     for r in &rows {
@@ -574,4 +579,59 @@ fn gitpulse_is_refused_by_case_by_directory_by_origin_and_a_substituted_slug() {
     commit_file(&m, "x.txt", b"x\n", "feat: x");
     let v = view_of(&root, &[("apps/Mismatch", "bharathvbcr/mismatch")]);
     assert!(commit_type::candidates(&v, 7, &no_blobs()).unwrap_err().contains("not the repository's origin"));
+}
+
+#[test]
+fn queries_under_the_apps_routing_floor_are_refused_and_counted() {
+    let d = scratch("floor");
+    let path = route_config(
+        &d,
+        &phrasings_with(vec![
+            ("floor-1", "none_direct", "hi"),
+            ("floor-2", "none_direct", "=what is {country}"),
+            ("floor-3", "none_direct", ">what is {country}"),
+            ("floor-4", "none_direct", "okay"),
+        ]),
+        None,
+    );
+    let (cfg, _) = Config::load(&path).unwrap();
+    let g = synth::generate(&cfg).unwrap();
+    // Three rows per template: "hi", "=...", ">..." are never sent by the app; "okay" is 4 chars.
+    assert_eq!(g.report["refused"]["under_app_floor"], 9, "{}", g.report);
+    assert!(g.drafts.iter().all(|x| x.context.trim().chars().count() >= 4
+        && !x.context.starts_with(['=', '>'])));
+    assert!(g.drafts.iter().any(|x| x.template == "floor-4"));
+}
+
+#[test]
+fn a_route_build_without_the_config_key_or_with_a_missing_ruling_refuses() {
+    let d = scratch("report-only-keys");
+    let cfg_path = route_config(&d, &phrasings_with(vec![]), None);
+    let heldout = d.join("heldout").join("route");
+    fs::create_dir_all(heldout.parent().unwrap()).unwrap();
+    synth::emit_heldout(&cfg_path, &heldout).unwrap();
+    let target = heldout.join("targets.jsonl");
+    let sha = qd_prep::sha256::sha256_hex(&fs::read(&target).unwrap());
+    let mut cfg: Value = serde_json::from_slice(&fs::read(&cfg_path).unwrap()).unwrap();
+    cfg["target_sha256"] = json!({"route-heldout": sha});
+    let run = |cfg: &Value, tag: &str| {
+        let p = d.join(format!("config-{tag}.json"));
+        fs::write(&p, serde_json::to_vec(cfg).unwrap()).unwrap();
+        let inputs = synth::Inputs {
+            config: p,
+            targets: vec![("route-heldout".to_owned(), target.clone())],
+        };
+        synth::run(&inputs, &d.join(format!("pool-{tag}")), 2)
+    };
+    // The key present builds (the committed config carries it).
+    run(&cfg, "ok").expect("both keys: the build runs");
+    // The key absent: refused, naming the missing key.
+    let mut no_key = cfg.clone();
+    no_key["probe"].as_object_mut().unwrap().remove("report_only");
+    let e = run(&no_key, "nokey").unwrap_err();
+    assert!(e.contains("probe.report_only.devtype.route.ruling") && e.contains("both keys or neither"), "{e}");
+    // The key naming a ruling that is not the one the code names.
+    let mut wrong = cfg.clone();
+    wrong["probe"]["report_only"]["devtype.route"]["ruling"] = json!("AUDIT/not-a-ruling.md");
+    assert!(run(&wrong, "wrong").unwrap_err().contains("not the ruling the code names"));
 }

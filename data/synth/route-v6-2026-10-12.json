@@ -19,10 +19,13 @@
     "tol": 0.0001,
     "lr": 0.05,
     "l2_grid": [0.0001, 0.001, 0.01, 0.1],
-    "max_val_accuracy": 0.95
+    "max_val_accuracy": 0.95,
+    "report_only": {
+      "devtype.route": {"ruling": "AUDIT/board-sweep-2026-10-12/fable-leak-probe-devtype-route-ruling.md"}
+    }
   },
   "route": {
     "phrasings": "devtype-route-phrasings-v6-2026-10-12.json",
-    "phrasings_sha256": "1894fc923f37af1a32e98a3a713eba53590b98a7bc49e20563d90599ac0f8ec4"
+    "phrasings_sha256": "c86b16a525cd55f197bf1665da9e1b6170f5f15b420fa3e8d4c601b31185ef85"
   }
 }
