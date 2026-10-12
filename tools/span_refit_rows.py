@@ -1,12 +1,13 @@
 """Record each arm of ``campaign/span-refit-mac-preregistered.json`` as a ledger row (rule 5).
 
-The pre-registered scorer (``span_refit_score.py``, a throwaway under ``build/``) decodes every
+The pre-registered scorer (``tools/span_refit_score.py``) decodes every
 arm from the frozen caches and writes one results JSON; it only drafts ledger rows because
 ``ledger/`` was outside its lane. This binding is the recorder: for each arm it runs the scorer
 once (``--arms <arm>``, so the row's wall clock is that pass's own) inside a
 ``qd_train.ledger.RunRecorder`` block and writes the results JSON's numbers as metrics. It
-computes nothing itself and imports nothing from ``build/``; the scorer is a subprocess pinned
-by sha256, as are its sibling scripts.
+computes nothing itself; the scorer is the tracked ``tools/span_refit_score.py``, run as a
+subprocess and pinned by sha256 with its three siblings (``tools/span_refit_{common,extract,
+fit}.py``), so every pinned hash resolves to a committed file.
 
 **Its own family, never a supplement.** Rows are ``run_kind="eval"``, ``quick`` (the
 pre-registration's status: one tower, one fit seed, a train subsample; rule 8) and REPORT-ONLY.
@@ -27,7 +28,7 @@ for, or a head file whose sha256 differs from the one the scorer reports.
 
 RUN
 ---
-    python tools/span_refit_rows.py --scorer build/needle-span-mac-2026-10-06/span_refit_score.py \\
+    python tools/span_refit_rows.py \\
       --eval-ledger ledger/h100x2-v5avg-2026-10-05.jsonl --results-dir RESULTS \\
       [--head-c DIR --head-e DIR --seed1-val-cache DIR] [--arms a b c d e]
 """
@@ -310,7 +311,8 @@ def gate_metrics(result: Json) -> dict[str, TriState]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--scorer", type=Path, required=True, help="span_refit_score.py")
+    p.add_argument("--scorer", type=Path, default=REPO / "tools" / "span_refit_score.py",
+                   help="the tracked span_refit_score.py; its siblings are pinned beside it")
     p.add_argument("--eval-ledger", type=Path, action="append", required=True,
                    help="a ledger holding row 6af73bef; repeatable")
     p.add_argument("--ledger", type=Path,

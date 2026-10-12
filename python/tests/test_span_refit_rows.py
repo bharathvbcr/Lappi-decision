@@ -151,3 +151,13 @@ def test_a_result_is_never_overwritten(tmp_path):
     (tmp_path / "res" / "span-refit-score-a.json").write_text("{}", encoding="utf-8")
     with pytest.raises(Refused, match="already exists"):
         srr.main(_argv(tmp_path, scorer, "--arms", "a"))
+
+
+def test_every_script_the_rows_pin_is_a_tracked_file_beside_the_default_scorer():
+    import subprocess
+
+    scorer = REPO / "tools" / "span_refit_score.py"
+    tracked = subprocess.run(["git", "-C", str(REPO), "ls-files", "tools"], capture_output=True,
+                             text=True, check=True).stdout.split()
+    for name in srr.SCRIPTS:
+        assert (scorer.parent / name).is_file() and f"tools/{name}" in tracked, name
