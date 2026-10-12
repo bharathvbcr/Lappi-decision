@@ -261,3 +261,37 @@ def test_the_runner_names_no_test_that_has_been_renamed() -> None:
     ).split():
         assert f"fn {name}" in lic, name
         assert name in text, name
+
+
+def test_sigterm_to_the_runner_stops_the_running_step_before_it_exits(
+    tmp_path: Path, out: Path
+) -> None:
+    """verify-lane6 D14: the EXIT trap ran and the step survived in its own process group."""
+    import signal
+    import time
+
+    unique = f"sleep {770 + os.getpid() % 100}"
+    script = f"source {RUNNER}\nOUT={out}\nbounded_step slow 60 /bin/{unique}\n"
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "STRESS_RUNNER_SOURCE_ONLY": "1"}
+    proc = subprocess.Popen(["bash", "-c", script], env=env, cwd=tmp_path)
+    time.sleep(2)
+    assert subprocess.run(["pgrep", "-f", unique], capture_output=True, check=False).returncode == 0
+    proc.send_signal(signal.SIGTERM)
+    assert proc.wait(timeout=30) == 143
+    time.sleep(1)
+    assert (
+        subprocess.run(["pgrep", "-f", unique], capture_output=True, check=False).returncode == 1
+    ), "the step outlived the runner"
+    assert _status(out)["slow"] == "interrupted:TERM"
+
+
+def test_the_synth_runs_own_timeout_panic_is_timed_out_not_101(tmp_path: Path, out: Path) -> None:
+    """verify-lane6 D15: stress_v6.rs s6 panics "the synth run passed 1800s" at its own bound."""
+    _bash(
+        f"OUT={out}\nbounded_step s6-kill 60 "
+        "bash -c 'echo \"the synth run passed 1800s\"; exit 101'\n",
+        cwd=tmp_path,
+    )
+    assert _status(out)["s6-kill"] == "timed_out"
+    text = RUNNER.read_text()
+    assert "bounded_step s6-kill" in text, "s6-kill goes through bounded_step"

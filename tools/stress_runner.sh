@@ -81,6 +81,26 @@ kill_group() {
   kill -KILL -- "-$pgid" 2> /dev/null
 }
 
+# The step now running, so a signal to the runner can stop it (verify-lane6 D14: a SIGTERM used
+# to run the EXIT trap and leave the step alive in its own process group, orphaned, still running
+# after the lock was released).
+CURRENT_STEP=""
+CURRENT_START=""
+CURRENT_PGID=""
+
+# on_signal <signal>: stop the running step's process group, record it `interrupted`, exit 143/130.
+on_signal() {
+  if [ -n "$CURRENT_PGID" ]; then
+    kill_group "$CURRENT_PGID"
+    record "$CURRENT_STEP" "interrupted:$1" "$CURRENT_START"
+    CURRENT_PGID=""
+  fi
+  [ "$1" = INT ] && exit 130
+  exit 143
+}
+trap 'on_signal TERM' TERM
+trap 'on_signal INT' INT
+
 # bounded_step <name> <bound_s> <command...>: run under its own bound, log to $OUT/<name>.log,
 # record `passed`, `failed:<rc>` or `timed_out`. A child the test itself killed at its own bound
 # ("ran past ... and was killed") is `timed_out` too: it is the same fact one level down.
@@ -93,6 +113,9 @@ bounded_step() {
   "$@" > "$OUT/$name.log" 2>&1 < /dev/null &
   pid=$!
   set +m
+  CURRENT_STEP=$name
+  CURRENT_START=$start
+  CURRENT_PGID=$pid
   while kill -0 "$pid" 2> /dev/null; do
     if [ "$waited" -ge "$bound" ]; then
       timed_out=1
@@ -104,6 +127,7 @@ bounded_step() {
   done
   wait "$pid" 2> /dev/null
   rc=$?
+  CURRENT_PGID=""
   if [ "$timed_out" -eq 1 ]; then
     echo "TIMED OUT: the step passed its ${bound}s bound and its process group was killed" >> "$OUT/$name.log"
     record "$name" timed_out "$start"
@@ -115,7 +139,256 @@ bounded_step() {
     echo "== $name passed"
     return 0
   fi
-  if grep -Eq 'ran past .* and was killed' "$OUT/$name.log"; then
+  if grep -Eq 'ran past .* and was killed|the synth run passed [0-9]' "$OUT/$name.log"; then
+    record "$name" timed_out "$start"
+    echo "== $name timed_out (a child passed its own bound)"
+    return 124
+  fi
+  record "$name" "failed:$rc" "$start"
+  echo "== $name failed:$rc"
+  return "$rc"
+}
+
+# pin_worktree <sha> <dir>: a detached worktree of the main repository at exactly <sha>, then the
+# check that its HEAD is <sha>. Run inside the lock. Exit 70 (the lock's "result does not count")
+# on any disagreement.
+pin_worktree() {
+  local sha=$1 dir=$2 got
+  if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+    echo "stress_runner: --sha must be a full 40-hex sha, not '$sha'" >&2
+    return 70
+  fi
+  if [ -e "$dir" ]; then
+    echo "stress_runner: $dir exists; refusing to reuse it (pass --tree to chain onto a worktree)" >&2
+    return 70
+  fi
+  if ! git -C "$REPO" worktree add --detach "$dir" "$sha" > "$OUT/worktree-add.log" 2>&1; then
+    echo "stress_runner: git worktree add $dir $sha failed; see $OUT/worktree-add.log" >&2
+    return 70
+  fi
+  check_head "$sha" "$dir"
+}
+
+# check_head <sha> <dir>
+check_head() {
+  local sha=$1 dir=$2 got
+  got=$(git -C "$dir" rev-parse HEAD 2> /dev/null)
+  if [ "$got" != "$sha" ]; then
+    echo "stress_runner: HEAD of $dir is '$got', not the pinned $sha; result does not count" >&2
+    return 70
+  fi
+  if [ -n "$(git -C "$dir" status --porcelain --untracked-files=no 2> /dev/null)" ]; then
+    echo "stress_runner: $dir has tracked changes; a pinned tree is clean; result does not count" >&2
+    return 70
+  fi
+  return 0
+}
+
+# u4_state: tri-state over the three S8 steps in status.tsv.
+u4_state() {
+  local passed=0 failed=0 other=0 s
+  for s in s8-email s8-jarvis s8-tools; do
+    case "$(awk -F'\t' -v n="$s" '$1 == n {st = $2} END {print st}' "$OUT/status.tsv")" in
+      passed) passed=$((passed + 1)) ;;
+      failed:*) failed=$((failed + 1)) ;;
+      *) other=$((other + 1)) ;;
+    esac
+  done
+  if [ "$failed" -gt 0 ]; then
+    echo failed
+  elif [ "$passed" -eq 3 ]; then
+    echo passed
+  else
+    echo undetermined
+  fi
+}
+
+if [ "${STRESS_RUNNER_SOURCE_ONLY:-0}" = 1 ]; then
+  # Tests source this file for the functions above and run none of the suite.
+  return 0 2> /dev/null || exit 0
+fi
+
+# ---------------------------------------------------------------------------------------------
+# The launcher: parse, then take the lock by running the job through mac_heavy.sh.
+
+usage() {
+  echo "usage: bash tools/stress_runner.sh launch --sha <40-hex> --profile debug|release" >&2
+  echo "         [--label NAME] [--only STEP,STEP] [--out DIR] [--tree DIR]" >&2
+  exit 64
+}
+
+MODE=${1:-}
+[ -n "$MODE" ] && shift
+SHA=""
+PROFILE=""
+LABEL="run"
+ONLY=""
+OUT=""
+TREE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sha) SHA=${2:-}; shift 2 ;;
+    --profile) PROFILE=${2:-}; shift 2 ;;
+    --label) LABEL=${2:-}; shift 2 ;;
+    --only) ONLY=${2:-}; shift 2 ;;
+    --out) OUT=${2:-}; shift 2 ;;
+    --tree) TREE=${2:-}; shift 2 ;;
+    *) usage ;;
+  esac
+done
+case "$PROFILE" in debug | release) ;; *) usage ;; esac
+[ -n "$SHA" ] || usage
+if [ -z "$OUT" ]; then
+  OUT="$REPO/build/stress-runs/$(printf '%s' "$SHA" | cut -c1-12)-$PROFILE-$LABEL-$(date -u +%Y%m%dT%H%M%SZ)"
+fi
+
+case "$MODE" in
+  launch)
+    # The pin is checked again inside the lock (mode `job`); checking here too only fails fast.
+    mkdir -p "$OUT" || exit 70
+    MAC_HEAVY_MAX_WAIT_S=${MAC_HEAVY_MAX_WAIT_S:-14400} bash "$REPO/tools/mac_heavy.sh" "stress-$LABEL" \
+      bash "$SELF" job --sha "$SHA" --profile "$PROFILE" --label "$LABEL" --out "$OUT" \
+      ${ONLY:+--only "$ONLY"} ${TREE:+--tree "$TREE"}
+    exit $?
+    ;;
+  job) ;;
+  *) usage ;;
+esac
+
+# ---------------------------------------------------------------------------------------------
+# The job. Inside the lock or not at all.
+
+if [ -z "${MAC_HEAVY_LABEL:-}" ]; then
+  echo "stress_runner: job mode runs only under tools/mac_heavy.sh (MAC_HEAVY_LABEL is unset); use 'launch'" >&2
+  exit 64
+fi
+mkdir -p "$OUT" || exit 70
+: > "$OUT/status.tsv"
+
+if [ -n "$TREE" ]; then
+  check_head "$SHA" "$TREE" || exit 70
+  WT=$TREE
+  OWN_TREE=0
+else
+  WT="$REPO/build/stress-trees/$(printf '%s' "$SHA" | cut -c1-12)-$$"
+  mkdir -p "$(dirname "$WT")"
+  # The workspace names path dependencies as <root>/../tessl and <root>/../ojas: make them
+  # resolve from the worktree's parent, to the same siblings the main checkout uses.
+  for sibling in tessl ojas; do
+    [ -e "$(dirname "$WT")/$sibling" ] || ln -s "$REPO/../$sibling" "$(dirname "$WT")/$sibling"
+  done
+  pin_worktree "$SHA" "$WT" || exit 70
+  OWN_TREE=1
+fi
+cleanup() {
+  if [ "$OWN_TREE" -eq 1 ]; then
+    git -C "$REPO" worktree remove --force "$WT" > /dev/null 2>&1
+  fi
+}
+trap cleanup EXIT
+
+# The run header, written before the first step: the labels, the pin, the profile, the bounds.
+{
+  echo "run_label: $LABEL"
+  echo "sha: $SHA"
+  echo "tree: $WT (detached worktree: $([ "$OWN_TREE" -eq 1 ] && echo created || echo chained))"
+  echo "profile: $PROFILE"
+  echo "started: $(now)"
+  echo "lock_label: $MAC_HEAVY_LABEL"
+  echo "bounds_s: default=$BOUND_DEFAULT s8=$BOUND_S8 s9-email=$BOUND_S9_EMAIL s9-containment=$BOUND_S9_CONTAINMENT s9-lsh=$BOUND_S9_LSH"
+  echo "only: ${ONLY:-all}"
+} > "$OUT/header.txt"
+cat "$OUT/header.txt"
+
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$REPO/build/target-stress-$(printf '%s' "$SHA" | cut -c1-12)-$PROFILE}
+MANIFEST="$WT/Cargo.toml"
+RELEASE_FLAG=""
+[ "$PROFILE" = release ] && RELEASE_FLAG="--release"
+
+wants() { [ -z "$ONLY" ] || printf ',%s,' "$ONLY" | grep -q ",$1,"; }
+
+# One stress_v6.rs item, by test-name prefix, N tests at a time.
+rust_item() {
+  local prefix=$1 threads=$2
+  shift 2
+  cargo test --manifest-path "$MANIFEST" -p qd-prep $RELEASE_FLAG --test stress_v6 -j 2 -- "${prefix}_" \
+    --test-threads "$threads" --nocapture "$@"
+}
+lib_reuse() {
+  cargo test --manifest-path "$MANIFEST" -p qd-prep --lib -j 2 -- --exact "$@"
+}
+pytest_k() (
+  export PYTHONPATH=$WT/python
+  "$UV" run --no-project --python "$PY" --with pytest --with hypothesis \
+    python -m pytest "$@" -o addopts= -p no:cacheprovider -q --rootdir "$WT"
+)
+# An S8 step is only accepted from the profile that was written down: its log must say so.
+s8_item() {
+  local test=$1
+  cargo test --manifest-path "$MANIFEST" -p qd-prep $RELEASE_FLAG --test stress_v6 -j 2 -- \
+    "$test" --exact --nocapture --test-threads 1 2>&1 | tee "$OUT/.s8-last"
+  local rc=${PIPESTATUS[0]}
+  if [ "$rc" -eq 0 ] && ! grep -q "S8-PROFILE $PROFILE" "$OUT/.s8-last"; then
+    echo "S8-PROFILE $PROFILE was asked for and the test did not report it: not accepted" >&2
+    return 71
+  fi
+  return "$rc"
+}
+s9_item() {
+  local test=$1
+  cargo test --manifest-path "$MANIFEST" -p qd-prep --release --test stress_v6 -j 2 -- \
+    "$test" --exact --ignored --nocapture --test-threads 1
+}
+# S6's kill: a run that ends before SIGTERM lands did not exercise the item: not_run. It goes
+# through bounded_step like every step, so a timeout there is `timed_out`, never `failed:101`.
+s6_kill() {
+  bounded_step s6-kill "$(step_bound s6-kill)" \
+    cargo test --manifest-path "$MANIFEST" -p qd-prep $RELEASE_FLAG --test stress_v6 -j 2 -- \
+    s6_a_kill_during_the_write --exact --nocapture
+  if grep -q 'S6-KILL-NOT-EXERCISED' "$OUT/s6-kill.log"; then
+    # Replace the row bounded_step wrote: the run finished before SIGTERM reached the write.
+    awk -F'\t' -v OFS='\t' '$1 == "s6-kill" {$2 = "not_run:the run finished before SIGTERM reached the write"} {print}' \
+      "$OUT/status.tsv" > "$OUT/status.tsv.new" && mv "$OUT/status.tsv.new" "$OUT/status.tsv"
+  fi
+  return 0
+}
+
+step() {
+  local name=$1 bound=$2 start pid rc waited=0 timed_out=0
+  shift 2
+  start=$(now)
+  echo "== $name start $start (bound ${bound}s)"
+  set -m
+  "$@" > "$OUT/$name.log" 2>&1 < /dev/null &
+  pid=$!
+  set +m
+  CURRENT_STEP=$name
+  CURRENT_START=$start
+  CURRENT_PGID=$pid
+  while kill -0 "$pid" 2> /dev/null; do
+    if [ "$waited" -ge "$bound" ]; then
+      timed_out=1
+      kill_group "$pid"
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid" 2> /dev/null
+  rc=$?
+  CURRENT_PGID=""
+  if [ "$timed_out" -eq 1 ]; then
+    echo "TIMED OUT: the step passed its ${bound}s bound and its process group was killed" >> "$OUT/$name.log"
+    record "$name" timed_out "$start"
+    echo "== $name timed_out"
+    return 124
+  fi
+  if [ "$rc" -eq 0 ]; then
+    record "$name" passed "$start"
+    echo "== $name passed"
+    return 0
+  fi
+  if grep -Eq 'ran past .* and was killed|the synth run passed [0-9]' "$OUT/$name.log"; then
     record "$name" timed_out "$start"
     echo "== $name timed_out (a child passed its own bound)"
     return 124
