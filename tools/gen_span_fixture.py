@@ -294,6 +294,13 @@ def build_tiny(out: Path) -> None:
 
     reference = {
         "rules": {
+            "convention": "qd-span-head.v1 (published): final-norm bf16 last_hidden_state at the "
+                          "line-start tokens, query = last token of prefix + slot suffix, abstain "
+                          "row last. This is the convention the head is TRAINED under and SERVED "
+                          "by: tools/real_ft_run.py scores a span slot through "
+                          "qd_train.backbone.QwenDecisionStep.hidden() and span_head, which is "
+                          "Qwen3_5TextModel.last_hidden_state. A fixture that does not name this "
+                          "convention is invalid.",
             "head": "qd_train.heads.SpanPointerHead + serving_scores "
                     "(torch float32 head, bf16 tower)",
             "hidden_state": "Qwen3_5TextModel.last_hidden_state: the output of the final norm, "

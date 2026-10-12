@@ -7,7 +7,7 @@ mod common;
 
 use common::{bf16s, edit_release_manifest, f32s, fixtures, read_json, tiny_release, write_f32, Temp, HIDDEN};
 use qd_metal::weights::{self, AnswerDelta};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 #[test]
 fn d17_rows_equal_pythons_answer_row_delta_and_a_zero_row_is_the_embedding_bit_for_bit() {
@@ -33,7 +33,12 @@ fn d17_rows_equal_pythons_answer_row_delta_and_a_zero_row_is_the_embedding_bit_f
             assert_eq!(got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), tied, "zero D17 row {letter}");
         }
     }
-    // The embedding value the fixture seeds with -0.0 survives a zero delta as -0.0.
+    // The embedding value the fixture seeds with -0.0 survives a zero delta as -0.0. This is NOT
+    // compared with the Python reference: `embed.float() + delta` is `-0.0 + 0.0 = +0.0` in torch,
+    // while the loader keeps the embedding's value untouched where the delta is zero (the bit-for-bit
+    // claim). The fixture's -0.0 sits in a row that is not one of the 17 letters, so the Python rows
+    // above never see it; this assertion states the Rust-side rule only. The sign of a zero cannot
+    // change a dot product's value, so the two agree on every logit.
     let mut row = vec![0f32; hidden];
     weights::compose_answer_row(&embed[3 * hidden..4 * hidden], &vec![0.0; hidden], &mut row);
     assert_eq!(row[0].to_bits(), (-0.0f32).to_bits());
@@ -82,4 +87,22 @@ fn d17_is_loaded_only_when_the_manifest_binds_it() {
     assert!(weights::open_answer_delta(&swapped, HIDDEN).unwrap_err().to_string().contains("not the D17"));
 
     assert!(weights::open_answer_delta(&release, HIDDEN + 1).is_err(), "the tower's width");
+}
+
+#[test]
+fn d17_names_which_row_is_which_letter_and_a_mismatch_is_refused() {
+    // The export records the row order; the loader implements exactly one: A..P, then noul (Z).
+    let (_keep, release) = tiny_release("d17rows", |_| {});
+    let m = read_json(&release.join("release_manifest.json"));
+    assert_eq!(m["d17"]["row_letters"], "ABCDEFGHIJKLMNOPZ", "the export states the row order");
+    assert!(weights::open_answer_delta(&release, HIDDEN).unwrap().is_some());
+    for bad in [json!("ZABCDEFGHIJKLMNOP"), json!("ABCDEFGHIJKLMNOP"), json!("abcdefghijklmnopz"), Value::Null] {
+        edit_release_manifest(&release, |m| m["d17"]["row_letters"] = bad.clone());
+        let err = weights::open_answer_delta(&release, HIDDEN).unwrap_err().to_string();
+        assert!(err.contains("row_letters"), "{bad}: {err}");
+    }
+    edit_release_manifest(&release, |m| {
+        m["d17"].as_object_mut().unwrap().remove("row_letters");
+    });
+    assert!(weights::open_answer_delta(&release, HIDDEN).unwrap_err().to_string().contains("row_letters"));
 }

@@ -56,7 +56,7 @@
 use std::ops::Range;
 use std::path::Path;
 
-use qd_export::export::SPAN_CONTRACT_VERSION;
+use qd_export::export::{KNOWN_AVERAGED_PREREGISTRATIONS, SPAN_CONTRACT_VERSION};
 use qd_runtime::release::{MANIFEST_FILE, SPAN_HEAD_FILE};
 use qd_runtime::render::{M_CTX_BEGIN, M_CTX_END};
 use qd_runtime::Context;
@@ -332,11 +332,75 @@ fn is_hex64(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// An averaged head is served only as the pre-registered primary row, bound by content: the
+/// recorded pre-registration is one of `qd_export`'s committed `(name, sha256)` pairs (the campaign
+/// file's digest, not any 64-hex string), and the export recorded from the ft ledger that every
+/// input seed shared one span-head init, so the average is of heads that grew from the same point
+/// and not the near-orthogonal blend that collapsed v5's span.
+fn check_averaged(block: &Value) -> std::result::Result<(), String> {
+    let not_registered = || {
+        "the span head is a weight average of the seeds' heads, and the manifest does not say it was \
+         pre-registered as the primary row against the committed campaign/v6-averaging-preregistered.json \
+         (averaged_head_preregistration must be that file's name and sha256): the blend is not served. \
+         Export from a --span-head-seed checkpoint, or with --averaged-head-preregistration and --ft-ledger"
+            .to_string()
+    };
+    let prereg = block
+        .get("averaged_head_preregistration")
+        .filter(|p| p.is_object())
+        .ok_or_else(not_registered)?;
+    let (name, sha) = (
+        prereg.get("name").and_then(Value::as_str),
+        prereg.get("sha256").and_then(Value::as_str),
+    );
+    let known = KNOWN_AVERAGED_PREREGISTRATIONS.iter().any(|(n, d)| Some(*n) == name && Some(*d) == sha);
+    if prereg.get("row").and_then(Value::as_str) != Some("primary") || !known {
+        return Err(not_registered());
+    }
+    let init = block.get("shared_init").filter(|i| i.is_object());
+    let seeds = init.and_then(|i| i.get("seeds")).and_then(Value::as_array);
+    let rows = init.and_then(|i| i.get("ft_row_ids")).and_then(Value::as_array);
+    let distinct = seeds.is_some_and(|s| {
+        let mut v: Vec<u64> = s.iter().filter_map(Value::as_u64).collect();
+        let n = v.len();
+        v.sort_unstable();
+        v.dedup();
+        n == s.len() && v.len() == n
+    });
+    let ok = init.is_some_and(|i| {
+        i.get("shared").and_then(Value::as_bool) == Some(true)
+            && i.get("content_digest").and_then(Value::as_str).is_some_and(|d| !d.trim().is_empty() && d.bytes().all(|b| b.is_ascii_hexdigit()))
+    }) && distinct
+        && seeds.is_some_and(|s| s.len() >= 2)
+        && seeds.map(Vec::len) == rows.map(Vec::len);
+    if ok {
+        Ok(())
+    } else {
+        Err("the manifest carries no verified evidence that every seed's span head grew from one shared init \
+             (span_head.shared_init: shared true, one content_digest, 2 or more distinct seeds, one ft row each; \
+             the export reads it from the ft ledger with --ft-ledger): a v5-style average of independently \
+             initialised heads is the blend that collapsed the span and is not served"
+            .to_string())
+    }
+}
+
 /// Decide whether the release in `dir` serves a span head, for a tower of `hidden` width.
 pub fn open(dir: &Path, hidden: usize) -> SpanServing {
     let head_path = dir.join(SPAN_HEAD_FILE);
     if !head_path.is_file() {
-        return SpanServing::Absent;
+        // A manifest that names a span head whose file is gone is not a release with no head.
+        let names_head = std::fs::read_to_string(dir.join(MANIFEST_FILE))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|m| m.get("span_head").is_some_and(|b| !b.is_null()));
+        return if names_head {
+            SpanServing::Refused(format!(
+                "the release manifest records a span_head block but {SPAN_HEAD_FILE} is missing from {}",
+                dir.display()
+            ))
+        } else {
+            SpanServing::Absent
+        };
     }
     match open_checked(dir, &head_path, hidden) {
         Ok(head) => SpanServing::Ready(head),
@@ -398,23 +462,7 @@ fn open_checked(dir: &Path, head_path: &Path, hidden: usize) -> std::result::Res
                 return Err("span_head.source is seed-mode but names no seed or no 64-hex payload_digest".into());
             }
         }
-        Some("averaged") => {
-            let prereg = block.get("averaged_head_preregistration").filter(|p| p.is_object());
-            let ok = prereg.is_some_and(|p| {
-                p.get("row").and_then(Value::as_str) == Some("primary")
-                    && p.get("sha256").and_then(Value::as_str).is_some_and(is_hex64)
-                    && p.get("name").and_then(Value::as_str).is_some_and(|n| !n.trim().is_empty())
-            });
-            if !ok {
-                return Err(
-                    "the span head is a weight average of the seeds' heads, and the manifest does not \
-                     say it was pre-registered as the primary row (averaged_head_preregistration, from \
-                     campaign/v6-averaging-preregistered.json): the blend is not served. Export from a \
-                     --span-head-seed checkpoint, or with --averaged-head-preregistration"
-                        .into(),
-                );
-            }
-        }
+        Some("averaged") => check_averaged(block)?,
         other => {
             return Err(format!(
                 "span_head.source.mode is {other:?}: the manifest does not say how the head was made \

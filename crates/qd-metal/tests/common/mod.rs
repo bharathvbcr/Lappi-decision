@@ -86,6 +86,7 @@ pub fn tiny_release(tag: &str, edit_source_manifest: impl FnOnce(&mut Value)) ->
         train_manifest: tiny.join("train.json"),
         allow_extra: Vec::new(),
         averaged_head_preregistration: None,
+        ft_ledger: None,
         out: out.clone(),
     })
     .expect("the tiny fixture exports");
@@ -154,4 +155,22 @@ pub fn decode(
     let mut snapshot = backend.snapshot(&handle)?;
     let query = SlotQuery { slot_name: "slot", suffix: refc.str(suffix_key), rows, kind };
     backend.decode_slot(&mut snapshot, &query, DecodeMode::ReadOnly)
+}
+
+/// The campaign file's recorded digest in a release manifest (`campaign/v6-averaging-preregistered.json`).
+pub fn known_preregistration() -> Value {
+    serde_json::json!({
+        "file": "v6-averaging-preregistered.json",
+        "sha256": "73ce1cbac9652b0fda5d170c029c8e147d5810c8fe08740439ddb9b7f9c0ceed",
+        "name": "v6-averaging",
+        "row": "primary",
+    })
+}
+
+/// Shared-init evidence as the export records it after reading the ft ledger.
+pub fn shared_init() -> Value {
+    serde_json::json!({
+        "shared": true, "content_digest": "cd".repeat(32), "seeds": [0, 1, 2],
+        "ft_row_ids": ["row-seed0", "row-seed1", "row-seed2"],
+    })
 }

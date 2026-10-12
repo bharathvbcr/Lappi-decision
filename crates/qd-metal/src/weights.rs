@@ -379,6 +379,15 @@ pub fn open_answer_delta(dir: &std::path::Path, hidden: usize) -> Result<Option<
                     block.get("hidden_size").map_or_else(|| "absent".to_string(), ToString::to_string)
                 )));
             }
+            // Which row is which letter is part of the file's meaning: a D17 trained in another
+            // order would add each delta to the wrong embedding row.
+            let want = qd_export::export::d17_row_letters();
+            let got = block.get("row_letters").and_then(serde_json::Value::as_str);
+            if got != Some(want.as_str()) {
+                return Err(MetalError::Weights(format!(
+                    "d17.row_letters is {got:?}, this loader's row order is {want:?} (A..P then noul)"
+                )));
+            }
             AnswerDelta::load(&file, hidden).map(Some)
         }
     }

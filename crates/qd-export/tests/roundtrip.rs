@@ -242,6 +242,7 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
         ),
         allow_extra: Vec::new(),
         averaged_head_preregistration: None,
+        ft_ledger: None,
         out: out.clone(),
     })
     .expect("the base weights export");

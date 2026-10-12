@@ -121,15 +121,23 @@ fn gpu_a_head_the_loader_refuses_answers_span_queries_with_the_reason_and_leaves
 
     // The same head once the manifest says it was pre-registered as the primary row: answered.
     edit_release_manifest(&blend, |m| {
-        m["span_head"]["averaged_head_preregistration"] =
-            json!({"file": "v6-averaging-preregistered.json", "sha256": "ab".repeat(32), "name": "v6-averaging", "row": "primary"});
+        m["span_head"]["averaged_head_preregistration"] = common::known_preregistration();
+        m["span_head"]["shared_init"] = common::shared_init();
     });
     let backend = start(&blend);
     assert_eq!(decode(&backend, &refc, "span_suffix", QueryKind::PointerEnd, rows).unwrap().values.len(), rows);
 
-    // No head in the release at all: the old refusal, still.
+    // A manifest that names the head whose file is gone: refused, naming the file.
     let (_keep, none) = tiny_release("gpunone", |_| {});
     std::fs::remove_file(none.join("span_head.safetensors")).unwrap();
+    let backend = start(&none);
+    let err = decode(&backend, &refc, "span_suffix", QueryKind::PointerStart, rows).unwrap_err().to_string();
+    assert!(err.contains("span_head.safetensors") && err.contains("missing"), "{err}");
+
+    // No head and no block (a base snapshot's shape): the old refusal, still.
+    edit_release_manifest(&none, |m| {
+        m.as_object_mut().unwrap().remove("span_head");
+    });
     let backend = start(&none);
     let err = decode(&backend, &refc, "span_suffix", QueryKind::PointerStart, rows).unwrap_err().to_string();
     assert!(err.contains("base weights have no pointer head"), "{err}");

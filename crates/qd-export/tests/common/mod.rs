@@ -289,6 +289,7 @@ impl Fixture {
             train_manifest: self.train_manifest.clone(),
             allow_extra: Vec::new(),
             averaged_head_preregistration: None,
+        ft_ledger: None,
             out: self.out.clone(),
         }
     }

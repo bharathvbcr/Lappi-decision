@@ -37,6 +37,26 @@ pub const D17_FILE: &str = "d17.safetensors";
 /// other version is refused by the loader, so a convention change cannot be read as the old one.
 pub const SPAN_CONTRACT_VERSION: &str = "qd-span-head.v1";
 
+/// The only averaged-head pre-registrations a release may cite: `(name, sha256 of the committed
+/// campaign file)`. A pre-registration is bound by its content, not by a sentence in a file the
+/// caller names: `campaign/v6-averaging-preregistered.json` (R7's primary row, whose inputs are v6
+/// seeds that share one span-head init). An amendment changes the digest and so needs a reviewed
+/// edit here and in `qd-metal`'s loader, which reads this same table.
+pub const KNOWN_AVERAGED_PREREGISTRATIONS: [(&str, &str); 1] = [(
+    "v6-averaging",
+    "73ce1cbac9652b0fda5d170c029c8e147d5810c8fe08740439ddb9b7f9c0ceed",
+)];
+
+/// The D17 row order recorded in the manifest and required by the loader: the 16 option letters,
+/// then noul (`qd_runtime::render::OPTION_LETTERS` + `NOUL_LETTER`).
+pub fn d17_row_letters() -> String {
+    qd_runtime::render::OPTION_LETTERS
+        .iter()
+        .chain(std::iter::once(&qd_runtime::render::NOUL_LETTER))
+        .map(|b| char::from(*b))
+        .collect()
+}
+
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
 /// three are what `transformers`' tokenizer loads beside it. All four are in the Qwen3.5-2B-Base
@@ -93,6 +113,11 @@ pub struct ExportRequest {
     /// (`GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06`), and only a pre-registered row is
     /// served. Refused here when the source's `span_head_source` is not `mode: "averaged"`.
     pub averaged_head_preregistration: Option<PathBuf>,
+    /// The ft ledger holding the completed ft rows named by the source manifest's `ft_row_ids`.
+    /// Required with `averaged_head_preregistration`: the export reads each row's
+    /// `recipe.span_head_init` and refuses unless every seed shared one head init
+    /// (`tools/ckpt_average.py::ft_row_init` reads the same field).
+    pub ft_ledger: Option<PathBuf>,
     /// The release directory; must not exist.
     pub out: PathBuf,
 }
@@ -163,6 +188,8 @@ struct SourceManifest {
     n_tensors: usize,
     vocab_size: usize,
     ft_row_ids: Vec<String>,
+    /// The seeds of the source manifest's `inputs`, when it lists them.
+    input_seeds: Vec<u64>,
     tool: Option<String>,
     /// The prompt format the checkpoint was trained on: the source manifest's `prompt_format`, a
     /// positive JSON integer, which its writer copies from the training recipe. **Absent means 1**
@@ -244,6 +271,11 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
         n_tensors,
         vocab_size,
         ft_row_ids,
+        input_seeds: v
+            .get("inputs")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|i| i.get("seed").and_then(Value::as_u64)).collect())
+            .unwrap_or_default(),
         tool: v.get("tool").and_then(Value::as_str).map(str::to_string),
         prompt_format,
         prompt_format_stated: v.get("prompt_format").is_some(),
@@ -287,6 +319,8 @@ struct AveragedPreregistration {
     file: String,
     sha256: String,
     name: String,
+    /// What the ft ledger says of the inputs' span-head init, verified here.
+    shared_init: Value,
 }
 
 /// Read the pre-registration `path`: a JSON object with a non-blank `name` whose `rows.primary`
@@ -317,11 +351,98 @@ fn read_averaged_preregistration(path: &Path) -> Result<AveragedPreregistration>
             ),
         ));
     }
+    let digest = hex(&sha256(&bytes));
+    if !KNOWN_AVERAGED_PREREGISTRATIONS.iter().any(|(n, d)| *n == name && *d == digest) {
+        return Err(refuse(
+            k,
+            format!(
+                "{}: name {name:?} with sha256 {digest} is not a committed averaged-head \
+                 pre-registration ({KNOWN_AVERAGED_PREREGISTRATIONS:?}); a head is served as the \
+                 primary averaged row only against campaign/v6-averaging-preregistered.json's \
+                 committed content",
+                path.display()
+            ),
+        ));
+    }
     Ok(AveragedPreregistration {
         file: path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned()),
-        sha256: hex(&sha256(&bytes)),
+        sha256: digest,
         name: name.to_string(),
+        shared_init: Value::Null,
     })
+}
+
+/// Verify from the ft ledger that every input of the average grew its span head from one shared
+/// init: each of `row_ids` is exactly one completed ft row whose seed is one of the inputs', whose
+/// `recipe.span_head_init.shared` is true, and all rows record the same `content_digest`. Returns
+/// the evidence the manifest records (and the loader requires).
+fn verify_shared_init(ledger: &Path, manifest: &SourceManifest) -> Result<Value> {
+    let k = RefusalKind::SourceManifest;
+    let bad = |detail: String| refuse(k, format!("{}: {detail}", ledger.display()));
+    let text = String::from_utf8(read_bounded(ledger, k, MAX_TRAIN_MANIFEST_BYTES)?)
+        .map_err(|e| bad(format!("not UTF-8: {e}")))?;
+    let rows: Vec<Value> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(serde_json::from_str)
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| bad(format!("not JSON lines: {e}")))?;
+    if manifest.ft_row_ids.len() < 2 {
+        return Err(bad("an average of fewer than 2 ft rows is not an average of seeds".into()));
+    }
+    let (mut seeds, mut digest): (Vec<u64>, Option<String>) = (Vec::new(), None);
+    for id in &manifest.ft_row_ids {
+        let found: Vec<&Value> = rows.iter().filter(|r| r.get("row_id").and_then(Value::as_str) == Some(id)).collect();
+        let [row] = found.as_slice() else {
+            return Err(bad(format!("{} rows have row_id {id:?}", found.len())));
+        };
+        if row.get("run_kind").and_then(Value::as_str) != Some("ft")
+            || row.get("status").and_then(Value::as_str) != Some("completed")
+        {
+            return Err(bad(format!("row {id} is not a completed ft row")));
+        }
+        let seed = row
+            .pointer("/protocol/seed")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| bad(format!("row {id} records no integer protocol.seed")))?;
+        let init = row
+            .pointer("/recipe/span_head_init")
+            .filter(|i| i.is_object())
+            .ok_or_else(|| bad(format!("row {id} records no recipe.span_head_init: what init its head grew from cannot be verified")))?;
+        if init.get("shared").and_then(Value::as_bool) != Some(true) {
+            return Err(bad(format!("row {id} (seed {seed}) records a span-head init that is not the shared one")));
+        }
+        let d = init
+            .get("content_digest")
+            .and_then(Value::as_str)
+            .filter(|d| !d.trim().is_empty())
+            .ok_or_else(|| bad(format!("row {id} records no span_head_init.content_digest")))?;
+        if digest.as_deref().is_some_and(|prev| prev != d) {
+            return Err(bad(format!("row {id} records a different span-head init content_digest than the rows before it")));
+        }
+        digest = Some(d.to_string());
+        seeds.push(seed);
+    }
+    let mut distinct = seeds.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    if distinct.len() != seeds.len() {
+        return Err(bad(format!("the rows' seeds {seeds:?} are not distinct")));
+    }
+    if !manifest.input_seeds.is_empty() {
+        let mut inputs = manifest.input_seeds.clone();
+        inputs.sort_unstable();
+        if inputs != distinct {
+            return Err(bad(format!("the rows' seeds {distinct:?} are not the source manifest's inputs' seeds {inputs:?}")));
+        }
+    }
+    Ok(json!({
+        "shared": true,
+        "content_digest": digest,
+        "seeds": seeds,
+        "ft_row_ids": manifest.ft_row_ids,
+        "ledger_sha256": hex(&sha256(text.as_bytes())),
+    }))
 }
 
 /// `qd_data.manifest.MANIFEST_FORMAT_VERSION`.
@@ -810,7 +931,16 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
                     ),
                 ));
             }
-            Some(read_averaged_preregistration(path)?)
+            let mut prereg = read_averaged_preregistration(path)?;
+            let ledger = req.ft_ledger.as_ref().ok_or_else(|| {
+                refuse(
+                    RefusalKind::SourceManifest,
+                    "an averaged head with a pre-registration needs --ft-ledger: the export verifies \
+                     from the ft rows that every seed shared one span-head init",
+                )
+            })?;
+            prereg.shared_init = verify_shared_init(ledger, &manifest)?;
+            Some(prereg)
         }
     };
 
@@ -951,6 +1081,7 @@ fn span_head_block(plan: &Plan, head_sha256: &str) -> Value {
             "name": p.name,
             "row": "primary",
         })),
+        "shared_init": plan.preregistration.as_ref().map(|p| p.shared_init.clone()),
         "serving_contract": {
             "version": SPAN_CONTRACT_VERSION,
             "hidden_state": "the tower's last hidden state: the output of the final norm \
@@ -1113,6 +1244,7 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "hidden_size": plan.layout.hidden,
             "tensor": D17_TENSOR,
             "dtype": "F32",
+            "row_letters": d17_row_letters(),
             "serving": "embed[answer ids] + D17: answer row i is the embedding row of answer id i plus \
                         D17's row for that letter, summed in f32; D17 = 0 reproduces the \
                         tied-embedding readout bit for bit",

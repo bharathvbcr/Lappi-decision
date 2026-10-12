@@ -4,7 +4,7 @@
 //! qd-export --source AVG.safetensors --base-snapshot SNAP --tokenizer-sha256 HEX \
 //!           --expect-vocab-size 248320 --train-manifest TRAIN.json --out RELEASE \
 //!           [--calibration TABLE.json] [--source-manifest AVG.safetensors.manifest.json] \
-//!           [--allow-extra NAME=REASON]... [--averaged-head-preregistration PATH]
+//!           [--allow-extra NAME=REASON]... [--averaged-head-preregistration PATH --ft-ledger PATH]
 //! ```
 //!
 //! Exit codes: 0 a release was written; 2 the export was refused (nothing is left behind);
@@ -70,6 +70,12 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     averaged_head_preregistration: Option<PathBuf>,
 
+    /// The ft ledger (JSON lines) holding the completed ft rows named by the source manifest.
+    /// Required with --averaged-head-preregistration: the export verifies from the rows'
+    /// recipe.span_head_init that every seed shared one head init.
+    #[arg(long, value_name = "PATH")]
+    ft_ledger: Option<PathBuf>,
+
     /// The release directory to create. It must not exist.
     #[arg(long, value_name = "DIR")]
     out: PathBuf,
@@ -87,6 +93,7 @@ fn main() -> ExitCode {
         train_manifest: cli.train_manifest,
         allow_extra: cli.allow_extra,
         averaged_head_preregistration: cli.averaged_head_preregistration,
+        ft_ledger: cli.ft_ledger,
         out: cli.out,
     };
     match export(&req) {

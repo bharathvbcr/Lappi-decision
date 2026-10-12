@@ -211,12 +211,11 @@ fn a_blended_head_is_refused_unless_the_manifest_says_it_was_preregistered_as_th
     let reason = refused(span::open(&release, HIDDEN));
     assert!(reason.contains("weight average") && reason.contains("pre-registered"), "{reason}");
 
-    // The same release with the pre-registration the export records: served.
+    // The pre-registration the export records, with the committed campaign file's digest and the
+    // shared-init evidence it verified from the ft ledger: served.
     edit_release_manifest(&release, |m| {
-        m["span_head"]["averaged_head_preregistration"] = json!({
-            "file": "v6-averaging-preregistered.json", "sha256": "ab".repeat(32),
-            "name": "v6-averaging", "row": "primary",
-        });
+        m["span_head"]["averaged_head_preregistration"] = common::known_preregistration();
+        m["span_head"]["shared_init"] = common::shared_init();
     });
     assert!(matches!(span::open(&release, HIDDEN), SpanServing::Ready(_)));
 
@@ -233,6 +232,56 @@ fn a_blended_head_is_refused_unless_the_manifest_says_it_was_preregistered_as_th
             "a pre-registration that does not say so must not serve the blend"
         );
     }
+}
+
+#[test]
+fn an_averaged_head_needs_the_committed_preregistration_and_verified_shared_init_evidence() {
+    let (_keep, release) = tiny_release("avgevidence", |m| {
+        m["span_head_source"] = json!({"mode": "averaged", "seed": null, "input": null, "payload_digest": null});
+    });
+    // Any 64-hex digest used to pass. Only the committed file's digest binds.
+    edit_release_manifest(&release, |m| {
+        m["span_head"]["averaged_head_preregistration"] =
+            json!({"file": "v6-averaging-preregistered.json", "sha256": "ab".repeat(32), "name": "v6-averaging", "row": "primary"});
+        m["span_head"]["shared_init"] = common::shared_init();
+    });
+    let reason = refused(span::open(&release, HIDDEN));
+    assert!(reason.contains("committed") && reason.contains("campaign/v6-averaging-preregistered.json"), "{reason}");
+
+    // The right file, but no evidence that the seeds shared one head init (a v5-style blend).
+    edit_release_manifest(&release, |m| {
+        m["span_head"]["averaged_head_preregistration"] = common::known_preregistration();
+        m["span_head"].as_object_mut().unwrap().remove("shared_init");
+    });
+    let reason = refused(span::open(&release, HIDDEN));
+    assert!(reason.contains("shared") && reason.contains("init"), "{reason}");
+
+    // Evidence that says the init was not shared, names one seed, or disagrees with itself.
+    for bad in [
+        json!({"shared": false, "content_digest": "cd".repeat(32), "seeds": [0, 1, 2], "ft_row_ids": ["a", "b", "c"]}),
+        json!({"shared": true, "content_digest": "cd".repeat(32), "seeds": [0], "ft_row_ids": ["a"]}),
+        json!({"shared": true, "content_digest": "cd".repeat(32), "seeds": [0, 0, 1], "ft_row_ids": ["a", "b", "c"]}),
+        json!({"shared": true, "content_digest": "cd".repeat(32), "seeds": [0, 1, 2], "ft_row_ids": ["a", "b"]}),
+        json!({"shared": true, "content_digest": "nothex", "seeds": [0, 1, 2], "ft_row_ids": ["a", "b", "c"]}),
+    ] {
+        edit_release_manifest(&release, |m| m["span_head"]["shared_init"] = bad.clone());
+        assert!(refused(span::open(&release, HIDDEN)).contains("shared"), "{bad}");
+    }
+    edit_release_manifest(&release, |m| m["span_head"]["shared_init"] = common::shared_init());
+    assert!(matches!(span::open(&release, HIDDEN), SpanServing::Ready(_)));
+}
+
+#[test]
+fn a_span_head_file_that_is_missing_names_the_missing_file() {
+    let (_keep, release) = tiny_release("missinghead", |_| {});
+    std::fs::remove_file(release.join("span_head.safetensors")).unwrap();
+    let reason = refused(span::open(&release, HIDDEN));
+    assert!(reason.contains("span_head.safetensors") && reason.contains("missing"), "{reason}");
+    // No block either: a base snapshot, genuinely absent.
+    edit_release_manifest(&release, |m| {
+        m.as_object_mut().unwrap().remove("span_head");
+    });
+    assert!(matches!(span::open(&release, HIDDEN), SpanServing::Absent));
 }
 
 #[test]

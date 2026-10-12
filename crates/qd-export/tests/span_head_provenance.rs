@@ -66,22 +66,113 @@ fn a_source_that_states_none_is_recorded_as_none_not_guessed() {
     assert!(release_manifest(&fx)["span_head"]["source"].is_null(), "unknown provenance stays unknown");
 }
 
+/// The committed campaign file, which is the only pre-registration the export accepts.
+fn committed_prereg() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../campaign/v6-averaging-preregistered.json")
+}
+
+/// An ft ledger with one completed ft row per fixture seed, edited by `edit(seed, row)`.
+fn ledger(fx: &Fixture, edit: impl Fn(usize, &mut Value)) -> std::path::PathBuf {
+    let lines: Vec<String> = common::FT_ROW_IDS
+        .iter()
+        .enumerate()
+        .map(|(seed, id)| {
+            let mut row = json!({
+                "row_id": id, "run_kind": "ft", "status": "completed", "protocol": {"seed": seed},
+                "recipe": {"span_head_init": {"sha256": "a".repeat(64), "content_digest": "c0".repeat(32), "shared": true}},
+            });
+            edit(seed, &mut row);
+            row.to_string()
+        })
+        .collect();
+    let p = fx.dir.0.join("ft-ledger.jsonl");
+    std::fs::write(&p, lines.join("\n") + "\n").unwrap();
+    p
+}
+
+fn averaged_request(fx: &Fixture, ledger_edit: impl Fn(usize, &mut Value)) -> qd_export::ExportRequest {
+    let mut req = fx.request();
+    req.averaged_head_preregistration = Some(committed_prereg());
+    req.ft_ledger = Some(ledger(fx, ledger_edit));
+    req
+}
+
+fn averaged_with_inputs() -> Fixture {
+    build(&standard_tensors(), &tiny_config(), |m| {
+        m["span_head_source"] = averaged();
+        m["inputs"] = json!([{"seed": 0}, {"seed": 1}, {"seed": 2}]);
+    })
+}
+
 #[test]
-fn the_averaged_head_carries_its_preregistration_by_digest_or_none() {
+fn the_pinned_preregistration_digest_is_the_committed_campaign_files() {
+    let bytes = std::fs::read(committed_prereg()).unwrap();
+    assert_eq!(
+        qd_runtime::hex(&qd_runtime::sha256(&bytes)),
+        qd_export::export::KNOWN_AVERAGED_PREREGISTRATIONS[0].1,
+        "campaign/v6-averaging-preregistered.json changed: the pin (and every release citing it) is stale"
+    );
+}
+
+#[test]
+fn the_averaged_head_carries_its_preregistration_and_the_shared_init_verified_from_the_ledger() {
     let fx = with_source(Some(averaged()));
     export(&fx.request()).unwrap();
-    assert!(release_manifest(&fx)["span_head"]["averaged_head_preregistration"].is_null());
+    let m = release_manifest(&fx);
+    assert!(m["span_head"]["averaged_head_preregistration"].is_null());
+    assert!(m["span_head"]["shared_init"].is_null());
 
-    let fx = with_source(Some(averaged()));
-    let mut req = fx.request();
-    let path = prereg(&fx, the_registration());
-    req.averaged_head_preregistration = Some(path.clone());
-    export(&req).unwrap();
-    let rec = &release_manifest(&fx)["span_head"]["averaged_head_preregistration"];
-    assert_eq!(rec["name"], "v6-averaging");
-    assert_eq!(rec["row"], "primary");
-    assert_eq!(rec["file"], "prereg.json");
-    assert_eq!(rec["sha256"].as_str().unwrap(), qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(path).unwrap())));
+    let fx = averaged_with_inputs();
+    export(&averaged_request(&fx, |_, _| {})).unwrap();
+    let block = &release_manifest(&fx)["span_head"];
+    let rec = &block["averaged_head_preregistration"];
+    assert_eq!((rec["name"].as_str(), rec["row"].as_str()), (Some("v6-averaging"), Some("primary")));
+    assert_eq!(rec["sha256"].as_str(), Some(qd_export::export::KNOWN_AVERAGED_PREREGISTRATIONS[0].1));
+    let init = &block["shared_init"];
+    assert_eq!(init["shared"], true);
+    assert_eq!(init["seeds"], json!([0, 1, 2]));
+    assert_eq!(init["ft_row_ids"], json!(common::FT_ROW_IDS));
+    assert_eq!(init["content_digest"], "c0".repeat(32));
+}
+
+#[test]
+fn an_averaged_head_is_refused_without_ledger_evidence_that_every_seed_shared_one_init() {
+    type LedgerEdit = Box<dyn Fn(usize, &mut Value)>;
+    let cases: Vec<(&str, LedgerEdit, &str)> = vec![
+        ("not shared", Box::new(|s, r| if s == 1 { r["recipe"]["span_head_init"]["shared"] = false.into() }), "not the shared one"),
+        ("different init", Box::new(|s, r| if s == 2 { r["recipe"]["span_head_init"]["content_digest"] = "d1".repeat(32).into() }), "different span-head init"),
+        ("no init", Box::new(|s, r| if s == 0 { r["recipe"].as_object_mut().unwrap().remove("span_head_init"); }), "no recipe.span_head_init"),
+        ("not completed", Box::new(|s, r| if s == 0 { r["status"] = "failed".into() }), "not a completed ft row"),
+        ("repeated seed", Box::new(|s, r| if s == 2 { r["protocol"]["seed"] = 1.into() }), "not distinct"),
+        ("another seed", Box::new(|s, r| if s == 2 { r["protocol"]["seed"] = 9.into() }), "not the source manifest's inputs"),
+    ];
+    for (what, edit, needle) in cases {
+        let fx = averaged_with_inputs();
+        let err = export(&averaged_request(&fx, &*edit)).expect_err(what);
+        assert_eq!(err.kind, RefusalKind::SourceManifest, "{what}: {err}");
+        assert!(err.detail.contains(needle), "{what}: expected {needle:?} in {err}");
+        assert!(!fx.out.exists(), "{what}");
+    }
+    // No ledger given, and a ledger with a row missing.
+    let fx = averaged_with_inputs();
+    let mut req = averaged_request(&fx, |_, _| {});
+    req.ft_ledger = None;
+    assert!(export(&req).unwrap_err().detail.contains("--ft-ledger"));
+    let fx = build(&standard_tensors(), &tiny_config(), |m| {
+        m["span_head_source"] = averaged();
+        m["ft_row_ids"] = json!(["row-seed0", "row-seed1", "row-missing"]);
+    });
+    assert!(export(&averaged_request(&fx, |_, _| {})).unwrap_err().detail.contains("0 rows have row_id"));
+}
+
+#[test]
+fn a_file_that_only_says_the_right_sentence_is_not_the_committed_preregistration() {
+    let fx = averaged_with_inputs();
+    let mut req = averaged_request(&fx, |_, _| {});
+    req.averaged_head_preregistration = Some(prereg(&fx, the_registration()));
+    let err = export(&req).unwrap_err();
+    assert_eq!(err.kind, RefusalKind::SourceManifest);
+    assert!(err.detail.contains("not a committed averaged-head pre-registration"), "{err}");
 }
 
 #[test]
@@ -89,7 +180,7 @@ fn a_preregistration_cannot_cover_a_head_that_is_not_the_averaged_one_or_does_no
     // A seed's head with a pre-registration of the averaged row: it would call a seed an average.
     let fx = with_source(Some(json!({"mode": "seed", "seed": 1, "input": "s1", "payload_digest": DIGEST})));
     let mut req = fx.request();
-    req.averaged_head_preregistration = Some(prereg(&fx, the_registration()));
+    req.averaged_head_preregistration = Some(committed_prereg());
     let err = export(&req).unwrap_err();
     assert_eq!(err.kind, RefusalKind::SourceManifest, "{err}");
     assert!(err.detail.contains("cannot cover another head"), "{err}");

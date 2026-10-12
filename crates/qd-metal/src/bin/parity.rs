@@ -467,6 +467,24 @@ fn append_line(path: &Path, line: &str) -> Result<()> {
         .map_err(|e| MetalError::Input(format!("{}: {e}", path.display())))
 }
 
+fn main() -> ExitCode {
+    let args = match parse_args() {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("qd-metal-parity: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    match run(&args) {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::from(1),
+        Err(e) => {
+            eprintln!("qd-metal-parity: gate NOT RUN: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
 #[cfg(test)]
 mod gate_tests {
     use super::{compare, gate_over, max_abs_diff};
@@ -491,23 +509,5 @@ mod gate_tests {
         );
         let (rel_inf, _, _) = compare(&[f32::INFINITY], &[0.0]);
         assert!(gate_over(rel_inf, 1e-2), "inf GPU output rel={rel_inf}");
-    }
-}
-
-fn main() -> ExitCode {
-    let args = match parse_args() {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("qd-metal-parity: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    match run(&args) {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::from(1),
-        Err(e) => {
-            eprintln!("qd-metal-parity: gate NOT RUN: {e}");
-            ExitCode::from(2)
-        }
     }
 }
