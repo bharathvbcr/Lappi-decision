@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from .caller_records import assert_no_caller_records
 from .config import DEFAULT_MAX_CANDIDATE_PAIRS, POOL_MAX_CANDIDATE_PAIRS, DataConfig
 from .dedupe import EXACT_CONTENT, NEAR_DUPLICATE_POLICY_KEY
 from .general import _checked_options
@@ -33,6 +34,7 @@ from .mixture import RowRefused, _request, _row
 from .rows import DataRow, GoldAnswer
 from .schema import ChoiceSlot
 from .sources import (
+    _V6_DECISION_SOURCES,
     DECISION_EXACT_CONTENT_FAMILIES,
     DECISION_FAMILIES,
     DECISION_POOL_OPT_INS,
@@ -43,6 +45,7 @@ from .sources import (
 __all__ = [
     "DECISION_POOL_SCHEMA",
     "MAX_POOL_ROWS",
+    "POOL_ALLOCATE_TOOL",
     "POOL_ALLOCATION_APPLIED",
     "DecisionPool",
     "DecisionPoolError",
@@ -59,6 +62,10 @@ DECISION_POOL_SCHEMA: Final[str] = "qd-decisions/v1"
 #: names neither predates v6, when only ``qd-prep decisions`` (which applies its cap table)
 #: wrote pools.
 POOL_ALLOCATION_APPLIED: Final[str] = "applied"
+#: The ``tool`` of a pool that ``qd-prep allocate`` drew: the only producer whose manifest binds
+#: an ``applied`` state to its rows and its config (``allocation.rows_sha256`` and
+#: ``allocation.config_sha256``, which this loader checks against the manifest's own digests).
+POOL_ALLOCATE_TOOL: Final[str] = "qd-prep allocate"
 #: A pool is read whole or refused: a capped pool would be a sample presented as the pool.
 MAX_POOL_ROWS: Final[int] = 400_000
 #: A context of at most 131,072 bytes plus 16 options of at most 512, with JSON escaping.
@@ -113,6 +120,35 @@ def _read_lines(path: Path) -> tuple[list[dict[str, object]], str]:
     return out, h.hexdigest()
 
 
+_V6_SOURCE_IDS: Final[frozenset[str]] = frozenset(s.source_id for s in _V6_DECISION_SOURCES)
+
+
+def _check_allocate_binding(manifest: dict[str, object], actual_sha: str, where: Path) -> None:
+    """A pool naming a ``tool`` is admitted only as ``qd-prep allocate``'s, whose ``applied``
+    block carries the sha256 of the rows (equal to the file's, read here) and of the config
+    (equal to ``inputs.config``). Tamper evidence, not authenticity: whoever can write a
+    manifest and compute two digests can forge it, which a casual edit cannot."""
+    tool = manifest.get("tool")
+    if tool != POOL_ALLOCATE_TOOL:
+        raise DecisionPoolError(
+            f"{where}: tool {tool!r}, not {POOL_ALLOCATE_TOOL!r}: only an allocation over every "
+            "pool admits a pool to a mixture, so a pool another tool wrote is a candidate "
+            "whatever its allocation block says"
+        )
+    allocation = manifest.get("allocation")
+    inputs = manifest.get("inputs")
+    config = inputs.get("config") if isinstance(inputs, dict) else None
+    rows = allocation.get("rows_sha256") if isinstance(allocation, dict) else None
+    bound = allocation.get("config_sha256") if isinstance(allocation, dict) else None
+    if rows != actual_sha or not isinstance(config, str) or bound != config:
+        raise DecisionPoolError(
+            f"{where}: allocation is not bound to this pool: allocation.rows_sha256 {rows!r} "
+            f"against the rows' {actual_sha!r}, allocation.config_sha256 {bound!r} against "
+            f"inputs.config {config!r}. `{POOL_ALLOCATE_TOOL}` writes both, so an edited or "
+            "hand-written block is refused"
+        )
+
+
 def load_decision_pool(pool_dir: Path) -> DecisionPool:
     """The pool at ``pool_dir``, checked against its manifest. Refuses rather than caps."""
     # Rule 3 at the pool door: a decision pool is training data, so one under a held-out path
@@ -126,6 +162,8 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
                 "decision pool is training data and is never read from a held-out path "
                 "(CLAUDE.md rule 3)"
             )
+    # Rule 3 by content: an app's caller-record file copied here carries no path marker.
+    assert_no_caller_records(pool_dir / "examples.jsonl")
     manifest_path = pool_dir / "manifest.json"
     examples_path = pool_dir / "examples.jsonl"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -140,7 +178,14 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
     # wrote pools then. A manifest naming a tool must state its allocation, so a candidate pool
     # built before producers wrote the block (a convert run from the lane worktree) is refused
     # too, not admitted as pre-v6.
-    if "allocation" in manifest or "tool" in manifest:
+    # `applied` is a claim, so it is bound to evidence (D2, verify-lane3 2026-10-12): a manifest
+    # naming a tool must be `qd-prep allocate`'s, with the digests of its rows and its config
+    # (a hand-written `applied` on a synth or convert manifest carries neither); and one naming
+    # no tool, the shape of v5's pool and of every pool before v6, may hold no v6 family, which
+    # reach a mixture only through an allocation. Deleting `tool` and `allocation` from a
+    # candidate pool therefore buys nothing.
+    names_tool = "tool" in manifest
+    if "allocation" in manifest or names_tool:
         allocation = manifest.get("allocation")
         state = allocation.get("state") if isinstance(allocation, dict) else None
         if state != POOL_ALLOCATION_APPLIED:
@@ -153,6 +198,8 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
             )
     recorded = manifest.get("examples_sha256")
     lines, actual = _read_lines(examples_path)
+    if names_tool:
+        _check_allocate_binding(manifest, actual, manifest_path)
     if actual != recorded:
         raise DecisionPoolError(
             f"{examples_path} hashes to {actual} but {manifest_path} records {recorded}: the "
@@ -166,6 +213,13 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
     raw: dict[str, list[TypedDecisionRow]] = {}
     for i, line in enumerate(lines, start=1):
         row = parse_typed_decision(line, where=f"{examples_path}:{i}")
+        if not names_tool and row.source_id in _V6_SOURCE_IDS:
+            raise DecisionPoolError(
+                f"{manifest_path}: names no producing tool but holds {row.family_id!r}, a v6 "
+                f"family at {examples_path}:{i}: v6 families enter a mixture only through "
+                f"`{POOL_ALLOCATE_TOOL}`, and a manifest without a tool is accepted only as a "
+                "pre-v6 pool (v5's), which holds none"
+            )
         owner = _FAMILY_SOURCE.get(row.family_id)
         if owner != row.source_id:
             raise MalformedRowRefusal(

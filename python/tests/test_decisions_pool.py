@@ -268,6 +268,12 @@ def _write_pool(root: Path, lines: list[dict[str, object]], **manifest: object) 
         "text_bytes_by_family": families,
     }
     doc.update(manifest)
+    if doc.get("tool") == "qd-prep allocate" and isinstance(doc.get("allocation"), dict):
+        # What `qd-prep allocate` binds an applied pool to (qd_data.decisions._check_allocate_binding).
+        config_sha = hashlib.sha256(b"fixture config").hexdigest()
+        doc["inputs"] = {"config": config_sha}
+        doc["allocation"] = {**doc["allocation"], "rows_sha256": doc["examples_sha256"],
+                             "config_sha256": config_sha}
     (root / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
     return root
 
@@ -333,15 +339,15 @@ _V6_ROWS: tuple[tuple[str, str, str, str], ...] = (
     ("jarvis.field_fill", "lappi/synth-jarvis", "synthetic-by-rule", "profile_entry"),
     ("jarvis.step_risk", "lappi/synth-jarvis", "synthetic-by-rule", "policy_requirement"),
     ("apps.tool_select", "lappi/synth-tools", "synthetic-by-rule", "action"),
+    # The caller families (card ft-2d0a5e4b27e), as their builders write them.
+    ("gitpulse.commit_type", "lappi/own-commits", "owner-granted", "commit_type"),
+    ("devtype.route", "lappi/synth-route", "synthetic-by-rule", "route"),
 )
 
 
 def _v6_lines() -> list[dict[str, object]]:
     return [
         _line(id=f"{fam}:0", source_id=src, family_id=fam, stratum=f"{fam}/choice",
-    # The caller families (card ft-2d0a5e4b27e), as their builders write them.
-    ("gitpulse.commit_type", "lappi/own-commits", "owner-granted", "commit_type"),
-    ("devtype.route", "lappi/synth-route", "synthetic-by-rule", "route"),
               licence=lic, slot_name=slot)
         for fam, src, lic, slot in _V6_ROWS
     ]

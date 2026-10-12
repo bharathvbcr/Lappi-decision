@@ -94,11 +94,6 @@ def test_read_jsonl_refuses_a_copied_record_file(tmp_path):
         read_jsonl(f, limit=10, max_row_bytes=1 << 20)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="python/qd_data/decisions.py is lane 3's file; the one-line call site is in "
-    "lane7-fixround-handoff.md. strict: once applied this must flip to a pass and lose the mark.",
-)
 def test_load_decision_pool_refuses_a_copied_record_file(tmp_path):
     from qd_data.decisions import load_decision_pool
 

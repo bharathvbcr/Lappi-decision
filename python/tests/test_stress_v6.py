@@ -31,7 +31,7 @@ from qd_train.data_access import assert_path_not_held_out
 
 REPO = Path(__file__).resolve().parents[2]
 OPEN_JEV = "ZefanCai/Open-Jev-v1.1"
-APPLIED = {"allocation": {"state": "applied", "detail": "stress suite"}}
+APPLIED = {"tool": "qd-prep allocate", "allocation": {"state": "applied", "detail": "stress suite"}}
 
 
 def _line(**over: object) -> dict[str, object]:
@@ -56,6 +56,12 @@ def _write_pool(root: Path, lines: list[dict[str, object]], **manifest: object) 
         "examples_sha256": hashlib.sha256(body).hexdigest(),
     }
     doc.update(manifest)
+    if doc.get("tool") == "qd-prep allocate" and isinstance(doc.get("allocation"), dict):
+        # What `qd-prep allocate` binds an applied pool to (qd_data.decisions._check_allocate_binding).
+        config_sha = hashlib.sha256(b"fixture config").hexdigest()
+        doc["inputs"] = {"config": config_sha}
+        doc["allocation"] = {**doc["allocation"], "rows_sha256": doc["examples_sha256"],
+                             "config_sha256": config_sha}
     (root / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
     return root
 
