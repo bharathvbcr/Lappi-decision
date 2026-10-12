@@ -49,6 +49,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 
+from qd_data.caller_records import assert_no_caller_records  # noqa: E402
 from qd_data.licences import LicenceTier, classify  # noqa: E402
 from qd_data.loaders import parse_commitpackft  # noqa: E402
 
@@ -87,8 +88,14 @@ def build(source_dir: Path, out_path: Path, *, max_records: int | None) -> dict[
     hunk_lines: list[int] = []
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Rule 3, by content, before any output exists: every source file is scanned first, so a
+    # caller-record copy among them refuses the build rather than leaving a half-written pool.
+    sources = sorted(source_dir.glob("*.jsonl"))
+    for path in sources:
+        assert_no_caller_records(path)
+
     with out_path.open("w", encoding="utf-8") as sink:
-        for path in sorted(source_dir.glob("*.jsonl")):
+        for path in sources:
             for index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
                 if not line.strip():
                     continue

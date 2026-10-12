@@ -24,12 +24,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
+from qd_data.caller_records import scan_stream
 from qd_data.config import DataConfig
 from qd_data.split import assign_repo
 from qd_train.data_access import assert_path_not_held_out
@@ -47,6 +49,8 @@ def split_map(
     """``{schema, split, pool, repos}`` over every repo ``pool`` names, and the repo map itself."""
     assert_path_not_held_out(Path(pool), config=config, repo_root=Path(repo_root))
     raw = Path(pool).read_bytes()
+    # Rule 3 by content, over the very bytes the map is computed from (and pinned to).
+    scan_stream(io.BytesIO(raw), label=str(pool), max_bytes=max(len(raw), 1))
     repos: dict[str, str] = {}
     records = 0
     for lineno, line in enumerate(raw.decode("utf-8").splitlines(), 1):
