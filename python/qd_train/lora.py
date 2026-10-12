@@ -129,9 +129,13 @@ class LoRALinear(nn.Module):
         self.alpha = alpha
         self.scaling = alpha / r
         device = base.weight.device
-        self.lora_A = nn.Linear(base.in_features, r, bias=False, device=device, dtype=torch.float32)
-        self.lora_B = nn.Linear(
-            r, base.out_features, bias=False, device=device, dtype=torch.float32
+        # skip_init: nn.Linear's own kaiming init would draw from torch's global RNG (and then be
+        # overwritten); A is drawn by attach_lora from its own generator, B is zeroed below.
+        self.lora_A = nn.utils.skip_init(
+            nn.Linear, base.in_features, r, bias=False, device=device, dtype=torch.float32
+        )
+        self.lora_B = nn.utils.skip_init(
+            nn.Linear, r, base.out_features, bias=False, device=device, dtype=torch.float32
         )
         nn.init.zeros_(self.lora_B.weight)
 

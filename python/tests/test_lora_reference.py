@@ -130,6 +130,16 @@ def test_scaling_is_alpha_over_r_not_a_fixed_constant():
     assert torch.allclose(module(x), expected, atol=1e-6)
 
 
+def test_attach_does_not_disturb_the_global_rng():
+    """A's draw uses its own generator; building the adapter must not advance torch's, or the
+    arm's data order and dropout-free forward would depend on whether LoRA was attached."""
+    model = _tower()
+    torch.manual_seed(1234)
+    before = torch.get_rng_state().clone()
+    lora.attach_lora(model, seed=3)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
 # --- identity at B = 0 -----------------------------------------------------------------------
 
 
@@ -144,7 +154,15 @@ def test_forward_at_b_zero_is_bit_equal_to_the_frozen_base(dtype):
         got = _hidden(model, ids)
     assert got.dtype == want.dtype
     bits = torch.int16 if dtype == torch.bfloat16 else torch.int32
-    assert (got.contiguous().view(bits) == want.contiguous().view(bits)).all()
+    g, w = got.contiguous().view(bits), want.contiguous().view(bits)
+    # Bit-exact except the sign of zero: the adapter adds an exact +0.0, and -0.0 + +0.0 is
+    # +0.0 under IEEE 754. PEFT does the same. The two zeros compare equal and no arithmetic
+    # downstream of a hidden state tells them apart, so this is asserted exactly: every
+    # differing element is a base -0.0 that became +0.0, and nothing else differs.
+    neg_zero = torch.tensor(-0.0, dtype=dtype).view(bits)
+    differ = g != w
+    assert (w[differ] == neg_zero).all() and (g[differ] == 0).all()
+    assert torch.equal(got, want)
 
 
 def test_adapter_leaves_stay_f32_over_a_bf16_base():
