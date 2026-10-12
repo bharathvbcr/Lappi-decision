@@ -420,17 +420,30 @@ def _request(**over):
 
 
 def _live_state(binary: Path):
-    """Whether the live probe may run, as a tri-state rather than a boolean."""
-    named = os.environ.get(QD_BIN_ENV, "")
-    if named:
+    """Whether the live probe may run, as a tri-state rather than a boolean.
+
+    A binary cargo built from this checkout is current by construction. One named by
+    ``QD_BIN`` is judged: a ``.rs`` under ``RUST_SRC`` newer than it is ``NotRun``, because a
+    stale binary answers for code that no longer exists. When that cannot be judged (no
+    sources to compare), it is ``NotRun`` too, never ``Ran(passed=True)``.
+    """
+    if not os.environ.get(QD_BIN_ENV, ""):
         return Ran(
-            passed=True,
-            detail=(
-                f"{binary} named by {QD_BIN_ENV}; its freshness against {RUST_SRC} "
-                "was not judged"
-            ),
+            passed=True, detail=f"{binary.name} was built from this checkout by cargo_binary"
         )
-    return Ran(passed=True, detail=f"{binary.name} was built from this checkout by cargo_binary")
+    if not RUST_SRC.is_dir():
+        return NotRun(reason=f"{RUST_SRC} is absent, so the freshness of {binary} cannot be judged")
+    built = binary.stat().st_mtime
+    newer = sorted(p.name for p in RUST_SRC.rglob("*.rs") if p.stat().st_mtime > built)
+    if newer:
+        return NotRun(
+            reason=(
+                f"{binary} (named by {QD_BIN_ENV}) was built before {newer} changed. A stale "
+                "binary answers for code that no longer exists, and agreement with it would be "
+                "agreement with a contract nobody is building against. Rebuild it."
+            )
+        )
+    return Ran(passed=True, detail=f"{binary} is newer than every .rs under {RUST_SRC}")
 
 
 def _ask(binary: Path, payload, *, reference=True):
@@ -449,14 +462,42 @@ def _ask(binary: Path, payload, *, reference=True):
     return parse_response_line(proc.stdout, path="qd oneshot")
 
 
+def test_a_named_binary_older_than_the_sources_is_not_run_never_passed(tmp_path, monkeypatch):
+    stale = tmp_path / "qd"
+    stale.write_text("#!/bin/sh\n")
+    stale.chmod(0o755)
+    os.utime(stale, (1, 1))
+    monkeypatch.setenv(QD_BIN_ENV, str(stale))
+    state = _live_state(stale)
+    assert isinstance(state, NotRun), state
+    assert not hasattr(state, "passed")
+    assert "was built before" in state.reason
+
+
+def test_a_named_binary_newer_than_the_sources_is_judged_fresh(tmp_path, monkeypatch):
+    fresh = tmp_path / "qd"
+    fresh.write_text("#!/bin/sh\n")
+    fresh.chmod(0o755)
+    newest = max(p.stat().st_mtime for p in RUST_SRC.rglob("*.rs"))
+    os.utime(fresh, (newest + 10, newest + 10))
+    monkeypatch.setenv(QD_BIN_ENV, str(fresh))
+    state = _live_state(fresh)
+    assert isinstance(state, Ran) and state.passed is True
+
+
 def test_the_live_probe_is_either_run_or_recorded_as_not_run(qd_bin):
     state = _live_state(qd_bin)
+    if isinstance(state, NotRun):
+        assert not hasattr(state, "passed")
+        pytest.skip(f"NOT RUN — {state.reason}")
     assert state.passed is True
-    assert str(qd_bin) in state.detail or qd_bin.name in state.detail
 
 
 @pytest.fixture(scope="module")
 def live(qd_bin):
+    state = _live_state(qd_bin)
+    if isinstance(state, NotRun):
+        pytest.skip(f"NOT RUN — {state.reason}")
     return qd_bin
 
 

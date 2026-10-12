@@ -11,6 +11,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[2] / "tools" / "mac_heavy.sh"
 
 
@@ -24,6 +26,8 @@ def _run(lock: Path, *args: str, **env: str) -> subprocess.CompletedProcess[str]
         # so no other test waits on whatever else this Mac is doing.
         "MAC_HEAVY_MAX_LOAD": "100000",
         "MAC_HEAVY_MAX_PROCS": "10000000",
+        # The reader hook is honoured only with this marker; no production launch sets it.
+        **({"MAC_HEAVY_TEST_HOOK": "1"} if "MAC_HEAVY_FOOTPRINT_CMD" in env else {}),
         **env,
     }
     return subprocess.run(
@@ -302,3 +306,114 @@ def test_stopping_the_wrapper_stops_the_job_tree_and_releases_the_lock(tmp_path:
         assert time.monotonic() < deadline, "the job outlived its wrapper"
         time.sleep(0.2)
     assert not lock.exists()
+
+
+def test_an_oversized_setting_is_refused_not_read_as_not_over(tmp_path: Path) -> None:
+    # 20 digits is all digits, but bash's [ -gt ] errors on it and an error read as "not over"
+    # ran the job uncapped.
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    huge = "9" * 20
+    for var in (
+        "MAC_HEAVY_MAX_FOOTPRINT_MB",
+        "MAC_HEAVY_MAX_WAIT_S",
+        "MAC_HEAVY_MAX_LOAD",
+        "MAC_HEAVY_MAX_PROCS",
+        "MAC_HEAVY_RSS_POLL_S",
+    ):
+        proc = _run(lock, "t", "touch", str(marker), **{var: huge})
+        assert proc.returncode == 64, (var, proc.stderr)
+        assert not marker.exists()
+    assert not lock.exists()
+
+
+def test_an_oversized_reader_answer_is_a_reader_failure(tmp_path: Path) -> None:
+    proc = _run(
+        tmp_path / "lock.d",
+        "t",
+        "sleep",
+        "60",
+        MAC_HEAVY_RSS_POLL_S="1",
+        MAC_HEAVY_FOOTPRINT_CMD=_hook(tmp_path, "echo " + "9" * 30),
+    )
+    assert proc.returncode == 71, proc.stderr
+    assert "integer expression" not in proc.stderr
+
+
+def _alive(pid: int) -> bool:
+    probe = subprocess.run(["kill", "-0", str(pid)], check=False, capture_output=True)
+    return probe.returncode == 0
+
+
+def test_a_process_the_job_leaves_behind_does_not_outlive_the_wrapper(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    pidfile = tmp_path / "orphan.pid"
+    bystander = subprocess.Popen(["sleep", "60"], start_new_session=True)
+    try:
+        # The root starts a child and exits first, so the child is reparented to init.
+        job = (
+            "python3 -c \"import os, time; "
+            "open(os.environ['PIDFILE'], 'w').write(str(os.getpid())); "
+            'time.sleep(60)" & sleep 1; exit 0'
+        )
+        proc = _run(lock, "t", "bash", "-c", job, PIDFILE=str(pidfile))
+        assert proc.returncode == 0, proc.stderr
+        orphan = int(pidfile.read_text())
+        deadline = time.monotonic() + 15
+        while _alive(orphan):
+            assert time.monotonic() < deadline, "the job's orphan outlived its wrapper"
+            time.sleep(0.2)
+        assert "left behind" in proc.stderr
+        assert bystander.poll() is None, "the sweep killed a process outside the job"
+        assert not lock.exists()
+    finally:
+        bystander.kill()
+        bystander.wait()
+
+
+def test_the_footprint_hook_is_refused_without_the_test_marker(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    proc = _run(
+        lock,
+        "t",
+        "touch",
+        str(marker),
+        MAC_HEAVY_FOOTPRINT_CMD=_hook(tmp_path, "echo 0"),
+        MAC_HEAVY_TEST_HOOK="",
+    )
+    assert proc.returncode == 64, proc.stderr
+    assert "MAC_HEAVY_FOOTPRINT_CMD" in proc.stderr
+    assert not marker.exists()
+    assert not lock.exists()
+
+
+_REAL_MPS = os.environ.get("QD_TEST_REAL_MPS") == "1"
+ML_PYTHON = Path("/Users/bharath/.venvs/ml/bin/python")
+
+
+@pytest.mark.skipif(
+    not _REAL_MPS,
+    reason="opt-in: set QD_TEST_REAL_MPS=1 (and run under tools/mac_heavy.sh) to allocate 3 GiB "
+    "on the real GPU; this check did NOT run",
+)
+def test_a_real_mps_allocation_over_the_footprint_cap_is_stopped(tmp_path: Path) -> None:
+    assert ML_PYTHON.exists(), f"{ML_PYTHON} is missing; the opt-in test cannot run"
+    code = (
+        "import time, torch; "
+        "x = torch.empty(int(3 * 2**30 / 4), device='mps'); x.fill_(1); torch.mps.synchronize(); "
+        "time.sleep(60)"
+    )
+    started = time.monotonic()
+    proc = _run(
+        tmp_path / "lock.d",
+        "t",
+        str(ML_PYTHON),
+        "-c",
+        code,
+        MAC_HEAVY_MAX_FOOTPRINT_MB="2000",
+        MAC_HEAVY_RSS_POLL_S="1",
+    )
+    assert proc.returncode == 70, proc.stderr
+    assert "over the footprint cap" in proc.stderr
+    assert time.monotonic() - started < 55

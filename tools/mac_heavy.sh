@@ -39,14 +39,20 @@
 #   not run"): a running job with no guard is a check that could not run. A caller that still sets
 #   the old MAC_HEAVY_MAX_RSS_MB gets exit 64, so it is never silently uncapped. A job that
 #   legitimately needs more sets the new variable on its launch line, and the line is recorded.
-#   $MAC_HEAVY_FOOTPRINT_CMD (tests only) replaces the reader: it is run with the tree's pids and
-#   prints the summed MiB. This script does not export PYTORCH_MPS_HIGH_WATERMARK_RATIO; a torch
+#   $MAC_HEAVY_FOOTPRINT_CMD replaces the reader (it is run with the tree's pids and prints the
+#   summed MiB) and is refused with exit 64 unless MAC_HEAVY_TEST_HOOK=1 is also set. Every numeric
+#   setting is refused above 9 digits. This script does not export PYTORCH_MPS_HIGH_WATERMARK_RATIO; a torch
 #   job that wants it sets it itself.
 # - Busy machine. After taking the lock, it waits while the 1-minute load average exceeds
 #   $MAC_HEAVY_MAX_LOAD (default 12) or the process count exceeds $MAC_HEAVY_MAX_PROCS (default
 #   2500). If that does not clear within the wait budget, it exits 76 and the job never runs.
 # - Clean stop. On SIGTERM or SIGINT it stops the job's tree before it exits, so no job outlives
-#   its wrapper. The job runs in the background of this script, so its stdin is /dev/null.
+#   its wrapper. The job runs in the background of this script in its own process group (set -m),
+#   with stdin /dev/null. The "tree" is the job's descendants plus every process still in that
+#   group, so a child reparented to init when the root exits is still found; when the root exits,
+#   whatever remains is stopped (SIGTERM, then SIGKILL) and reported as "left behind", and the
+#   exit status stays the command's. A process that calls setsid leaves the group and the
+#   tree, and is not covered.
 #
 # It never breaks another holder's lock. A holder whose pid is gone is reported as STALE every
 # 5 minutes, and the lead clears it by hand. A hold taken by hand (for another session's run)
@@ -78,6 +84,18 @@ for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD"
     ''|*[!0-9]*) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD and _MAX_PROCS must be non-negative integers" >&2; exit 64 ;;
   esac
 done
+# Bounded: a value too wide for bash's integer tests makes `[ -gt ]` error, and an error read as
+# "not over" is a guard that fails open.
+for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS"; do
+  if [ "${#v}" -gt 9 ]; then
+    echo "mac_heavy: a numeric setting has more than 9 digits ($v); refusing" >&2
+    exit 64
+  fi
+done
+if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ] && [ "${MAC_HEAVY_TEST_HOOK:-}" != 1 ]; then
+  echo "mac_heavy: MAC_HEAVY_FOOTPRINT_CMD replaces the memory guard and is honoured only for tests (MAC_HEAVY_TEST_HOOK=1); refusing rather than running unguarded" >&2
+  exit 64
+fi
 [ "$POLL" -ge 1 ] || POLL=1
 [ "$RSS_POLL" -ge 1 ] || RSS_POLL=1
 
@@ -110,17 +128,18 @@ release() {
   fi
 }
 
-# The pids of $1 and every descendant, one per line, from one process-table snapshot.
+# The pids of the job rooted at $1: every process in process group $1 (the job's own group, from
+# set -m), and every descendant of those. The root pid $1 itself counts only while it is alive
+# ($2 = 1): once it has exited its number may belong to an unrelated process.
 tree_pids() {
-  ps -Ao pid=,ppid= | awk -v root="$1" '
-    { parent[$1] = $2 }
+  ps -Ao pid=,ppid=,pgid= | awk -v root="$1" -v alive="${2:-1}" '
+    { parent[$1] = $2; pg[$1] = $3 }
     END {
-      if (!(root in parent)) exit
-      seen[root] = 1
+      for (p in parent) if (pg[p] == root && (alive == 1 || p != root)) seen[p] = 1
       grew = 1
       while (grew) {
         grew = 0
-        for (p in parent) if (!(p in seen) && (parent[p] in seen)) { seen[p] = 1; grew = 1 }
+        for (p in parent) if (!(p in seen) && (parent[p] in seen) && (alive == 1 || p != root)) { seen[p] = 1; grew = 1 }
       }
       for (p in seen) print p
     }'
@@ -130,7 +149,7 @@ tree_pids() {
 # stdout) when the reader fails or prints anything but an integer.
 tree_footprint_mb() {
   local pids out
-  pids=$(tree_pids "$1")
+  pids=$(tree_pids "$1" "${JOB_ALIVE:-1}")
   [ -n "$pids" ] || { echo 0; return 0; }
   # shellcheck disable=SC2086
   if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ]; then
@@ -142,24 +161,25 @@ tree_footprint_mb() {
   echo "$out"
 }
 
-# SIGTERM the job's tree, give it 10 s, then SIGKILL whatever is left.
+# SIGTERM the job's tree, give it 10 s, then SIGKILL whatever is left. $JOB_ALIVE is 1 while the
+# root has not been reaped.
 JOB=""
+JOB_ALIVE=1
 stop_job() {
   [ -n "$JOB" ] || return 0
-  local pids
-  pids=$(tree_pids "$JOB")
+  local pids i=0
+  pids=$(tree_pids "$JOB" "$JOB_ALIVE")
   [ -n "$pids" ] || return 0
   # shellcheck disable=SC2086
   kill -TERM $pids 2>/dev/null
-  local i=0
-  while [ "$i" -lt 10 ] && kill -0 "$JOB" 2>/dev/null; do
+  while [ "$i" -lt 10 ] && [ -n "$(tree_pids "$JOB" "$JOB_ALIVE")" ]; do
     sleep 1
     i=$((i + 1))
   done
-  pids=$(tree_pids "$JOB")
+  pids=$(tree_pids "$JOB" "$JOB_ALIVE")
   # shellcheck disable=SC2086
   [ -z "$pids" ] || kill -KILL $pids 2>/dev/null
-  wait "$JOB" 2>/dev/null
+  [ "$JOB_ALIVE" = 1 ] && wait "$JOB" 2>/dev/null
   JOB=""
 }
 
@@ -211,15 +231,24 @@ export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 # This job's own label, replacing any the caller inherited from an outer mac_heavy.sh.
 export MAC_HEAVY_LABEL=$LABEL
 echo "mac_heavy: $(now) '$LABEL' holds the lock (waited ${waited}s; load $load, $procs processes); running: $*" >&2
-"$@" &
+set -m
+"$@" < /dev/null &
 JOB=$!
+set +m
+job_pgid=$(ps -o pgid= -p "$JOB" | tr -d ' ')
+# An empty answer means the job already exited; its group is then swept below like any other.
+if [ -n "$job_pgid" ] && [ "$job_pgid" != "$JOB" ]; then
+  echo "mac_heavy: the job is not in its own process group (pgid '$job_pgid', pid $JOB); the guard cannot cover it" >&2
+  kill -TERM "$JOB" 2>/dev/null
+  exit 71
+fi
 reader_fails=0
 while kill -0 "$JOB" 2>/dev/null; do
-  if fp_mb=$(tree_footprint_mb "$JOB"); then
+  if fp_mb=$(tree_footprint_mb "$JOB") && [ "${#fp_mb}" -le 12 ]; then
     reader_fails=0
     if [ "$fp_mb" -gt "$MAX_FP_MB" ]; then
       echo "mac_heavy: $(now) '$LABEL' is over the footprint cap: its process tree holds $fp_mb MiB of phys_footprint > $MAX_FP_MB MiB; stopping it (SIGTERM, then SIGKILL after 10 s). The largest by RSS:" >&2
-      for p in $(tree_pids "$JOB"); do ps -o rss=,pid=,command= -p "$p"; done \
+      for p in $(tree_pids "$JOB" 1); do ps -o rss=,pid=,command= -p "$p"; done \
         | sort -rn | head -5 | awk '{ printf "mac_heavy:   %d MiB RSS  pid %s  %s\n", $1 / 1024, $2, substr($0, index($0, $3), 120) }' >&2
       stop_job
       echo "mac_heavy: $(now) '$LABEL' was killed over the footprint cap (exit 70); its result does not count" >&2
@@ -238,6 +267,12 @@ while kill -0 "$JOB" 2>/dev/null; do
 done
 wait "$JOB"
 rc=$?
+JOB_ALIVE=0
+left=$(tree_pids "$JOB" 0)
+if [ -n "$left" ]; then
+  echo "mac_heavy: $(now) '$LABEL': the job's root exited with $(echo "$left" | wc -l | tr -d ' ') process(es) left behind (pids $(echo $left)); stopping them (SIGTERM, then SIGKILL after 10 s)" >&2
+  stop_job
+fi
 JOB=""
 echo "mac_heavy: $(now) '$LABEL' finished with exit $rc" >&2
 exit "$rc"
