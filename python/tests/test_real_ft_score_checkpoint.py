@@ -817,6 +817,9 @@ def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu
         "manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
         "source": "masters", "n_inputs": 3, "protocol_seed": SUITE_SEED,
         "suite_seed": SUITE_SEED,
+        # ruling 2g: every new average records how its span head was made.
+        "span_head_source": {"mode": "averaged", "seed": None, "input": None,
+                             "payload_digest": None},
     }
     assert recipe["scored_checkpoint"] == f"avg.safetensors:{manifest['safetensors_sha256']}"
     assert recipe["score_dtype"] == "fp32"

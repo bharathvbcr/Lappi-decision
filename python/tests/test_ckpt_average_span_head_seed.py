@@ -84,6 +84,26 @@ def _run(tmp_path: Path, paths: list[Path], *extra: str) -> tuple[dict, dict]:
     return manifest, load_file(str(out))
 
 
+def _seeded(tmp_path: Path, paths: list[Path], seed: int, *extra: str, inits=None):
+    """``--span-head-seed``: the init identity is read from the inputs' ft rows in a ledger.
+    ``inits[i]`` is input i's ``recipe.span_head_init`` (absent = the row records none)."""
+    from qd_train.run_control import Checkpoint
+
+    inits = inits or [None] * len(paths)
+    ids, lines = [], []
+    for i, (path, init) in enumerate(zip(paths, inits, strict=True)):
+        ids.append(f"row-{i:04d}")
+        recipe = {} if init is None else {"span_head_init": init}
+        lines.append(json.dumps({
+            "row_id": ids[-1], "run_kind": "ft", "status": "completed",
+            "protocol": {"seed": Checkpoint.read_body(path)["seed"]}, "recipe": recipe,
+        }))
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return _run(tmp_path, paths, "--span-head-seed", str(seed), "--ft-ledger", str(ledger),
+                "--ft-row-ids", *ids, *extra)
+
+
 def _digest(path: Path) -> str:
     from qd_train.run_control import Checkpoint
 
@@ -92,28 +112,29 @@ def _digest(path: Path) -> str:
 
 def test_the_flag_takes_the_head_of_the_input_whose_body_says_that_seed(tmp_path):
     paths = _three(tmp_path)
-    manifest, out = _run(tmp_path, paths, "--span-head-seed", "1")
+    manifest, out = _seeded(tmp_path, paths, 1)
     assert torch.equal(out["span_head.b"], torch.tensor([10.0, 20.0]))  # body seed 1, not a name
     assert torch.equal(out["tower.w"], torch.tensor([1.0, 1.0]))  # the tower is still the mean
     assert manifest["span_head_source"] == {
         "mode": "seed", "seed": 1, "input": str(paths[0]), "payload_digest": _digest(paths[0]),
+        "init": None,
     }
     assert manifest["tensor_sources"]["span_head.b"] == "span_head_seed"
 
 
-def test_without_the_flag_the_head_is_the_mean_and_the_manifest_is_the_one_it_always_was(tmp_path):
-    """An absent ``span_head_source`` reads as averaged; a plain average's manifest (whose sha256
-    eval rows name it by) does not move (test_prompt_format_chain pins its key set)."""
+def test_without_the_flag_the_head_is_the_mean_and_the_manifest_says_averaged(tmp_path):
     manifest, out = _run(tmp_path, _three(tmp_path), "--ft-row-ids", "a", "b", "c")
     assert torch.equal(out["span_head.b"], torch.tensor([37.0, 74.0]))
-    assert "span_head_source" not in manifest
+    assert manifest["span_head_source"] == {
+        "mode": "averaged", "seed": None, "input": None, "payload_digest": None,
+    }
     weights = tmp_path / "avg" / "a.safetensors"
-    assert ckpt_average.read_manifest(weights).span_head_source is None
+    assert ckpt_average.read_manifest(weights).span_head_source["mode"] == "averaged"
 
 
 def test_a_seed_no_input_carries_is_refused(tmp_path):
     with pytest.raises(SystemExit, match=r"no input.*seed 7"):
-        _run(tmp_path, _three(tmp_path), "--span-head-seed", "7")
+        _seeded(tmp_path, _three(tmp_path), 7)
 
 
 def test_a_seed_two_inputs_carry_is_refused(tmp_path):
@@ -123,7 +144,7 @@ def test_a_seed_two_inputs_carry_is_refused(tmp_path):
         _ckpt(tmp_path, "c.json", 2, [0.0, 0.0], [5.0, 6.0]),
     ]
     with pytest.raises(SystemExit, match=r"more than one input .*seed 1"):
-        _run(tmp_path, paths, "--span-head-seed", "1")
+        _seeded(tmp_path, paths, 1)
 
 
 def test_the_flag_is_refused_with_same_seed_trajectory(tmp_path):
@@ -133,7 +154,7 @@ def test_the_flag_is_refused_with_same_seed_trajectory(tmp_path):
 
 def test_it_composes_with_from_masters(tmp_path):
     paths = _three(tmp_path, masters=True)
-    manifest, out = _run(tmp_path, paths, "--from", "masters", "--span-head-seed", "2")
+    manifest, out = _seeded(tmp_path, paths, 2, "--from", "masters")
     assert torch.equal(out["span_head.b"], torch.tensor([100.0, 200.0]))
     assert torch.equal(out["tower.w"], torch.tensor([1.0, 1.0]))
     assert manifest["from"] == "masters" and manifest["span_head_source"]["seed"] == 2
@@ -149,34 +170,63 @@ def test_it_composes_with_norm_preserving(tmp_path):
     from qd_train.backbone import TEXT_PREFIX
 
     save_file({TEXT_PREFIX + "w": torch.tensor([0.5, 0.5])}, str(snap / "model.safetensors"))
-    manifest, out = _run(
-        tmp_path, paths, "--from", "masters", "--norm-preserving", "--base-snapshot", str(snap),
-        "--span-head-seed", "0",
+    manifest, out = _seeded(
+        tmp_path, paths, 0, "--from", "masters", "--norm-preserving", "--base-snapshot", str(snap)
     )
     assert torch.equal(out["span_head.b"], torch.tensor([1.0, 2.0]))
     assert manifest["span_head_source"]["seed"] == 0
     assert "norm_preserving" in manifest
 
 
-def test_a_v6_run_needs_the_shared_init_manifest_and_a_seed_specific_one_is_refused(tmp_path):
+SHARED = {"sha256": "e" * 64, "content_digest": "d" * 64, "shared": True}
+OWN = {"sha256": "f" * 64, "content_digest": "c" * 64}
+
+
+def test_the_init_is_read_from_the_selected_seeds_ft_row_and_recorded(tmp_path):
     paths = _three(tmp_path)
-    with pytest.raises(SystemExit, match=r"--v6-run.*--span-head-init-manifest"):
-        _run(tmp_path, paths, "--span-head-seed", "1", "--v6-run")
-    own = tmp_path / "own.manifest.json"
-    own.write_text(json.dumps({"construction": {"seed": 1}}), encoding="utf-8")
-    with pytest.raises(SystemExit, match="not the shared"):
-        _run(tmp_path, paths, "--span-head-seed", "1", "--v6-run", "--span-head-init-manifest",
-             str(own))
-    shared = tmp_path / "shared.manifest.json"
-    shared.write_text(
-        json.dumps({"construction": {"seed": 0, "shared_across_seeds": True},
-                    "content_digest": {"value": "d" * 64}}),
-        encoding="utf-8",
-    )
-    manifest, _ = _run(tmp_path, paths, "--span-head-seed", "1", "--v6-run",
-                       "--span-head-init-manifest", str(shared))
-    assert manifest["span_head_source"]["init_manifest"]["shared_across_seeds"] is True
-    assert manifest["span_head_source"]["init_manifest"]["content_digest"] == "d" * 64
+    manifest, _ = _seeded(tmp_path, paths, 1, "--v6-run", inits=[SHARED, SHARED, SHARED])
+    init = manifest["span_head_source"]["init"]
+    assert init == {"ft_row_id": "row-0000", "sha256": "e" * 64, "content_digest": "d" * 64,
+                    "shared": True}
+
+
+def test_a_v6_run_whose_selected_seed_had_its_own_init_is_refused(tmp_path):
+    with pytest.raises(SystemExit, match="not the shared one"):
+        _seeded(tmp_path, _three(tmp_path), 1, "--v6-run", inits=[OWN, SHARED, SHARED])
+
+
+def test_a_v6_run_whose_row_records_no_init_is_refused_not_trusted(tmp_path):
+    with pytest.raises(SystemExit, match="cannot be verified"):
+        _seeded(tmp_path, _three(tmp_path), 1, "--v6-run", inits=[None, SHARED, SHARED])
+
+
+def test_forgetting_the_v6_flag_does_not_skip_the_check_when_any_row_is_shared(tmp_path):
+    with pytest.raises(SystemExit, match="not the shared one"):
+        _seeded(tmp_path, _three(tmp_path), 1, inits=[OWN, SHARED, SHARED])
+
+
+def test_a_seed_specific_init_is_recorded_for_a_non_v6_run(tmp_path):
+    manifest, _ = _seeded(tmp_path, _three(tmp_path), 1, inits=[OWN, OWN, OWN])
+    assert manifest["span_head_source"]["init"]["shared"] is False
+
+
+def test_the_seed_flag_needs_the_ledger_and_one_row_per_input(tmp_path):
+    with pytest.raises(SystemExit, match="--ft-ledger"):
+        _run(tmp_path, _three(tmp_path), "--span-head-seed", "1")
+
+
+def test_a_row_of_another_seed_is_refused(tmp_path):
+    paths = _three(tmp_path)
+    _seeded(tmp_path, paths, 1)  # writes a good ledger
+    ledger = tmp_path / "ledger.jsonl"
+    rows = [json.loads(x) for x in ledger.read_text().splitlines()]
+    rows[0]["protocol"]["seed"] = 9
+    ledger.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    out = tmp_path / "avg" / "b.safetensors"
+    with pytest.raises(SystemExit, match="not seed 1's"):
+        ckpt_average.main([*map(str, paths), "--out", str(out), "--span-head-seed", "1",
+                           "--ft-ledger", str(ledger), "--ft-row-ids", "row-0000", "row-0001",
+                           "row-0002"])
 
 
 def test_the_v6_flags_mean_nothing_without_a_seed(tmp_path):
@@ -186,7 +236,7 @@ def test_the_v6_flags_mean_nothing_without_a_seed(tmp_path):
 
 def test_read_manifest_checks_a_seed_source_against_its_inputs(tmp_path):
     paths = _three(tmp_path)
-    manifest, _ = _run(tmp_path, paths, "--span-head-seed", "1", "--ft-row-ids", "a", "b", "c")
+    manifest, _ = _seeded(tmp_path, paths, 1)
     weights = tmp_path / "avg" / "a.safetensors"
     assert ckpt_average.read_manifest(weights).span_head_source["seed"] == 1
     path = ckpt_average.manifest_path(weights)

@@ -1194,30 +1194,66 @@ def span_head_source_block(
     }
 
 
-def check_span_head_init_manifest(path: Path, *, v6_run: bool) -> dict[str, Any]:
-    """Read an L-oracle span-head init manifest and return what ``span_head_source`` records of
-    it. For a v6 run (Fable's R7) the init must be the shared one
-    (``construction.shared_across_seeds``): a seed-specific init does not make seed N's head a
-    valid stand-in for the average's."""
+def ft_row_init(ledger: Path, row_id: str, *, seed: int) -> dict[str, Any] | None:
+    """The span-head init identity the ft row ``row_id`` recorded for its run (its
+    ``recipe.span_head_init``: ``sha256``, ``content_digest``, and ``shared`` for a shared head),
+    or ``None`` when the run recorded none.
+
+    A checkpoint body carries no init identity, so the ledger row of the run that wrote it is
+    the only evidence; the row must be exactly one completed ft row of ``seed``.
+    """
     try:
-        raw = path.read_bytes()
-        body = json.loads(raw)
+        rows = [
+            json.loads(line)
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
     except (OSError, json.JSONDecodeError) as exc:
-        raise AverageRefusal(f"--span-head-init-manifest {path}: {exc}") from exc
-    construction = body.get("construction") if isinstance(body, dict) else None
-    shared = isinstance(construction, dict) and construction.get("shared_across_seeds") is True
-    if v6_run and not shared:
-        raise AverageRefusal(
-            f"--span-head-init-manifest {path} is not the shared span-head init "
-            "(construction.shared_across_seeds is not true). A v6 run starts every seed from one "
-            "shared head (R7); a head that grew from a seed-specific init is not a stand-in"
-        )
-    digest = body.get("content_digest") if isinstance(body, dict) else None
+        raise AverageRefusal(f"--ft-ledger {ledger}: {exc}") from exc
+    found = [r for r in rows if isinstance(r, dict) and r.get("row_id") == row_id]
+    if len(found) != 1:
+        raise AverageRefusal(f"--ft-ledger {ledger}: {len(found)} rows have row_id {row_id!r}")
+    row = found[0]
+    protocol = row.get("protocol")
+    if row.get("run_kind") != "ft" or row.get("status") != "completed":
+        raise AverageRefusal(f"ft row {row_id} is not a completed ft row")
+    if not isinstance(protocol, dict) or protocol.get("seed") != seed:
+        raise AverageRefusal(f"ft row {row_id} is not seed {seed}'s")
+    recipe = row.get("recipe")
+    init = recipe.get("span_head_init") if isinstance(recipe, dict) else None
+    if init is None:
+        return None
+    if not isinstance(init, dict):
+        raise AverageRefusal(f"ft row {row_id}: recipe.span_head_init is not an object")
     return {
-        "path": str(path), "sha256": hashlib.sha256(raw).hexdigest(),
-        "content_digest": digest.get("value") if isinstance(digest, dict) else None,
-        "shared_across_seeds": shared,
+        "ft_row_id": row_id, "sha256": init.get("sha256"),
+        "content_digest": init.get("content_digest"), "shared": init.get("shared") is True,
     }
+
+
+def check_span_head_inits(
+    ledger: Path, row_ids: Sequence[str], seeds: Sequence[int], head_at: int, *, v6_run: bool
+) -> dict[str, Any] | None:
+    """What ``span_head_source`` records of the selected seed's init, after Fable's R7 check.
+
+    A run is treated as v6 when the caller says ``--v6-run`` OR any input's ft row records a
+    shared init, so forgetting the flag cannot skip the check. For a v6 run the selected seed's
+    row must record a shared init (a seed-specific one, or none, is refused: a head grown from an
+    init the other seeds did not share is not a stand-in for the average's, and a run that
+    records no init identity cannot be verified, so it is refused rather than trusted).
+    """
+    inits = [ft_row_init(ledger, r, seed=s) for r, s in zip(row_ids, seeds, strict=True)]
+    v6 = v6_run or any(i is not None and i["shared"] for i in inits)
+    chosen = inits[head_at]
+    if v6 and (chosen is None or not chosen["shared"]):
+        raise AverageRefusal(
+            f"v6 run: the ft row of seed {seeds[head_at]} ({row_ids[head_at]}) "
+            + ("records no span_head_init, so what init its head grew from cannot be verified"
+               if chosen is None else "records a span-head init that is not the shared one")
+            + ". R7 starts every seed from one shared head; refusing rather than trusting "
+            "the caller"
+        )
+    return chosen
 
 
 def select_span_head_input(
@@ -1308,9 +1344,9 @@ def write(
     ``prompt_format`` is the inputs' one format (:func:`prompt_format_of`, checked equal across
     them), written as the top-level key qd-export stamps the release with -- only when it is
     not 1, so a v4 average's manifest, and the sha256 eval rows name it by, do not move.
-    ``span_head_source`` (:func:`span_head_source_block`) is written whenever it is given:
-    ``main`` gives it for ``--span-head-seed`` and for ``--from lora-merged``, and not for a plain
-    averaged head, whose manifest stays what it always was. An absent key reads as averaged.
+    ``span_head_source`` (:func:`span_head_source_block`) is written whenever it is given, which
+    ``main`` always does (ruling 2g: a primary and a fallback row must never pool); an average
+    made before the key existed has none, and reads as averaged.
     ``lora`` is ``--from lora-merged``'s block, written only for that source.
     """
     from safetensors.torch import save
@@ -1723,34 +1759,38 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--v6-run", action="store_true",
+        "--ft-ledger", type=Path, default=None,
         help=(
-            "with --span-head-seed: the inputs are a v6 run, whose seeds all start from one "
-            "shared span-head init (R7); needs --span-head-init-manifest to be that shared one"
+            "with --span-head-seed: the ledger holding the inputs' ft rows (--ft-row-ids, one per "
+            "input in order). A checkpoint carries no span-head init identity; the row's "
+            "recipe.span_head_init does, and is recorded in span_head_source"
         ),
     )
     parser.add_argument(
-        "--span-head-init-manifest", type=Path, default=None, metavar="MANIFEST",
+        "--v6-run", action="store_true",
         help=(
-            "with --span-head-seed: the L-oracle manifest of the span-head init the inputs "
-            "started from; recorded in span_head_source, and for --v6-run it must say "
-            "construction.shared_across_seeds"
+            "with --span-head-seed: require the selected seed's ft row to record the shared "
+            "span-head init (R7). Also assumed whenever any input's row records a shared init"
         ),
     )
     args = parser.parse_args(argv)
     resolved = [p.resolve() for p in args.checkpoints]
     if len(set(resolved)) != len(resolved):
         raise SystemExit("the same checkpoint was named twice; it would be weighted double")
-    if args.span_head_seed is None and (args.v6_run or args.span_head_init_manifest is not None):
-        raise SystemExit("--v6-run and --span-head-init-manifest mean something only with "
-                         "--span-head-seed")
+    if args.span_head_seed is None and (args.v6_run or args.ft_ledger is not None):
+        raise SystemExit("--v6-run and --ft-ledger mean something only with --span-head-seed")
     if args.span_head_seed is not None and args.same_seed_trajectory:
         raise SystemExit(
             "--span-head-seed picks one seed's head, and --same-seed-trajectory's inputs are one "
             "seed's snapshots: there is no other seed to take a head from"
         )
-    if args.v6_run and args.span_head_init_manifest is None:
-        raise SystemExit("--v6-run needs --span-head-init-manifest: the shared init it checks")
+    if args.span_head_seed is not None and (
+        args.ft_ledger is None or len(args.ft_row_ids) != len(args.checkpoints)
+    ):
+        raise SystemExit(
+            "--span-head-seed needs --ft-ledger and one --ft-row-ids per input: the init the "
+            "chosen head grew from is read from the ft rows, never from the caller"
+        )
     if args.same_seed_trajectory:
         if args.source != "tower" or args.norm_preserving:
             raise SystemExit(
@@ -1795,10 +1835,11 @@ def main(argv: list[str] | None = None) -> int:
         init_block: dict[str, Any] | None = None
         if args.span_head_seed is not None:
             head_at = select_span_head_input(args.checkpoints, names, args.span_head_seed)
-            if args.span_head_init_manifest is not None:
-                init_block = check_span_head_init_manifest(
-                    args.span_head_init_manifest, v6_run=args.v6_run
-                )
+            init_block = check_span_head_inits(
+                args.ft_ledger, args.ft_row_ids,
+                [int(Checkpoint.read_body(p)["seed"]) for p in args.checkpoints], head_at,
+                v6_run=args.v6_run,
+            )
         if args.source == "lora-merged":
             if args.norm_preserving or args.same_seed_trajectory:
                 raise AverageRefusal(
@@ -1842,11 +1883,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             sources, master_index = {k: "tower" for k in tensors}, {}
         if head_at is None:
-            # A plain average keeps the manifest it always wrote (its sha256 is how eval rows name
-            # it): the key's absence reads as "averaged". A LoRA average is new, so it says so.
-            head_source = (
-                span_head_source_block("averaged") if args.source == "lora-merged" else None
-            )
+            head_source = span_head_source_block("averaged")
         else:
             taken = take_span_head(tensors, sources, args.checkpoints[head_at], names[head_at])
             for key in taken:
@@ -1854,8 +1891,7 @@ def main(argv: list[str] | None = None) -> int:
             head_source = span_head_source_block(
                 "seed", seed=args.span_head_seed, record=inputs[head_at]
             )
-            if init_block is not None:
-                head_source["init_manifest"] = init_block
+            head_source["init"] = init_block
             if norm_block is not None:
                 norm_block["span_head"] = (
                     f"taken from the input of seed {args.span_head_seed} (span_head_source), "

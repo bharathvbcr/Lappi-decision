@@ -254,7 +254,17 @@ def test_an_adapter_for_a_module_the_tower_lacks_is_refused(tmp_path):
 
 def test_the_span_head_seed_applies_to_a_lora_average_too(tmp_path):
     paths = [_ckpt(tmp_path, s, head=[float(10 * s), 1.0]) for s in (0, 1, 2)]
-    manifest, out = _run(tmp_path, paths, "--span-head-seed", "2")
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text(
+        "".join(
+            json.dumps({"row_id": f"row-{s}", "run_kind": "ft", "status": "completed",
+                        "protocol": {"seed": s}, "recipe": {}}) + "\n"
+            for s in (0, 1, 2)
+        ),
+        encoding="utf-8",
+    )
+    manifest, out = _run(tmp_path, paths, "--span-head-seed", "2", "--ft-ledger", str(ledger),
+                         "--ft-row-ids", "row-0", "row-1", "row-2")
     assert torch.equal(out["span_head.b"], torch.tensor([20.0, 1.0]))
     assert manifest["span_head_source"]["mode"] == "seed"
     assert manifest["span_head_source"]["seed"] == 2

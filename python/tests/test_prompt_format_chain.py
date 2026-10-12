@@ -185,7 +185,11 @@ def test_an_average_of_format_2_inputs_states_format_2(tmp_path):
 
 def test_an_average_of_format_1_inputs_writes_the_manifest_it_always_wrote(tmp_path):
     m = _average(tmp_path, _ckpt(tmp_path, 0), _ckpt(tmp_path, 1))
-    assert set(m) == V4_AVERAGE_KEYS
+    # prompt_format adds nothing at format 1. The one key beyond the v4 set is span_head_source
+    # (board-sweep ruling 2g: every new average records how its head was made, "averaged" here,
+    # so a primary and a fallback row can never be pooled); it is not a prompt-format key.
+    assert set(m) == V4_AVERAGE_KEYS | {"span_head_source"}
+    assert m["span_head_source"]["mode"] == "averaged"
 
 
 @pytest.mark.parametrize(
