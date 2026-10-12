@@ -18,10 +18,12 @@
 //! * `grads_step0`: report-only at this rung, and not measured by this file (the loop does not
 //!   expose the bank before the update).
 //!
-//! **Not runnable yet, and failing rather than passing when tried:** the reference trains
-//! layers 0-1 at 0.1x, and tessl has no per-entry learning rate. The loop refuses the recipe
-//! before the clock starts (`supports_lr_scale` is false), so the two parity tests fail with
-//! that refusal until tessl's `lr_scale` lands. They never pass vacuously. The single-group
+//! **Not yet run through the adapter's per-entry learning rate:** the reference trains layers
+//! 0-1 at 0.1x, and the provider now passes the loop's `lr_scale` vector to ojas-qwen35's plan
+//! (`supports_lr_scale` is true; board-sweep ruling 2h), so the parity tests below are
+//! runnable. They are `#[ignore]` (GPU) and have not been run against this path: a pass
+//! here is the first measurement, and a recipe the provider refused would fail, never pass
+//! vacuously. The single-group
 //! arm runs today as a **smoke test, not a parity test**: it uses one learning rate, so it is
 //! a different recipe from the reference. It checks only that the run completes with finite
 //! losses and repeats bit for bit, and it prints its distance from the reference for
@@ -252,10 +254,10 @@ fn rung_b_fixture_config_is_tied_and_opens_in_ojas() {
 }
 
 #[test]
-#[ignore = "GPU; and F's two-group recipe is refused until tessl's per-entry lr_scale lands"]
+#[ignore = "GPU: opens a Metal runtime; the two-group recipe runs through the per-entry lr_scale plan, not yet measured"]
 fn gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe() {
     let lower = Some(recipe_lower());
-    let a = run(Operands::ExactF32, lower).expect("rung (b) needs tessl's per-entry lr_scale (ruling 6)");
+    let a = run(Operands::ExactF32, lower).expect("rung (b)'s two-group recipe must run through the per-entry lr_scale plan");
     println!("rung (b) ExactF32 vs torch fp32, losses:");
     let (early, all) = losses_vs(&a, "fp32");
     println!("rung (b) ExactF32 vs torch fp32, final weights (Amendment 2 measure):");
@@ -273,11 +275,11 @@ fn gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe() {
 /// the composed step runs both clip branches. The per-step clip coefficients are printed beside
 /// the reference's (report-only).
 #[test]
-#[ignore = "GPU; and F's two-group recipe is refused until tessl's per-entry lr_scale lands"]
+#[ignore = "GPU: opens a Metal runtime; the two-group recipe runs through the per-entry lr_scale plan, not yet measured"]
 fn gpu_rung_b_exact_f32_clip_150_trains_as_torch_fp32_clip150() {
     let lower = Some(recipe_lower());
     let a = run_clipped(Operands::ExactF32, lower, arm_max_grad_norm("fp32_clip150"))
-        .expect("rung (b) needs tessl's per-entry lr_scale (ruling 6)");
+        .expect("rung (b)'s two-group recipe must run through the per-entry lr_scale plan");
     println!("rung (b) ExactF32 clip 150 vs torch fp32_clip150, losses:");
     let (early, all) = losses_vs(&a, "fp32_clip150");
     println!("rung (b) ExactF32 clip 150, clip coefficient per step (report-only):");
@@ -295,9 +297,9 @@ fn gpu_rung_b_exact_f32_clip_150_trains_as_torch_fp32_clip150() {
 }
 
 #[test]
-#[ignore = "GPU; and F's two-group recipe is refused until tessl's per-entry lr_scale lands"]
+#[ignore = "GPU: opens a Metal runtime; the two-group recipe runs through the per-entry lr_scale plan, not yet measured"]
 fn gpu_rung_b_bf16_operands_loss_stays_within_2e_8_of_torch_fp32() {
-    let a = run(Operands::Bf16, Some(recipe_lower())).expect("rung (b) needs tessl's per-entry lr_scale (ruling 6)");
+    let a = run(Operands::Bf16, Some(recipe_lower())).expect("rung (b)'s two-group recipe must run through the per-entry lr_scale plan");
     println!("rung (b) Bf16 operands vs torch fp32 (gated):");
     let (_, all) = losses_vs(&a, "fp32");
     println!("rung (b) Bf16 operands vs torch master-bf16 (report-only):");

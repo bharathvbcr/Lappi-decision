@@ -7,11 +7,13 @@
 //! `grad_accum` 1, AdamW's betas, eps and weight decay, and the clip at 1.0 (qd-train's
 //! `recipe`).
 //!
+//! **The layer-wise split** (`--lower-layers-n`, `--lower-layers-lr-scale`, together) is
+//! accepted: ojas-qwen35's `OptimizerPlan` carries a learning-rate scale per entry into tessl's
+//! `adamw_step_scaled` (Fable's board-sweep ruling 2h, 2026-10-12, retiring the lead's ruling 6
+//! of 2026-10-01). The split is never folded into one rate or run as two updates.
+//!
 //! **Refused by name**, so a flag from `tools/real_ft_run.py` cannot be dropped silently:
 //!
-//! * `--lower-layers-n` and `--lower-layers-lr-scale`. tessl has no per-entry learning rate
-//!   (the lead's ruling 6, 2026-10-01). The refusal stays until tessl's `lr_scale` lands; it is
-//!   never worked around.
 //! * `--passes`, `--max-width`, `--option-permutation-seed` and `--replay-shards`, real_ft's
 //!   source transforms. F's epoch arm uses none of them: it trains `plan_all` with `passes=1`
 //!   (`tools/real_ft_run.py` `_train(plan=plan_all, passes=1)` in the `--epoch` branch). Its
@@ -24,10 +26,14 @@
 //!   `--allow-not-run-snapshot`). This binary trains only from a shard set that passes every
 //!   check.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use serde_json::Value;
+
 use qd_train::ft_data::HeadInitPin;
-use qd_train::ledger::check_ledger_path;
+use qd_train::recipe::LowerLayers;
+use qd_train::ledger::{check_ledger_path, prompt_format_extra};
 use qd_train::run_control::WallClockCap;
 use qd_train::trainer::EtaRule;
 
@@ -90,6 +96,37 @@ pub struct TrainArgs {
     pub eta: Option<EtaRule>,
     pub operands: Operands,
     pub checkpoint_every: Option<u64>,
+    /// The cosine floor when `--min-lr` is given; otherwise `lr / 10` (`LrSchedule::real_ft`).
+    /// v5's recipe ran `--min-lr 0`.
+    pub min_lr: Option<f64>,
+    /// A `ckpt-<step>` directory of an earlier run of this same recipe to resume from.
+    pub resume: Option<PathBuf>,
+    /// F's layer-wise split: decoder layers `0 .. n - 1` at `lr_scale` times the schedule.
+    pub lower_layers: Option<LowerLayers>,
+}
+
+impl TrainArgs {
+    /// The seed the epoch plan is drawn at: the run's own `--seed`, as `real_ft_run.py
+    /// --batch-order seed` does, so two seeds are two batch orders. (Rows before this change
+    /// planned every seed at `DataConfig().seed`; the row's recipe now says `batch_order: seed`
+    /// so they hash apart.) A resume refuses a checkpoint of another seed for the same reason.
+    pub fn data_seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// The recipe keys this command line adds beyond the fixed ones, as `real_ft_run.py`
+    /// names them: `batch_order` (always `"seed"`: the plan is drawn at `--seed`), `min_lr`
+    /// when `--min-lr` was given, and the shard set's `prompt_format` when it is not 1. Each
+    /// moves the recipe hash, so a row with another batch order or floor never pools with one
+    /// that lacks the key.
+    pub fn recipe_extra(&self, prompt_format: u64) -> BTreeMap<String, Value> {
+        let mut extra = prompt_format_extra(prompt_format);
+        extra.insert("batch_order".to_owned(), Value::from("seed"));
+        if let Some(floor) = self.min_lr {
+            extra.insert("min_lr".to_owned(), Value::from(floor));
+        }
+        extra
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,9 +153,10 @@ pub const USAGE: &str = "qd-train-metal \
 --head-init FILE --head-init-sha256 HEX --head-init-content-digest HEX \
 --out DIR --ledger ledger/mac-ojas-*.jsonl --repo DIR \
 --seed N --lr X --steps N --batch-tokens N --span-weight X --cap-s X --operands exact_f32|bf16 \
-[--eta-at-step N --eta-margin-s X] [--checkpoint-every N]";
+[--eta-at-step N --eta-margin-s X] [--checkpoint-every N] [--min-lr X] [--resume CKPT_DIR] \
+[--lower-layers-n N --lower-layers-lr-scale X]";
 
-const TAKES_VALUE: [&str; 22] = [
+const TAKES_VALUE: [&str; 26] = [
     "--head-init-sha256",
     "--head-init-content-digest",
     "--snapshot",
@@ -141,18 +179,14 @@ const TAKES_VALUE: [&str; 22] = [
     "--eta-at-step",
     "--eta-margin-s",
     "--checkpoint-every",
+    "--min-lr",
+    "--resume",
+    "--lower-layers-n",
+    "--lower-layers-lr-scale",
 ];
-
-/// The refusal for a layer-wise learning rate (the lead's ruling 6).
-pub const LR_SCALE_REFUSAL: &str = "a layer-wise learning rate needs a per-entry lr_scale in tessl's \
-Qwen35Model::adamw_step (qwen35_adamw.rs), which tessl does not have yet. Folding the scale into one \
-rate or running two updates would change the optimizer under test, so this trainer refuses it until \
-tessl's lr_scale lands (ruling 6, 2026-10-01). Without it this binary runs the single-group \
-optimizer, which is not rung (d)";
 
 fn refused_flag(flag: &str) -> Option<String> {
     match flag {
-        "--lower-layers-n" | "--lower-layers-lr-scale" => Some(format!("{flag}: {LR_SCALE_REFUSAL}")),
         "--passes" | "--max-width" | "--option-permutation-seed" | "--replay-shards" => Some(format!(
             "{flag}: real_ft's source transforms are not ported. F's epoch arm uses none of them \
              (plan_all, passes=1, no permutation, no replay), so this trainer runs the reader's \
@@ -253,6 +287,41 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
             Some(n)
         }
     };
+    let min_lr = match get("--min-lr") {
+        None => None,
+        Some(raw) => {
+            let floor: f64 = number("--min-lr", raw)?;
+            if !(floor.is_finite() && floor >= 0.0 && floor <= lr) {
+                return Err(ArgsError::Usage(format!(
+                    "--min-lr {floor} must be finite, at least 0 and at most --lr {lr}"
+                )));
+            }
+            Some(floor)
+        }
+    };
+    let lower_layers = match (get("--lower-layers-n"), get("--lower-layers-lr-scale")) {
+        (None, None) => None,
+        (Some(n), Some(scale)) => {
+            let n: usize = number("--lower-layers-n", n)?;
+            let lr_scale: f64 = number("--lower-layers-lr-scale", scale)?;
+            if n == 0 {
+                return Err(ArgsError::Usage(
+                    "--lower-layers-n must be at least 1; zero is the plain optimizer, so give no split".into(),
+                ));
+            }
+            if !(lr_scale.is_finite() && lr_scale > 0.0) {
+                return Err(ArgsError::Usage(format!(
+                    "--lower-layers-lr-scale {lr_scale} must be finite and positive"
+                )));
+            }
+            Some(LowerLayers { n, lr_scale })
+        }
+        _ => {
+            return Err(ArgsError::Usage(
+                "--lower-layers-n and --lower-layers-lr-scale come together".into(),
+            ));
+        }
+    };
     let ledger = path("--ledger")?;
     check_ledger_path(&ledger).map_err(|e| ArgsError::Refused(e.to_string()))?;
     let sha256_hex = |flag: &str| -> Result<String, ArgsError> {
@@ -288,5 +357,8 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         eta,
         operands,
         checkpoint_every,
+        min_lr,
+        resume: get("--resume").map(PathBuf::from),
+        lower_layers,
     })
 }

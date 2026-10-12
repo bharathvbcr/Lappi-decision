@@ -94,6 +94,12 @@ fn tristates(m: &BTreeMap<String, TriState>) -> Result<Value, LedgerError> {
     ))
 }
 
+/// `recipe.optimizer_recipe` of a Metal full fine-tune: AdamW over f32 parameters, with no
+/// master/bf16 split. It is not `"master"` (torch's `MasterWeightAdamW` over bf16 parameters),
+/// so a Mac row is never pooled with a v5 row (Fable's board-sweep ruling 2h). LoRA-2B's label is
+/// `"lora"` (D6); both are in Python's `OPTIMIZER_RECIPES`.
+pub const METAL_FULL_FT_OPTIMIZER_RECIPE: &str = "f32";
+
 /// The ft recipe as the row stores (and hashes) it. Keys follow `real_ft_run._train`'s recipe
 /// and `_recipe_pieces`, plus the keys only a Metal run has (`provider`, `operands`,
 /// `optimizer_groups`), so its rows hash apart from every PyTorch row.
@@ -756,6 +762,12 @@ pub fn ojas_ledger_path(repo: &Path, lane: &str, date: &str) -> Result<PathBuf, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_metal_full_ft_row_is_never_labelled_master() {
+        assert_eq!(METAL_FULL_FT_OPTIMIZER_RECIPE, "f32");
+        assert_ne!(METAL_FULL_FT_OPTIMIZER_RECIPE, "master");
+    }
 
     #[test]
     fn only_mac_ojas_ledgers_are_writable() {

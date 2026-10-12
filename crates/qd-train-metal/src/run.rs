@@ -4,15 +4,16 @@
 //! 1. the output directory is new or empty;
 //! 2. the train shard set opens through the held-out door, with no escape hatch, and is the
 //!    `train` split;
-//! 3. the epoch plan (`reader.plan(batch_tokens, DataConfig().seed, epoch 0)`, the order
-//!    real_ft's `plan_all` takes) has at least `steps` batches;
+//! 3. the epoch plan (`reader.plan(batch_tokens, --seed, epoch 0)`: `real_ft_run.py
+//!    --batch-order seed`, so two seeds are two orders) has at least `steps` batches;
 //! 4. the snapshot's config and weights header pass ojas-qwen35's checks, its directory name
 //!    can be a `backbone_snapshot`, and qd-export's `Layout` reads its config;
 //! 5. the shard set's remap is the identity over the snapshot's vocabulary ([`crate::remap`]);
 //! 6. the span head's initial weights load at the tower's width.
 //!
 //! Then the ft row's id is minted, the provider opens, and qd-train's loop runs the first
-//! `steps` batches with `grad_accum` 1 and `LrSchedule::real_ft(lr, steps)`. The trained
+//! `steps` batches with `grad_accum` 1 and `LrSchedule::real_ft(lr, steps)` (`--min-lr` gives
+//! the cosine floor; `--resume` continues from a checkpoint of the same recipe). The trained
 //! masters are read back once and exported twice: the scored bf16 file and the f32 masters.
 //! Last, one `quick` row goes to the `mac-ojas` ledger. A run that fails at any point writes no
 //! row, so it is rerun rather than remembered.
@@ -28,14 +29,16 @@ use qd_train::export::{self, ExportSummary, ManifestInfo, NamedTensor, Precision
 use qd_train::files::OsFiles;
 use qd_train::ft_data::{load_span_head_pinned, HostSpanHead, RealBatch};
 use qd_train::held_out::DataConfig;
-use qd_train::ledger::{self, Environment, FtRecipe, FtRow, Protocol, RunFacts, Status, WallClockSource};
+use qd_train::ledger::{
+    self, Environment, FtRecipe, FtRow, Protocol, RunFacts, Status, WallClockSource, METAL_FULL_FT_OPTIMIZER_RECIPE,
+};
 use qd_train::objective::LetterSpanObjective;
-use qd_train::recipe::{self, OptimizerRecipe};
+use qd_train::recipe::{self, LowerLayers, OptimizerRecipe};
 use qd_train::run_control::{MonotonicClock, WallClockCap};
 use qd_train::schedule::LrSchedule;
 use qd_train::shards::{ShardOpen, ShardReader};
 use qd_train::step::{ParamSpec, StepProvider};
-use qd_train::trainer::{self, CheckpointPolicy, HostParams, Hooks, Progress, Termination, TrainConfig, TrainError};
+use qd_train::trainer::{self, CheckpointPolicy, HostParams, Hooks, Progress, ResumeState, Termination, TrainConfig, TrainError};
 use qd_train::tristate::TriState;
 
 use crate::args::TrainArgs;
@@ -77,12 +80,18 @@ fn failed<E: std::fmt::Display>(what: &'static str) -> impl FnOnce(E) -> RunErro
     move |e| RunError::Failed(format!("{what}: {e}"))
 }
 
-/// The single-group arm's quick reason. Every row this binary writes is quick (rule 8).
-fn quick_reason(steps: u64, epoch_batches: usize) -> String {
+/// The arm's quick reason. Every row this binary writes is quick (rule 8).
+fn quick_reason(steps: u64, epoch_batches: usize, lower_layers: Option<LowerLayers>) -> String {
+    let optimizer = match lower_layers {
+        None => "single-group optimizer: F's layer-wise split is not applied, so this is not rung (d)".to_owned(),
+        Some(l) => format!(
+            "two-group optimizer: decoder layers below {} at {}x the schedule, through ojas-qwen35's \
+             per-entry lr_scale",
+            l.n, l.lr_scale
+        ),
+    };
     format!(
-        "Metal/tessl trainer (ojas-qwen35), 1 seed, {steps} of {epoch_batches} epoch batches, \
-         single-group optimizer: tessl has no per-entry lr_scale, so F's layer-wise split is not \
-         applied and this is not rung (d)"
+        "Metal/tessl trainer (ojas-qwen35), 1 seed, {steps} of {epoch_batches} epoch batches, {optimizer}"
     )
 }
 
@@ -106,7 +115,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
     // ---- host-side refusals, before the GPU ------------------------------------------------
     check_out_dir(&a.out)?;
     let config = DataConfig::default();
-    let data_seed = config.seed();
+    let data_seed = a.data_seed();
     let mut opts = ShardOpen::new(config, a.data_root.clone(), a.qd_data.clone());
     opts.expect_rev = a.expect_rev.clone();
     opts.files = Arc::new(OsFiles);
@@ -151,7 +160,11 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         .and_then(|n| n.to_str())
         .ok_or_else(|| RunError::Refused(format!("{} has no file name", a.head_init.display())))?
         .to_owned();
-    let schedule = LrSchedule::real_ft(a.lr, a.steps).map_err(failed("the schedule"))?;
+    let schedule = match a.min_lr {
+        Some(floor) => LrSchedule::real_ft_with_floor(a.lr, a.steps, floor),
+        None => LrSchedule::real_ft(a.lr, a.steps),
+    }
+    .map_err(failed("the schedule"))?;
     let train_cfg = TrainConfig {
         schedule,
         cap: WallClockCap::new(a.cap_s).map_err(failed("the cap"))?,
@@ -159,7 +172,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         optimizer: OptimizerRecipe {
             lr: a.lr,
             beta2: recipe::DEFAULT_BETA2,
-            lower_layers: None,
+            lower_layers: a.lower_layers,
         },
         max_grad_norm: recipe::MAX_GRAD_NORM,
         epoch: 0,
@@ -169,6 +182,12 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
             every,
         }),
         eta: a.eta,
+    };
+    let resume = match &a.resume {
+        Some(dir) => Some(
+            ResumeState::read(dir).map_err(|e| RunError::Refused(format!("--resume {}: {e}", dir.display())))?,
+        ),
+        None => None,
     };
     let row_id = ledger::uuid4().map_err(failed("the row id"))?;
 
@@ -199,7 +218,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         on_progress: Some(&mut on_progress),
     };
     let clock = MonotonicClock::new();
-    let result = trainer::train(&mut provider, &mut objective, batches, &train_cfg, &clock, None, &mut hooks)
+    let result = trainer::train(&mut provider, &mut objective, batches, &train_cfg, &clock, resume, &mut hooks)
         .map_err(failed("training"))?;
 
     // ---- the export -----------------------------------------------------------------------
@@ -234,18 +253,18 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         backbone_vocab: vocab,
         backbone_params: snapshot.config.parameter_count(),
         attn_implementation: "sdpa".into(),
-        optimizer_recipe: "master".into(),
+        optimizer_recipe: METAL_FULL_FT_OPTIMIZER_RECIPE.into(),
         wall_clock_cap_s: Some(a.cap_s),
         batch_tokens: Some(a.batch_tokens),
         no_memorise: true,
         beta2: None,
-        lower_layers: None,
+        lower_layers: a.lower_layers.map(|l| (l.n as u64, l.lr_scale)),
         provider: provider_text.clone(),
         operands: a.operands.as_str().into(),
-        optimizer_groups: "single".into(),
+        optimizer_groups: if a.lower_layers.is_some() { "two" } else { "single" }.into(),
         train_attention_mask: "padding".into(),
         deterministic: false,
-        extra: ledger::prompt_format_extra(header.prompt_format),
+        extra: a.recipe_extra(header.prompt_format),
     };
     let protocol = Protocol::for_recipe(&recipe, &header.data_snapshot_hash, &header.tokenizer_hash, a.seed)
         .map_err(failed("the protocol"))?;
@@ -304,7 +323,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         protocol,
         recipe,
         status: Status::Completed,
-        quick_reason: quick_reason(a.steps, plans.len()),
+        quick_reason: quick_reason(a.steps, plans.len(), a.lower_layers),
         code_commit: ledger::git_commit(&a.repo),
         env: Environment::rust_metal(ledger::hostname()),
         metrics,
@@ -312,14 +331,22 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         wall_clock_source: WallClockSource::Recorder,
         notes: format!(
             "qd-train-metal. Batches: the first {} of reader.batches(batch_tokens={}, seed={data_seed}, \
-             epoch=0), real_ft's plan_all order, one per optimizer step. Schedule real_ft(lr, {}): warmup \
-             max(1, steps/20), min lr/10. Optimizer: AdamW betas (0.9, 0.999), eps 1e-8, weight decay \
-             0.01 on every tower and head entry (tessl applies it as f32(0.01) = 0.00999999977648258, \
-             2.2e-8 relative), clip 1.0 over tower and head together; one learning rate for every \
-             entry. Exports: {} (scored, bf16 tower) and {} (f32 masters, never scored).",
+             epoch=0), the plan drawn at the run's --seed (batch_order seed), one per optimizer step. \
+             Schedule real_ft(lr, {}): warmup max(1, steps/20), min lr {}. Optimizer: AdamW betas \
+             (0.9, 0.999), eps 1e-8, weight decay 0.01 on every tower and head entry (tessl applies it \
+             as f32(0.01) = 0.00999999977648258, 2.2e-8 relative), clip 1.0 over tower and head \
+             together; {}. Exports: {} (scored, bf16 tower) and {} (f32 masters, never scored).",
             a.steps,
             a.batch_tokens,
             a.steps,
+            a.min_lr.map_or_else(|| "lr/10".to_owned(), |f| f.to_string()),
+            match a.lower_layers {
+                None => "one learning rate for every entry".to_owned(),
+                Some(l) => format!(
+                    "decoder layers below {} at {}x the schedule, the rest and the span head at 1x",
+                    l.n, l.lr_scale
+                ),
+            },
             scored.weights.display(),
             masters.weights.display()
         ),

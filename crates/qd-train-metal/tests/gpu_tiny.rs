@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use ojas_core::{Budget, Tensor};
-use ojas_qwen35::{ExternalGrad, Numerics, Qwen35Step, Sequence, Snapshot, Which};
+use ojas_qwen35::{ExternalGrad, Numerics, Precision, Qwen35Step, Sequence, Snapshot, Which};
 use qd_train::ft_data::HostSpanHead;
 use qd_train::mock::SplitMix;
 use qd_train::npy::NpyArray;
@@ -58,7 +58,7 @@ fn dh_of(h: &[f32]) -> Vec<f32> {
 fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
     let snap = Snapshot::from_dir(&tiny()).unwrap();
     let mut adapter = Qwen35Provider::open(&snap, Operands::ExactF32).unwrap();
-    let mut direct = Qwen35Step::open(&snap, Numerics::ExactF32, Budget::new(1 << 30)).unwrap();
+    let mut direct = Qwen35Step::open(&snap, Numerics::ExactF32, Precision::F32, Budget::new(1 << 30)).unwrap();
     let hidden = adapter.hidden_size();
     let ids = ids();
     let n = ids.len() - 1;
