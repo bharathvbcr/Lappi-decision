@@ -145,6 +145,16 @@ class NeedleCase:
 DEPTH_BUCKETS: Final[tuple[str, ...]] = ("0-20%", "20-40%", "40-60%", "60-80%", "80-100%")
 
 
+#: Where each bucket sits in the context, for the failing verdict's wording.
+_POSITION: Final[dict[str, str]] = {
+    "0-20%": "start",
+    "20-40%": "early-middle",
+    "40-60%": "middle",
+    "60-80%": "late-middle",
+    "80-100%": "end",
+}
+
+
 def depth_bucket_label(fraction: float) -> str:
     """The bucket of a depth fraction in [0, 1]: 0.0 is the very start, 1.0 the very end."""
     if not 0.0 <= fraction <= 1.0:
@@ -464,8 +474,7 @@ def score_suite(
         return report, NotRun(
             reason=(
                 f"depth buckets too thin to read ({'; '.join(thin)}; need {min_per_bucket}). "
-                "The early buckets are where a recurrent model fails, so a thin early "
-                "bucket is the one that must not be guessed at."
+                "A thin bucket is not read: no bucket's recall is guessed at."
             )
         )
 
@@ -473,10 +482,12 @@ def score_suite(
     # first 2K of context still posts a strong aggregate.
     worst = min(report.by_depth, key=lambda b: b.recall)
     passed = worst.recall >= min_recall
+    # The verdict names WHERE the failing bucket sits and asserts no cause: which depth fails
+    # is the evidence, and a fixed hypothesis (early-context loss) contradicted v5's misses,
+    # all of which were at the end of the context.
     verdict = "" if passed else (
-        f" -- FAILS: depth {worst.label} is below the {min_recall:.2f} threshold. "
-        "A recurrent model losing early context looks exactly like this while its "
-        "aggregate still reads well."
+        f" -- FAILS: depth {worst.label} ({_POSITION[worst.label]} of the context) is below "
+        f"the {min_recall:.2f} threshold."
     )
     return report, Ran(
         passed=passed,
