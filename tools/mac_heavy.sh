@@ -57,6 +57,13 @@
 # It never breaks another holder's lock. A holder whose pid is gone is reported as STALE every
 # 5 minutes, and the lead clears it by hand. A hold taken by hand (for another session's run)
 # carries no pid and is never reported stale.
+# The whole body is one function and the last line calls it. Bash reads a running script
+# incrementally, so a script edited in place while a wrapper runs (this one runs for hours) resumed
+# at shifted offsets and could execute a fragment such as `stop_job; exit 143`
+# (2026-10-12: four re-score jobs died that way). A function is parsed whole before it runs, and
+# the final line is already read, so a later rewrite cannot reach a live wrapper. Install an
+# edited version by writing a temp file and `mv`, which also keeps the old inode for live readers.
+main() {
 set -u
 
 if [ $# -lt 2 ]; then
@@ -274,3 +281,6 @@ fi
 JOB=""
 echo "mac_heavy: $(now) '$LABEL' finished with exit $rc" >&2
 exit "$rc"
+}
+
+main "$@"; exit $?

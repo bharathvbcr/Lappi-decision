@@ -469,3 +469,47 @@ def test_a_real_mps_allocation_over_the_footprint_cap_is_stopped(tmp_path: Path)
     assert proc.returncode == 70, proc.stderr
     assert "over the footprint cap" in proc.stderr
     assert time.monotonic() - started < 55
+
+
+def test_rewriting_the_script_in_place_mid_run_does_not_change_a_running_wrapper(
+    tmp_path: Path,
+) -> None:
+    """Bash reads a running script incrementally, so an in-place edit (truncate and write, ``sed
+    -i`` on some filesystems, the Edit tool) resumed every live wrapper at a shifted offset: the
+    re-score jobs died with exit 143 on 2026-10-12. The body is one function, parsed whole before
+    anything runs, so the rewrite is invisible and the wrapper still returns the job's status."""
+    import shutil
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    script = tools / "mac_heavy.sh"
+    shutil.copy(SCRIPT, script)
+    shutil.copy(SCRIPT.parent / "mac_footprint.py", tools / "mac_footprint.py")
+    lock = tmp_path / "lock.d"
+    env = {
+        **os.environ,
+        "MAC_HEAVY_LOCK": str(lock),
+        "MAC_HEAVY_POLL_S": "1",
+        "MAC_HEAVY_RSS_POLL_S": "1",
+        "MAC_HEAVY_MIN_FREE_GB": "0",
+        "MAC_HEAVY_MAX_LOAD": "100000",
+        "MAC_HEAVY_MAX_PROCS": "10000000",
+    }
+    proc = subprocess.Popen(
+        ["bash", str(script), "t", "bash", "-c", "sleep 4; exit 7"],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 30
+    while not (lock / "owner").exists():
+        assert time.monotonic() < deadline, "the wrapper never took the lock"
+        time.sleep(0.1)
+    time.sleep(1.5)  # the job is running and the wrapper is in its polling loop
+    size = script.stat().st_size
+    with script.open("r+b") as fh:  # in place: the same inode and length, different bytes
+        fh.write(b"\n" * size)
+    _out, err = proc.communicate(timeout=60)
+    assert proc.returncode == 7, (proc.returncode, err)
+    assert not lock.exists()
