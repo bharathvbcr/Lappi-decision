@@ -26,6 +26,7 @@ lands in the ledger row, without teaching the ledger a third parser.
 from __future__ import annotations
 
 import itertools
+import os
 import shlex
 import subprocess
 import sys
@@ -35,7 +36,6 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO / "pyproject.toml"
-VENV_RUFF = REPO / ".venv" / "bin" / "ruff"
 MAKEFILE = REPO / "Makefile"
 
 # uv.lock already resolves `ruff>=0.6` to this. The gate is the locked version in the
@@ -44,6 +44,44 @@ MAKEFILE = REPO / "Makefile"
 LOCKED_RUFF = "0.16.8"
 
 TIMEOUT_S = 300
+
+#: Names a ruff executable outright, for a checkout with no ``.venv`` of its own.
+RUFF_ENV = "QD_RUFF"
+
+
+def _main_checkout() -> Path:
+    """The checkout that owns this tree's ``.git``: ``REPO``, or the main one of a worktree."""
+    proc = subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    common = proc.stdout.strip()
+    return Path(common).parent if proc.returncode == 0 and common else REPO
+
+
+def _find_ruff() -> Path | None:
+    """The gate's ruff: ``$QD_RUFF``, else this checkout's ``.venv``, else the main checkout's.
+
+    A name in ``$QD_RUFF`` that is not an executable file fails the run: looking elsewhere
+    would lint with a ruff nobody asked for. ``None`` means no configured path has one.
+    """
+    named = os.environ.get(RUFF_ENV, "")
+    if named:
+        path = Path(named)
+        if not (path.is_file() and os.access(path, os.X_OK)):
+            pytest.fail(f"{RUFF_ENV}={named} is not an executable file; refusing to lint around it")
+        return path
+    for root in (REPO, _main_checkout()):
+        candidate = root / ".venv" / "bin" / "ruff"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+VENV_RUFF = _find_ruff()
 
 
 def _ruff(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -57,9 +95,9 @@ def _ruff(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[st
 
 
 requires_ruff = pytest.mark.skipif(
-    not VENV_RUFF.exists(),
-    reason="ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared "
-    "is the test that reports that, and it does not skip",
+    VENV_RUFF is None,
+    reason=f"no ruff in {REPO}/.venv, the main checkout's .venv or ${RUFF_ENV}: the lint gate "
+    "did NOT run (this is not a pass)",
 )
 
 
@@ -75,8 +113,14 @@ def test_ruff_is_installed_not_merely_declared():
     in pyproject.toml and `.venv/bin/python -m ruff` answered "No module named ruff".
     A linter nobody can run is a lint gate that has never once executed.
     """
-    assert VENV_RUFF.exists(), (
-        f"{VENV_RUFF} is missing. 'ruff>=0.6' is declared in pyproject's dev extra and "
+    if VENV_RUFF is None and _main_checkout() != REPO:
+        pytest.skip(
+            f"no ruff in {REPO}/.venv, the main checkout's .venv or ${RUFF_ENV}; this is a "
+            "worktree, so the lint gate did NOT run here (not a pass). The main checkout "
+            "fails this test when its own .venv lacks ruff."
+        )
+    assert VENV_RUFF is not None, (
+        f"{REPO}/.venv/bin/ruff is missing. 'ruff>=0.6' is declared in pyproject's dev extra and "
         f"uv.lock resolves it to {LOCKED_RUFF}, but it was never installed. "
         f"Install the gate: uv pip install --python {REPO}/.venv/bin/python "
         f"'ruff=={LOCKED_RUFF}'"

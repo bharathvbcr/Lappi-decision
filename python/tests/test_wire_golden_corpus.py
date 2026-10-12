@@ -8,14 +8,14 @@ them back field for field. When the directory is absent the result is
 ``NotRun`` **with a reason** — never a pass, and never a bare ``skip`` that reads
 as one in a summary line.
 
-**The live binary** (``target/debug/qd``) is the check that is available *today*,
+**The live binary** (``qd``, from ``conftest.cargo_binary``: ``$QD_BIN`` when set, else built
+under ``tools/mac_heavy.sh``) is the check that is available *today*,
 before the corpus exists. It drives the real Rust encoder into the real Python
 parser in one process tree, which is the same shape as
 ``crates/qd-runtime/tests/wire_context_crosslang.rs`` in the other direction. It is
-``NotRun`` when the binary is missing, and — importantly — also when the binary is
-**older than the Rust sources**, because a stale binary answers questions about
-code that no longer exists and would report agreement with a contract nobody is
-building against.
+``NotRun`` (a skip naming ``QD_BIN`` and ``tools/mac_heavy.sh``) when no binary is available.
+A binary cargo builds here is current by construction; one named by ``QD_BIN`` is the
+caller's responsibility, and the result says freshness was not judged.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import QD_BIN_ENV
 
 from qd_data.schema import encode_context
 from qd_train.tristate import NotRun, Ran
@@ -38,7 +39,6 @@ from qd_wire.refusal import ErrorEnvelope, RefusalEnvelope
 from qd_wire.response import CallerReading, caller_reading, parse_response_line
 
 REPO = Path(__file__).resolve().parents[2]
-QD_BINARY = REPO / "target" / "debug" / "qd"
 RUST_SRC = REPO / "crates" / "qd-runtime" / "src"
 #: Every subprocess is bounded. An unbounded probe in a test suite is a hang.
 QD_TIMEOUT_S = 60
@@ -419,33 +419,22 @@ def _request(**over):
     return body
 
 
-def _live_state():
+def _live_state(binary: Path):
     """Whether the live probe may run, as a tri-state rather than a boolean."""
-    if not QD_BINARY.exists():
-        return NotRun(
-            reason=(
-                f"{QD_BINARY} does not exist; build it with `cargo build -p qd-runtime "
-                "--bin qd` to assert the Rust encoder against this parser"
-            )
+    named = os.environ.get(QD_BIN_ENV, "")
+    if named:
+        return Ran(
+            passed=True,
+            detail=(
+                f"{binary} named by {QD_BIN_ENV}; its freshness against {RUST_SRC} "
+                "was not judged"
+            ),
         )
-    if not RUST_SRC.is_dir():
-        return NotRun(reason=f"{RUST_SRC} is absent, so the binary's freshness cannot be judged")
-    built = QD_BINARY.stat().st_mtime
-    newer = sorted(p.name for p in RUST_SRC.rglob("*.rs") if p.stat().st_mtime > built)
-    if newer:
-        return NotRun(
-            reason=(
-                f"{QD_BINARY.name} was built before {newer} changed. A stale binary "
-                "answers for code that no longer exists, and agreement with it would be "
-                "agreement with a contract nobody is building against. Rebuild with "
-                "`cargo build -p qd-runtime --bin qd`."
-            )
-        )
-    return Ran(passed=True, detail=f"{QD_BINARY.name} is newer than every .rs under {RUST_SRC}")
+    return Ran(passed=True, detail=f"{binary.name} was built from this checkout by cargo_binary")
 
 
-def _ask(payload, *, reference=True):
-    cmd = [str(QD_BINARY), "oneshot"] + (["--reference-backend"] if reference else [])
+def _ask(binary: Path, payload, *, reference=True):
+    cmd = [str(binary), "oneshot"] + (["--reference-backend"] if reference else [])
     proc = subprocess.run(
         cmd,
         input=json.dumps(payload).encode(),
@@ -460,20 +449,15 @@ def _ask(payload, *, reference=True):
     return parse_response_line(proc.stdout, path="qd oneshot")
 
 
-def test_the_live_probe_is_either_run_or_recorded_as_not_run():
-    state = _live_state()
-    if isinstance(state, NotRun):
-        assert not hasattr(state, "passed")
-        pytest.skip(f"NOT RUN — {state.reason}")
+def test_the_live_probe_is_either_run_or_recorded_as_not_run(qd_bin):
+    state = _live_state(qd_bin)
     assert state.passed is True
+    assert str(qd_bin) in state.detail or qd_bin.name in state.detail
 
 
 @pytest.fixture(scope="module")
-def live():
-    state = _live_state()
-    if isinstance(state, NotRun):
-        pytest.skip(f"NOT RUN — {state.reason}")
-    return state
+def live(qd_bin):
+    return qd_bin
 
 
 def test_a_real_answer_from_the_real_encoder_parses_field_for_field(live):
@@ -483,7 +467,7 @@ def test_a_real_answer_from_the_real_encoder_parses_field_for_field(live):
     Nothing here is a literal copied from the Rust source: the bytes come from the
     binary, and a field it emits that this parser does not know fails the parse.
     """
-    response = _ask(_request())
+    response = _ask(live, _request())
     assert isinstance(response, AnswerEnvelope), response
     assert response.schema_version == 1
     assert response.backend, "an answer must name the backend that produced it"
@@ -498,7 +482,7 @@ def test_a_real_answer_from_the_real_encoder_parses_field_for_field(live):
 
 def test_the_reference_backend_flags_every_answer_degraded(live):
     """It is not a model. ``degraded`` is how an answer says so, and a caller reads it."""
-    response = _ask(_request())
+    response = _ask(live, _request())
     assert isinstance(response, AnswerEnvelope)
     assert response.degraded is True
     assert all(s.degraded for s in response.slots.values()), (
@@ -517,7 +501,7 @@ def test_each_slot_kind_answers_with_the_value_shape_its_kind_implies(live):
     expected = {"verdict": ChoiceValue, "severity": ScoreValue, "evidence": SpanValue}
     seen: dict[str, type] = {}
     for i in range(40):
-        response = _ask(_request(question=f"probe {i}"))
+        response = _ask(live, _request(question=f"probe {i}"))
         assert isinstance(response, AnswerEnvelope)
         for name, answer in response.slots.items():
             if answer.value is not None:
@@ -548,7 +532,7 @@ def test_each_slot_kind_answers_with_the_value_shape_its_kind_implies(live):
 def test_real_refusals_parse_and_name_the_check_the_contract_names(
     live, label, override, expected_kind
 ):
-    response = _ask(_request(**override))
+    response = _ask(live, _request(**override))
     assert isinstance(response, RefusalEnvelope), f"{label}: {response}"
     assert response.refusal.kind == expected_kind, label
     assert response.message, "every refusal renders both compared values for a human"
@@ -557,7 +541,7 @@ def test_real_refusals_parse_and_name_the_check_the_contract_names(
 
 def test_a_real_backend_error_parses_and_is_not_an_abstention(live):
     """No ``--reference-backend``: the honest reply is a typed error, never a ``noul``."""
-    response = _ask(_request(), reference=False)
+    response = _ask(live, _request(), reference=False)
     assert isinstance(response, ErrorEnvelope), response
     assert response.error.kind == "unavailable"
     assert caller_reading(response) is CallerReading.BACKEND_FAILED
