@@ -1865,6 +1865,13 @@ fn s7_two_concurrent_synth_runs_to_one_out_dir_one_refuses() {
 // pool needs its pinned upstream sources and is recorded `not_run` by the runner.
 
 fn s8_build_three_times(tag: &str, config_name: &str) {
+    // The profile this run was built in, for the runner (`tools/stress_runner.sh`): it accepts
+    // an S8 step only from the profile that was written down before the run. The 2026-10-06
+    // run was a debug build sized against a release measurement.
+    println!(
+        "S8-PROFILE {}",
+        if cfg!(debug_assertions) { "debug" } else { "release" }
+    );
     let dir = scratch(tag);
     let t = vec![write_target(&dir.join("targets"), "stand-in")];
     let config = dir.join("config.json");
