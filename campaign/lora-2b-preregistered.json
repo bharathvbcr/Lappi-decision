@@ -184,7 +184,7 @@
   },
   "release_and_averaging": {
     "release": "A merged dense bf16 tower (W' = W + (alpha/r) B A in f32, rounded once to bf16, RNE), D17 and span_head.safetensors (f32), through ckpt_average to qd-export to qd-metal. Adapters (with D17 and the span head) are the checkpoint and resume unit and are not served.",
-    "average": "A seed average of LoRA-2B averages merged weights only (tools/ckpt_average.py --lora-merged); averaging A and B separately is refused with a typed error, because mean(B)mean(A) differs from mean(BA). average_may_promote stays false (docs/promotion-decisions.json).",
+    "average": "A seed average of LoRA-2B averages merged weights only (tools/ckpt_average.py --from lora-merged); averaging A and B separately is refused with a typed error, because mean(B)mean(A) differs from mean(BA). average_may_promote stays false (docs/promotion-decisions.json).",
     "span_head": "Whichever average is ever taken, its span head is declared by the averaging command: either --span-head-seed N (the head of the input whose checkpoint body says seed == N) or the averaged head, recorded in the manifest as span_head_source {mode, seed, input, payload_digest}. Every LoRA-2B seed starts from the same pinned span-head init above. The choice for a promotion-grade average is made in that campaign's own pre-registration before the average is scored; no Mac row averages (one seed)."
   },
   "ledger": {
