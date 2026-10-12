@@ -4,10 +4,14 @@
 //! the three-dtype admission (this loader reads BF16, F16 and F32 and nothing else, checked when
 //! the file is opened), `Refusal` -> [`MetalError`], and the typed accessors tessl's loaders use.
 //!
-//! tessl has no safetensors or mmap helper (`rg -i "safetensor|mmap" tessl/src` is empty; its
-//! loader is `npy.rs`). Reads are positioned (`FileExt::read_exact_at`, inside qd-export's
-//! reader) straight into the destination, so a tensor bound for a GPU buffer is read into the
-//! buffer's own mapping with no intermediate copy.
+//! tessl has had a strict safetensors reader of its own since 2026-09-29 (`tessl/src/safetensors.rs`,
+//! commit 61e00c3, positioned reads, header bound 100 MB). This loader does not use it: the
+//! workspace's one Rust owner of the format is `qd_export::safetensors` (ft-e0211ba7412), whose
+//! 64 MiB header bound is the number the Python reader and the shared adversarial case list
+//! hold, and two Rust readers with different bounds is what that card removed. Reads are
+//! positioned (`FileExt::read_exact_at`, inside qd-export's reader) straight into the
+//! destination, so a tensor bound for a GPU buffer is read into the buffer's own mapping with no
+//! intermediate copy.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
