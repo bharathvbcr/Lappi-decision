@@ -45,6 +45,9 @@ use crate::args::TrainArgs;
 use crate::provider::Qwen35Provider;
 use crate::remap::require_identity_remap;
 
+/// The file beside a run's `ckpt-*` directories that records the recipe they were trained under.
+pub const RECIPE_FILE: &str = "recipe.json";
+
 /// What a finished run wrote.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunSummary {
@@ -184,11 +187,31 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         eta: a.eta,
     };
     let resume = match &a.resume {
-        Some(dir) => Some(
-            ResumeState::read(dir).map_err(|e| RunError::Refused(format!("--resume {}: {e}", dir.display())))?,
-        ),
+        Some(dir) => {
+            let recipe_path = dir
+                .parent()
+                .map(|root| root.join(RECIPE_FILE))
+                .ok_or_else(|| RunError::Refused(format!("--resume {} has no parent directory", dir.display())))?;
+            let saved = match fs::read(&recipe_path) {
+                Ok(bytes) => serde_json::from_slice(&bytes)
+                    .map_err(|e| RunError::Refused(format!("{}: {e}", recipe_path.display())))?,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::Value::Null,
+                Err(e) => return Err(RunError::Failed(format!("{}: {e}", recipe_path.display()))),
+            };
+            a.check_resume_recipe(&saved)
+                .map_err(|e| RunError::Refused(format!("--resume {}: {e}", dir.display())))?;
+            Some(ResumeState::read(dir).map_err(|e| RunError::Refused(format!("--resume {}: {e}", dir.display())))?)
+        }
         None => None,
     };
+    if let Some(policy) = &train_cfg.checkpoint {
+        // The recipe the checkpoints below were trained under, for a later `--resume` to check.
+        fs::create_dir_all(&policy.dir).map_err(|e| RunError::Failed(format!("{}: {e}", policy.dir.display())))?;
+        let mut text = serde_json::to_vec_pretty(&a.checkpoint_recipe()).map_err(failed("the recipe"))?;
+        text.push(b'\n');
+        fs::write(policy.dir.join(RECIPE_FILE), text)
+            .map_err(|e| RunError::Failed(format!("{}: {e}", policy.dir.join(RECIPE_FILE).display())))?;
+    }
     let row_id = ledger::uuid4().map_err(failed("the row id"))?;
 
     // ---- the GPU --------------------------------------------------------------------------
@@ -319,6 +342,10 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
             reader.root().join("remap.npz").display()
         )),
     );
+    let resumed = a
+        .resume
+        .as_ref()
+        .map_or_else(String::new, |d| format!(" Resumed from checkpoint {} (recipe checked equal to its recipe.json).", d.display()));
     let row = FtRow {
         protocol,
         recipe,
@@ -349,7 +376,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
             },
             scored.weights.display(),
             masters.weights.display()
-        ),
+        ) + &resumed,
     };
     let written_at = ledger::isoformat_utc(SystemTime::now()).map_err(failed("written_at"))?;
     ledger::append(&a.ledger, &row, row_id.clone(), written_at).map_err(failed("the ledger append"))?;

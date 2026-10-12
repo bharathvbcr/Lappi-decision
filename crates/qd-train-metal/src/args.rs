@@ -114,6 +114,47 @@ impl TrainArgs {
         self.seed
     }
 
+    /// What a checkpoint root records of this command line's recipe (`recipe.json` beside the
+    /// `ckpt-*` directories): every setting that shapes the optimizer trajectory, which the
+    /// checkpoint itself does not store. Precision is `f32`, the only one the provider opens.
+    pub fn checkpoint_recipe(&self) -> Value {
+        serde_json::json!({
+            "format": "qd-train-metal-recipe/v1",
+            "precision": "f32",
+            "operands": self.operands.as_str(),
+            "seed": self.seed,
+            "batch_order": "seed",
+            "lr": self.lr,
+            "min_lr": self.min_lr,
+            "steps": self.steps,
+            "batch_tokens": self.batch_tokens,
+            "span_weight": self.span_weight,
+            "lower_layers": self.lower_layers.map(|l| serde_json::json!({"n": l.n, "lr_scale": l.lr_scale})),
+        })
+    }
+
+    /// Refuse a resume whose recipe is not the one `saved` (read from the checkpoint root's
+    /// `recipe.json`) records. Absent (`Null`) is refused: a checkpoint without its recipe was
+    /// not written by this binary, so what it was trained under cannot be stated.
+    pub fn check_resume_recipe(&self, saved: &Value) -> Result<(), String> {
+        let now = self.checkpoint_recipe();
+        if *saved == now {
+            return Ok(());
+        }
+        let differs: Vec<&str> = match (saved.as_object(), now.as_object()) {
+            (Some(was), Some(is)) => is
+                .iter()
+                .filter(|(k, v)| was.get(*k) != Some(*v))
+                .map(|(k, _)| k.as_str())
+                .collect(),
+            _ => vec!["recipe.json is missing or not an object"],
+        };
+        Err(format!(
+            "the checkpoint was written under another recipe ({differs:?} differ): a resume \
+             continues the same optimizer trajectory or it is refused"
+        ))
+    }
+
     /// The recipe keys this command line adds beyond the fixed ones, as `real_ft_run.py`
     /// names them: `batch_order` (always `"seed"`: the plan is drawn at `--seed`), `min_lr`
     /// when `--min-lr` was given, and the shard set's `prompt_format` when it is not 1. Each

@@ -226,3 +226,37 @@ fn the_binary_refuses_half_a_layer_wise_split_before_reading_anything() {
     assert!(stderr.contains("come together"), "{stderr}");
     assert!(out.stdout.is_empty());
 }
+
+/// D3 (verify-lane3): a checkpoint stores no optimizer recipe, so a resume under another one
+/// would be accepted and continue under a different optimizer. The run writes the recipe beside
+/// its checkpoints and a resume refuses any difference in it.
+#[test]
+fn a_resume_under_another_recipe_is_refused() {
+    let base_args = parse(&base()).unwrap();
+    let saved = base_args.checkpoint_recipe();
+    assert!(base_args.check_resume_recipe(&saved).is_ok(), "the same recipe resumes");
+    for (what, extra) in [
+        ("lower layers", &["--lower-layers-n", "8", "--lower-layers-lr-scale", "0.1"][..]),
+        ("min-lr", &["--min-lr", "0"][..]),
+        ("operands", &[][..]),
+    ] {
+        let mut v = base();
+        if what == "operands" {
+            let i = v.iter().position(|s| s == "--operands").unwrap();
+            v[i + 1] = "exact_f32".into();
+        } else {
+            v.extend(extra.iter().map(|s| s.to_string()));
+        }
+        let other = parse(&v).unwrap();
+        let err = other.check_resume_recipe(&saved).unwrap_err();
+        assert!(err.contains("recipe"), "{what}: {err}");
+        assert!(base_args.check_resume_recipe(&other.checkpoint_recipe()).is_err(), "{what}, reversed");
+    }
+    for (flag, value) in [("--seed", "9"), ("--lr", "2e-5"), ("--span-weight", "2"), ("--batch-tokens", "9000")] {
+        let mut v = without(flag);
+        v.extend([flag.to_string(), value.to_string()]);
+        assert!(parse(&v).unwrap().check_resume_recipe(&saved).is_err(), "{flag}");
+    }
+    // A checkpoint root with no recipe file at all is not a checkpoint this binary wrote.
+    assert!(base_args.check_resume_recipe(&serde_json::Value::Null).is_err());
+}
