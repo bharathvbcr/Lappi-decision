@@ -369,7 +369,12 @@ def test_a_leading_zero_poll_never_runs_through_or_breaks_a_held_lock(tmp_path: 
 def test_canonical_decimals_including_zero_are_accepted(tmp_path: Path) -> None:
     lock = tmp_path / "lock.d"
     proc = _run(
-        lock, "t", "true", MAC_HEAVY_MIN_FREE_GB="0", MAC_HEAVY_POLL_S="9", MAC_HEAVY_MAX_WAIT_S="900"
+        lock,
+        "t",
+        "true",
+        MAC_HEAVY_MIN_FREE_GB="0",
+        MAC_HEAVY_POLL_S="9",
+        MAC_HEAVY_MAX_WAIT_S="900",
     )
     assert proc.returncode == 0, proc.stderr
 
