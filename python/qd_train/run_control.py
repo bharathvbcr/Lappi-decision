@@ -120,6 +120,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Final, Literal, Self
 
+from qd_train.memory import MAX_SAFETENSORS_HEADER_BYTES, tensor_ranges
+
 __all__ = [
     "APPROVAL_FREE_USD",
     "CAP_EXIT_CODE",
@@ -1304,9 +1306,10 @@ def _join_tensors(value: Any, tensors: Mapping[str, TensorRef]) -> Any:
     return value
 
 
-#: The largest safetensors header [`Checkpoint.read_weights`] will parse. A real 2B sidecar's
-#: header is about 160 KB (1,302 tensors); 100 MB is safetensors' own documented bound.
-_MAX_SIDECAR_HEADER_BYTES: Final[int] = 100_000_000
+#: The largest safetensors header a sidecar read will parse: `qd_train.memory`'s bound, the one
+#: owner (a real 2B sidecar's header is about 160 KB). The name stays for `tools/ckpt_average.py`,
+#: whose own sidecar header read still imports it.
+_MAX_SIDECAR_HEADER_BYTES: Final[int] = MAX_SAFETENSORS_HEADER_BYTES
 
 
 def _sidecar_digest(tensors: Mapping[str, TensorRef]) -> str:
@@ -1853,33 +1856,22 @@ class Checkpoint:
         for node in nodes:
             collect(node)
         loaded: dict[str, TensorRef] = {}
+        ranges = tensor_ranges(sidecar)
         with sidecar.open("rb") as fh:
-            raw_len = fh.read(8)
-            if len(raw_len) != 8:
-                raise ValueError(f"{sidecar}: truncated safetensors header length")
-            n = int.from_bytes(raw_len, "little")
-            if not 0 < n <= _MAX_SIDECAR_HEADER_BYTES:
-                raise ValueError(
-                    f"{sidecar}: safetensors header claims {n} bytes, outside "
-                    f"(0, {_MAX_SIDECAR_HEADER_BYTES}]"
-                )
-            header = json.loads(fh.read(n))
-            base = 8 + n
             for key in wanted:
-                info = header.get(key)
-                if info is None:
+                found = ranges.get(key)
+                if found is None:
                     raise ValueError(
                         f"the checkpoint body names a tensor at {key} and {sidecar.name} "
                         "does not carry it"
                     )
-                start, end = (int(x) for x in info["data_offsets"])
-                fh.seek(base + start)
-                data = fh.read(end - start)
-                if len(data) != end - start:
+                fh.seek(found.start)
+                data = fh.read(found.end - found.start)
+                if len(data) != found.end - found.start:
                     raise ValueError(f"{sidecar}: {key} is truncated")
                 loaded[key] = TensorRef(
-                    dtype=_wire_dtype(key, info["dtype"]),
-                    shape=tuple(int(axis) for axis in info["shape"]),
+                    dtype=_wire_dtype(key, found.dtype),
+                    shape=found.shape,
                     data=data,
                 )
         # Scalars only: the optimizer's param groups are a JSON tree even when its moments

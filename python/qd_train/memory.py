@@ -46,8 +46,9 @@ import math
 import struct
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 __all__ = [
     "ADAMW_BF16",
@@ -68,6 +69,7 @@ __all__ = [
     "ModelSpec",
     "OptimizerSpec",
     "StepFootprint",
+    "TensorRange",
     "checkpoint_tensor_index",
     "estimate_step",
     "head_is_tied",
@@ -75,6 +77,7 @@ __all__ = [
     "refuse_unless_it_fits",
     "safetensors_header",
     "spec_from_checkpoint",
+    "tensor_ranges",
 ]
 
 #: Bytes per element, by the names this repository uses for dtypes. ``float8`` is absent on
@@ -431,6 +434,99 @@ def safetensors_header(path: Path) -> dict[str, Any]:
             f"{path}: safetensors header is a {type(header).__name__}, not an object"
         )
     return header
+
+
+#: Every dtype the safetensors format names, with its element size in bytes. The Rust owner
+#: (`qd_export::safetensors::Dtype`) carries the same 15; the shared adversarial list holds
+#: both to one verdict on an unknown name.
+_SAFETENSORS_DTYPE_BYTES: Final[Mapping[str, int]] = {
+    "BOOL": 1, "U8": 1, "I8": 1, "F8_E5M2": 1, "F8_E4M3": 1,
+    "I16": 2, "U16": 2, "F16": 2, "BF16": 2,
+    "I32": 4, "U32": 4, "F32": 4,
+    "F64": 8, "I64": 8, "U64": 8,
+}
+
+_U64_MAX: Final[int] = 2**64 - 1
+
+
+class TensorRange(NamedTuple):
+    """One tensor of a checked safetensors file: its absolute byte range in the file."""
+
+    dtype: str
+    shape: tuple[int, ...]
+    start: int
+    end: int
+
+
+def _uint(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= _U64_MAX
+
+
+def tensor_ranges(path: Path) -> dict[str, TensorRange]:
+    """Every tensor of one safetensors file, checked in full: ``{name: TensorRange}``.
+
+    [`safetensors_header`] bounds and parses the header; this checks what the header claims
+    against the file: a known dtype, an unsigned shape, a two-entry ``data_offsets`` that fits
+    the data section and spans exactly ``prod(shape) * itemsize`` bytes, and no two tensors
+    sharing a byte. The same refusals ``qd_export::SafeTensorsFile::open`` makes, held to the
+    same list (``crates/qd-export/tests/fixtures/safetensors-adversarial.json``). Offsets come
+    back absolute, so a reader seeks straight to ``start``.
+    """
+    path = Path(path)
+    header = safetensors_header(path)
+    with path.open("rb") as handle:
+        handle.seek(0)
+        data_start = 8 + struct.unpack("<Q", handle.read(8))[0]
+        file_len = handle.seek(0, 2)
+    data_len = file_len - data_start
+    out: dict[str, TensorRange] = {}
+    for name, entry in header.items():
+        if name == "__metadata__":
+            continue
+        if not isinstance(entry, dict):
+            raise CheckpointRefused(f"{path}: {name}: entry is not an object")
+        dtype = entry.get("dtype")
+        if not isinstance(dtype, str):
+            raise CheckpointRefused(f"{path}: {name}: no dtype")
+        itemsize = _SAFETENSORS_DTYPE_BYTES.get(dtype)
+        if itemsize is None:
+            raise CheckpointRefused(
+                f"{path}: {name}: dtype {dtype!r} is not a safetensors dtype this reader knows"
+            )
+        shape = entry.get("shape")
+        if not isinstance(shape, list):
+            raise CheckpointRefused(f"{path}: {name}: no shape")
+        if not all(_uint(d) for d in shape):
+            raise CheckpointRefused(f"{path}: {name}: shape entry in {shape!r} is not a usize")
+        offsets = entry.get("data_offsets")
+        if not isinstance(offsets, list):
+            raise CheckpointRefused(f"{path}: {name}: no data_offsets")
+        if len(offsets) != 2:
+            raise CheckpointRefused(
+                f"{path}: {name}: data_offsets has {len(offsets)} entries, not 2"
+            )
+        begin, end = offsets
+        if not (_uint(begin) and _uint(end)):
+            raise CheckpointRefused(f"{path}: {name}: data_offsets {offsets!r} are not u64")
+        if end < begin or end > data_len:
+            raise CheckpointRefused(
+                f"{path}: {name}: data_offsets [{begin}, {end}) do not fit the "
+                f"{data_len}-byte data section"
+            )
+        numel = math.prod(shape)
+        if numel * itemsize > _U64_MAX:
+            raise CheckpointRefused(f"{path}: {name}: shape {shape!r} overflows")
+        if numel * itemsize != end - begin:
+            raise CheckpointRefused(
+                f"{path}: {name}: {shape!r} x {itemsize} bytes = {numel * itemsize}, but "
+                f"data_offsets span {end - begin}"
+            )
+        out[name] = TensorRange(dtype, tuple(shape), data_start + begin, data_start + end)
+    ordered = sorted(out.items(), key=lambda kv: (kv[1].start, kv[1].end))
+    for (a, ra), (b, rb) in pairwise(ordered):
+        if rb.start < ra.end:
+            raise CheckpointRefused(f"{path}: tensors {a} and {b} overlap")
+    return out
 
 
 def checkpoint_tensor_index(snapshot: Path) -> dict[str, tuple[Path, tuple[int, ...]]]:
