@@ -120,7 +120,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Final, Literal, Self
 
-from qd_train.memory import MAX_SAFETENSORS_HEADER_BYTES, tensor_ranges
+from qd_train.memory import tensor_ranges
 
 __all__ = [
     "APPROVAL_FREE_USD",
@@ -1304,12 +1304,6 @@ def _join_tensors(value: Any, tensors: Mapping[str, TensorRef]) -> Any:
     if isinstance(value, list):
         return [_join_tensors(v, tensors) for v in value]
     return value
-
-
-#: The largest safetensors header a sidecar read will parse: `qd_train.memory`'s bound, the one
-#: owner (a real 2B sidecar's header is about 160 KB). The name stays for `tools/ckpt_average.py`,
-#: whose own sidecar header read still imports it.
-_MAX_SIDECAR_HEADER_BYTES: Final[int] = MAX_SAFETENSORS_HEADER_BYTES
 
 
 def _sidecar_digest(tensors: Mapping[str, TensorRef]) -> str:

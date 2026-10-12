@@ -107,6 +107,7 @@ from typing import Any, Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
+from qd_train.memory import CheckpointRefused, tensor_ranges
 from qd_train.run_control import (
     Checkpoint,
     LRSchedule,
@@ -716,8 +717,6 @@ class _SidecarTensors:
     makes (``run_control._join_tensors``) -- after the body's ``payload_digest`` verifies."""
 
     def __init__(self, path: Path) -> None:
-        from qd_train.run_control import _MAX_SIDECAR_HEADER_BYTES
-
         self.path = path
         self.body = Checkpoint.read_body(path)
         declared = self.body.get("sidecar")
@@ -726,12 +725,10 @@ class _SidecarTensors:
         self.sidecar = Checkpoint.sidecar_path(path, declared["digest"])
         if not self.sidecar.is_file():
             raise AverageRefusal(f"{path}: its sidecar {self.sidecar.name} is not beside it")
-        with self.sidecar.open("rb") as fh:
-            n = int.from_bytes(fh.read(8), "little")
-            if not 0 < n <= _MAX_SIDECAR_HEADER_BYTES:
-                raise AverageRefusal(f"{self.sidecar}: safetensors header claims {n} bytes")
-            self.header = json.loads(fh.read(n))
-        self.base = 8 + n
+        try:
+            self.ranges = tensor_ranges(self.sidecar)
+        except CheckpointRefused as exc:
+            raise AverageRefusal(str(exc)) from exc
 
     def master(self, index: int) -> Any:
         """``optimizer.masters[index]`` as a float32 torch tensor, verified."""
@@ -743,13 +740,14 @@ class _SidecarTensors:
         if entry is None:
             raise AverageRefusal(f"{self.path}: master {index} is not a tensor in the body")
         key = str(entry["key"])
-        info = self.header.get(key)
-        if info is None:
+        found = self.ranges.get(key)
+        if found is None:
             raise AverageRefusal(f"{self.sidecar.name} does not carry {key}")
-        start, end = (int(x) for x in info["data_offsets"])
         with self.sidecar.open("rb") as fh:
-            fh.seek(self.base + start)
-            data = fh.read(end - start)
+            fh.seek(found.start)
+            data = fh.read(found.end - found.start)
+        if len(data) != found.end - found.start:
+            raise AverageRefusal(f"{self.sidecar}: {key} is truncated")
         try:
             ref = _join_tensors(node, {key: TensorRef(
                 dtype=str(entry["dtype"]), shape=tuple(int(a) for a in entry["shape"]),
