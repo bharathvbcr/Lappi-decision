@@ -295,3 +295,17 @@ def test_the_synth_runs_own_timeout_panic_is_timed_out_not_101(tmp_path: Path, o
     assert _status(out)["s6-kill"] == "timed_out"
     text = RUNNER.read_text()
     assert "bounded_step s6-kill" in text, "s6-kill goes through bounded_step"
+
+
+def test_no_function_is_defined_twice_and_the_job_body_appears_once() -> None:
+    """65802d5 spliced a second copy of the script body into the first: sourcing stops at the
+    SOURCE_ONLY return, so the copy never ran in the tests, but a real job ran the worktree pin
+    twice (the second `pin_worktree` refuses its own tree)."""
+    import re
+    from collections import Counter
+
+    text = RUNNER.read_text()
+    defs = Counter(re.findall(r"^([a-z_0-9]+)\(\) [{(]", text, flags=re.M))
+    assert {name: n for name, n in defs.items() if n > 1} == {}
+    assert len(re.findall(r"^: > \"\$OUT/status.tsv\"$", text, flags=re.M)) == 1
+    assert len(re.findall(r"^trap cleanup EXIT$", text, flags=re.M)) == 1
