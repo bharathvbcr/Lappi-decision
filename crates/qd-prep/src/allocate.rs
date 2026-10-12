@@ -112,9 +112,58 @@ fn object<'a>(v: &'a Value, key: &str) -> Result<&'a serde_json::Map<String, Val
         .ok_or_else(|| format!("config: {key:?} is not an object"))
 }
 
+/// Refuse a JSON object that names a key twice, at any depth. `serde_json::Value` keeps the last
+/// value of a repeated key, so a reader of the file would see one cap or draw and the tool would
+/// apply the other. `bytes` is already valid JSON, so the scan only tracks nesting and strings.
+fn reject_duplicate_keys(bytes: &[u8]) -> Result<(), String> {
+    struct Frame {
+        object: bool,
+        expect_key: bool,
+        seen: BTreeSet<String>,
+    }
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => stack.push(Frame { object: true, expect_key: true, seen: BTreeSet::new() }),
+            b'[' => stack.push(Frame { object: false, expect_key: false, seen: BTreeSet::new() }),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            b',' => {
+                if let Some(f) = stack.last_mut() {
+                    f.expect_key = f.object;
+                }
+            }
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                if let Some(f) = stack.last_mut()
+                    && f.object
+                    && f.expect_key
+                {
+                    let key: String = serde_json::from_slice(&bytes[start..=i.min(bytes.len() - 1)])
+                        .map_err(|e| format!("config: {e}"))?;
+                    if !f.seen.insert(key.clone()) {
+                        return Err(format!("config: duplicate key {key:?}; a key may be given once"));
+                    }
+                    f.expect_key = false;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 impl Config {
     pub fn parse(bytes: &[u8]) -> Result<Self, String> {
         let v: Value = serde_json::from_slice(bytes).map_err(|e| format!("config: {e}"))?;
+        reject_duplicate_keys(bytes)?;
         let top = v.as_object().ok_or("config: not a JSON object")?;
         // Every key is required or prose: a misspelt optional key would otherwise be a rule
         // silently not applied.
@@ -327,6 +376,24 @@ fn read_pool(
     let manifest_bytes = files::read_bounded(&manifest_path, files::MAX_RECORD_BYTES, &what)?;
     let manifest: Value = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+    if spec.as_built {
+        // An as-built pool passes through with no cap drawn from it, so the output may say
+        // "applied" for it only if it already was, or predates producers naming an allocation
+        // (v5's pool). A synth or convert pool is a candidate: refuse, never launder it.
+        let state = manifest
+            .get("allocation")
+            .and_then(|a| a.get("state"))
+            .and_then(Value::as_str);
+        let pre_v6 = manifest.get("tool").is_none() && manifest.get("allocation").is_none();
+        if !(pre_v6 || state == Some(pool::ALLOCATION_APPLIED)) {
+            return Err(format!(
+                "{what}: drawn as_built, but its manifest is a candidate pool (tool {:?}, \
+                 allocation state {state:?}): no cap table has drawn from it, and passing it \
+                 through would stamp it applied. Draw it capped",
+                manifest.get("tool").and_then(Value::as_str)
+            ));
+        }
+    }
     if manifest.get("schema").and_then(Value::as_str) != Some(decisions::MANIFEST_SCHEMA)
         || manifest.get("mode").and_then(Value::as_str) != Some("build")
     {
@@ -841,6 +908,16 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     }
     let refused_total: usize = refused.values().flat_map(BTreeMap::values).sum();
     let dropped_total = cross_pool + within_pool;
+    // What `load_decision_pool` checks beside the state: the digests of the rows and of the
+    // config that drew them, so a hand-written `applied` has to carry both and the config's.
+    let mut allocation = pool::allocation(
+        true,
+        "qd-prep allocate: the pinned config's train_caps (per family, shared over strata by \
+         largest remainder), val caps and floors drew the capped pools; the as-built pools \
+         passed through whole",
+    );
+    allocation["rows_sha256"] = json!(ex.sha256);
+    allocation["config_sha256"] = json!(digests["config"]);
     let manifest = json!({
         "schema": decisions::MANIFEST_SCHEMA, "mode": "build", "tool": TOOL,
         "tool_version": env!("CARGO_PKG_VERSION"), "seed": cfg.seed,
@@ -885,9 +962,7 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
         "decontamination_note": "allocate runs no scan; each input pool's own record is under \
                                  pools.NAME.decontamination",
         "examples": ex.rows, "examples_sha256": ex.sha256,
-        "allocation": pool::allocation(true, "qd-prep allocate: the pinned config's train_caps \
-                 (per family, shared over strata by largest remainder), val caps and floors \
-                 drew the capped pools; the as-built pools passed through whole"),
+        "allocation": allocation,
     });
     let summary = format!(
         "qd-prep allocate: {} rows ({} as built, {} drawn of {} candidates); {refused_total} \

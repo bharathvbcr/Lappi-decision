@@ -53,6 +53,11 @@ fn row(r: &R<'_>) -> Value {
 /// `rows` written as a build pool under `dir/name`: examples.jsonl and a manifest naming its
 /// sha256 and count. Returns the pool dir and the examples' sha256.
 fn pool(dir: &Path, name: &str, rows: &[Value]) -> (PathBuf, String) {
+    pool_with(dir, name, rows, json!({}))
+}
+
+/// [`pool`] with `extra` keys merged into the manifest (a producer's `tool` and `allocation`).
+fn pool_with(dir: &Path, name: &str, rows: &[Value], extra: Value) -> (PathBuf, String) {
     let p = dir.join(name);
     std::fs::create_dir_all(&p).expect("pool dir");
     let mut bytes = Vec::new();
@@ -62,11 +67,14 @@ fn pool(dir: &Path, name: &str, rows: &[Value]) -> (PathBuf, String) {
     }
     let sha = sha256_hex(&bytes);
     std::fs::write(p.join("examples.jsonl"), &bytes).expect("examples");
-    let manifest = json!({
+    let mut manifest = json!({
         "schema": "qd-decisions/v1", "mode": "build", "examples": rows.len(),
         "examples_sha256": sha,
         "decontamination": {"excluded_total": 0},
     });
+    if let (Value::Object(base), Value::Object(more)) = (&mut manifest, extra) {
+        base.extend(more);
+    }
     std::fs::write(
         p.join("manifest.json"),
         serde_json::to_vec_pretty(&manifest).expect("manifest"),
@@ -525,4 +533,71 @@ fn an_uncapped_family_in_any_one_of_several_pools_is_refused() {
     let out = d.join("out");
     let err = refused(&run(&cfg, &[("a", &a), ("b", &b)], &out, 2), &out);
     assert!(err.contains("fam.two") && err.contains("train_caps"), "{err}");
+}
+
+/// D1 (verify-lane3): a candidate pool (`allocation.state` not applied) configured `as_built`
+/// would come out stamped `applied` with no cap having drawn from it. It is refused; a pool no
+/// producer wrote a tool or allocation into (v5's shape) and an already applied one pass.
+#[test]
+fn an_as_built_candidate_pool_is_refused_not_stamped_applied() {
+    for (tag, extra) in [
+        ("synth", json!({"tool": "qd-prep synth", "allocation": {"state": "not_applied", "detail": "c"}})),
+        ("tool-only", json!({"tool": "qd-prep convert"})),
+        ("bad-state", json!({"allocation": {"state": "Applied", "detail": "c"}})),
+    ] {
+        let d = scratch(tag);
+        let (p, sha) = pool_with(&d, "p", &many("a", "fam.one", "fam.one/x", "train", 3), extra);
+        let cfg = config(&d, &[("p", &sha, "as_built")], json!({}), json!({}));
+        let out = d.join("out");
+        let err = refused(&run(&cfg, &[("p", &p)], &out, 1), &out);
+        assert!(err.contains("as_built") && err.contains("candidate"), "{tag}: {err}");
+    }
+    let d = scratch("as-built-applied");
+    let (p, sha) = pool_with(
+        &d,
+        "p",
+        &many("a", "fam.one", "fam.one/x", "train", 3),
+        json!({"allocation": {"state": "applied", "detail": "qd-prep decisions"}}),
+    );
+    let cfg = config(&d, &[("p", &sha, "as_built")], json!({}), json!({}));
+    ok(&run(&cfg, &[("p", &p)], &d.join("out"), 1));
+}
+
+/// D2 support: what allocate writes that the loader checks and a one-line hand edit does not
+/// reproduce: its tool name, and the digests of the rows and of the config it drew with.
+#[test]
+fn the_applied_manifest_binds_its_rows_and_its_config() {
+    let d = scratch("binding");
+    let (p, sha) = pool(&d, "p", &many("a", "fam.one", "fam.one/x", "train", 3));
+    let cfg = config(&d, &[("p", &sha, "capped")], json!({"fam.one": 2}), json!({}));
+    let out = d.join("out");
+    ok(&run(&cfg, &[("p", &p)], &out, 1));
+    let m = manifest(&out);
+    assert_eq!(m["tool"], "qd-prep allocate");
+    assert_eq!(m["allocation"]["state"], "applied");
+    assert_eq!(m["allocation"]["rows_sha256"], m["examples_sha256"]);
+    assert_eq!(m["allocation"]["config_sha256"], m["inputs"]["config"]);
+    assert_eq!(m["allocation"]["config_sha256"], sha256_hex(&std::fs::read(&cfg).unwrap()));
+}
+
+/// D4: a JSON object key given twice in the config is refused; the reader of the file would
+/// see one value and the tool would apply the other.
+#[test]
+fn a_duplicate_key_in_the_config_is_refused() {
+    let d = scratch("dup-keys");
+    let (p, sha) = pool(&d, "p", &many("a", "fam.one", "fam.one/x", "train", 3));
+    let good = config(&d, &[("p", &sha, "capped")], json!({"fam.one": 2}), json!({}));
+    let text = std::fs::read_to_string(&good).unwrap();
+    for (tag, bad) in [
+        ("caps", text.replace("\"fam.one\": 2", "\"fam.one\": 2, \"fam.one\": 40")),
+        ("seed", text.replacen("\"seed\": 7,", "\"seed\": 7, \"seed\": 8,", 1)),
+        ("pool", text.replace("\"draw\": \"capped\"", "\"draw\": \"capped\", \"draw\": \"as_built\"")),
+    ] {
+        assert_ne!(bad, text, "{tag}: the edit did not apply");
+        let cfg = d.join(format!("dup-{tag}.json"));
+        std::fs::write(&cfg, bad).unwrap();
+        let out = d.join(format!("out-{tag}"));
+        let err = refused(&run(&cfg, &[("p", &p)], &out, 1), &out);
+        assert!(err.contains("duplicate key"), "{tag}: {err}");
+    }
 }
