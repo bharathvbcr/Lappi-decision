@@ -345,3 +345,87 @@ def test_the_pinned_function_hash_matches_the_committed_source() -> None:
     pinned = doc["selection_rule"]["function_sha256"]
     got = mine.function_sha256("d930579", "choice_rule_abstentions", repo=ROOT)
     assert got == pinned
+
+
+REAL_V5_VAL_ID = (
+    "qdm:code.defect_class:761ae0d762324ef1eba93ab1b9cf2cf28d2fa30e:"
+    "python/snippets/find_if_program_installed.py#0"
+)
+
+
+def test_a_real_v5_val_id_in_the_mixture_format_excludes_the_corpus_row(
+    world: dict[str, object],
+) -> None:
+    """verify-lane6 D9: v5's verdict lines key rows `qdm:<family>:<corpus id>`; the corpus's own
+    id has no prefix. The exclusion matched 0 of 2,304 until the key was normalised."""
+    corpus_id = REAL_V5_VAL_ID.removeprefix("qdm:code.defect_class:")
+    assert mine.normalise_key(REAL_V5_VAL_ID) == corpus_id == mine.normalise_key(corpus_id)
+    val = Path(str(world["val"]))
+    val_bytes = _write_jsonl(val, [{"row_id": REAL_V5_VAL_ID}])
+    row = {**_cand(1), "id": corpus_id, "pool_id": corpus_id.split("#")[0]}
+    corpus = Path(str(world["corpus"]))
+    corpus_bytes = _write_jsonl(corpus, [row, _cand(2)])
+    doc = json.loads(Path(str(world["prereg"])).read_text())
+    doc["candidates"]["corpora"][0]["sha256"] = _sha(corpus_bytes)
+    doc["exclusion"]["sets"][1]["sha256"] = _sha(val_bytes)
+    Path(str(world["prereg"])).write_text(json.dumps(doc))
+    _git(Path(str(world["repo"])), "commit", "-q", "-am", "real val id")
+    report = _plan(world)
+    assert report["duplicates_by_set"]["v5-val"] == 1 and report["kept"] == 1
+
+
+def _with_split_map(
+    world: dict[str, object],
+    mapping: dict[str, str],
+    rows: list[dict[str, object]],
+    **corpus_over: object,
+) -> None:
+    tmp = Path(str(world["tmp"]))
+    smap = tmp / "data" / "split-map.json"
+    smap_bytes = (json.dumps({"repos": mapping}) + "\n").encode()
+    smap.write_bytes(smap_bytes)
+    corpus = Path(str(world["corpus"]))
+    corpus_bytes = _write_jsonl(corpus, rows)
+    doc = json.loads(Path(str(world["prereg"])).read_text())
+    doc["candidates"]["corpora"][0].update(sha256=_sha(corpus_bytes), **corpus_over)
+    doc["exclusion"]["split_map"] = {"path": str(smap), "sha256": _sha(smap_bytes)}
+    Path(str(world["prereg"])).write_text(json.dumps(doc))
+    _git(Path(str(world["repo"])), "commit", "-q", "-am", "split map")
+
+
+def test_mutants_of_val_and_heldout_repos_are_excluded_by_the_split_map(
+    world: dict[str, object],
+) -> None:
+    rows = [_cand(7, repo="a/train"), _cand(8, repo="b/val"), _cand(9, repo="c/held")]
+    _with_split_map(world, {"a/train": "train", "b/val": "val", "c/held": "heldout"}, rows)
+    report = _plan(world)
+    assert report["kept"] == 1
+    assert report["leakage"]["split_map"]["state"] == "ran"
+    assert report["leakage"]["split_map"]["dropped_not_train_split"] == 2
+    assert report["leakage"]["heldout_exact_keys"]["state"] == "not_run"
+
+
+def test_a_repo_outside_the_split_map_is_refused_unless_the_corpus_is_own_repos_train(
+    world: dict[str, object],
+) -> None:
+    _with_split_map(world, {"a/train": "train"}, [_cand(1, repo="x/unmapped")])
+    with pytest.raises(mine.Refusal, match="not in the pinned split map"):
+        _plan(world)
+    _with_split_map(
+        world, {"a/train": "train"}, [_cand(1, repo="x/unmapped")], own_repos_train=True
+    )
+    assert _plan(world)["kept"] == 1
+
+
+def test_select_refuses_verdicts_scored_over_another_shard_set(world: dict[str, object]) -> None:
+    report = _plan(world)
+    plan_dir = Path(str(report["out_dir"]))
+    plan_doc = json.loads((plan_dir / "plan.json").read_text())
+    assert plan_doc["candidate_ids"], "the plan lists the ids it was built from"
+    foreign = Path(str(world["tmp"])) / "verdicts.jsonl"
+    foreign.write_text(json.dumps({"row_id": "not-in-the-plan", "kind": "choice"}) + "\n")
+    args = type("A", (), {})()
+    args.prereg, args.repo, args.verdicts = world["prereg"], world["repo"], foreign
+    args.plan_dir, args.out = plan_dir, Path(str(world["tmp"])) / "mined.json"
+    with pytest.raises(mine.Refusal, match="not in the plan"):
+        mine._select(args)

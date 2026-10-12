@@ -35,14 +35,18 @@
         "rows": 4000,
         "seed": 20261008,
         "path": null,
-        "sha256": null
+        "sha256": null,
+        "own_repos_train": true
       },
       {
         "name": "single-file-mutants-v1",
         "ruling": "R4: 12,000 single-file mutants from `qd-mutate generate --seed 20261008` over the existing pool data/pool/commitpackft-pool-v2.jsonl.",
         "rows": 12000,
         "seed": 20261008,
-        "pool": {"path": "data/pool/commitpackft-pool-v2.jsonl", "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2"},
+        "pool": {
+          "path": "data/pool/commitpackft-pool-v2.jsonl",
+          "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2"
+        },
         "path": null,
         "sha256": null
       }
@@ -52,10 +56,27 @@
   "exclusion": {
     "exact_identity_dedupe": "a candidate whose id, identity_key or content digest sha256(before NUL after) equals a key of any set below is dropped and counted by set; within-candidate duplicates are dropped and counted. A candidate whose repo is a held-out repository of the own-repos manifest, or whose path carries a held-out marker, is refused whole (CLAUDE.md rule 3). Duplicating v5 train rows is refused.",
     "sets": [
-      {"name": "v5-train-corpus-v3", "path": "data/pool/commitpackft-corpus-v3/examples.jsonl", "sha256": "610bb1f0f1d86dc23f419001d8670e01418485644bea93e2b33631e5650c62e0", "key": "id"},
-      {"name": "v5-val-verdict-row-ids", "path": "/Users/bharath/qd-campaign/preview-2026-10-05/v5-avg-verdicts/verdicts-avg.jsonl", "sha256": "4ea2539f36a2649ac85e3ca87d5e73b8edf8d51f6313c13f8814a7deaec7da4f", "key": "row_id"}
+      {
+        "name": "v5-train-corpus-v3",
+        "path": "data/pool/commitpackft-corpus-v3/examples.jsonl",
+        "sha256": "610bb1f0f1d86dc23f419001d8670e01418485644bea93e2b33631e5650c62e0",
+        "key": "id"
+      },
+      {
+        "name": "v5-val-verdict-row-ids",
+        "path": "/Users/bharath/qd-campaign/preview-2026-10-05/v5-avg-verdicts/verdicts-avg.jsonl",
+        "sha256": "4ea2539f36a2649ac85e3ca87d5e73b8edf8d51f6313c13f8814a7deaec7da4f",
+        "key": "row_id",
+        "note": "row_id values are `qdm:code.defect_class:<corpus id>`; compared by normalised key."
+      }
     ],
-    "leakage_scans": "the containment scan against val, held-out and target texts (qd-prep containment, the v5 scan), the v2 split map (sha f5621909...) and the pipeline's v6 split-priority dedupe. The driver records each as ran (with its attestation sha256) or not_run; an absent scan is never recorded as clean."
+    "leakage_scans": "the containment scan against val, held-out and target texts (qd-prep containment, the v5 scan), the v2 split map (sha f5621909...) and the pipeline's v6 split-priority dedupe. The driver records each as ran (with its attestation sha256) or not_run; an absent scan is never recorded as clean. The driver records heldout_exact_keys and v6_split_priority_dedupe as not_run (no held-out key set is pinned; the pipeline runs the dedupe).",
+    "split_map": {
+      "path": "data/pool/commitpackft-pool-v2.split-map.json",
+      "sha256": "f5621909c5f46e1ad46ed04f5040f92a768cb14c3860520284427123274ac6cd",
+      "note": "regenerated 2026-10-12 by tools/compose_split_map.py over the pinned pool; reproduces the v2 split map's sha256. The driver drops candidates whose repo is val or heldout in it, and refuses a repo it does not hold unless the corpus is flagged own_repos_train (own-swift-composed-v1 is selected from the own-repos manifest's train repositories)."
+    },
+    "key_normalisation": "ids are compared after stripping the mixture prefix `qdm:<family>:` (v5's verdict row ids carry it; corpus ids do not). Amended 2026-10-12 before any scoring: the unnormalised comparison matched 0 of 2,304 v5 val ids."
   },
   "throughput": {
     "probe": "the first 200 deduped candidate rows, in the corpus order the seed fixed, scored once as a heavy MPS job under tools/mac_heavy.sh. It measures rows_per_s. Its abstention count is recorded, gates nothing and is not read as a yield estimate.",
@@ -77,8 +98,15 @@
   },
   "driver": {
     "path": "tools/arm_b_mine.py",
-    "refuses": ["a pre-registration that is not committed or differs from HEAD", "a corpus or scorer whose sha256 is null or differs from this record", "any input path with a held-out marker, or an input file holding a caller record (rule 3)", "a candidate that duplicates a v5 train or val key", "a candidate from a held-out repository"],
-    "records": "every count (offered, refused by reason, duplicates by set, kept, abstained) and the sha256 of every input and output, in the plan and report files it writes beside the rows."
+    "refuses": [
+      "a pre-registration that is not committed or differs from HEAD",
+      "a corpus or scorer whose sha256 is null or differs from this record",
+      "any input path with a held-out marker, or an input file holding a caller record (rule 3)",
+      "a candidate that duplicates a v5 train or val key",
+      "a candidate from a held-out repository"
+    ],
+    "records": "every count (offered, refused by reason, duplicates by set, kept, abstained) and the sha256 of every input and output, in the plan and report files it writes beside the rows.",
+    "select": "`select` takes --plan-dir and refuses verdicts whose row ids are not in the plan (the scorer ran over another shard set)."
   },
   "amendments": "an amendment is a new commit that changes a null above to a sha256 and a row count, before any scoring; any other change after a candidate was scored is void."
 }

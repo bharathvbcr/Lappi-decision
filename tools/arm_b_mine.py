@@ -29,6 +29,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -149,6 +150,29 @@ def _rows(path: Path, what: str) -> Iterable[dict[str, Any]]:
             yield row
 
 
+_QDM_PREFIX = re.compile(r"^qdm:[^:]+:")
+
+
+def normalise_key(key: str) -> str:
+    """One key format for ids: the mixture's ``qdm:<family>:<corpus id>`` (what v5's verdict
+    lines carry) and the corpus's own ``<corpus id>`` are the same row. Without this the v5 val
+    exclusion matched 0 of 2,304 ids (verify-lane6 D9)."""
+    return _QDM_PREFIX.sub("", key)
+
+
+def load_split_map(spec: Mapping[str, Any], repo: Path) -> tuple[dict[str, str], str]:
+    """The pinned v2 split map (``tools/compose_split_map.py``): repo -> train/val/heldout."""
+    path = Path(spec["path"])
+    if not path.is_absolute():
+        path = repo / path
+    sha = check_input(path, repo=repo, want_sha=spec.get("sha256"), what="the split map")
+    doc = json.loads(path.read_text())
+    repos = doc.get("repos")
+    if not isinstance(repos, dict) or not repos:
+        raise Refusal(f"the split map {path} has no repos")
+    return {str(k): str(v) for k, v in repos.items()}, sha
+
+
 def content_digest(row: Mapping[str, Any]) -> str | None:
     """sha256(before NUL after): what makes a re-id'd copy of a row a duplicate."""
     if isinstance(row.get("before"), str) and isinstance(row.get("after"), str):
@@ -179,16 +203,21 @@ def plan(
         keys: set[str] = set()
         digests: set[str] = set()
         for row in _rows(path, s["name"]):
-            if isinstance(row.get(s["key"]), str):
-                keys.add(row[s["key"]])
-            for alt in ("identity_key", "id"):
-                if isinstance(row.get(alt), str):
-                    keys.add(row[alt])
+            for field in (s["key"], "identity_key", "id"):
+                if isinstance(row.get(field), str):
+                    keys.add(normalise_key(row[field]))
             d = content_digest(row)
             if d is not None:
                 digests.add(d)
         sets.append((s["name"], keys, digests))
 
+    split_spec = doc["exclusion"].get("split_map")
+    split_map: dict[str, str] = {}
+    split_sha = None
+    if split_spec is not None:
+        split_map, split_sha = load_split_map(split_spec, repo)
+        inputs["split_map"] = split_sha
+    not_train = 0
     held = set(heldout_repos)
     seen_keys: set[str] = set()
     seen_digests: set[str] = set()
@@ -216,22 +245,36 @@ def plan(
                     f"corpus {corpus['name']}: {row['id']} is from a held-out repository "
                     f"({row['repo']}): refused whole (rule 3)"
                 )
+            if split_map:
+                split = split_map.get(str(row.get("repo")))
+                if split is None and not corpus.get("own_repos_train"):
+                    raise Refusal(
+                        f"corpus {corpus['name']}: repo {row.get('repo')!r} of {row['id']} is not "
+                        "in the pinned split map and the corpus is not own_repos_train: refused"
+                    )
+                if split is not None and split != "train":
+                    not_train += 1
+                    continue
             digest = content_digest(row)
+            ident = normalise_key(row["id"])
+            idk = row.get("identity_key")
             hit = next(
                 (
                     name
                     for name, keys, digs in sets
-                    if row["id"] in keys or (digest and digest in digs)
+                    if ident in keys
+                    or (isinstance(idk, str) and normalise_key(idk) in keys)
+                    or (digest and digest in digs)
                 ),
                 None,
             )
             if hit is not None:
                 dup_by_set[hit] += 1
                 continue
-            if row["id"] in seen_keys or (digest and digest in seen_digests):
+            if ident in seen_keys or (digest and digest in seen_digests):
                 dup_within += 1
                 continue
-            seen_keys.add(row["id"])
+            seen_keys.add(ident)
             if digest:
                 seen_digests.add(digest)
             kept.append(row)
@@ -258,10 +301,25 @@ def plan(
         "kept": len(kept),
         "leakage": {
             "exact_identity": {"state": "ran", "sets": [n for n, _, _ in sets]},
+            "split_map": (
+                {"state": "ran", "sha256": split_sha, "dropped_not_train_split": not_train}
+                if split_map
+                else {"state": "not_run", "reason": "the pre-registration names no split map"}
+            ),
+            "heldout_exact_keys": {
+                "state": "not_run",
+                "reason": "no held-out key set is pinned; held-out repositories are excluded by "
+                "the split map and the own-repos manifest's held-out list, not by key",
+            },
+            "v6_split_priority_dedupe": {
+                "state": "not_run",
+                "reason": "run by the shard pipeline under --v6-data-rules, not by this driver",
+            },
             "containment": containment,
         },
         "inputs": inputs,
         "candidates_sha256": hashlib.sha256(body).hexdigest(),
+        "candidate_ids": sorted(normalise_key(str(r["id"])) for r in kept),
     }
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=out_dir.name + ".partial-", dir=out_dir.parent))
@@ -317,7 +375,20 @@ def scan_rows(*, rows_per_s: float) -> int:
 def _select(args: argparse.Namespace) -> int:
     doc = check_committed(args.prereg, args.repo)
     verdicts = Path(args.verdicts)
+    plan_dir = Path(args.plan_dir)
+    plan_doc = json.loads((plan_dir / "plan.json").read_text())
+    if _sha256_file(plan_dir / "candidates.jsonl") != plan_doc["candidates_sha256"]:
+        raise Refusal(f"{plan_dir}/candidates.jsonl no longer hashes to the plan's sha256")
     lines = [json.loads(line) for line in verdicts.read_text().splitlines() if line.strip()]
+    planned = set(plan_doc["candidate_ids"])
+    foreign = sorted(
+        {str(v["row_id"]) for v in lines if normalise_key(str(v["row_id"])) not in planned}
+    )
+    if foreign:
+        raise Refusal(
+            f"{len(foreign)} scored row(s) are not in the plan (first: {foreign[0]}): the scorer "
+            "ran over another shard set"
+        )
     abstained = abstentions(lines)
     gold = {
         str(v["row_id"]): bool(v.get("expected_abstain"))
@@ -371,6 +442,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--prereg", type=Path, required=True)
     s.add_argument("--repo", type=Path, default=ROOT)
     s.add_argument("--verdicts", type=Path, required=True)
+    s.add_argument(
+        "--plan-dir",
+        type=Path,
+        required=True,
+        help="the `plan` output directory the scored shard set was built from",
+    )
     s.add_argument("--out", type=Path, required=True)
     b = sub.add_parser("budget")
     b.add_argument("--rows-per-s", type=float, required=True)
