@@ -443,7 +443,9 @@ def test_a_spec_wrong_about_any_architecture_number_is_refused(tmp_path, field, 
         _load_tiny(snapshot, spec=dataclasses.replace(_tiny_spec(), **{field: wrong}))
 
 
-def test_the_linear_layer_enumeration_uses_the_real_modules_widths_when_value_heads_differ():
+def test_the_linear_layer_enumeration_uses_the_real_modules_widths_when_value_heads_differ(
+    monkeypatch,
+):
     """Qwen3.5-4B/9B-Base have twice as many value heads as key heads. The enumeration is
     checked against transformers' own ``Qwen3_5GatedDeltaNet`` at that ratio: every
     projection width from the module, and the recurrent state's shape from a real forward
@@ -478,15 +480,28 @@ def test_the_linear_layer_enumeration_uses_the_real_modules_widths_when_value_he
     assert ActivationModel(recompute="none").linear_layer_elements(spec) == expected
 
     seen: list[tuple[int, ...]] = []
-    real = lin.chunk_gated_delta_rule
 
-    def spy(*args, **kwargs):
-        kwargs["output_final_state"] = True
-        out, state = real(*args, **kwargs)
-        seen.append(tuple(state.shape))
-        return out, state
+    def spying(real, *, first_call_only=False):
+        def spy(*args, **kwargs):
+            kwargs["output_final_state"] = True
+            out, state = real(*args, **kwargs)
+            # The module-level function serves every linear layer; one layer's state is the
+            # instance-attribute spy's equivalent.
+            if not (first_call_only and seen):
+                seen.append(tuple(state.shape))
+            return out, state
 
-    lin.chunk_gated_delta_rule = spy
+        return spy
+
+    if hasattr(lin, "chunk_gated_delta_rule"):  # transformers 5.12: an instance attribute
+        lin.chunk_gated_delta_rule = spying(lin.chunk_gated_delta_rule)
+    else:  # 5.17+: the layer calls this module-level function by global name
+        from transformers.models.qwen3_5 import modeling_qwen3_5 as mq
+
+        monkeypatch.setattr(
+            mq, "torch_chunk_gated_delta_rule",
+            spying(mq.torch_chunk_gated_delta_rule, first_call_only=True),
+        )
     with torch.no_grad():
         model(input_ids=torch.randint(0, TINY_VOCAB, (3, 8)))
     assert seen == [(3, 4, 16, 16)]  # [rows, value heads, key dim, value dim]
