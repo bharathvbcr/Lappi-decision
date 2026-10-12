@@ -764,6 +764,7 @@ dependencies = [
  "anyhow",
  "clap",
  "qd-lang",
+ "qd-prep",
  "rand",
  "rand_chacha",
  "serde",
