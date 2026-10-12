@@ -83,7 +83,13 @@
     "draft_sha256": "c3a0b5a1bef5e7ae69645c1c242181b56fc4bc2e5c15f63018b447223fac8f2a",
     "on": "2026-10-12",
     "by": "board-sweep lane 7 (ft-12da8e67e32 b,c; Fable ruling 2j.7)",
-    "changes": "status line and P1.data_fact only; no definition, arm, threshold or outcome word edited",
-    "result_read": "none: no P1 or P2 row exists in any ledger at promotion"
+    "changes": "status line; P1.data_fact (new); and one sentence appended to P1.definitions.S stating the data fact. No formula, arm, threshold or outcome word was edited.",
+    "result_read": "none: no P1 or P2 row exists in any ledger at promotion",
+    "amendment_1": {
+      "on": "2026-10-12",
+      "what": "corrects promoted.changes, which first said no definition was edited when a sentence had been appended to P1.definitions.S (verifier finding)",
+      "before_any_result": "no P1 or P2 row exists in any ledger; no kahan or first-box row was read",
+      "substance": "unchanged"
+    }
   }
 }
