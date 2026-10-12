@@ -1,4 +1,4 @@
-"""Read P1 of campaign/next-train-first-box-2026-10-06.DRAFT.json: master vs master-repeat vs
+"""Read P1 of campaign/next-train-first-box-preregistered.json: master vs master-repeat vs
 kahan on the 2B tower, seed 0, 600 steps. A pure reader: no torch, no training, no ledger row.
 
 Inputs (all required; a missing one is ``refused``, never a smaller reading):
@@ -69,7 +69,9 @@ from qd_train.replay import ReplayRefusal, write_text_atomic
 from qd_train.run_control import Checkpoint
 from qd_train.tristate import Ran
 
-DRAFT: Final[str] = "campaign/next-train-first-box-2026-10-06.DRAFT.json"
+#: The rule this reader implements. The 2026-10-06 DRAFT is superseded by the pre-registration
+#: (bab4adb, with Fable's 2026-10-08 ruling and the Mac data fact applied).
+PREREG: Final[str] = "campaign/next-train-first-box-preregistered.json"
 ARMS: Final[tuple[str, ...]] = ("master", "master-repeat", "kahan")
 #: Which ``--optimizer`` each arm was trained with (ft row ``recipe.optimizer_recipe``).
 ARM_RECIPE: Final[Mapping[str, str]] = {"master": "master", "master-repeat": "master",
@@ -128,7 +130,7 @@ class Reading:
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "rule": DRAFT, "probe": "P1", "word": self.word, "refusals": self.refusals,
+            "rule": PREREG, "probe": "P1", "word": self.word, "refusals": self.refusals,
             "numbers": self.numbers, "choices": CHOICES,
         }
 
@@ -407,7 +409,7 @@ def val_gap(a: Mapping[str, bool], b: Mapping[str, bool]) -> tuple[float, float,
 
 def decide(*, gap: float, floor: float, val: tuple[float, float], peak_ratio: float,
            step_ratio: float) -> str:
-    """The first matching word after ``refused``, in the DRAFT's order."""
+    """The first matching word after ``refused``, in the pre-registration's order."""
     values = (gap, floor, *val, peak_ratio, step_ratio)
     if not all(math.isfinite(x) for x in values):
         return "refused"
@@ -422,10 +424,30 @@ def decide(*, gap: float, floor: float, val: tuple[float, float], peak_ratio: fl
     return "admissible"
 
 
+def _prereg_file() -> Path:
+    return Path(__file__).resolve().parents[1] / PREREG
+
+
+def _prereg_refusal() -> str | None:
+    """Why the pre-registered rule cannot be read, or None. A reading that cites a rule file it
+    could not open is not a reading of that rule."""
+    path = _prereg_file()
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return f"the preregistration {PREREG} could not be read ({exc})"
+    if not isinstance(doc, dict) or not isinstance(doc.get("P1"), dict):
+        return f"the preregistration {PREREG} holds no P1 object"
+    return None
+
+
 def read(arms: Mapping[str, ArmInputs | None], footprints: Mapping[str, Path | None],
          ledgers: Sequence[Path]) -> Reading:
     reading = Reading(word="refused")
     n = reading.numbers
+    stale = _prereg_refusal()
+    if stale is not None:
+        reading.refusals.append(stale)
 
     def attempt(fn, *args):
         try:

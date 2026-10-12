@@ -449,8 +449,8 @@ def test_main_exits_non_zero_on_refused(tmp_path):
     assert p1.main(["--ledger", str(tmp_path / "none.jsonl")]) == 3
 
 
-def test_the_constants_are_the_drafts():
-    draft = json.loads((REPO / p1.DRAFT).read_text())["P1"]
+def test_the_constants_are_the_preregistered_rule():
+    draft = json.loads((REPO / p1.PREREG).read_text())["P1"]
     defs, outcomes = draft["definitions"], draft["outcomes"]
     assert "385..600" in defs["S"] and "letter_master[s] > 0" in defs["S"]
     assert f"|S| < {p1.LOSS_STEPS_MIN}" in defs["S"]
@@ -474,5 +474,26 @@ def test_the_constants_are_the_drafts():
     assert "seed (0)" in draft["what"] and "--max-steps 600" in draft["what"]
     assert "--verdicts-out" in draft["what"] and "--wall-clock-cap-s 3600" in draft["what"]
     assert "--checkpoint-every 100" in draft["what"]
-    assert draft["data_fact"].startswith("NOT YET COMPUTED")
+    fact = draft["data_fact"]["result"]
+    assert fact["window"] == "385..600" and fact["floor_108_met"] is True
+    assert fact["letter_supervised_S"] >= p1.LOSS_STEPS_MIN
     assert tuple(draft["first_matching_word_wins_in_order"]) == p1.ORDER
+
+
+def test_the_rule_it_cites_is_the_preregistration_not_the_draft():
+    assert p1.PREREG == "campaign/next-train-first-box-preregistered.json"
+    assert (REPO / p1.PREREG).is_file()
+    assert "DRAFT" not in p1.PREREG
+    assert p1.Reading(word="refused").to_json()["rule"] == p1.PREREG
+
+
+def test_a_missing_or_malformed_preregistration_refuses_the_reading(tmp_path, monkeypatch):
+    for content in (None, "not json", "{}", '{"P1": []}'):
+        path = tmp_path / "prereg.json"
+        path.unlink(missing_ok=True)
+        if content is not None:
+            path.write_text(content)
+        monkeypatch.setattr(p1, "_prereg_file", lambda path=path: path)
+        reading = p1.read({}, {}, [])
+        assert reading.word == "refused"
+        assert any("preregist" in r for r in reading.refusals), (content, reading.refusals)
