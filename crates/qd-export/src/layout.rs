@@ -33,6 +33,15 @@ pub const TEXT_PREFIX: &str = "model.language_model.";
 pub const TOWER_PREFIX: &str = "tower.";
 /// The averaged checkpoint's prefix for the span pointer head.
 pub const SPAN_PREFIX: &str = "span_head.";
+/// The averaged checkpoint's prefix for the 17-row readout delta (`qd_train.lora.AnswerRowDelta`,
+/// `tools/ckpt_average.py`'s `d17` tree).
+pub const D17_PREFIX: &str = "d17.";
+/// The one tensor in the D17 tree, and in the release's `d17.safetensors`
+/// (`AnswerRowDelta.delta`).
+pub const D17_TENSOR: &str = "delta";
+/// The readout's rows: 16 option letters and the reserved noul row, as
+/// `qd_runtime::render::OPTION_LETTERS` plus `NOUL_LETTER` (AUDIT/lora-2b-2026-10-09, D2).
+pub const D17_ROWS: usize = 17;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayerKind {
@@ -255,6 +264,12 @@ impl Layout {
             ("start_proj.weight".to_string(), vec![h, h]),
         ])
     }
+
+    /// The D17 tensor: `[17, H]`, as `AnswerRowDelta.delta` is. Served as
+    /// `embed[answer ids] + D17` (`qd-metal`'s `Model::set_answer_delta`).
+    pub fn d17_tensors(&self) -> BTreeMap<String, Vec<usize>> {
+        BTreeMap::from([(D17_TENSOR.to_string(), vec![D17_ROWS, self.hidden])])
+    }
 }
 
 #[cfg(test)]
@@ -286,6 +301,7 @@ pub(crate) mod tests {
         assert_eq!(t["layers.3.self_attn.k_proj.weight"], [512, 2048]);
         assert_eq!(t["layers.3.self_attn.o_proj.weight"], [2048, 2048]);
         assert_eq!(l.span_head_tensors()["start_proj.weight"], [2048, 2048]);
+        assert_eq!(l.d17_tensors()["delta"], [17, 2048]);
     }
 
     #[test]

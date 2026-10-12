@@ -1,0 +1,24 @@
+{
+  "manifest_format_version": 1,
+  "split": "train",
+  "data_snapshot_hash": "abababababababababababababababababababababababababababababababab",
+  "n_rows": 1,
+  "held_out_families": [
+    "code.language_id",
+    "qa.answerability"
+  ],
+  "entries": [
+    {
+      "row_id": "tiny-row-0",
+      "content_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "split": "train",
+      "source_id": "fixture",
+      "host": "fixture",
+      "family_id": "code.defect_class",
+      "repo_key": "r",
+      "identity_key": "i",
+      "licence_id": "MIT",
+      "obligations": []
+    }
+  ]
+}

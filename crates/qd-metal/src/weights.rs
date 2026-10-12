@@ -259,6 +259,143 @@ pub fn check_text_tensor_set(st: &SafeTensors, cfg: &ModelConfig) -> Result<()> 
     Ok(())
 }
 
+/// The 17-row readout delta: `[17, hidden]` f32, row `i` for answer letter `i` (`A`..`P`, then
+/// noul), read from a release's `d17.safetensors` (`qd_export::export::D17_FILE`, the one tensor
+/// `delta`, `qd_train.lora.AnswerRowDelta.delta`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnswerDelta {
+    hidden: usize,
+    values: Vec<f32>,
+    file_sha256: [u8; 32],
+}
+
+/// D17's rows: 16 option letters and the reserved noul row.
+pub const D17_ROWS: usize = qd_export::layout::D17_ROWS;
+
+impl AnswerDelta {
+    /// Read `path` for a tower of `hidden` width: exactly one F32 tensor `delta` of `[17, hidden]`,
+    /// every value finite.
+    pub fn load(path: &std::path::Path, hidden: usize) -> Result<Self> {
+        let st = SafeTensors::open(path)?;
+        let names: Vec<&str> = st.names().collect();
+        if names != [qd_export::layout::D17_TENSOR] {
+            return Err(MetalError::Weights(format!(
+                "{} holds {names:?}, not exactly [{:?}]",
+                path.display(),
+                qd_export::layout::D17_TENSOR
+            )));
+        }
+        st.expect(qd_export::layout::D17_TENSOR, &[D17_ROWS, hidden], &[Dtype::F32])?;
+        let values = st.f32(qd_export::layout::D17_TENSOR, &[D17_ROWS, hidden])?;
+        let bytes = std::fs::read(path).map_err(|e| MetalError::Weights(format!("{}: {e}", path.display())))?;
+        let mut delta = Self::from_values(hidden, values)?;
+        delta.file_sha256 = qd_runtime::sha256(&bytes);
+        Ok(delta)
+    }
+
+    /// A delta from its values (`17 * hidden`, row-major), every one finite.
+    pub fn from_values(hidden: usize, values: Vec<f32>) -> Result<Self> {
+        if hidden == 0 || values.len() != D17_ROWS * hidden {
+            return Err(MetalError::Weights(format!(
+                "D17 has {} values, not {D17_ROWS} x {hidden}",
+                values.len()
+            )));
+        }
+        if let Some(i) = values.iter().position(|v| !v.is_finite()) {
+            return Err(MetalError::Weights(format!("D17[{i}] is {}", values[i])));
+        }
+        Ok(Self {
+            hidden,
+            values,
+            file_sha256: [0; 32],
+        })
+    }
+
+    pub fn hidden(&self) -> usize {
+        self.hidden
+    }
+
+    /// Letter row `letter`'s delta, `hidden` values. `letter < 17`.
+    pub fn row(&self, letter: usize) -> &[f32] {
+        &self.values[letter * self.hidden..(letter + 1) * self.hidden]
+    }
+
+    /// SHA-256 of the D17 file (zeros for a delta built from values).
+    pub fn file_sha256(&self) -> [u8; 32] {
+        self.file_sha256
+    }
+}
+
+/// The release's D17, if it carries one, bound to its manifest.
+///
+/// `Ok(None)` for a directory with neither `d17.safetensors` nor a `d17` manifest block (a base
+/// snapshot, or a release exported without D17). A file with no manifest block, a block with no
+/// file, a digest that is not the recorded one, or a width that is not the tower's is an error: D17
+/// moves every letter score, so an unbound one is not a head the release exported.
+pub fn open_answer_delta(dir: &std::path::Path, hidden: usize) -> Result<Option<AnswerDelta>> {
+    use qd_runtime::release::MANIFEST_FILE;
+    let file = dir.join(qd_export::export::D17_FILE);
+    let manifest: Option<serde_json::Value> = match std::fs::read_to_string(dir.join(MANIFEST_FILE)) {
+        Ok(text) => Some(serde_json::from_str(&text).map_err(|e| {
+            MetalError::Weights(format!("{}/{MANIFEST_FILE} is not JSON ({e})", dir.display()))
+        })?),
+        Err(_) => None,
+    };
+    let block = manifest.as_ref().and_then(|m| m.get("d17")).filter(|b| !b.is_null());
+    match (file.is_file(), block) {
+        (false, None) => Ok(None),
+        (false, Some(_)) => Err(MetalError::Weights(format!(
+            "{MANIFEST_FILE} records a d17 block but {} is missing",
+            file.display()
+        ))),
+        (true, None) => Err(MetalError::Weights(format!(
+            "{} is present but {MANIFEST_FILE} records no d17 block (or there is no manifest): D17 \
+             changes every letter score, and an unbound one is not served",
+            file.display()
+        ))),
+        (true, Some(block)) => {
+            let manifest = manifest.as_ref().unwrap_or(block);
+            let actual = qd_runtime::hex(&qd_runtime::sha256(
+                &std::fs::read(&file).map_err(|e| MetalError::Weights(format!("{}: {e}", file.display())))?,
+            ));
+            let recorded_files = manifest
+                .pointer(&format!("/files/{}/sha256", qd_export::export::D17_FILE))
+                .and_then(serde_json::Value::as_str);
+            for (what, recorded) in [
+                ("d17.sha256", block.get("sha256").and_then(serde_json::Value::as_str)),
+                ("files sha256", recorded_files),
+            ] {
+                if recorded != Some(actual.as_str()) {
+                    return Err(MetalError::Weights(format!(
+                        "{} has sha256 {actual}, but the manifest's {what} is {recorded:?}: it is not the D17 \
+                         that was exported",
+                        file.display()
+                    )));
+                }
+            }
+            if block.get("hidden_size").and_then(serde_json::Value::as_u64) != u64::try_from(hidden).ok() {
+                return Err(MetalError::Weights(format!(
+                    "d17.hidden_size is {}, the tower's is {hidden}",
+                    block.get("hidden_size").map_or_else(|| "absent".to_string(), ToString::to_string)
+                )));
+            }
+            AnswerDelta::load(&file, hidden).map(Some)
+        }
+    }
+}
+
+/// One answer row of the readout: `embed_row` (bf16 bits) widened to f32, plus `delta_row`.
+///
+/// A zero delta element leaves the embedding value as it is, so a D17 of zero is the tied
+/// embedding's row exactly (`x + 0.0` would turn a `-0.0` into `+0.0`, which a dot product can
+/// see only as a sign of zero, but "bit for bit" is held literally here).
+pub fn compose_answer_row(embed_row: &[u16], delta_row: &[f32], out: &mut [f32]) {
+    for ((o, &e), &d) in out.iter_mut().zip(embed_row).zip(delta_row) {
+        let x = tessl::tensor::bf16_bits_to_f32(e);
+        *o = if d == 0.0 { x } else { x + d };
+    }
+}
+
 /// The weight hash: SHA-256 over `name \0 sha256(bytes)` for every tensor read, in name order.
 pub fn weight_hash(digests: &mut [TensorDigest]) -> String {
     digests.sort_by(|a, b| a.0.cmp(&b.0));

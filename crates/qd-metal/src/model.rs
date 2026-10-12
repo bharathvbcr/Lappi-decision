@@ -21,6 +21,14 @@
 //! logits = score_answer_rows(resid[slot rows], final norm (w_offset 1), embed[answer ids])
 //! ```
 //!
+//! # The 17-row readout
+//!
+//! With a D17 ([`Model::set_answer_delta`], from a release's `d17.safetensors`) the last line reads
+//! `embed[answer ids] + D17`: the rows are composed on the host in f32 (a letter's embedding row
+//! widened from bf16, plus its D17 row) and scored from an f32 head by the same kernel
+//! (`qwen35_score_rows` is generic over the head's dtype and widens bf16 exactly), so a D17 of zero
+//! reproduces today's scores bit for bit (`tests/gpu_d17.rs`).
+//!
 //! # State, and what "read-only" means here
 //!
 //! A [`PrefixState`] is every layer's carried state after a prefix: the conv history and the
@@ -53,7 +61,7 @@ use tessl::{gemm, gemm_epilogue, nn, DType, Epilogue, GemmBackend, GpuBuffer, Gp
 use crate::config::ModelConfig;
 use crate::error::{GpuContext, MetalError, Result};
 use crate::safetensors::SafeTensors;
-use crate::weights::{self, HostLayer, HostMixer, TensorDigest, TEXT_PREFIX};
+use crate::weights::{self, AnswerDelta, HostLayer, HostMixer, TensorDigest, TEXT_PREFIX};
 
 const BACKEND: GemmBackend = GemmBackend::TensorOps;
 
@@ -265,6 +273,17 @@ pub struct Model {
     embed: Tensor,
     weight_hash: String,
     embed_digest: [u8; 32],
+    /// D17 and the 17 letter ids it is indexed by, when the release carries one.
+    readout: Option<Readout>,
+    /// The composed `[n, hidden]` f32 head for the last answer set scored, so a request's repeated
+    /// decodes do not recompose and re-upload it.
+    composed: RefCell<Option<(Vec<u32>, GpuBuffer)>>,
+}
+
+/// `embed[answer ids] + D17`: D17's rows are the 17 letters' in `letter_ids` order.
+struct Readout {
+    delta: AnswerDelta,
+    letter_ids: [u32; 17],
 }
 
 fn upload_f32(rt: &Arc<GpuRuntime>, data: &[f32], what: &str) -> Result<GpuBuffer> {
@@ -532,7 +551,38 @@ impl Model {
             embed,
             weight_hash,
             embed_digest,
+            readout: None,
+            composed: RefCell::new(None),
         })
+    }
+
+    /// Serve the answer rows as `embed[answer ids] + D17`. `letter_ids` are the 17 answer letters'
+    /// token ids, `A`..`P` then noul, in D17's row order; a later [`Model::score`] over any other
+    /// id is refused (D17 has no row for it).
+    pub fn set_answer_delta(&mut self, delta: AnswerDelta, letter_ids: [u32; 17]) -> Result<()> {
+        if delta.hidden() != self.cfg.hidden {
+            return Err(MetalError::Weights(format!(
+                "D17 is {} wide, the tower is {}",
+                delta.hidden(),
+                self.cfg.hidden
+            )));
+        }
+        if let Some(bad) = letter_ids.iter().find(|&&id| id as usize >= self.cfg.vocab) {
+            return Err(MetalError::Input(format!("letter id {bad} is outside the vocabulary")));
+        }
+        self.readout = Some(Readout { delta, letter_ids });
+        *self.composed.borrow_mut() = None;
+        Ok(())
+    }
+
+    /// Whether the answer rows carry a D17.
+    pub fn has_answer_delta(&self) -> bool {
+        self.readout.is_some()
+    }
+
+    /// SHA-256 of the D17 file the answer rows carry, if any.
+    pub fn answer_delta_digest(&self) -> Option<[u8; 32]> {
+        self.readout.as_ref().map(|r| r.delta.file_sha256())
     }
 
     pub fn config(&self) -> &ModelConfig {
@@ -928,7 +978,25 @@ impl Model {
         let n_slots = to_u32(slot_rows.len(), "slots")?;
         let n_answers = to_u32(answers.len(), "answers")?;
         let slots = upload_u32(rt, slot_rows, "slots")?;
-        let ans = upload_u32(rt, answers, "answers")?;
+        // The tied embedding scored by id, or, with a D17, the composed `[n, hidden]` f32 rows
+        // scored by position.
+        let (head, head_dtype, head_vocab, ans) = match &self.readout {
+            None => (
+                self.embed.buffer.clone(),
+                DType::BF16,
+                to_u32(self.cfg.vocab, "vocab")?,
+                upload_u32(rt, answers, "answers")?,
+            ),
+            Some(readout) => {
+                let identity: Vec<u32> = (0..n_answers).collect();
+                (
+                    self.composed_head(readout, answers)?,
+                    DType::F32,
+                    n_answers,
+                    upload_u32(rt, &identity, "answer positions")?,
+                )
+            }
+        };
         let n_out = slot_rows.len() * answers.len();
         let logits = scratch_f32(rt, n_out, "logits")?;
         let logprobs = scratch_f32(rt, n_out, "logprobs")?;
@@ -943,9 +1011,9 @@ impl Model {
             1.0,
             self.cfg.rms_eps,
             LmHead {
-                weight: &self.embed.buffer,
-                dtype: DType::BF16,
-                vocab: to_u32(self.cfg.vocab, "vocab")?,
+                weight: &head,
+                dtype: head_dtype,
+                vocab: head_vocab,
             },
             &ans,
             n_answers,
@@ -962,6 +1030,35 @@ impl Model {
             logits: read(&logits)?,
             logprobs: read(&logprobs)?,
         })
+    }
+
+    /// `embed[answers] + D17` as an `[n, hidden]` f32 buffer, cached for the last answer set.
+    fn composed_head(&self, readout: &Readout, answers: &[u32]) -> Result<GpuBuffer> {
+        if let Some((ids, buffer)) = &*self.composed.borrow()
+            && ids == answers
+        {
+            return Ok(buffer.clone());
+        }
+        let h = self.cfg.hidden;
+        let mut rows = vec![0f32; answers.len() * h];
+        {
+            let table = self.embed.buffer.try_contents_u16().gpu("map embedding")?;
+            for (i, &id) in answers.iter().enumerate() {
+                let letter = readout.letter_ids.iter().position(|&l| l == id).ok_or_else(|| {
+                    MetalError::Input(format!(
+                        "answer id {id} is not one of the 17 answer letters, so D17 has no row for it"
+                    ))
+                })?;
+                weights::compose_answer_row(
+                    &table[id as usize * h..(id as usize + 1) * h],
+                    readout.delta.row(letter),
+                    &mut rows[i * h..(i + 1) * h],
+                );
+            }
+        }
+        let buffer = upload_f32(&self.rt, &rows, "D17 answer rows")?;
+        *self.composed.borrow_mut() = Some((answers.to_vec(), buffer.clone()));
+        Ok(buffer)
     }
 
     /// Prefill `ids` from nothing and keep the state.

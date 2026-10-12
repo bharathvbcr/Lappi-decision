@@ -13,7 +13,7 @@ use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::hex;
 
 use crate::bf16::{check_finite_f32, to_bf16, BadValue, FloatSource};
-use crate::layout::{Layout, SPAN_PREFIX, TEXT_PREFIX, TOWER_PREFIX};
+use crate::layout::{Layout, D17_PREFIX, D17_ROWS, D17_TENSOR, SPAN_PREFIX, TEXT_PREFIX, TOWER_PREFIX};
 use crate::refusal::{Refusal, RefusalKind, Result};
 use crate::safetensors::{sha256_file, Dtype, PlannedTensor, SafeTensorsFile, TensorInfo, Writer, CHUNK_BYTES};
 
@@ -26,6 +26,10 @@ pub use qd_runtime::release::{
     SPAN_HEAD_FILE, TOKENIZER_FILE, TRAINED_FAMILIES_KEY, WEIGHTS_FILE,
 };
 use qd_runtime::release::validate_trained_families;
+
+/// The 17-row readout delta (D17), F32 `[17, H]` as the one tensor `delta`. Present only when the
+/// source carries `d17.delta`; `qd-metal` serves `embed[answer ids] + D17` when it is there.
+pub const D17_FILE: &str = "d17.safetensors";
 
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
@@ -442,6 +446,8 @@ struct Plan {
     source_sha256: String,
     tower: Vec<TowerTensor>,
     head: Vec<(String, TensorInfo)>,
+    /// `d17.delta`, when the source carries it.
+    d17: Vec<(String, TensorInfo)>,
     dropped: Vec<AllowedExtra>,
     dtype_counts: BTreeMap<&'static str, usize>,
     tokenizer: Vec<(&'static str, Vec<u8>)>,
@@ -540,8 +546,10 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
     // Classify every source tensor.
     let want_text = layout.text_tensors()?;
     let want_head = layout.span_head_tensors();
+    let want_d17 = layout.d17_tensors();
     let mut tower: BTreeMap<String, &TensorInfo> = BTreeMap::new();
     let mut head: BTreeMap<String, &TensorInfo> = BTreeMap::new();
+    let mut d17: BTreeMap<String, &TensorInfo> = BTreeMap::new();
     let mut extras: Vec<&str> = Vec::new();
     for (name, info) in src.tensors() {
         if let Some(short) = name.strip_prefix(TOWER_PREFIX)
@@ -552,6 +560,10 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
             && want_head.contains_key(short)
         {
             head.insert(short.to_string(), info);
+        } else if let Some(short) = name.strip_prefix(D17_PREFIX)
+            && want_d17.contains_key(short)
+        {
+            d17.insert(short.to_string(), info);
         } else {
             extras.push(name);
         }
@@ -624,6 +636,14 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
             bad_shapes.push(format!("{SPAN_PREFIX}{short}: {:?}, config implies {:?}", info.shape, want_head[short]));
         }
     }
+    for (short, info) in &d17 {
+        if info.shape != want_d17[short] {
+            bad_shapes.push(format!(
+                "{D17_PREFIX}{short}: {:?}, the readout is {D17_ROWS} rows by the config's hidden size {:?}",
+                info.shape, want_d17[short]
+            ));
+        }
+    }
     if !bad_shapes.is_empty() {
         return Err(refuse(RefusalKind::ShapeMismatch, bad_shapes.join("; ")));
     }
@@ -657,6 +677,15 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
             ));
         }
     }
+    for (short, info) in &d17 {
+        if info.dtype != Dtype::F32 {
+            bad_dtypes.push(format!(
+                "{D17_PREFIX}{short} is {}: D17 is an f32 delta added to the embedding's answer rows in \
+                 f32, and is released as it was trained, bit for bit",
+                info.dtype.as_str()
+            ));
+        }
+    }
     if !bad_dtypes.is_empty() {
         return Err(refuse(RefusalKind::Dtype, bad_dtypes.join("; ")));
     }
@@ -682,6 +711,7 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         source_sha256,
         tower: tower_out,
         head: head.into_iter().map(|(k, v)| (k, v.clone())).collect(),
+        d17: d17.into_iter().map(|(k, v)| (k, v.clone())).collect(),
         dropped,
         dtype_counts,
         tokenizer,
@@ -736,6 +766,49 @@ pub fn weight_hash(digests: &[(String, [u8; 32])]) -> String {
         buf.extend_from_slice(d);
     }
     hex(&sha256(&buf))
+}
+
+/// Write the F32 tensors `tensors` (source names are `prefix` + the name given here) to `path`, bit
+/// for bit, refusing a non-finite value. One writer for the span head and D17: both are trained in
+/// f32 and released as trained.
+fn write_f32_file(
+    src: &SafeTensorsFile,
+    path: &Path,
+    prefix: &str,
+    tensors: &[(String, TensorInfo)],
+    buf: &mut [u8],
+) -> Result<crate::safetensors::WrittenFile> {
+    let mut w = Writer::create(
+        path,
+        tensors
+            .iter()
+            .map(|(short, info)| PlannedTensor {
+                name: short.clone(),
+                dtype: Dtype::F32,
+                shape: info.shape.clone(),
+            })
+            .collect(),
+    )?;
+    let by: BTreeMap<&str, &TensorInfo> = tensors.iter().map(|(k, v)| (k.as_str(), v)).collect();
+    let chunk = u64::try_from(CHUNK_BYTES).map_err(|e| Refusal::io(path, e))?;
+    for planned in w.order() {
+        let info = by
+            .get(planned.name.as_str())
+            .ok_or_else(|| refuse(RefusalKind::Io, format!("writer planned {} with no source", planned.name)))?;
+        let src_name = format!("{prefix}{}", planned.name);
+        w.begin(&planned.name)?;
+        let total = info.nbytes();
+        let mut at = 0u64;
+        while at < total {
+            let n = usize::try_from((total - at).min(chunk)).map_err(|e| Refusal::io(path, e))?;
+            src.read_tensor_range(info, at, &mut buf[..n])?;
+            check_finite_f32(&buf[..n], at / 4).map_err(|b| non_finite(&src_name, b))?;
+            w.write(&buf[..n])?;
+            at += u64::try_from(n).map_err(|e| Refusal::io(path, e))?;
+        }
+        w.end()?;
+    }
+    w.finish()
 }
 
 fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &Path) -> Result<ExportSummary> {
@@ -795,40 +868,13 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
     let weight_hash = weight_hash(&weights.tensor_digests);
     record(WEIGHTS_FILE, hex(&weights.sha256), weights.bytes);
 
-    // span_head.safetensors: F32, bit for bit.
-    let head_path = dir.join(SPAN_HEAD_FILE);
-    let mut hw = Writer::create(
-        &head_path,
-        plan.head
-            .iter()
-            .map(|(short, info)| PlannedTensor {
-                name: short.clone(),
-                dtype: Dtype::F32,
-                shape: info.shape.clone(),
-            })
-            .collect(),
-    )?;
-    let head_by: BTreeMap<&str, &TensorInfo> = plan.head.iter().map(|(k, v)| (k.as_str(), v)).collect();
-    for planned in hw.order() {
-        let info = head_by
-            .get(planned.name.as_str())
-            .ok_or_else(|| refuse(RefusalKind::Io, format!("writer planned {} with no source", planned.name)))?;
-        let src_name = format!("{SPAN_PREFIX}{}", planned.name);
-        hw.begin(&planned.name)?;
-        let total = info.nbytes();
-        let mut at = 0u64;
-        while at < total {
-            let n = usize::try_from((total - at).min(u64::try_from(CHUNK_BYTES).map_err(|e| Refusal::io(&head_path, e))?))
-                .map_err(|e| Refusal::io(&head_path, e))?;
-            src.read_tensor_range(info, at, &mut buf[..n])?;
-            check_finite_f32(&buf[..n], at / 4).map_err(|b| non_finite(&src_name, b))?;
-            hw.write(&buf[..n])?;
-            at += u64::try_from(n).map_err(|e| Refusal::io(&head_path, e))?;
-        }
-        hw.end()?;
-    }
-    let head = hw.finish()?;
+    // span_head.safetensors and d17.safetensors: F32, bit for bit.
+    let head = write_f32_file(src, &dir.join(SPAN_HEAD_FILE), SPAN_PREFIX, &plan.head, &mut buf)?;
     record(SPAN_HEAD_FILE, hex(&head.sha256), head.bytes);
+    if !plan.d17.is_empty() {
+        let d17 = write_f32_file(src, &dir.join(D17_FILE), D17_PREFIX, &plan.d17, &mut buf)?;
+        record(D17_FILE, hex(&d17.sha256), d17.bytes);
+    }
 
     // config.json and the tokenizer files, byte for byte.
     let config_sha = write_verified(&dir.join(CONFIG_FILE), &plan.config_bytes, RefusalKind::Config)?;
@@ -870,6 +916,7 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "tensor_prefix": TEXT_PREFIX,
             "tokenizer": TOKENIZER_FILE,
             "span_head": format!("{SPAN_HEAD_FILE} (no serving loader reads it yet: GAP-J7-EXPORT-SPAN-HEAD-UNSERVED)"),
+            "d17": format!("{D17_FILE} (optional; qd-metal serves embed[answer ids] + D17)"),
         },
         "source": {
             "safetensors": req.source.display().to_string(),
@@ -897,10 +944,23 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "tower_rounded": rounded,
             "tower_copied": copied,
             "span_head": "F32, copied bit for bit",
+            "d17": "F32, copied bit for bit, when the source carries d17.delta",
             "vocab_size": plan.layout.vocab,
             "hidden_size": plan.layout.hidden,
             "num_hidden_layers": plan.layout.layer_kinds.len(),
         },
+        "d17": plan.d17.first().map(|(_, info)| json!({
+            "file": D17_FILE,
+            "sha256": shas[D17_FILE],
+            "rows": D17_ROWS,
+            "hidden_size": plan.layout.hidden,
+            "tensor": D17_TENSOR,
+            "dtype": "F32",
+            "serving": "embed[answer ids] + D17: answer row i is the embedding row of answer id i plus \
+                        D17's row for that letter, summed in f32; D17 = 0 reproduces the \
+                        tied-embedding readout bit for bit",
+            "shape": info.shape,
+        })),
         "dropped_extras": plan.dropped.iter().map(|d| json!({"name": d.name, "reason": d.reason})).collect::<Vec<_>>(),
         "calibration": calibration,
         // What goes together: this tower, served under this config.json, with this tokenizer, in

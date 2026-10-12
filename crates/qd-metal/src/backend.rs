@@ -428,8 +428,13 @@ impl Worker {
     fn new(snapshot: &std::path::Path, cfg: &MetalConfig) -> Result<Self> {
         let rt = tessl::GpuRuntime::new().map_err(MetalError::Gpu)?;
         rt.set_async_encode(true).map_err(MetalError::Gpu)?;
-        let model = Model::load(&rt, snapshot)?;
+        let mut model = Model::load(&rt, snapshot)?;
         let tok = QwenTokenizer::load(&snapshot.join("tokenizer.json"))?;
+        // A D17 changes every letter score, so a release whose D17 is unbound or unreadable does
+        // not start.
+        if let Some(delta) = crate::weights::open_answer_delta(snapshot, model.config().hidden)? {
+            model.set_answer_delta(delta, *tok.letter_ids())?;
+        }
         Ok(Self {
             model,
             tok,
@@ -450,8 +455,16 @@ impl Worker {
             .iter()
             .flat_map(|id| id.to_le_bytes())
             .collect();
-        let mut head = b"qd-metal.head.tied-embedding-letter-rows.v1\0".to_vec();
+        // The head the answers read: the tied embedding's letter rows, plus D17 when the release
+        // carries one. A release without it hashes exactly as it always did.
+        let mut head = match self.model.answer_delta_digest() {
+            None => b"qd-metal.head.tied-embedding-letter-rows.v1\0".to_vec(),
+            Some(_) => b"qd-metal.head.tied-embedding-letter-rows-plus-d17.v1\0".to_vec(),
+        };
         head.extend_from_slice(&self.model.embed_digest());
+        if let Some(d17) = self.model.answer_delta_digest() {
+            head.extend_from_slice(&d17);
+        }
         head.extend_from_slice(&letters);
         let mut labels = b"qd-metal.label-set.v1\0ABCDEFGHIJKLMNOPZ\0".to_vec();
         labels.extend_from_slice(&letters);
