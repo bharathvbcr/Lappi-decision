@@ -57,7 +57,8 @@ def _write_pool(root: Path, lines: list[dict[str, object]], **manifest: object) 
     }
     doc.update(manifest)
     if doc.get("tool") == "qd-prep allocate" and isinstance(doc.get("allocation"), dict):
-        # What `qd-prep allocate` binds an applied pool to (qd_data.decisions._check_allocate_binding).
+        # What `qd-prep allocate` binds an applied pool to
+        # (qd_data.decisions._check_allocate_binding).
         config_sha = hashlib.sha256(b"fixture config").hexdigest()
         doc["inputs"] = {"config": config_sha}
         doc["allocation"] = {**doc["allocation"], "rows_sha256": doc["examples_sha256"],
