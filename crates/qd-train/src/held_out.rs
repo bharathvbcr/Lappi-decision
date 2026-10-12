@@ -442,6 +442,50 @@ fn is_caller_record_line(line: &[u8], line_bytes: usize) -> bool {
     }
 }
 
+/// Finds a `str.splitlines()` separator the guard does not split on, in one line (a mirror of
+/// `qd-prep`'s `heldout::BreakScan`, which this crate cannot depend on). A raw control
+/// character (`\x0b`, `\x0c`, `\x1c`..`\x1e`) is refused anywhere: it is not legal inside a JSON
+/// string either. U+0085, U+2028 and U+2029 are refused outside a string only: inside a string
+/// value they are legal JSON and legitimate data, and the readers split on `\n` alone. A
+/// backslash escapes the byte after it, in or out of a string.
+#[derive(Default)]
+struct BreakScan {
+    in_string: bool,
+    escaped: bool,
+    tail: [u8; 2],
+    seen: usize,
+}
+
+impl BreakScan {
+    /// The separator `chunk` holds that the guard must refuse, if any.
+    fn feed(&mut self, chunk: &[u8]) -> Option<&'static str> {
+        for &b in chunk {
+            if matches!(b, 0x0b | 0x0c | 0x1c..=0x1e) {
+                return Some("a raw control character (U+000B, U+000C or U+001C..U+001E)");
+            }
+            if !self.in_string {
+                let [p2, p1] = self.tail;
+                if b == 0x85 && self.seen >= 1 && p1 == 0xC2 {
+                    return Some("U+0085");
+                }
+                if matches!(b, 0xA8 | 0xA9) && self.seen >= 2 && p2 == 0xE2 && p1 == 0x80 {
+                    return Some(if b == 0xA8 { "U+2028" } else { "U+2029" });
+                }
+            }
+            if self.escaped {
+                self.escaped = false;
+            } else if b == b'\\' {
+                self.escaped = true;
+            } else if b == b'"' {
+                self.in_string = !self.in_string;
+            }
+            self.tail = [self.tail[1], b];
+            self.seen = self.seen.saturating_add(1);
+        }
+        None
+    }
+}
+
 /// Layer 5 on bytes already read: refuse the whole file if any line is a caller record, or if
 /// the file is longer than `limits.total_bytes` and the scanned prefix held none.
 pub fn assert_no_caller_records(
@@ -481,6 +525,19 @@ pub fn assert_no_caller_records(
                 detail: "the readers split on a bare '\\r' (text mode) or do not ('\\n' only), so a \
                          record could sit behind it; refused, not passed as clean (CLAUDE.md \
                          rule 3: a check that could not run is not a check that passed)."
+                    .to_owned(),
+            });
+        }
+        if let Some(what) = BreakScan::default().feed(line) {
+            return Err(HeldOutViolation {
+                layer: HeldOutLayer::GuardIncomplete,
+                expected: "lines the caller-record guard can split exactly as the readers do"
+                    .to_owned(),
+                actual: format!("{label}: line {} holds {what}", i + 1),
+                detail: "str.splitlines() splits on it and the guard does not, so a reader that \
+                         did could read a record behind it; refused, not passed as clean \
+                         (CLAUDE.md rule 3: a check that could not run is not a check that \
+                         passed)."
                     .to_owned(),
             });
         }

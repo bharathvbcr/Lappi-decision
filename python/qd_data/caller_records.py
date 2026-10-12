@@ -22,12 +22,18 @@ verdicts:
 * ``unscannable``: the bytes cannot be read as lines of text, so they are refused, not passed. A
   gzip, zstd or UTF-16 (BOM) magic, a file longer than the byte budget, a bare ``\\r`` (one not
   followed by ``\\n``: the readers split on it in text mode and not otherwise, so a record could
-  sit behind it), or a path that is neither a regular file nor a directory (a FIFO, a device has
-  no stable bytes to scan). A check that could not run is never the same result as a check that
-  passed.
+  sit behind it), any other character ``str.splitlines()`` splits on that a reader could honour
+  (``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e``, anywhere in a line: a raw control character is
+  not legal JSON, so no row holds one; and ``\\x85``, U+2028 and U+2029 OUTSIDE a JSON string: a
+  raw U+2028 inside a string value is legal JSON and legitimate data, so it is passed), or a path
+  that is neither a regular file nor a directory (a FIFO, a device has no stable bytes to scan).
+  A check that could not run is never the same result as a check that passed.
 * ``clean``: everything else. A line longer than the line budget is skipped unparsed (the contract
   writes no record over 64 KiB). The budget is on the line's content, without its ``\\n`` or
   ``\\r\\n``, so a record of exactly the bound is scanned.
+
+**A line is what ends in ``\\n``, with an optional preceding ``\\r`` stripped.** The separator
+refusal above is defence in depth for a reader that splits on more.
 
 There is no sniff of the first byte: a file whose first line is garbage, a comment, a JSON string
 or an array is scanned like any other.
@@ -140,6 +146,90 @@ def _refuse_bare_cr(label: str, line_no: int) -> CallerRecordRefusal:
     )
 
 
+#: A raw control character ``str.splitlines()`` splits on. Not legal inside a JSON string either,
+#: so it is refused wherever it sits.
+_CONTROL_BREAK: Final[re.Pattern[bytes]] = re.compile(rb"[\x0b\x0c\x1c-\x1e]")
+_CONTROL_BYTES: Final[bytes] = b"\x0b\x0c\x1c\x1d\x1e"
+#: U+0085, U+2028, U+2029 in UTF-8. Legal inside a JSON string, a line break outside one.
+_UNICODE_BREAKS: Final[tuple[bytes, ...]] = (b"\xc2\x85", b"\xe2\x80\xa8", b"\xe2\x80\xa9")
+_ESCAPED_BYTE: Final[re.Pattern[bytes]] = re.compile(rb"\\.", re.DOTALL)
+
+
+class _BreakScan:
+    """Finds a ``str.splitlines()`` separator the guard does not split on, in one line.
+
+    Fed the line in chunks (an over-long line is read in pieces) and keeps the JSON string state
+    across them: a backslash escapes the byte after it, a quote toggles the string. The common
+    case (no candidate byte sequence in the chunk) costs a few C-level scans; the byte walk runs
+    only on a chunk that holds U+0085, U+2028 or U+2029.
+    """
+
+    __slots__ = ("escaped", "in_string", "tail")
+
+    def __init__(self) -> None:
+        self.in_string = False
+        self.escaped = False
+        #: The last two bytes of the previous chunk, so a sequence split across chunks is seen.
+        self.tail = b""
+
+    def feed(self, chunk: bytes) -> str | None:
+        """What separator ``chunk`` holds outside a JSON string (control characters: anywhere)."""
+        control = _CONTROL_BREAK.search(chunk)
+        if control is not None:
+            return f"control character U+{control.group()[0]:04X}"
+        buf = self.tail + chunk
+        found = None
+        if any(brk in buf for brk in _UNICODE_BREAKS):
+            found = self._walk(buf, len(self.tail))
+        else:
+            self._advance(chunk)
+        self.tail = buf[-2:]
+        return found
+
+    def _advance(self, chunk: bytes) -> None:
+        if self.escaped and chunk:
+            chunk = chunk[1:]
+            self.escaped = False
+        rest = _ESCAPED_BYTE.sub(b"", chunk)
+        if rest.endswith(b"\\"):
+            self.escaped = True
+            rest = rest[:-1]
+        if rest.count(b'"') & 1:
+            self.in_string = not self.in_string
+
+    def _walk(self, buf: bytes, start: int) -> str | None:
+        for i in range(start, len(buf)):
+            b = buf[i]
+            if not self.in_string:
+                if b == 0x85 and i >= 1 and buf[i - 1] == 0xC2:
+                    return "U+0085"
+                if b in (0xA8, 0xA9) and i >= 2 and buf[i - 2 : i] == b"\xe2\x80":
+                    return "U+2028" if b == 0xA8 else "U+2029"
+            if self.escaped:
+                self.escaped = False
+            elif b == 0x5C:
+                self.escaped = True
+            elif b == 0x22:
+                self.in_string = not self.in_string
+        return None
+
+
+def _maybe_break(line: bytes) -> bool:
+    """The cheap test a line must pass before :class:`_BreakScan` walks it (C-level scans only)."""
+    return len(line.translate(None, _CONTROL_BYTES)) != len(line) or any(
+        brk in line for brk in _UNICODE_BREAKS
+    )
+
+
+def _refuse_foreign_break(label: str, line_no: int, what: str) -> CallerRecordRefusal:
+    return CallerRecordRefusal(
+        "unscannable",
+        f"{label}: line {line_no} holds {what}, which str.splitlines() splits on and the "
+        "guard does not; a reader that did could read a record behind it. Refused rather than "
+        "passed as clean (CLAUDE.md rule 3)",
+    )
+
+
 def scan_stream(
     fh: BinaryIO,
     *,
@@ -173,7 +263,16 @@ def scan_stream(
         bare, carry = _bare_cr(False, line)
         if bare:
             raise _refuse_bare_cr(label, line_no)
-        if overlong:
+        # A line is walked only when a C-level scan finds a candidate; an over-long one is always
+        # walked, because the string state must carry across the reads that make it up.
+        breaks = _BreakScan() if overlong else None
+        foreign = (
+            breaks.feed(line) if breaks is not None
+            else _BreakScan().feed(line) if _maybe_break(line) else None
+        )
+        if foreign is not None:
+            raise _refuse_foreign_break(label, line_no, foreign)
+        if breaks is not None:
             # Over-long: drain the rest of the line unparsed, still counting it.
             while True:
                 rest = fh.readline(1 << 20)
@@ -181,6 +280,9 @@ def scan_stream(
                 bare, carry = _bare_cr(carry, rest)
                 if bare or (not rest and carry):
                     raise _refuse_bare_cr(label, line_no)
+                foreign = breaks.feed(rest)
+                if foreign is not None:
+                    raise _refuse_foreign_break(label, line_no, foreign)
                 if not rest or rest.endswith(b"\n") or total > max_bytes:
                     break
         elif carry:

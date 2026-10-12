@@ -9,7 +9,8 @@
 //! A path is not the only guard. A copy of an app's caller-record file anywhere else carries no
 //! marker, so [`refuse_caller_records`] reads the content: any line whose parsed top-level
 //! `"record"` starts with `lappi.caller_record` refuses the whole file, wherever it lives;
-//! compressed or UTF-16 bytes, a bare `\r`, a non-regular file and a file over the byte budget
+//! compressed or UTF-16 bytes, a bare `\r` or any other `str.splitlines()` separator a reader could
+//! honour (see [`BreakScan`]), a non-regular file and a file over the byte budget
 //! are refused as unscannable, never passed. Text that merely quotes the format is clean. The rule is
 //! shared with `crates/qd-train/src/held_out.rs::assert_no_caller_records` and
 //! `python/qd_data/caller_records.py`: all three run the oracle
@@ -211,6 +212,57 @@ fn bare_cr(prev_cr: bool, chunk: &[u8]) -> (bool, bool) {
     (inner, chunk.last() == Some(&b'\r'))
 }
 
+/// Finds a `str.splitlines()` separator the guard does not split on, in one line. Fed the line in
+/// chunks (an over-long line is read in pieces); the JSON string state and the last two bytes
+/// carry across them. A raw control character (`\x0b`, `\x0c`, `\x1c`..`\x1e`) is refused
+/// anywhere: it is not legal inside a JSON string either. U+0085, U+2028 and U+2029 are refused
+/// outside a string only: inside a string value they are legal JSON and legitimate data, and the
+/// readers split on `\n` alone. A backslash escapes the byte after it, in or out of a string.
+#[derive(Default)]
+struct BreakScan {
+    in_string: bool,
+    escaped: bool,
+    tail: [u8; 2],
+    seen: usize,
+}
+
+impl BreakScan {
+    /// The separator `chunk` holds that the guard must refuse, if any.
+    fn feed(&mut self, chunk: &[u8]) -> Option<&'static str> {
+        for &b in chunk {
+            if matches!(b, 0x0b | 0x0c | 0x1c..=0x1e) {
+                return Some("a raw control character (U+000B, U+000C or U+001C..U+001E)");
+            }
+            if !self.in_string {
+                let [p2, p1] = self.tail;
+                if b == 0x85 && self.seen >= 1 && p1 == 0xC2 {
+                    return Some("U+0085");
+                }
+                if matches!(b, 0xA8 | 0xA9) && self.seen >= 2 && p2 == 0xE2 && p1 == 0x80 {
+                    return Some(if b == 0xA8 { "U+2028" } else { "U+2029" });
+                }
+            }
+            if self.escaped {
+                self.escaped = false;
+            } else if b == b'\\' {
+                self.escaped = true;
+            } else if b == b'"' {
+                self.in_string = !self.in_string;
+            }
+            self.tail = [self.tail[1], b];
+            self.seen = self.seen.saturating_add(1);
+        }
+        None
+    }
+}
+
+fn foreign_break_verdict(line_no: usize, what: &str) -> Verdict {
+    Verdict::Unscannable(format!(
+        "line {line_no} holds {what}, which str.splitlines() splits on and the guard does not; \
+         a reader that did could read a record behind it"
+    ))
+}
+
 /// Compressed or UTF-16 bytes hide a record from a line scan.
 fn unscannable_magic(head: &[u8]) -> Option<&'static str> {
     const MAGIC: [(&[u8], &str); 4] = [
@@ -280,6 +332,10 @@ fn scan_caller_records(
         if bare {
             return Err(bare_cr_verdict(line_no));
         }
+        let mut breaks = BreakScan::default();
+        if let Some(what) = breaks.feed(&buf) {
+            return Err(foreign_break_verdict(line_no, what));
+        }
         if overlong {
             // Over-long: drain the rest of the line unparsed, still counting every byte.
             loop {
@@ -297,9 +353,13 @@ fn scan_caller_records(
                 total += used as u64;
                 let (bare, c) = bare_cr(carry, &chunk[..used]);
                 carry = c;
+                let foreign = breaks.feed(&chunk[..used]);
                 reader.consume(used);
                 if bare {
                     return Err(bare_cr_verdict(line_no));
+                }
+                if let Some(what) = foreign {
+                    return Err(foreign_break_verdict(line_no, what));
                 }
                 if total > max_bytes || done {
                     break;
@@ -623,6 +683,37 @@ mod tests {
         std::fs::write(&path, format!("{}\n", rows.join("\r"))).unwrap();
         let err = refuse_caller_records(&path, "pool").unwrap_err();
         assert!(err.contains("bare carriage return"), "{err}");
+    }
+
+    /// A file re-separated with any other `str.splitlines()` separator is refused at the input
+    /// door, not scanned as one over-long clean line.
+    #[test]
+    fn a_file_re_separated_with_a_splitlines_separator_is_refused() {
+        let dir = scratch("splitlines");
+        let filler = format!("{{\"pad\":\"{}\"}}", "x".repeat(2000));
+        for (i, sep) in ['\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}']
+            .into_iter()
+            .enumerate()
+        {
+            let path = dir.join(format!("rows-{i}.jsonl"));
+            let mut rows = vec![filler.as_str(); 600];
+            rows.push(REC);
+            std::fs::write(&path, format!("{}\n", rows.join(sep.to_string().as_str()))).unwrap();
+            let err = refuse_caller_records(&path, "pool").unwrap_err();
+            assert!(err.contains("str.splitlines()"), "{sep:?}: {err}");
+        }
+    }
+
+    /// U+0085, U+2028 and U+2029 are legal raw inside a JSON string: data, not refused.
+    #[test]
+    fn a_separator_inside_a_string_value_is_data() {
+        for sep in ['\u{85}', '\u{2028}', '\u{2029}'] {
+            let row = serde_json::json!({"text": format!("a{sep}b")}).to_string();
+            assert!(row.contains(sep));
+            assert_eq!(refuse_caller_record_bytes(format!("{row}\n{row}\n").as_bytes(), "x"), Ok(()));
+            let outside = format!("{row}{sep}{row}\n");
+            assert!(refuse_caller_record_bytes(outside.as_bytes(), "x").is_err(), "{sep:?}");
+        }
     }
 
     #[test]

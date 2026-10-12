@@ -2494,6 +2494,34 @@ mod tests {
         assert!(select(&c, &cands).unwrap_err().contains("over val_cap_total"));
     }
 
+    /// The reader splits on `\n` alone: a row whose string value holds U+0085, U+2028 or U+2029
+    /// (legal raw JSON, and data) is one row, not two truncated ones.
+    #[test]
+    fn the_line_reader_keeps_a_row_with_a_splitlines_separator_in_a_string_whole() {
+        let dir = std::env::temp_dir().join(format!(
+            "qd-prep-decisions-sep-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rows.jsonl");
+        std::fs::write(
+            &path,
+            "{\"a\":\"x\u{85}y\"}\n{\"a\":\"x\u{2028}y\"}\n{\"a\":\"x\u{2029}y\"}\n",
+        )
+        .unwrap();
+        let mut seen = Vec::new();
+        for_lines(&path, Role::Source, |n, row| {
+            seen.push((n, row["a"].as_str().map(str::len)));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, [(1, Some(3 + 1)), (2, Some(3 + 2)), (3, Some(3 + 2))]);
+    }
+
     #[test]
     fn the_line_reader_counts_what_it_reads_drops_a_bad_source_row_and_keeps_a_reference_one() {
         let nanos = std::time::SystemTime::now()

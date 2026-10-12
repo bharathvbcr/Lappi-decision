@@ -275,6 +275,43 @@ fn a_cr_separated_file_is_refused_not_scanned_as_one_clean_line() {
     );
 }
 
+/// Every character `str.splitlines()` splits on beyond `\n`. The readers split on `\n` alone; a
+/// file re-separated with one of these must not be scanned as one clean line.
+const SPLITLINES_SEPARATORS: [char; 9] = [
+    '\r', '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}',
+];
+
+#[test]
+fn a_record_file_re_separated_with_any_splitlines_separator_is_refused() {
+    let filler = format!(r#"{{"pad":"{}"}}"#, "x".repeat(2000));
+    for sep in SPLITLINES_SEPARATORS {
+        let mut rows = vec![filler.as_str(); 600];
+        rows.push(REC);
+        let file = format!("{}\n", rows.join(sep.to_string().as_str()));
+        assert_eq!(
+            layer_of(file.as_bytes(), GuardLimits::default()),
+            Some(HeldOutLayer::GuardIncomplete),
+            "{sep:?}"
+        );
+    }
+}
+
+/// U+0085, U+2028 and U+2029 are legal raw inside a JSON string and are data; they are refused
+/// only outside one.
+#[test]
+fn a_separator_inside_a_string_value_is_data_and_is_not_refused() {
+    for sep in ['\u{85}', '\u{2028}', '\u{2029}'] {
+        let row = serde_json::json!({"text": format!("a{sep}b")}).to_string();
+        assert!(row.contains(sep), "serde_json writes {sep:?} raw");
+        assert_eq!(layer_of(format!("{row}\n{row}\n").as_bytes(), GuardLimits::default()), None);
+        let outside = format!("{row}{sep}{row}\n");
+        assert_eq!(
+            layer_of(outside.as_bytes(), GuardLimits::default()),
+            Some(HeldOutLayer::GuardIncomplete)
+        );
+    }
+}
+
 /// A document that only quotes the record format is not a caller record.
 #[test]
 fn text_that_quotes_the_format_is_clean() {

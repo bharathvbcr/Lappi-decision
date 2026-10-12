@@ -254,6 +254,38 @@ mod tests {
         }
     }
 
+    /// The characters `str.splitlines()` splits on beyond `\n`. The reader splits on `\n` alone.
+    const SPLITLINES_SEPARATORS: [char; 9] = [
+        '\r', '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}',
+    ];
+
+    /// U+0085, U+2028 and U+2029 are legal raw inside a JSON string and are data: a row that holds
+    /// one is one record, not two truncated ones.
+    #[test]
+    fn a_splitlines_separator_inside_a_string_value_stays_one_record() {
+        let source = "a\u{85}b\u{2028}c\u{2029}d";
+        let line = serde_json::json!({"id":"a","repo":"o/r","path":"a.rs","source":source}).to_string();
+        assert!(line.contains('\u{2028}'), "serde_json writes U+2028 raw, which is the point");
+        let records = read_jsonl(format!("{line}\n{line}\n").as_bytes()).expect("parses");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].source, source);
+    }
+
+    /// A caller record behind any other line separator is refused: the guard splits on `\n` and
+    /// refuses a line that holds one outside a string, so a reader that splits on it cannot find
+    /// a record the guard passed.
+    #[test]
+    fn a_caller_record_behind_a_splitlines_separator_is_refused() {
+        let rec = r#"{"record":"lappi.caller_record","id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
+        for sep in SPLITLINES_SEPARATORS {
+            let jsonl = format!("{OK}{sep}{rec}\n");
+            match read_jsonl(jsonl.as_bytes()) {
+                Err(PoolError::CallerRecord { line, .. }) => assert_eq!(line, 1, "{sep:?}"),
+                other => panic!("{sep:?}: expected a caller-record refusal, got {other:?}"),
+            }
+        }
+    }
+
     /// A line that is also a structurally valid pool record, with the marker as an extra key,
     /// would parse; the guard refuses it, and names the line it sits on.
     #[test]

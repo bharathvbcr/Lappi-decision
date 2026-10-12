@@ -268,6 +268,238 @@
    "name": "record key holding an object that holds the record",
    "text": "{\"record\":{\"record\":\"lappi.caller_record\"}}\n",
    "expect": "clean"
+  },
+  {
+   "name": "vertical tab separates rows",
+   "text": "{\"a\":1}\u000b{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "vertical tab inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u000by\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "form feed separates rows",
+   "text": "{\"a\":1}\f{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "form feed inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\fy\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "file separator separates rows",
+   "text": "{\"a\":1}\u001c{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "file separator inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u001cy\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "group separator separates rows",
+   "text": "{\"a\":1}\u001d{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "group separator inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u001dy\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "record separator separates rows",
+   "text": "{\"a\":1}\u001e{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "record separator inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u001ey\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 separates rows",
+   "text": "{\"a\":1}\u0085{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 separates rows at end of file",
+   "text": "{\"a\":1}\u0085",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 inside a string value is data",
+   "text": "{\"a\":\"x\u0085y\"}\n{\"b\":2}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "next line U+0085 inside a string after an escaped quote is data",
+   "text": "{\"a\":\"q\\\"\u0085x\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "next line U+0085 after a string closed by an escaped backslash separates rows",
+   "text": "{\"a\":\"\\\\\"}\u0085{\"b\":2}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 inside a string, then a record on the next line",
+   "text": "{\"a\":\"x\u0085y\"}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "next line U+0085 escaped as \\u is data",
+   "text": "{\"a\":\"x\\u0085y\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "next line U+0085 over-long line, inside a string",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u0085yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "next line U+0085 over-long line, outside a string, straddling the read boundary",
+   "text": "{\"b\":2}                                                                                             \u0085{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "next line U+0085 over-long line, outside a string after a string closed in an earlier read",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\u0085{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "next line U+0085 over-long line, inside a string after an escaped quote at the read boundary",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"xxxxxxxxxxxxxxxxxxxx\u0085x\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 separates rows",
+   "text": "{\"a\":1}\u2028{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "line separator U+2028 separates rows at end of file",
+   "text": "{\"a\":1}\u2028",
+   "expect": "unscannable"
+  },
+  {
+   "name": "line separator U+2028 inside a string value is data",
+   "text": "{\"a\":\"x\u2028y\"}\n{\"b\":2}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "line separator U+2028 inside a string after an escaped quote is data",
+   "text": "{\"a\":\"q\\\"\u2028x\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "line separator U+2028 after a string closed by an escaped backslash separates rows",
+   "text": "{\"a\":\"\\\\\"}\u2028{\"b\":2}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "line separator U+2028 inside a string, then a record on the next line",
+   "text": "{\"a\":\"x\u2028y\"}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "line separator U+2028 escaped as \\u is data",
+   "text": "{\"a\":\"x\\u2028y\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "line separator U+2028 over-long line, inside a string",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2028yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 over-long line, outside a string, straddling the read boundary",
+   "text": "{\"b\":2}                                                                                             \u2028{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 over-long line, outside a string after a string closed in an earlier read",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\u2028{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 over-long line, inside a string after an escaped quote at the read boundary",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"xxxxxxxxxxxxxxxxxxxx\u2028x\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 separates rows",
+   "text": "{\"a\":1}\u2029{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "paragraph separator U+2029 separates rows at end of file",
+   "text": "{\"a\":1}\u2029",
+   "expect": "unscannable"
+  },
+  {
+   "name": "paragraph separator U+2029 inside a string value is data",
+   "text": "{\"a\":\"x\u2029y\"}\n{\"b\":2}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "paragraph separator U+2029 inside a string after an escaped quote is data",
+   "text": "{\"a\":\"q\\\"\u2029x\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "paragraph separator U+2029 after a string closed by an escaped backslash separates rows",
+   "text": "{\"a\":\"\\\\\"}\u2029{\"b\":2}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "paragraph separator U+2029 inside a string, then a record on the next line",
+   "text": "{\"a\":\"x\u2029y\"}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "paragraph separator U+2029 escaped as \\u is data",
+   "text": "{\"a\":\"x\\u2029y\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, inside a string",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2029yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, outside a string, straddling the read boundary",
+   "text": "{\"b\":2}                                                                                             \u2029{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, outside a string after a string closed in an earlier read",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\u2029{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, inside a string after an escaped quote at the read boundary",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"xxxxxxxxxxxxxxxxxxxx\u2029x\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "other non-ASCII whitespace is not a separator",
+   "text": "{\"a\":1}\u2005{\"b\":2}\n\u00c5\n",
+   "expect": "clean"
   }
  ]
 }
