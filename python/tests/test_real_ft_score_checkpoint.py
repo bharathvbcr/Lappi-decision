@@ -202,7 +202,9 @@ def test_every_recipe_name_maps_to_one_spec_and_an_unknown_one_is_refused() -> N
     assert real_ft_run.optimizer_spec("bf16", "kahan") is ADAMW_KAHAN
     assert real_ft_run.optimizer_spec("bf16", "bf16") is ADAMW_BF16
     assert real_ft_run.optimizer_spec("fp32", "kahan") is ADAMW_FP32
-    assert set(real_ft_run.OPTIMIZER_RECIPES) == {"bf16", "master", "kahan"}
+    # "f32" and "lora" are ledger labels (board-sweep ruling 2h) that no torch step here builds;
+    # tests/test_real_ft_optimizer_labels.py pins them.
+    assert set(real_ft_run.OPTIMIZER_RECIPES) == {"bf16", "master", "kahan", "f32", "lora"}
     for unknown in ("kahan-bf16", "Master", "", "sgd"):
         with pytest.raises(ValueError, match="no optimizer recipe"):
             real_ft_run.optimizer_spec("bf16", unknown)

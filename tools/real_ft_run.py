@@ -758,11 +758,20 @@ REAL_BACKBONE_LR: Final[float] = 1e-5
 #: `kahan` (qd_train.optim.KahanBf16AdamW) keeps bf16 weights with a bf16 Kahan compensation
 #: and fp32 moments, and no master: 14 B/param. It is the 16-bit recipe for a base that the
 #: master recipe does not fit. tests/test_optim.py measures it against the master trajectory.
+#:
+#: `f32` and `lora` are labels a ledger row carries (Fable's board-sweep ruling 2h) and this
+#: tool's bf16 steps do not build: `f32` is the Metal full-fine-tune path (AdamW over f32
+#: parameters, no master/bf16 split) and `lora` is the LoRA-2B recipe family (D6). Neither may
+#: pool with `master`: the label is in the recipe `recipe_hash` is taken over.
 OPTIMIZER_RECIPES: Final[dict[str, str]] = {
     "bf16": "torch.optim.AdamW over the bf16 parameters (8 B/param)",
     "master": "fp32 master weights and fp32 moments (20 B/param)",
     "kahan": "bf16 weights + bf16 Kahan compensation + fp32 moments, no master (14 B/param)",
+    "f32": "AdamW over f32 parameters, no master/bf16 split (the Metal full fine-tune path)",
+    "lora": "AdamW over f32 LoRA adapters, D17 and the span head over a frozen base (LoRA-2B)",
 }
+#: The recipes this tool's torch steps build, and so what `--optimizer` offers.
+TORCH_OPTIMIZER_RECIPES: Final[tuple[str, ...]] = ("bf16", "master", "kahan")
 
 #: The recipe keys that say which backbone a run used. One list, because the ft recipe, the
 #: run's return value and the verdict recipe all need the same answer and all three feed a
@@ -2773,6 +2782,12 @@ def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
         return ADAMW_FP32
     if dtype != "bf16":
         raise ValueError(f"no optimizer layout for dtype {dtype!r}")
+    if optimizer_recipe not in TORCH_OPTIMIZER_RECIPES:
+        raise ValueError(
+            f"optimizer recipe {optimizer_recipe!r} is a ledger label that is not built by this "
+            "tool's bf16 steps (it would silently get another recipe's layout); known to build: "
+            f"{list(TORCH_OPTIMIZER_RECIPES)}"
+        )
     if optimizer_recipe == "master":
         return ADAMW_MASTER
     if optimizer_recipe == "kahan":
@@ -8188,6 +8203,7 @@ def _averaged_weights(
             # per-seed score row -- prepare_second_pass, prepare_needle and prepare_ood take
             # it, never the run seed.
             "protocol_seed": suite_seed, "suite_seed": suite_seed,
+            **_span_head_source_meta(manifest),
             # Only on a norm-preserving average (tag avg-np): the numbers its manifest was
             # made with, so a plain average's recipe is what it always was.
             **({} if norm is None else {"norm_preserving": {
@@ -8199,6 +8215,15 @@ def _averaged_weights(
         },
     }
     return rows[0], recipe, suite_seed, meta, weights
+
+
+def _span_head_source_meta(manifest: Any) -> dict[str, Any]:
+    """An average's ``span_head_source`` (``ckpt_average.span_head_source_block``, checked by
+    ``read_manifest``) for the scored row's ``averaged`` block, so a row scored on the averaged
+    head and one scored on a single seed's head differ in the row itself. An average that
+    predates the key adds nothing: its recipe is what it always was."""
+    block = manifest.span_head_source
+    return {} if block is None else {"span_head_source": dict(block)}
 
 
 def _score_checkpoint(
@@ -10785,7 +10810,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--optimizer",
-        choices=sorted(OPTIMIZER_RECIPES),
+        choices=sorted(TORCH_OPTIMIZER_RECIPES),
         default="bf16",
         help=(
             "optimizer recipe under --real-backbone. 'bf16' (default) is what "
