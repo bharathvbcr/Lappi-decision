@@ -1480,6 +1480,88 @@ def batch_readout(
     return _readout(step, batch, letter_rows)
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _HostReadout:
+    """One batch's :class:`BatchReadout`, on the host: everything :func:`_decode` reads off the
+    device, copied in one transfer. ``letters[r]`` is ``(top, noul_probability, row_logits)``;
+    ``spans[k]`` is ``(top_start, top_end, start_logits, end_logits, runtime_rows,
+    n_candidates, gold_start, gold_end, abstaining)``."""
+
+    letters: dict[int, tuple[int, float, list[float]]]
+    spans: dict[int, tuple[int, int, list[float], list[float], int, int, int, int, bool]]
+
+
+def _host_readout(readout: BatchReadout) -> _HostReadout:
+    """Copy a batch's readout to the host ONCE.
+
+    Every value the decode reads is reduced on the device exactly as it always was -- the
+    argmax and the softmax in the scores' own dtype, then ``.double()`` (exact for bf16/fp32,
+    and for an int index) -- and the results are packed into one float64 tensor, copied once
+    and read back as one list. Per row this was ``int(argmax)``, ``float(softmax[..])`` and
+    ``.double().tolist()`` (and, for a span row, five more scalar reads of its plan): a device
+    sync each, ~22% GPU with one Python process at 100% on the J6 tail. The values are
+    bit-for-bit the ones those reads produced.
+    """
+    parts: list[torch.Tensor] = []
+    size = 0
+
+    def add(part: torch.Tensor) -> int:
+        nonlocal size
+        flat = part.reshape(-1)
+        parts.append(flat)
+        at = size
+        size += int(flat.shape[0])
+        return at
+
+    letter_at: dict[int, tuple[int, int]] = {}
+    for r, scores in readout.letters.items():
+        n = int(scores.shape[0])
+        noul_row = n - RESERVED_NOUL_ROWS
+        at = add(torch.stack([
+            scores.argmax().double(),
+            torch.softmax(scores, dim=-1)[noul_row].double(),
+        ]))
+        add(scores.double())
+        letter_at[r] = (at, n)
+    plan = readout.plan
+    meta_at = -1
+    n_spans = 0
+    span_at: dict[int, tuple[int, int, int]] = {}
+    if plan is not None:
+        n_spans = int(plan.n_candidates.shape[0])
+        meta_at = add(torch.stack([
+            t.to(torch.int64) for t in (
+                plan.runtime_rows, plan.n_candidates, plan.gold_start, plan.gold_end,
+                plan.abstaining,
+            )
+        ]).double())
+        assert readout.starts is not None and readout.ends is not None
+        for k in range(n_spans):
+            start, end = readout.starts[k], readout.ends[k]
+            at = add(torch.stack([start.argmax().double(), end.argmax().double()]))
+            add(start.double())
+            add(end.double())
+            span_at[k] = (at, int(start.shape[0]), int(end.shape[0]))
+    flat_host: list[float] = torch.cat(parts).cpu().tolist() if parts else []
+
+    letters = {
+        r: (
+            int(flat_host[at]), flat_host[at + 1], flat_host[at + 2 : at + 2 + n],
+        )
+        for r, (at, n) in letter_at.items()
+    }
+    spans = {}
+    for k, (at, n_start, n_end) in span_at.items():
+        meta = [int(flat_host[meta_at + i * n_spans + k]) for i in range(5)]
+        spans[k] = (
+            int(flat_host[at]), int(flat_host[at + 1]),
+            flat_host[at + 2 : at + 2 + n_start],
+            flat_host[at + 2 + n_start : at + 2 + n_start + n_end],
+            meta[0], meta[1], meta[2], meta[3], bool(meta[4]),
+        )
+    return _HostReadout(letters, spans)
+
+
 def _decode(
     step: RealFtStep | TowerEnsemble,
     batches: list[Batch],
@@ -1549,35 +1631,34 @@ def _decode(
                 ordered_for[r] = ordered
                 letter_rows[r] = [letter_id[x] for x in ordered]
             readout = batch_readout(step, batch, letter_rows)
-            plan, start_rows, end_rows = readout.plan, readout.starts, readout.ends
+            plan = readout.plan
+            host = _host_readout(readout)
             for r in range(batch.tokens.shape[0]):
                 label = labels_for[b][r]
                 if label.slot_kind == SLOT_SPAN:
-                    assert plan is not None and start_rows is not None and end_rows is not None
+                    assert plan is not None
                     k = readout.span_index[r]
-                    n_rows = int(plan.runtime_rows[k])
+                    (top_start, top_end, start_logits, end_logits, n_rows, n_candidates,
+                     gold_start, gold_end, expected) = host.spans[k]
                     noul_row = n_rows - RESERVED_NOUL_ROWS
                     # The runtime's row count for this context, restated from the head's own
                     # plan: `answer.rs:70` is `line_count + RESERVED_NOUL_ROWS` and
                     # `noul_row = plan.rows - RESERVED_NOUL_ROWS`. `serving_scores` has
                     # already refused any row whose finite columns are not exactly
                     # `0..n_candidates`, over real candidate sets of 14 to 60 lines.
-                    if noul_row != int(plan.n_candidates[k]):  # pragma: no cover
+                    if noul_row != n_candidates:  # pragma: no cover
                         raise AssertionError(
                             f"row {label.row_id}: the abstention sits at {noul_row} but the "
-                            f"context has {int(plan.n_candidates[k])} line starts"
+                            f"context has {n_candidates} line starts"
                         )
-                    top_start = int(start_rows[k].argmax())
-                    top_end = int(end_rows[k].argmax())
                     abstained = top_start == noul_row or top_end == noul_row
-                    expected = bool(plan.abstaining[k])
                     verdicts.append({
-                        "start_logits": start_rows[k].double().tolist(),
-                        "end_logits": end_rows[k].double().tolist(),
+                        "start_logits": start_logits,
+                        "end_logits": end_logits,
                         # Indices into those rows: `noul_row` on an abstaining row
                         # (`heads.SpanPlan`), the line-start ordinal otherwise.
-                        "gold_start": int(plan.gold_start[k]),
-                        "gold_end": int(plan.gold_end[k]),
+                        "gold_start": gold_start,
+                        "gold_end": gold_end,
                         "kind": "span",
                         "row_id": label.row_id,
                         "slot_name": label.slot_name,
@@ -1598,10 +1679,7 @@ def _decode(
                             abstained == expected
                             and (
                                 expected
-                                or (
-                                    top_start == int(plan.gold_start[k])
-                                    and top_end == int(plan.gold_end[k])
-                                )
+                                or (top_start == gold_start and top_end == gold_end)
                             )
                         ),
                         "abstain_correct": abstained == expected,
@@ -1611,10 +1689,9 @@ def _decode(
                     continue  # counted in not_decoded above
                 ordered = ordered_for[r]
                 row_tokens = letter_rows[r]
-                row_scores = readout.letters[r]
+                top, noul_probability, row_logits = host.letters[r]
                 noul_row = len(row_tokens) - RESERVED_NOUL_ROWS
                 at = int(batch.target_index[r])  # type: ignore[index]
-                top = int(row_scores.argmax())
                 expected = label.gold_letter == NOUL_LETTER
                 gold_row = ordered.index(label.gold_letter)
                 abstained = top == noul_row
@@ -1639,13 +1716,13 @@ def _decode(
                     "language": label.language,
                     # The mass this model puts on a row it was never supervised at. Softmax
                     # over the slot's own rows, which is what `QueryKind::Letters` decodes.
-                    "noul_probability": float(torch.softmax(row_scores, dim=-1)[noul_row]),
+                    "noul_probability": noul_probability,
                     # The whole distribution the verdict was an argmax of, in decode-row
                     # order. What `ece` and `degenerate_head` read (letter_distributions),
                     # and what a calibration fit would: the argmax alone is not enough for
                     # either. bf16/fp32 -> fp64 is exact, so this is the same numbers `top`
                     # saw -- an ensemble's float64 mean log-probabilities included.
-                    "row_logits": row_scores.double().tolist(),
+                    "row_logits": row_logits,
                 })
 
     by_kind: dict[str, dict[str, float]] = {}
