@@ -92,7 +92,7 @@ def test_bad_settings_and_missing_command_are_refused(tmp_path: Path) -> None:
     lock = tmp_path / "lock.d"
     assert _run(lock, "only-a-label").returncode == 64
     assert _run(lock, "t", "true", MAC_HEAVY_MAX_WAIT_S="soon").returncode == 64
-    assert _run(lock, "t", "true", MAC_HEAVY_MAX_RSS_MB="lots").returncode == 64
+    assert _run(lock, "t", "true", MAC_HEAVY_MAX_FOOTPRINT_MB="lots").returncode == 64
     assert _run(lock, "t", "true", MAC_HEAVY_MAX_LOAD="1.5").returncode == 64
     assert _run(lock, "t", "true", MAC_HEAVY_MAX_PROCS="").returncode == 64
     assert not lock.exists()
@@ -103,7 +103,8 @@ def test_bad_settings_and_missing_command_are_refused(tmp_path: Path) -> None:
 # 36-120 GiB resident on this 64 GiB Mac, and both panics came amid heavy process churn.
 
 
-def test_a_job_tree_over_the_rss_cap_is_killed_and_reported(tmp_path: Path) -> None:
+def test_a_job_tree_over_the_footprint_cap_is_killed_and_reported(tmp_path: Path) -> None:
+    # The real reader (tools/mac_footprint.py) on a real process tree, no injected hook.
     lock = tmp_path / "lock.d"
     pidfile = tmp_path / "grandchild.pid"
     # The allocation is in a grandchild, so the cap must sum the whole tree, not the direct child.
@@ -118,15 +119,140 @@ def test_a_job_tree_over_the_rss_cap_is_killed_and_reported(tmp_path: Path) -> N
         "bash",
         "-c",
         f'python3 -c "{hog}"',
-        MAC_HEAVY_MAX_RSS_MB="100",
+        MAC_HEAVY_MAX_FOOTPRINT_MB="100",
         MAC_HEAVY_RSS_POLL_S="1",
         PIDFILE=str(pidfile),
     )
     assert proc.returncode == 70, proc.stderr
-    assert "over the RSS cap" in proc.stderr
+    assert "over the footprint cap" in proc.stderr
+    assert "result does not count" in proc.stderr
     assert time.monotonic() - started < 40
     grandchild = int(pidfile.read_text())
     assert subprocess.run(["kill", "-0", str(grandchild)], check=False).returncode != 0
+    assert not lock.exists()
+
+
+def test_the_real_reader_reports_a_live_process_and_refuses_a_dead_one() -> None:
+    reader = SCRIPT.parent / "mac_footprint.py"
+    live = subprocess.run(
+        ["python3", "-I", str(reader), str(os.getpid())],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert live.returncode == 0, live.stderr
+    assert int(live.stdout) > 0
+    dead = subprocess.run(["bash", "-c", "echo $$"], capture_output=True, text=True, check=True)
+    gone = subprocess.run(
+        ["python3", "-I", str(reader), dead.stdout.strip()],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert gone.returncode == 1 and gone.stdout == ""
+    bad = subprocess.run(
+        ["python3", "-I", str(reader), "x"], capture_output=True, text=True, check=False
+    )
+    assert bad.returncode == 2
+
+
+def _hook(tmp_path: Path, body: str) -> str:
+    hook = tmp_path / "reader.sh"
+    hook.write_text("#!/bin/bash\n" + body + "\n")
+    hook.chmod(0o755)
+    return str(hook)
+
+
+def test_an_injected_footprint_over_the_cap_stops_the_job_with_exit_70(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    proc = _run(
+        lock,
+        "t",
+        "sleep",
+        "60",
+        MAC_HEAVY_MAX_FOOTPRINT_MB="1000",
+        MAC_HEAVY_RSS_POLL_S="1",
+        MAC_HEAVY_FOOTPRINT_CMD=_hook(tmp_path, "echo 1001"),
+    )
+    assert proc.returncode == 70, proc.stderr
+    assert "footprint" in proc.stderr and "1001 MiB" in proc.stderr
+    assert not lock.exists()
+
+
+def test_a_footprint_at_the_cap_is_not_killed(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    proc = _run(
+        lock,
+        "t",
+        "sleep",
+        "2",
+        MAC_HEAVY_MAX_FOOTPRINT_MB="1000",
+        MAC_HEAVY_RSS_POLL_S="1",
+        MAC_HEAVY_FOOTPRINT_CMD=_hook(tmp_path, "echo 1000"),
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_a_reader_that_fails_three_polls_in_a_row_stops_the_job_with_exit_71(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "lock.d"
+    pidfile = tmp_path / "child.pid"
+    started = time.monotonic()
+    proc = _run(
+        lock,
+        "t",
+        "bash",
+        "-c",
+        f'echo $$ > "{pidfile}"; exec sleep 60',
+        MAC_HEAVY_RSS_POLL_S="1",
+        MAC_HEAVY_FOOTPRINT_CMD=_hook(tmp_path, "exit 3"),
+    )
+    assert proc.returncode == 71, proc.stderr
+    assert "memory guard could not run" in proc.stderr
+    assert "3 of 3" in proc.stderr
+    assert time.monotonic() - started < 40
+    child = int(pidfile.read_text())
+    assert subprocess.run(["kill", "-0", str(child)], check=False).returncode != 0
+    assert not lock.exists()
+
+
+def test_a_non_integer_reader_answer_counts_as_a_failure(tmp_path: Path) -> None:
+    proc = _run(
+        tmp_path / "lock.d",
+        "t",
+        "sleep",
+        "60",
+        MAC_HEAVY_RSS_POLL_S="1",
+        MAC_HEAVY_FOOTPRINT_CMD=_hook(tmp_path, "echo lots"),
+    )
+    assert proc.returncode == 71, proc.stderr
+
+
+def test_an_intermittent_reader_failure_is_not_fatal(tmp_path: Path) -> None:
+    counter = tmp_path / "n"
+    body = (
+        f'n=$(cat "{counter}" 2>/dev/null || echo 0); echo $((n + 1)) > "{counter}"; '
+        "[ $((n % 3)) -eq 0 ] && exit 3; echo 1"
+    )
+    proc = _run(
+        tmp_path / "lock.d",
+        "t",
+        "sleep",
+        "5",
+        MAC_HEAVY_RSS_POLL_S="1",
+        MAC_HEAVY_FOOTPRINT_CMD=_hook(tmp_path, body),
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_the_retired_rss_variable_is_refused_loudly(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    proc = _run(lock, "t", "touch", str(marker), MAC_HEAVY_MAX_RSS_MB="32768")
+    assert proc.returncode == 64
+    assert "MAC_HEAVY_MAX_FOOTPRINT_MB" in proc.stderr
+    assert not marker.exists()
     assert not lock.exists()
 
 

@@ -27,9 +27,21 @@
 # Three guards were added after the second launchd-SIGBUS panic (14:24 local, at load ~30 with one
 # job under this lock; AUDIT/mac-stability-2026-10-02/report.md). JetsamEvent reports showed
 # single test processes at 36-120 GiB resident on this 64 GiB Mac.
-# - Memory cap. The job's whole process tree (children and grandchildren) is summed every
-#   $MAC_HEAVY_RSS_POLL_S (default 2) seconds. Above $MAC_HEAVY_MAX_RSS_MB (default 32768) the
-#   tree gets SIGTERM, then SIGKILL after 10 s, and the script exits 70.
+# - Memory cap, on phys_footprint (not RSS: Metal/MPS memory is in the footprint and not in `ps`
+#   RSS; a 3 GiB MPS allocation moved RSS +0.04 GiB and the footprint +3.06 GiB). The job's whole
+#   process tree (children and grandchildren) is summed every $MAC_HEAVY_RSS_POLL_S (default 2)
+#   seconds by tools/mac_footprint.py (stdlib ctypes, proc_pid_rusage). Above
+#   $MAC_HEAVY_MAX_FOOTPRINT_MB (default 53248 = 52 GiB: 64 GiB minus a 12 GiB floor for the OS,
+#   the harness and a second light session) the tree gets SIGTERM, then SIGKILL after 10 s, and the
+#   script exits 70. Summing over a tree can double-count shared IOKit memory; a GPU job is one
+#   process and the cap is a safety bound, so over-counting is the side to err on. If the reader
+#   fails on 3 consecutive polls the job is stopped and the script exits 71 ("memory guard could
+#   not run"): a running job with no guard is a check that could not run. A caller that still sets
+#   the old MAC_HEAVY_MAX_RSS_MB gets exit 64, so it is never silently uncapped. A job that
+#   legitimately needs more sets the new variable on its launch line, and the line is recorded.
+#   $MAC_HEAVY_FOOTPRINT_CMD (tests only) replaces the reader: it is run with the tree's pids and
+#   prints the summed MiB. This script does not export PYTORCH_MPS_HIGH_WATERMARK_RATIO; a torch
+#   job that wants it sets it itself.
 # - Busy machine. After taking the lock, it waits while the 1-minute load average exceeds
 #   $MAC_HEAVY_MAX_LOAD (default 12) or the process count exceeds $MAC_HEAVY_MAX_PROCS (default
 #   2500). If that does not clear within the wait budget, it exits 76 and the job never runs.
@@ -52,13 +64,18 @@ LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/build/mac-hea
 MAX_WAIT=${MAC_HEAVY_MAX_WAIT_S:-14400}
 MIN_FREE_GB=${MAC_HEAVY_MIN_FREE_GB:-15}
 POLL=${MAC_HEAVY_POLL_S:-20}
-MAX_RSS_MB=${MAC_HEAVY_MAX_RSS_MB-32768}
+if [ -n "${MAC_HEAVY_MAX_RSS_MB+x}" ]; then
+  echo "mac_heavy: MAC_HEAVY_MAX_RSS_MB is retired; the cap is now on phys_footprint, so use MAC_HEAVY_MAX_FOOTPRINT_MB (default 53248). Refusing rather than running uncapped" >&2
+  exit 64
+fi
+MAX_FP_MB=${MAC_HEAVY_MAX_FOOTPRINT_MB-53248}
+FOOTPRINT_PY=$(dirname "$0")/mac_footprint.py
 RSS_POLL=${MAC_HEAVY_RSS_POLL_S-2}
 MAX_LOAD=${MAC_HEAVY_MAX_LOAD-12}
 MAX_PROCS=${MAC_HEAVY_MAX_PROCS-2500}
-for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_RSS_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS"; do
+for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS"; do
   case "$v" in
-    ''|*[!0-9]*) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_RSS_MB, _RSS_POLL_S, _MAX_LOAD and _MAX_PROCS must be non-negative integers" >&2; exit 64 ;;
+    ''|*[!0-9]*) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD and _MAX_PROCS must be non-negative integers" >&2; exit 64 ;;
   esac
 done
 [ "$POLL" -ge 1 ] || POLL=1
@@ -109,22 +126,20 @@ tree_pids() {
     }'
 }
 
-# The summed resident size, in KiB, of $1 and every descendant.
-tree_rss_kb() {
-  ps -Ao pid=,ppid=,rss= | awk -v root="$1" '
-    { parent[$1] = $2; rss[$1] = $3 }
-    END {
-      if (!(root in parent)) { print 0; exit }
-      seen[root] = 1
-      grew = 1
-      while (grew) {
-        grew = 0
-        for (p in parent) if (!(p in seen) && (parent[p] in seen)) { seen[p] = 1; grew = 1 }
-      }
-      total = 0
-      for (p in seen) total += rss[p]
-      print total
-    }'
+# The summed phys_footprint, in MiB, of $1 and every descendant. Fails (non-zero, nothing on
+# stdout) when the reader fails or prints anything but an integer.
+tree_footprint_mb() {
+  local pids out
+  pids=$(tree_pids "$1")
+  [ -n "$pids" ] || { echo 0; return 0; }
+  # shellcheck disable=SC2086
+  if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ]; then
+    out=$($MAC_HEAVY_FOOTPRINT_CMD $pids) || return 1
+  else
+    out=$(python3 -I "$FOOTPRINT_PY" $pids) || return 1
+  fi
+  case "$out" in ''|*[!0-9]*) return 1 ;; esac
+  echo "$out"
 }
 
 # SIGTERM the job's tree, give it 10 s, then SIGKILL whatever is left.
@@ -198,16 +213,26 @@ export MAC_HEAVY_LABEL=$LABEL
 echo "mac_heavy: $(now) '$LABEL' holds the lock (waited ${waited}s; load $load, $procs processes); running: $*" >&2
 "$@" &
 JOB=$!
-cap_kb=$((MAX_RSS_MB * 1024))
+reader_fails=0
 while kill -0 "$JOB" 2>/dev/null; do
-  rss_kb=$(tree_rss_kb "$JOB")
-  if [ "${rss_kb:-0}" -gt "$cap_kb" ]; then
-    echo "mac_heavy: $(now) '$LABEL' is over the RSS cap: its process tree holds $((rss_kb / 1024)) MiB > $MAX_RSS_MB MiB; stopping it (SIGTERM, then SIGKILL after 10 s). The largest:" >&2
-    for p in $(tree_pids "$JOB"); do ps -o rss=,pid=,command= -p "$p"; done \
-      | sort -rn | head -5 | awk '{ printf "mac_heavy:   %d MiB  pid %s  %s\n", $1 / 1024, $2, substr($0, index($0, $3), 120) }' >&2
-    stop_job
-    echo "mac_heavy: $(now) '$LABEL' was killed over the RSS cap (exit 70); its result does not count" >&2
-    exit 70
+  if fp_mb=$(tree_footprint_mb "$JOB"); then
+    reader_fails=0
+    if [ "$fp_mb" -gt "$MAX_FP_MB" ]; then
+      echo "mac_heavy: $(now) '$LABEL' is over the footprint cap: its process tree holds $fp_mb MiB of phys_footprint > $MAX_FP_MB MiB; stopping it (SIGTERM, then SIGKILL after 10 s). The largest by RSS:" >&2
+      for p in $(tree_pids "$JOB"); do ps -o rss=,pid=,command= -p "$p"; done \
+        | sort -rn | head -5 | awk '{ printf "mac_heavy:   %d MiB RSS  pid %s  %s\n", $1 / 1024, $2, substr($0, index($0, $3), 120) }' >&2
+      stop_job
+      echo "mac_heavy: $(now) '$LABEL' was killed over the footprint cap (exit 70); its result does not count" >&2
+      exit 70
+    fi
+  elif kill -0 "$JOB" 2>/dev/null; then
+    reader_fails=$((reader_fails + 1))
+    echo "mac_heavy: $(now) '$LABEL': the footprint reader failed ($reader_fails of 3)" >&2
+    if [ "$reader_fails" -ge 3 ]; then
+      stop_job
+      echo "mac_heavy: $(now) '$LABEL' was stopped: the memory guard could not run (exit 71); its result does not count" >&2
+      exit 71
+    fi
   fi
   sleep "$RSS_POLL"
 done
