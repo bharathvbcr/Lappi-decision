@@ -1,0 +1,16 @@
+# Staging package for the CPU emulator of the ojas-qwen35-cuda NVRTC kernels.
+#
+# The deliverable is `tests/cuda_emu/` (harness + shim header) and
+# `tests/cuda_emu_selftest.rs`, written to be copied verbatim into the ojas crate's `tests/`.
+# This package exists so they compile and run here; it is its own workspace root, so the
+# Lappi workspace manifest is untouched, and it has no dependencies.
+[package]
+name = "cuda-emu-staging"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+
+[workspace]
