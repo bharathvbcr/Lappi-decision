@@ -696,6 +696,9 @@ _SPELLINGS = {
     # row it writes into crates/qd-train's fixture the way real_ft_run does, because the Rust
     # ledger writer must reproduce real_ft_run's rows; it writes no ledger of its own.
     "qd_train_oracle_trainer.py": {"sort_keys": True, "separators": (",", ":")},
+    # Pinned 2026-10-12 (final verify F4, 3fa3785): the span-refit row writer hashes its recipe
+    # the way real_ft_run does, from its first row, so the spelling is not a change to one.
+    "span_refit_rows.py": {"sort_keys": True, "separators": (",", ":")},
 }
 
 
@@ -833,7 +836,7 @@ def test_the_two_spellings_really_do_disagree() -> None:
     # (2026-09-22), margin_probe_row.py joined the tight side on its first row
     # (2026-09-30), calib_fit_row.py joined it before its first row (2026-10-01), and
     # gate_report_row.py with its first rows (2026-10-01), and qd_train_oracle_trainer.py,
-    # pinned on the tight side 2026-10-02, the spelling it always used; pinned exactly, so a
-    # tool moving sides still fails here.
+    # pinned on the tight side 2026-10-02, the spelling it always used, and span_refit_rows.py
+    # (2026-10-12); pinned exactly, so a tool moving sides still fails here.
     assert sorted(digests.values()).count(loose) == 4, digests
-    assert sorted(digests.values()).count(tight) == 7, digests
+    assert sorted(digests.values()).count(tight) == 8, digests
