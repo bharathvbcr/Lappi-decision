@@ -1235,22 +1235,44 @@ def check_span_head_inits(
     """What ``span_head_source`` records of the selected seed's init, after Fable's R7 check.
 
     A run is treated as v6 when the caller says ``--v6-run`` OR any input's ft row records a
-    shared init, so forgetting the flag cannot skip the check. For a v6 run the selected seed's
-    row must record a shared init (a seed-specific one, or none, is refused: a head grown from an
-    init the other seeds did not share is not a stand-in for the average's, and a run that
-    records no init identity cannot be verified, so it is refused rather than trusted).
+    shared init, so forgetting the flag cannot skip the check. For a v6 run EVERY input's row must
+    record a shared init and all of them the same one, by ``content_digest`` (a seed-specific
+    init, none, or two different "shared" heads is refused: a head grown from an init the other
+    seeds did not share is not a stand-in for the average's, and a run that records no init
+    identity cannot be verified, so it is refused rather than trusted).
     """
     inits = [ft_row_init(ledger, r, seed=s) for r, s in zip(row_ids, seeds, strict=True)]
     v6 = v6_run or any(i is not None and i["shared"] for i in inits)
     chosen = inits[head_at]
-    if v6 and (chosen is None or not chosen["shared"]):
-        raise AverageRefusal(
-            f"v6 run: the ft row of seed {seeds[head_at]} ({row_ids[head_at]}) "
-            + ("records no span_head_init, so what init its head grew from cannot be verified"
-               if chosen is None else "records a span-head init that is not the shared one")
-            + ". R7 starts every seed from one shared head; refusing rather than trusting "
-            "the caller"
-        )
+    if v6:
+        # R7 starts EVERY seed from one shared head, so the check is on every input's row, not
+        # only the selected seed's: a row that says "shared" for a different head, or that
+        # records no init, is not evidence that the heads being averaged had one start.
+        for init, row_id, seed in zip(inits, row_ids, seeds, strict=True):
+            if init is None or not init["shared"]:
+                raise AverageRefusal(
+                    f"v6 run: the ft row of seed {seed} ({row_id}) "
+                    + ("records no span_head_init, so what init its head grew from cannot be "
+                       "verified" if init is None
+                       else "records a span-head init that is not the shared one")
+                    + ". R7 starts every seed from one shared head; refusing rather than "
+                    "trusting the caller"
+                )
+            digest = init["content_digest"]
+            if not isinstance(digest, str) or not digest:
+                raise AverageRefusal(
+                    f"v6 run: the ft row of seed {seed} ({row_id}) records a shared span-head "
+                    "init with no content_digest, so it cannot be compared with the other "
+                    "seeds' inits; refusing"
+                )
+        digests = {i["content_digest"]: r for i, r in zip(inits, row_ids, strict=True) if i}
+        if len(digests) != 1:
+            raise AverageRefusal(
+                "v6 run: the seeds' ft rows record "
+                f"{len(digests)} different span-head init content digests "
+                f"({', '.join(f'{r}: {d}' for d, r in sorted(digests.items()))}), not one init. "
+                "R7 starts every seed from the same shared head; refusing"
+            )
     return chosen
 
 

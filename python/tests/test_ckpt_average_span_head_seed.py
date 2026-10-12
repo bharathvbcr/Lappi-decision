@@ -205,6 +205,31 @@ def test_forgetting_the_v6_flag_does_not_skip_the_check_when_any_row_is_shared(t
         _seeded(tmp_path, _three(tmp_path), 1, inits=[OWN, SHARED, SHARED])
 
 
+OTHER_SHARED = {"sha256": "a" * 64, "content_digest": "b" * 64, "shared": True}
+
+
+def test_seeds_that_recorded_different_shared_inits_are_refused(tmp_path):
+    """Each row says ``shared: true``, but two different heads: R7's one shared init is not it."""
+    with pytest.raises(SystemExit, match="not one init"):
+        _seeded(tmp_path, _three(tmp_path), 1, "--v6-run", inits=[SHARED, OTHER_SHARED, SHARED])
+
+
+def test_a_seed_whose_row_records_no_init_is_refused_when_another_was_selected(tmp_path):
+    with pytest.raises(SystemExit, match="records no span_head_init"):
+        _seeded(tmp_path, _three(tmp_path), 1, "--v6-run", inits=[SHARED, SHARED, None])
+
+
+def test_a_seed_with_its_own_init_is_refused_when_another_was_selected(tmp_path):
+    with pytest.raises(SystemExit, match="not the shared one"):
+        _seeded(tmp_path, _three(tmp_path), 1, "--v6-run", inits=[SHARED, SHARED, OWN])
+
+
+def test_a_shared_init_with_no_content_digest_is_refused(tmp_path):
+    bare = {"sha256": "e" * 64, "shared": True}
+    with pytest.raises(SystemExit, match="content_digest"):
+        _seeded(tmp_path, _three(tmp_path), 1, "--v6-run", inits=[bare, bare, bare])
+
+
 def test_a_seed_specific_init_is_recorded_for_a_non_v6_run(tmp_path):
     manifest, _ = _seeded(tmp_path, _three(tmp_path), 1, inits=[OWN, OWN, OWN])
     assert manifest["span_head_source"]["init"]["shared"] is False
