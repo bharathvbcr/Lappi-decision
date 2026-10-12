@@ -236,6 +236,103 @@ pub fn sha256_slices_parallel(
         .collect()
 }
 
+/// A counter-mode PRNG over SHA-256.
+///
+/// Used for exactly one thing: the option permutation of the contract's **second pass**. It is
+/// seeded from [`schema::DecisionRequest::digest`], so the second pass is reproducible for a given
+/// request rather than run-to-run random — a caller that sees a `noul` from permutation
+/// disagreement can replay the exact pair of passes that disagreed.
+///
+/// This is deliberately **not** the same stream as `python/qd_data/render.py`'s
+/// `DeterministicRng` (keyed blake2b). That one shuffles options per *training example*; this one
+/// permutes them per *serving request*. They answer different questions and are never compared, so
+/// matching their streams would be a coincidence maintained by hand. What must match between the
+/// two lanes is the rendered prompt, and that is asserted in `tests/render_contract.rs`.
+pub struct CounterRng {
+    key: [u8; 32],
+    counter: u64,
+}
+
+impl CounterRng {
+    pub fn new(domain: &str, seed: &[u8]) -> Self {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(b"qd-runtime.CounterRng.v1\x00");
+        h.update(domain.as_bytes());
+        h.update([0u8]);
+        h.update(seed);
+        Self {
+            key: h.finalize().into(),
+            counter: 0,
+        }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(self.key);
+        h.update(self.counter.to_be_bytes());
+        self.counter = self.counter.wrapping_add(1);
+        let block: [u8; 32] = h.finalize().into();
+        let mut eight = [0u8; 8];
+        eight.copy_from_slice(&block[..8]);
+        u64::from_be_bytes(eight)
+    }
+
+    /// Uniform in `[0, n)` by rejection sampling — no modulo bias.
+    ///
+    /// Returns 0 for `n <= 1`, which is the only sensible value and keeps the function total; a
+    /// permutation of 0 or 1 elements never calls it with a meaningful range.
+    pub fn below(&mut self, n: usize) -> usize {
+        if n <= 1 {
+            return 0;
+        }
+        let n64 = n as u64;
+        let limit = u64::MAX - (u64::MAX % n64);
+        loop {
+            let v = self.next_u64();
+            if v < limit {
+                return (v % n64) as usize;
+            }
+        }
+    }
+
+    /// Fisher-Yates over `0..n`. Uniform over all `n!` permutations, fixed points included.
+    pub fn permutation(&mut self, n: usize) -> Vec<usize> {
+        let mut idx: Vec<usize> = (0..n).collect();
+        let mut i = n;
+        while i > 1 {
+            i -= 1;
+            let j = self.below(i + 1);
+            idx.swap(i, j);
+        }
+        idx
+    }
+
+    /// Sattolo's algorithm: uniform over the `(n-1)!` **cyclic** permutations of `0..n`.
+    ///
+    /// The difference from [`Self::permutation`] is one character — `below(i)` instead of
+    /// `below(i + 1)` — and it is the difference between a permutation that may have fixed points
+    /// and one that provably has none. A single cycle of length `n >= 2` moves every element, so
+    /// this is a derangement.
+    ///
+    /// That is what the contract's second pass needs. See
+    /// [`crate::render::second_pass_permutation`].
+    pub fn cyclic_permutation(&mut self, n: usize) -> Vec<usize> {
+        let mut idx: Vec<usize> = (0..n).collect();
+        if n < 2 {
+            return idx;
+        }
+        let mut i = n;
+        while i > 1 {
+            i -= 1;
+            let j = self.below(i);
+            idx.swap(i, j);
+        }
+        idx
+    }
+}
+
 #[cfg(test)]
 mod sha256_parallel_tests {
     //! Characterization of [`sha256_slices_parallel`] against the serial [`sha256`]. Every test
@@ -397,102 +494,5 @@ mod sha256_parallel_tests {
                 });
             }
         });
-    }
-}
-
-/// A counter-mode PRNG over SHA-256.
-///
-/// Used for exactly one thing: the option permutation of the contract's **second pass**. It is
-/// seeded from [`schema::DecisionRequest::digest`], so the second pass is reproducible for a given
-/// request rather than run-to-run random — a caller that sees a `noul` from permutation
-/// disagreement can replay the exact pair of passes that disagreed.
-///
-/// This is deliberately **not** the same stream as `python/qd_data/render.py`'s
-/// `DeterministicRng` (keyed blake2b). That one shuffles options per *training example*; this one
-/// permutes them per *serving request*. They answer different questions and are never compared, so
-/// matching their streams would be a coincidence maintained by hand. What must match between the
-/// two lanes is the rendered prompt, and that is asserted in `tests/render_contract.rs`.
-pub struct CounterRng {
-    key: [u8; 32],
-    counter: u64,
-}
-
-impl CounterRng {
-    pub fn new(domain: &str, seed: &[u8]) -> Self {
-        use sha2::{Digest, Sha256};
-        let mut h = Sha256::new();
-        h.update(b"qd-runtime.CounterRng.v1\x00");
-        h.update(domain.as_bytes());
-        h.update([0u8]);
-        h.update(seed);
-        Self {
-            key: h.finalize().into(),
-            counter: 0,
-        }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        use sha2::{Digest, Sha256};
-        let mut h = Sha256::new();
-        h.update(self.key);
-        h.update(self.counter.to_be_bytes());
-        self.counter = self.counter.wrapping_add(1);
-        let block: [u8; 32] = h.finalize().into();
-        let mut eight = [0u8; 8];
-        eight.copy_from_slice(&block[..8]);
-        u64::from_be_bytes(eight)
-    }
-
-    /// Uniform in `[0, n)` by rejection sampling — no modulo bias.
-    ///
-    /// Returns 0 for `n <= 1`, which is the only sensible value and keeps the function total; a
-    /// permutation of 0 or 1 elements never calls it with a meaningful range.
-    pub fn below(&mut self, n: usize) -> usize {
-        if n <= 1 {
-            return 0;
-        }
-        let n64 = n as u64;
-        let limit = u64::MAX - (u64::MAX % n64);
-        loop {
-            let v = self.next_u64();
-            if v < limit {
-                return (v % n64) as usize;
-            }
-        }
-    }
-
-    /// Fisher-Yates over `0..n`. Uniform over all `n!` permutations, fixed points included.
-    pub fn permutation(&mut self, n: usize) -> Vec<usize> {
-        let mut idx: Vec<usize> = (0..n).collect();
-        let mut i = n;
-        while i > 1 {
-            i -= 1;
-            let j = self.below(i + 1);
-            idx.swap(i, j);
-        }
-        idx
-    }
-
-    /// Sattolo's algorithm: uniform over the `(n-1)!` **cyclic** permutations of `0..n`.
-    ///
-    /// The difference from [`Self::permutation`] is one character — `below(i)` instead of
-    /// `below(i + 1)` — and it is the difference between a permutation that may have fixed points
-    /// and one that provably has none. A single cycle of length `n >= 2` moves every element, so
-    /// this is a derangement.
-    ///
-    /// That is what the contract's second pass needs. See
-    /// [`crate::render::second_pass_permutation`].
-    pub fn cyclic_permutation(&mut self, n: usize) -> Vec<usize> {
-        let mut idx: Vec<usize> = (0..n).collect();
-        if n < 2 {
-            return idx;
-        }
-        let mut i = n;
-        while i > 1 {
-            i -= 1;
-            let j = self.below(i);
-            idx.swap(i, j);
-        }
-        idx
     }
 }
