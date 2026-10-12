@@ -12,8 +12,7 @@
 //!         o = gdn_chunk_forward | gdn_recurrent (qkv, gates(proj), GDN state)
 //!         y = gated_rms_norm(o, z(proj), w) -> bf16;  resid += y @ W_out
 //!   attn: proj = xb @ W_in
-//!         prefill:       attn_qk_norm_rope -> q, K/V cache;
-//!                        o = attn_prefill_by_length (attn_prefill at every length)
+//!         prefill:       attn_qk_norm_rope -> q, K/V cache;   o = flash_attn_rows
 //!         continuation:  attn_qk_norm_rope_suffix -> q, suffix K/V;
 //!                        o = attn_prefix_rows(q, shared prefix K/V, suffix K/V)
 //!         y = o * sigmoid(gate) -> bf16;  resid += y @ W_o
@@ -345,7 +344,13 @@ fn prefix_attention(
     dims: nn::AttnDims,
 ) -> Result<()> {
     if dims.tq == 1 {
-        qwen35::attn_prefix_decode(rt, q, prefix, suffix_k, suffix_v, suffix_len, q_pos, o, dims, false)
+        // tessl (b295441) made the split-KV partial-pass scratch caller-owned. One query per row
+        // means a one-token suffix, so the key capacity is the prefix plus that one token (a
+        // larger suffix buffer is refused by tessl's own scratch check, not run). Allocated per
+        // call, as tessl did internally before it took the argument.
+        let scratch = nn::DecodeScratch::new(rt, dims.batch, dims.heads, prefix.len as usize + 1, 256)
+            .gpu("attn_prefix_decode scratch")?;
+        qwen35::attn_prefix_decode(rt, q, prefix, suffix_k, suffix_v, suffix_len, q_pos, o, &scratch, dims, false)
             .gpu("attn_prefix_decode")
     } else {
         qwen35::attn_prefix_rows(rt, q, prefix, suffix_k, suffix_v, suffix_len, q_pos, o, dims, false)
@@ -391,7 +396,7 @@ struct Acts {
     a_q: GpuBuffer,
     a_o: GpuBuffer,
     a_y: Tensor,
-    /// `[seq]`: the live K/V length. A prefill has no prefix, so it is `attn_prefill`'s `tkv`;
+    /// `[seq]`: the live K/V length. A prefill has no prefix, so it is `flash_attn_rows`' `tkv`;
     /// a continuation's is its suffix length, as `attn_prefix_rows` takes it.
     kv_len: GpuBuffer,
     q_pos: GpuBuffer,
@@ -810,14 +815,11 @@ impl Model {
                                 rt, &shape, pc, &w.q_norm, &w.k_norm, &targets, 0, cfg.rope_theta, eps,
                             )
                             .gpu("attn_qk_norm_rope")?;
-                            // `qwen35::prefill_attn_kernel` is `attn_prefill` at every
-                            // length. Same buffers, causal mask and f32 accumulate.
-                            // Head dim is the h256 kernel (`config` refuses any other).
-                            qwen35::attn_prefill_by_length(
+                            nn::flash_attn_rows(
                                 rt, &a.a_q, &kc, &vc, &a.a_o, &a.kv_len, &a.q_pos, &a.kv_pos, dims,
-                                false,
+                                cfg.head_dim, false,
                             )
-                            .gpu("attn_prefill_by_length")?;
+                            .gpu("flash_attn_rows")?;
                         }
                         Some(s) => {
                             qwen35::attn_qk_norm_rope_suffix(

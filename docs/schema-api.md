@@ -469,7 +469,7 @@ and share the same row count. The runtime issues `readonly_decodes(backend, snap
 which delegates to `DecisionBackend::decode_slots`.
 
 - Backends that support batched evaluation (such as `qd-metal` on Apple Silicon Metal GPU) pack both
-  equal-length passes into **one forward pass**, halving kernel dispatch and GPU synchronization overhead.
+  equal-length passes into **one forward pass**; the dispatch saving is unmeasured (no committed benchmark).
 - For backends that do not implement batching, `DecisionBackend::decode_slots` defaults to calling
   `decode_slot` sequentially for each query in the batch.
 - The snapshot state hash is checked once across the whole batched call, verifying slot isolation for

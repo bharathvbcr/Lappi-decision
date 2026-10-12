@@ -154,17 +154,13 @@ impl QueryHead {
 /// rows for it. One query has nothing to batch. Three or more stay one decode each. Different
 /// row counts would score both passes with the first query's answer ids.
 fn batchable(mode: DecodeMode, queries: &[QueryHead]) -> bool {
-    match queries {
-        [a, b]
-            if mode == DecodeMode::ReadOnly
-                && a.kind == QueryKind::Letters
-                && b.kind == QueryKind::Letters
-                && a.rows == b.rows =>
-        {
-            true
-        }
-        _ => false,
-    }
+    matches!(
+        queries,
+        [a, b] if mode == DecodeMode::ReadOnly
+            && a.kind == QueryKind::Letters
+            && b.kind == QueryKind::Letters
+            && a.rows == b.rows
+    )
 }
 
 enum Job {
@@ -951,6 +947,9 @@ pub(crate) fn batch_score_rows(seq: u32) -> Option<[u32; 2]> {
     Some([first, second])
 }
 
+/// The 8 arguments are the call's whole input (the entry's id and state length are only there
+/// to refuse a mismatch); every caller, tests included, passes them by name in this order.
+#[allow(clippy::too_many_arguments)]
 fn continuation_ids(
     tok: &QwenTokenizer,
     id: u64,
