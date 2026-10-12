@@ -56,14 +56,15 @@ So the preview serves the general decision families' choice questions only. This
 
 ## What it serves
 
-- **Choice (letters) slots of the general decision families:** 15 entries, 3 to 17 options. **Not `code.defect_class`** (see the load test above).
+- **Choice (letters) slots of the general decision families:** 15 calibration entries, slot widths 3 to 17 rows, which is 2 to 16 options (the last row of every slot is the reserved abstain row). **Not `code.defect_class`** (see the load test above).
+- **Population labels (wording only; no number in this file changed):** "15" is the count of calibration entries, and of the decision-pool families the load test replayed. The families served are **21** (the 22 choice families minus `code.defect_class`; admission checks `trained_families`). Six of them were never sent through the runtime: the four intent families, `knowledge.multiple_choice` and `commonsense.multiple_choice`. Unless a row says otherwise, a choice figure below is over **all 17,254 val choice rows, which include the 2,304 `code.defect_class` rows the release does not serve**.
 - **Span requests refuse** (`calibration_entry_missing`): span verdicts carry no pointer distribution, so no span entry can be fitted (GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS).
 - **Score requests refuse.**
 
 **Serving behaviour at the human's 0.80 precision target** [V, `build/v6x/coverage.py` on the
-average's own fits, 17,254 val choice rows]:
+average's own fits, all 17,254 val choice rows of the 22 choice families, including the 2,304 unserved `code.defect_class` rows]:
 
-| Estimate | Answers | Precision on answered | Refuses | 16-option questions refused |
+| Estimate | Answers | Precision on answered | Refuses | Refused in the `choice:16` entry (16 rows: 15 options plus the abstain row; the notes elsewhere call it "16-option") |
 |---|---|---|---|---|
 | **Two-fold (honest)**: each row scored with the other fold's parameters | **91.9%** | **87.0%** | 8.1% | 51% |
 | In-sample (`all`, the shipped table; optimistic) | 93.8% | 87.1% | 6.2% | 31% |
@@ -71,7 +72,7 @@ average's own fits, 17,254 val choice rows]:
 - **Not modelled here:** the choice slot's permuted second pass. Serving also abstains where the two passes disagree, so real refusals run somewhat higher. The row's in-distribution abstention, the noul and permutation halves before any margin, is 4.6%.
 - **Calibration error (two-fold ECE, 15 bins, threshold 0.05):**
   - 0.0056-0.0379 on 8 of the 9 question types with ≥ 100 rows;
-  - **0.079 on 16-option questions (fails)**, from 0.173 before calibration;
+  - **0.079 on the `choice:16` entry (fails; 16 rows = 15 options plus the abstain row, called "16-option" in the first version of these notes)**, from 0.173 before calibration;
   - 6 small types (< 100 rows) are not measured.
 
 ## Measured on the artifact itself
@@ -80,7 +81,7 @@ Score row **6af73bef-aa56-49b3-8cdb-e0b0b56e9181**, `h100x2-v5avg-2026-10-05.jso
 
 | Measure | The average | v5's five seeds | Gate |
 |---|---|---|---|
-| val choice top-1 | **0.857** (14779/17254) | 0.828-0.847 | (not a gate) |
+| val choice top-1 (all 17,254 val choice rows, 22 families, incl. 2,304 unserved `code.defect_class` rows) | **0.857** (14779/17254) | 0.828-0.847 | (not a gate) |
 | val span top-1 | **0.773** (5596/7238) | 0.907-0.915 | (not a gate) |
 | permutation_consistency | **0.957** (16514/17254) | 0.929-0.949 | ≥ 0.95: **passes** |
 | ood_abstain, OOD half | **149/180** (Wilson lower 0.766) | 152-162 | ≥ 0.9: **fails** |
