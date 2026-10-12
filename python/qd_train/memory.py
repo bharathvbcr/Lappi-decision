@@ -426,9 +426,14 @@ def safetensors_header(path: Path) -> dict[str, Any]:
         raise CheckpointRefused(
             f"{path}: safetensors header claims {n} bytes and the file holds {len(raw)}"
         )
+    # Strict UTF-8 text, no BOM, no NaN/Infinity: what serde_json accepts. `json.loads(bytes)`
+    # would sniff UTF-16/32 and skip a UTF-8 BOM, and `json.loads` takes NaN by default.
+    def _no_constant(name: str) -> Any:
+        raise ValueError(f"{name} is not JSON")
+
     try:
-        header = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        header = json.loads(raw.decode("utf-8"), parse_constant=_no_constant)
+    except (UnicodeDecodeError, ValueError) as exc:
         raise CheckpointRefused(f"{path}: safetensors header is not JSON: {exc}") from exc
     if not isinstance(header, dict):
         raise CheckpointRefused(
@@ -514,9 +519,15 @@ def tensor_ranges(path: Path) -> dict[str, TensorRange]:
                 f"{path}: {name}: data_offsets [{begin}, {end}) do not fit the "
                 f"{data_len}-byte data section"
             )
-        numel = math.prod(shape)
+        # Left to right, refusing at the first overflow of usize like Rust's checked fold: a
+        # trailing zero does not rescue a product that already overflowed.
+        numel = 1
+        for dim in shape:
+            numel *= dim
+            if numel > _U64_MAX:
+                raise CheckpointRefused(f"{path}: {name}: shape {shape!r} overflows")
         if numel * itemsize > _U64_MAX:
-            raise CheckpointRefused(f"{path}: {name}: shape {shape!r} overflows")
+            raise CheckpointRefused(f"{path}: {name}: byte size overflows")
         if numel * itemsize != end - begin:
             raise CheckpointRefused(
                 f"{path}: {name}: {shape!r} x {itemsize} bytes = {numel * itemsize}, but "

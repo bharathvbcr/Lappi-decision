@@ -13,6 +13,7 @@
 //!       "why":                string
 //!       "expect":             "ok" | "refuse"
 //!       "header":             string   the header text, UTF-8 (default "")
+//!       "header_encoding":    "utf-16-le"?  write the header text in that encoding instead of UTF-8
 //!       "pad_header_to":      u64?     append spaces until the header is this many bytes
 //!       "header_len":         u64?     the length prefix to write instead of the header's real length
 //!       "data_len":           u64?     zero bytes after the header (default 0)
@@ -50,17 +51,27 @@ fn u64_field(case: &Value, key: &str) -> Option<u64> {
 
 fn build(case: &Value, tag: &str) -> TempFile {
     let mut header = case.get("header").and_then(Value::as_str).unwrap_or("").to_owned();
+    let utf16 = match case.get("header_encoding").and_then(Value::as_str) {
+        None => false,
+        Some("utf-16-le") => true,
+        Some(other) => panic!("header_encoding {other:?} is not one this test writes"),
+    };
     if let Some(n) = u64_field(case, "pad_header_to") {
         let n = usize::try_from(n).unwrap();
         assert!(header.len() <= n, "pad_header_to is shorter than the header");
         header.push_str(&" ".repeat(n - header.len()));
     }
-    let prefix = u64_field(case, "header_len").unwrap_or(header.len() as u64);
+    let header_bytes: Vec<u8> = if utf16 {
+        header.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    } else {
+        header.into_bytes()
+    };
+    let prefix = u64_field(case, "header_len").unwrap_or(header_bytes.len() as u64);
     let data_len = usize::try_from(u64_field(case, "data_len").unwrap_or(0)).unwrap();
     let path = std::env::temp_dir().join(format!("qd-st-adv-{}-{tag}.safetensors", std::process::id()));
     let mut f = File::create(&path).unwrap();
     f.write_all(&prefix.to_le_bytes()).unwrap();
-    f.write_all(header.as_bytes()).unwrap();
+    f.write_all(&header_bytes).unwrap();
     f.write_all(&vec![0u8; data_len]).unwrap();
     if let Some(n) = u64_field(case, "truncate_to") {
         f.set_len(n).unwrap();

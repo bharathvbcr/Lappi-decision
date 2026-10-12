@@ -39,7 +39,7 @@ def _build(case: dict, path: Path) -> Path:
     if pad is not None:
         assert len(header.encode()) <= pad
         header += " " * (pad - len(header.encode()))
-    raw = header.encode()
+    raw = header.encode("utf-16-le" if case.get("header_encoding") == "utf-16-le" else "utf-8")
     prefix = case.get("header_len", len(raw))
     blob = struct.pack("<Q", prefix) + raw + bytes(case.get("data_len", 0))
     cut = case.get("truncate_to")
