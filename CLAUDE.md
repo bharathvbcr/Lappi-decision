@@ -35,7 +35,7 @@ These rules override default behaviour. They are copied into every lane prompt.
 
 ## Environment facts (verified 2026-09-19, re-verify before relying on them)
 
-- `cargo` / `rustc` 1.98.0, `uv` 0.11.28, `python3` 3.14.7, `git` 2.54.0.
+- `cargo` / `rustc` 1.98.0, `uv` 0.11.28, `python3` 3.14.8 (Homebrew python@3.14; the ml venv runs it), `git` 2.54.0.
 - PyTorch env: `/Users/bharath/.venvs/ml` — torch 2.12.1, **MPS available**.
 - **Containers are podman, not docker.** Docker is not installed; `podman` 6.1.2 is, with an
   `applehv` machine (`podman-machine-default`, 9 CPUs, **12 GiB RAM**, **160 GiB disk** — both

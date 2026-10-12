@@ -22,9 +22,10 @@ rule:
 
 Floats are dumped as ``float.hex``. Run::
 
+    SNAP=~/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots
     PYTHONPATH=python:tools /Users/bharath/.venvs/ml/bin/python \\
         tools/qd_train_oracle_optimizer_table.py \\
-        --snapshot ~/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c \\
+        --snapshot "$SNAP/b1485b2fa6dfa1287294f269f5fb618e03d52d7c" \\
         --out crates/qd-train/tests/fixtures/optimizer-table-2b.json \\
         --config-out crates/qd-train/tests/fixtures/qwen35-2b-config.json
 """
@@ -41,13 +42,13 @@ from pathlib import Path
 
 import torch
 import transformers
+from real_ft_run import optimizer_spec
 from transformers import AutoConfig
 from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5TextModel
 
 from qd_train.backbone import text_tensor_index
 from qd_train.heads import SpanPointerHead
 from qd_train.optim import DEFAULT_BETA2, LR_SCALE_KEY, build_optimizer, layerwise_param_groups
-from real_ft_run import optimizer_spec
 
 #: F's recipe (campaign/f-v4-preregistered.json), the flags this table depends on.
 F_LR = 1e-5
@@ -132,7 +133,9 @@ def main() -> int:
     head_names = [f"span_head.{n}" for n, _ in head.named_parameters()]
     every = tower_names + head_names
     if sorted(table) != sorted(every):
-        raise SystemExit(f"the optimizer covers {len(table)} parameters, the model has {len(every)}")
+        raise SystemExit(
+            f"the optimizer covers {len(table)} parameters, the model has {len(every)}"
+        )
 
     script = Path(__file__).read_bytes()
     out = {
@@ -150,7 +153,10 @@ def main() -> int:
             "git_head": _git_head(),
         },
         "snapshot": args.snapshot.name,
-        "config": {"file": args.config_out.name, "sha256": hashlib.sha256(config_bytes).hexdigest()},
+        "config": {
+            "file": args.config_out.name,
+            "sha256": hashlib.sha256(config_bytes).hexdigest(),
+        },
         "recipe": {
             "lr": F_LR.hex(),
             "lower_layers_n": F_LOWER_LAYERS_N,
@@ -159,7 +165,9 @@ def main() -> int:
             "optimizer_recipe": "master",
             "beta2": DEFAULT_BETA2.hex(),
         },
-        "names_checked_against": "backbone.text_tensor_index(snapshot): the model.language_model.* header",
+        "names_checked_against": (
+            "backbone.text_tensor_index(snapshot): the model.language_model.* header"
+        ),
         "tower_names": tower_names,
         "tower_shapes": [shapes[n] for n in tower_names],
         "head_names": head_names,
@@ -168,7 +176,10 @@ def main() -> int:
     }
     args.out.write_text(json.dumps(out, indent=1, sort_keys=False) + "\n")
     groups_seen = sorted({str(v["group"]) for v in table.values()})
-    print(f"{len(table)} parameters ({len(tower_names)} tower + {len(head_names)} head), groups {groups_seen}")
+    print(
+        f"{len(table)} parameters ({len(tower_names)} tower + {len(head_names)} head), "
+        f"groups {groups_seen}"
+    )
     return 0
 
 

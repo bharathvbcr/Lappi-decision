@@ -60,7 +60,7 @@ const SINGLE: (&str, &str) = (
 /// `tools/qd_train_oracle_trainer.py`'s docstring; update all three together.
 const TRAINER_ORACLE: (&str, &str, u64) = (
     "trainer-oracle.json",
-    "068924c88f65efa6cf2ec6f2c623b2f20c7930d8177c3297b2b7829972d46944",
+    "ddb9779aed6908c32937f7c75d0e74389dcb04301316369d3dd82eedf7bfb5bf",
     165_223,
 );
 

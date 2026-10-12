@@ -38,7 +38,12 @@ def main() -> int:
 
     tensors = {k: v for k, v in load_file(str(args.init)).items() if k.startswith("span_head.")}
     if sorted(tensors) != sorted(
-        ["span_head.abstain_end", "span_head.abstain_start", "span_head.end_proj.weight", "span_head.start_proj.weight"]
+        [
+            "span_head.abstain_end",
+            "span_head.abstain_start",
+            "span_head.end_proj.weight",
+            "span_head.start_proj.weight",
+        ]
     ):
         raise SystemExit(f"{args.init}: span_head tensors are {sorted(tensors)}")
     refs: dict[str, TensorRef] = {}
@@ -53,7 +58,10 @@ def main() -> int:
         )
     script = Path(__file__).read_bytes()
     out = {
-        "what": "run_control._sidecar_digest over the span_head.* TensorRefs of the tiny init (Amendment 2 (iv))",
+        "what": (
+            "run_control._sidecar_digest over the span_head.* TensorRefs of the tiny init "
+            "(Amendment 2 (iv))"
+        ),
         "generator": {
             "script": "tools/qd_train_oracle_head_digest.py",
             "script_sha256": hashlib.sha256(script).hexdigest(),
@@ -65,12 +73,16 @@ def main() -> int:
         "source_sha256": hashlib.sha256(args.init.read_bytes()).hexdigest(),
         "hidden_size": int(tensors["span_head.abstain_start"].shape[0]),
         "tensors": {
-            name: {"dtype": r.dtype, "shape": list(r.shape), "digest": r.digest()} for name, r in sorted(refs.items())
+            name: {"dtype": r.dtype, "shape": list(r.shape), "digest": r.digest()}
+            for name, r in sorted(refs.items())
         },
         "content_digest": _sidecar_digest(refs),
     }
     args.out.write_text(json.dumps(out, indent=1) + "\n")
-    print(f"content_digest {out['content_digest']} over {len(refs)} tensors, hidden {out['hidden_size']}")
+    print(
+        f"content_digest {out['content_digest']} over {len(refs)} tensors, "
+        f"hidden {out['hidden_size']}"
+    )
     return 0
 
 
