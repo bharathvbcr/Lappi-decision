@@ -518,3 +518,163 @@ fn diag_rows_are_refused_beside_train_rows_and_without_their_train_corpus() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("--diag-train-corpus"));
 }
+
+// -- single-version records (`--single-version-records`) ----------------------------------------
+//
+// A pool walked off a tree (`qd-prep own-swift`) has one version of each file and no
+// `prior_source`. The flag lets such a pool compose, with the file's own `source` as its pristine
+// rendering, and refuses any record that does carry a `prior_source`.
+
+const SINGLE_VERSION_FLAG: &str = "--single-version-records";
+
+/// A fixture whose pool records have no `prior_source`, with a base corpus generated from it.
+/// `keep_prior_on` puts one record's `prior_source` back, for the refusal test.
+fn single_version_fixture(name: &str, keep_prior_on: Option<usize>) -> Fixture {
+    let dir = scratch(name);
+    let pool = dir.join("pool.jsonl");
+    let mut text = String::new();
+    for i in 0..RECORDS {
+        let mut v = record(i);
+        if keep_prior_on != Some(i) {
+            v.as_object_mut().expect("an object").remove("prior_source");
+        }
+        text.push_str(&serde_json::to_string(&v).expect("serialising"));
+        text.push('\n');
+    }
+    std::fs::write(&pool, text).expect("writing the pool");
+    let corpus = dir.join("corpus");
+    std::fs::create_dir_all(&corpus).expect("mkdir");
+    ok(&[
+        "generate", "--pool", s(&pool), "--out", s(&corpus.join("examples.jsonl")),
+        "--manifest", s(&corpus.join("manifest.json")), "--seed", "0",
+        "--clean-permille", "200", "--report", "false",
+    ]);
+    let split_map = dir.join("split-map.json");
+    let repos: Vec<String> = (0..REPOS).map(repo_of).collect();
+    write_split_map(&split_map, &pool, &repos);
+    Fixture {
+        aux_pool: dir.join("none-aux-pool.jsonl"),
+        aux: dir.join("none-aux"),
+        dir,
+        pool,
+        corpus,
+        split_map,
+    }
+}
+
+fn single_version_args<'a>(f: &'a Fixture, out: &'a Path, flag: bool) -> Vec<&'a str> {
+    let mut a = vec![
+        "compose", "--corpus", s(&f.corpus), "--pool", s(&f.pool), "--split-map",
+        s(&f.split_map), "--out", s(out), "--seed", "7", "--train-rows", "40", "--val-rows", "0",
+        "--min-tokens", "1200", "--max-tokens", "2600", "--hard-max-tokens", "2900",
+        "--min-files", "3", "--max-files", "16", "--tolerance-permille", "200",
+        "--floor-uses", "2", "--soft-max-uses", "20", "--max-filler-uses", "24",
+    ];
+    if flag {
+        a.push(SINGLE_VERSION_FLAG);
+    }
+    a
+}
+
+#[test]
+fn a_record_with_no_prior_source_composes_with_its_own_source_as_the_pristine_rendering() {
+    let f = single_version_fixture("sv-compose", None);
+    let out = f.dir.join("out");
+    ok(&single_version_args(&f, &out, true));
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.join("manifest.json")).expect("read"))
+            .expect("json");
+    assert_eq!(manifest["record_mode"], "single_version");
+    assert_eq!(manifest["clean_diff_parity_checked"], 0, "no clean diff was checked");
+    assert!(
+        manifest["prepare_refusals"]["single_version_clean_examples_unused"]
+            .as_u64()
+            .is_some_and(|n| n > 0),
+        "the unused clean examples are counted, not hidden: {}",
+        manifest["prepare_refusals"]
+    );
+    let rows: Vec<ComposedRow> = std::fs::read_to_string(out.join("examples.jsonl"))
+        .expect("read")
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("a composed row"))
+        .collect();
+    assert_eq!(rows.len(), 40);
+    let examples = corpus_rows(&f.corpus);
+    let mut mutated = 0;
+    for row in &rows {
+        let lines: Vec<&str> = row.diff.split('\n').collect();
+        // Every file, needle and filler alike, is rendered as the whole file added.
+        for c in &row.constituents {
+            let header = lines[(c.first_line + 2) as usize];
+            assert!(
+                header.starts_with("@@ -1,1 +1,"),
+                "{}: {} is not a whole-file block: {header}",
+                row.id,
+                c.path
+            );
+        }
+        if row.class == MutationClass::Clean {
+            continue;
+        }
+        mutated += 1;
+        let needle = &row.constituents[row.needle_index.expect("needle") as usize];
+        let example = &examples[needle.example_id.as_deref().expect("the needle names its example")];
+        let after: Vec<&str> = example.after.split('\n').collect();
+        let span = row.diff_span.expect("diff_span");
+        let after_span = example.span.expect("span");
+        for (diff_line, after_line) in [(span.start, after_span.start), (span.end, after_span.end)] {
+            let text = lines[(diff_line - 1) as usize];
+            assert_eq!(&text[1..], after[(after_line - 1) as usize], "{}", row.id);
+        }
+    }
+    assert!(mutated > 20, "only {mutated} mutated rows");
+}
+
+#[test]
+fn a_pool_with_no_prior_source_is_refused_without_the_flag_and_the_refusal_names_it() {
+    let f = single_version_fixture("sv-noflag", None);
+    let out = run(&single_version_args(&f, &f.dir.join("out"), false));
+    assert!(!out.status.success(), "compose accepted single-version records without the flag");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains(SINGLE_VERSION_FLAG), "{err}");
+}
+
+#[test]
+fn a_record_with_a_prior_source_is_refused_under_the_flag() {
+    let f = single_version_fixture("sv-prior", Some(17));
+    let out = run(&single_version_args(&f, &f.dir.join("out"), true));
+    assert!(!out.status.success(), "the flag accepted a record that has a prior_source");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("prior_source") && err.contains("rec0017"), "{err}");
+}
+
+#[test]
+fn the_flag_does_not_combine_with_an_auxiliary_corpus() {
+    let f = single_version_fixture("sv-aux", None);
+    let out_dir = f.dir.join("out");
+    let mut args = single_version_args(&f, &out_dir, true);
+    args.extend(["--aux", s(&f.corpus)]);
+    let out = run(&args);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("auxiliary"));
+}
+
+/// Pinned from the binary built at main@94b9d0d, before `--single-version-records` existed: the
+/// commit-pool path (prior_source present, no flag) must compose these exact bytes.
+const COMMIT_PATH_EXAMPLES_SHA256: &str =
+    "547c92c79c5e1b15324a0cef09184e013181acd4aad3d7c1f7db2d26789cc246";
+const COMMIT_PATH_MANIFEST_SHA256: &str =
+    "c56435327bbe801ef86db56ad84f4da283491ab44d0ee76084f33053b68441f0";
+
+#[test]
+fn the_commit_pool_compose_path_is_byte_identical_to_the_pre_change_binary() {
+    let f = fixture("commit-path-pin");
+    let out = f.dir.join("out");
+    ok(&compose_args(&f, &out, &f.aux));
+    let examples = sha256_hex(&std::fs::read(out.join("examples.jsonl")).expect("read"));
+    let manifest = sha256_hex(&std::fs::read(out.join("manifest.json")).expect("read"));
+    assert_eq!(
+        (examples.as_str(), manifest.as_str()),
+        (COMMIT_PATH_EXAMPLES_SHA256, COMMIT_PATH_MANIFEST_SHA256)
+    );
+}

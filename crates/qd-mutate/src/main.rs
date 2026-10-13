@@ -120,6 +120,11 @@ struct ComposeArgs {
     /// Write only the supply census (`census.json`): no rows are composed.
     #[arg(long)]
     census: bool,
+    /// The pool holds single-version records (`qd-prep own-swift`): none carries a
+    /// `prior_source`, and each file's own `source` is its pristine rendering, as a whole-file
+    /// block. Refused when any record has a `prior_source`, and with `--aux`.
+    #[arg(long)]
+    single_version_records: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -209,7 +214,12 @@ fn compose(args: ComposeArgs) -> Result<()> {
         return Ok(());
     }
     let out = args.out.context("--out is required to compose")?;
-    let prepared = compose::prepare(&inputs)?;
+    let record_mode = if args.single_version_records {
+        compose::RecordMode::SingleVersion
+    } else {
+        compose::RecordMode::Commit
+    };
+    let prepared = compose::prepare_with(&inputs, record_mode)?;
     drop(inputs);
     if args.census {
         let report = serde_json::json!({
