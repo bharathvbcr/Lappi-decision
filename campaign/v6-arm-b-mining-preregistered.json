@@ -165,5 +165,16 @@
       }
     },
     "stop_rule": "Fable: if a material share of the 5,602 is content-identical (more than 5%), record it and stop; do not run plan. 2,056 of 5,602 (36.7%) are content-identical, so the plan was not run after this amendment and goes back to Fable. Under the new rule the 3,546 id-only collisions are kept and counted and the 2,056 content-identical rows are still dropped."
+  },
+  "amendment_2026-10-13_round2": {
+    "recorded": "2026-10-13, before any scoring; no probe or mining result was read. Changes no gate, seed, threshold or scan cap.",
+    "plan_run_released": "Fable reproduced the overlap (2,283 of 10,467 single-file rows, 21.8%) and found it structural, not a recipe fault: clean disposition is seed-hashed at p=0.2 (generate.rs:546-556), and small functions offer one operator at one site (generate.rs:483-486, 764-775), stub.panic being 910 of the overlapping rows. The stop rule is released and the plan is run.",
+    "content_key": {
+      "rule": "Byte-exact; no whitespace or CRLF normalisation (that would change the registered key). A row with before and after: sha256(before NUL after), R4's key, unchanged. A composed row (qd-mutate compose, no before): sha256(\"diff\" NUL diff), over the composed unified diff, which is the context the model reads; its `after` is the needle file alone and is not the model input. A candidate for which neither can be computed is refused, never kept.",
+      "why": "The first plan skipped every content check for the 2,308 composed rows (no before) and kept them silently."
+    },
+    "label_conflicts": "The key ignores label and span. Of two rows with one content, the first row is kept and the later one dropped, as before; when their (class, span) differ the drop is counted as `label_conflicts` in the plan report, with the rule written beside it.",
+    "id_prefix_required": "The driver refuses a pre-registration in which any corpus lacks a non-empty id_prefix, so a missing declaration cannot let a prefixed val id through the id-keyed val exclusion.",
+    "reporting": "The plan report carries dropped_by_class_and_operator (per v5-train, v5-val and within-candidate drop) and kept_by_class_and_operator, because the drop is stub-heavy and the kept mix differs from the generated mix."
   }
 }
