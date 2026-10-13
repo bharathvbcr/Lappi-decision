@@ -125,6 +125,10 @@ struct ComposeArgs {
     /// block. Refused when any record has a `prior_source`, and with `--aux`.
     #[arg(long)]
     single_version_records: bool,
+    /// Prepended to every composed row's id, so two composed corpora never share an id. Empty
+    /// by default, which writes exactly the ids and manifest it always wrote.
+    #[arg(long, default_value = "")]
+    id_prefix: String,
 }
 
 #[derive(clap::Args, Debug)]
@@ -162,6 +166,10 @@ struct GenerateArgs {
     /// into one hunk per cluster of changes. Recorded in the manifest as `diff.renderer`.
     #[arg(long)]
     single_hunk: bool,
+    /// Prepended to every example's id (`pool_id` is untouched), so two corpora generated from
+    /// one pool never share an id. Empty by default, which writes exactly the ids it always wrote.
+    #[arg(long, default_value = "")]
+    id_prefix: String,
 }
 
 #[derive(clap::Args, Debug)]
@@ -262,6 +270,7 @@ fn compose(args: ComposeArgs) -> Result<()> {
         soft_max_uses: args.soft_max_uses,
         max_filler_uses: args.max_filler_uses,
         diag_rows: args.diag_rows,
+        id_prefix: args.id_prefix.clone(),
     };
     let diag_train = args
         .diag_train_corpus
@@ -310,6 +319,17 @@ fn generate(args: GenerateArgs) -> Result<()> {
         },
     });
     let mut run = generator.run(&records, report);
+    if args.id_prefix.len() > 64
+        || args.id_prefix.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
+        bail!(
+            "id prefix {:?} is longer than 64 bytes or holds whitespace or a control character",
+            args.id_prefix
+        );
+    }
+    for example in &mut run.examples {
+        example.id.insert_str(0, &args.id_prefix);
+    }
 
     let (jsonl, digest) = run.to_jsonl().context("serialising the examples")?;
     run.manifest.examples_sha256 = digest.clone();

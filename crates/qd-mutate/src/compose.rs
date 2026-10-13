@@ -1153,6 +1153,10 @@ pub struct Options {
     /// Report-only diag rows (half `seen_filler`, half `unseen`); never with train rows.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub diag_rows: usize,
+    /// Prepended to every composed row's id, so two composed corpora (`compose:train:000000` in
+    /// each) never share one. Empty by default, and then absent from the manifest.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id_prefix: String,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -1162,6 +1166,14 @@ fn is_zero(n: &usize) -> bool {
 impl Options {
     pub fn check(&self) -> Result<(), ComposeError> {
         let bad = |m: String| Err(ComposeError::Input(m));
+        if self.id_prefix.len() > 64
+            || self.id_prefix.chars().any(|c| c.is_control() || c.is_whitespace())
+        {
+            return bad(format!(
+                "id prefix {:?} is longer than 64 bytes or holds whitespace or a control character",
+                self.id_prefix
+            ));
+        }
         if self.min_files < 2 || self.min_files > self.max_files {
             return bad(format!(
                 "files {}..{} is not a range of at least two",
@@ -1931,9 +1943,10 @@ fn compose_split(
         return Err(shortfall(
             0,
             format!(
-                "{} mutated rows need as many distinct needle files, and only {} files have a \
-                 mutated rendering",
+                "{} mutated rows need as many distinct needle files, but {} files have a mutated \
+                 rendering and {} of them fit a row",
                 mutated_rows.len(),
+                units.len(),
                 all.len()
             ),
             &report.attempts_refused,
@@ -1958,7 +1971,7 @@ fn compose_split(
         &mut rng,
         &mut report,
         |index, plan, rendered, fillers| {
-            let id = format!("compose:{}:{index:06}", split.as_str());
+            let id = format!("{}compose:{}:{index:06}", opts.id_prefix, split.as_str());
             build_row(id, split, units, plan, rendered, fillers, opts, Anchor::Needle)
         },
     )?;
@@ -2155,7 +2168,7 @@ fn compose_diag(
         &mut rng,
         &mut report.report,
         |index, plan, rendered, chosen| {
-            let id = format!("compose:diag:{index:06}");
+            let id = format!("{}compose:diag:{index:06}", opts.id_prefix);
             let mut row =
                 build_row(id, Split::Val, &units, plan, rendered, chosen, opts, Anchor::Filler)?;
             let (u, _) = plan.needle.ok_or_else(|| {

@@ -765,3 +765,99 @@ fn the_commit_pool_compose_path_is_byte_identical_to_the_pre_change_binary() {
         (COMMIT_PATH_EXAMPLES_SHA256, COMMIT_PATH_MANIFEST_SHA256)
     );
 }
+
+// -- --id-prefix --------------------------------------------------------------------------------
+
+/// `generate --seed 0 --clean-permille 300` over this file's fixture pool, from the binary built
+/// before `--id-prefix` existed. (The manifest names the pool's path, so only the rows are pinned.)
+const GENERATE_DEFAULT_EXAMPLES_SHA256: &str =
+    "30f858b376bf96bb416a5365a6dd24bcde7da71e4a099c3955accd1d2df6908f";
+
+fn jsonl_values(path: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(path)
+        .expect("read")
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("a JSON row"))
+        .collect()
+}
+
+#[test]
+fn generate_with_no_id_prefix_is_byte_identical_to_the_pre_change_binary() {
+    let f = fixture("gen-pin");
+    let bytes = std::fs::read(f.corpus.join("examples.jsonl")).expect("read");
+    assert_eq!(sha256_hex(&bytes), GENERATE_DEFAULT_EXAMPLES_SHA256);
+}
+
+#[test]
+fn generate_id_prefix_changes_only_the_id() {
+    let f = fixture("gen-prefix");
+    let out = f.dir.join("prefixed");
+    std::fs::create_dir_all(&out).expect("mkdir");
+    ok(&[
+        "generate", "--pool", s(&f.pool), "--out", s(&out.join("examples.jsonl")),
+        "--manifest", s(&out.join("manifest.json")), "--seed", "0", "--clean-permille", "300",
+        "--report", "false", "--id-prefix", "arm-b-x:",
+    ]);
+    let plain = jsonl_values(&f.corpus.join("examples.jsonl"));
+    let prefixed = jsonl_values(&out.join("examples.jsonl"));
+    assert_eq!(plain.len(), prefixed.len());
+    for (a, mut b) in plain.into_iter().zip(prefixed) {
+        let id = b["id"].as_str().expect("id").to_string();
+        assert_eq!(id, format!("arm-b-x:{}", a["id"].as_str().expect("id")));
+        b["id"] = a["id"].clone();
+        assert_eq!(a, b, "a field other than id changed");
+    }
+}
+
+#[test]
+fn a_prefix_with_whitespace_is_refused() {
+    let f = fixture("gen-bad-prefix");
+    let out = f.dir.join("bad");
+    std::fs::create_dir_all(&out).expect("mkdir");
+    let r = run(&[
+        "generate", "--pool", s(&f.pool), "--out", s(&out.join("examples.jsonl")),
+        "--manifest", s(&out.join("manifest.json")), "--seed", "0", "--report", "false",
+        "--id-prefix", "a b:",
+    ]);
+    assert!(!r.status.success());
+    assert!(!out.join("examples.jsonl").exists());
+}
+
+#[test]
+fn compose_id_prefix_changes_only_the_id() {
+    let f = fixture("compose-prefix");
+    let (plain, _, _) = compose_ok(&f, "plain");
+    let out = f.dir.join("prefixed");
+    let mut args = compose_args(&f, &out, &f.aux);
+    args.extend(["--id-prefix", "arm-b-y:"]);
+    ok(&args);
+    let prefixed = jsonl_values(&out.join("examples.jsonl"));
+    assert_eq!(plain.len(), prefixed.len());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.join("manifest.json")).expect("read"))
+            .expect("json");
+    assert_eq!(manifest["options"]["id_prefix"], "arm-b-y:");
+    for (a, mut b) in plain.iter().zip(prefixed) {
+        let a = serde_json::to_value(a).expect("value");
+        let id = b["id"].as_str().expect("id").to_string();
+        assert_eq!(id, format!("arm-b-y:{}", a["id"].as_str().expect("id")));
+        b["id"] = a["id"].clone();
+        assert_eq!(a, b, "a field other than id changed");
+    }
+}
+
+#[test]
+fn the_shortfall_names_both_the_files_with_a_rendering_and_the_files_that_fit_a_row() {
+    let f = single_version_fixture("sv-shortfall", None);
+    let out_dir = f.dir.join("out");
+    let mut args = single_version_args(&f, &out_dir, true);
+    let at = args.iter().position(|a| *a == "--train-rows").expect("--train-rows") + 1;
+    args[at] = "100000";
+    let out = run(&args);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("files have a mutated rendering and") && err.contains("of them fit a row"),
+        "{err}"
+    );
+}
