@@ -671,6 +671,29 @@ fn the_flag_does_not_combine_with_an_auxiliary_corpus() {
 }
 
 #[test]
+fn files_too_large_for_any_row_are_counted_not_silently_dropped() {
+    let f = single_version_fixture("sv-share-cap", None);
+    let out_dir = f.dir.join("out");
+    // The largest share any row gives one file is max_tokens x (1 - tolerance) x max_share
+    // = 1000 x 0.8 x 0.4 = 320 estimated tokens, which the larger whole files exceed.
+    ok(&[
+        "compose", "--corpus", s(&f.corpus), "--pool", s(&f.pool), "--split-map",
+        s(&f.split_map), "--out", s(&out_dir), "--seed", "7", "--train-rows", "8",
+        "--val-rows", "0", "--min-tokens", "1000", "--max-tokens", "1000",
+        "--hard-max-tokens", "1200", "--min-files", "3", "--max-files", "16",
+        "--tolerance-permille", "200", "--floor-uses", "2", "--soft-max-uses", "20",
+        "--max-filler-uses", "24", SINGLE_VERSION_FLAG,
+    ]);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out_dir.join("manifest.json")).expect("read"))
+            .expect("json");
+    let train = &manifest["splits"]["train"];
+    let dropped = train["files_exceeding_share_cap"].as_u64().expect("the count is recorded");
+    assert!(dropped > 0, "the fixture has no file over the cap: {train}");
+    assert!(dropped < train["files_available"].as_u64().expect("files_available"));
+}
+
+#[test]
 fn the_flag_does_not_combine_with_aux_pool_out_and_writes_nothing() {
     let f = single_version_fixture("sv-aux-pool-out", None);
     let aux_pool = f.dir.join("aux-pool-out.jsonl");

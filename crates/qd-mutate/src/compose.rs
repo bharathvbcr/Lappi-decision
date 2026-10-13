@@ -1325,6 +1325,10 @@ pub struct NeedleRateReport {
     pub appearances_histogram: BTreeMap<u64, u64>,
 }
 
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
 /// What one split's composition did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SplitReport {
@@ -1333,6 +1337,12 @@ pub struct SplitReport {
     pub files_available: u64,
     pub files_with_base_rendering: u64,
     pub files_with_aux_rendering_only: u64,
+    /// Files left out of the universe because their pristine or a mutated rendering is larger than
+    /// the largest share any row could give one file (`share_cap` at `max_tokens`): no row can
+    /// hold them. Counted here, never dropped silently. Absent when none, so a pool of small
+    /// files (the commit pool) writes the manifest it always wrote.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub files_exceeding_share_cap: u64,
     pub files_used: u64,
     pub file_slots: u64,
     pub needle_rate: NeedleRateReport,
@@ -1907,20 +1917,29 @@ fn compose_split(
             &report.attempts_refused,
         ));
     }
-    if mutated_rows.len() > units.len() {
+    // A file whose pristine or any mutated rendering exceeds the largest share a row can give
+    // it fits no row, as needle or filler: it is out of the universe, and counted.
+    let largest_share = share_cap(opts.max_tokens, opts);
+    let mut all: Vec<usize> = (0..units.len())
+        .filter(|&i| {
+            units[i].pristine_est <= largest_share
+                && units[i].renderings.iter().all(|r| r.est <= largest_share)
+        })
+        .collect();
+    report.files_exceeding_share_cap = (units.len() - all.len()) as u64;
+    if mutated_rows.len() > all.len() {
         return Err(shortfall(
             0,
             format!(
                 "{} mutated rows need as many distinct needle files, and only {} files have a \
                  mutated rendering",
                 mutated_rows.len(),
-                units.len()
+                all.len()
             ),
             &report.attempts_refused,
         ));
     }
     // The universe: as many files as mutated rows, each the needle exactly once.
-    let mut all: Vec<usize> = (0..units.len()).collect();
     shuffle(&mut all, &mut rng);
     let needle_files: Vec<usize> = all[..mutated_rows.len()].to_vec();
     assign_needles(&mut plans, &mutated_rows, &needle_files, units, opts, &mut rng)
