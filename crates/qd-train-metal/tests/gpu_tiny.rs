@@ -31,7 +31,7 @@ use qd_train::shards::ConsumedPrefix;
 use qd_train::span_head::{SpanGold, SpanHead, SpanRowPlan};
 use qd_train::step::{BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider};
 use qd_train::trainer::{
-    train, CheckpointPolicy, ConsumedBatch, HostParams, Hooks, ResumeState, Termination, TrainConfig, TrainError,
+    train, CheckpointPolicy, ConsumedBatch, HostParams, Hooks, Progress, ResumeState, Termination, TrainConfig, TrainError,
 };
 use qd_train_metal::args::Operands;
 use qd_train_metal::provider::{Qwen35Provider, TESSL_DIR};
@@ -351,4 +351,245 @@ fn gpu_tiny_loop_resumed_from_a_checkpoint_is_the_uninterrupted_run_bit_for_bit(
         assert_eq!(bits(a), bits(b));
     }
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// ---- a real SIGKILL -----------------------------------------------------------------------
+//
+// The test above resumes in-process. These kill a real process: the parent re-executes this
+// test binary as a child that trains with a checkpoint every step (slowed by a sleep per step so
+// the kill lands inside the run), then SIGKILLs it by its recorded PID, resumes from what the
+// kill left, and compares every byte of the final checkpoint (tower, head, both AdamW moments,
+// per-entry step counts, loss log) with an uninterrupted run's. What these do not cover is
+// `qd-train-metal`'s own ledger row: `run()` needs a shard set at the tiny snapshot's vocabulary
+// (64), and the repository has none (`shards-tiny` is 256), so the rule that the completed run
+// writes one row and the killed one none is not run here (see HANDOFF).
+
+const KILL_CHILD_ENV: &str = "QD_KILL_CHILD_DIR";
+const KILL_SLEEP_ENV: &str = "QD_KILL_CHILD_SLEEP_MS";
+const KILL_STEPS: u64 = 6;
+const KILL_WAIT: std::time::Duration = std::time::Duration::from_secs(240);
+
+/// The child half. Run by itself it does nothing and says so; the parent tests set its env.
+#[test]
+#[ignore = "GPU: the child half of the kill tests; does nothing without its environment"]
+fn gpu_kill_resume_child() {
+    let Ok(dir) = std::env::var(KILL_CHILD_ENV) else {
+        eprintln!("gpu_kill_resume_child: not run: {KILL_CHILD_ENV} is unset (this is the kill tests' child)");
+        return;
+    };
+    let sleep_ms: u64 = std::env::var(KILL_SLEEP_ENV).unwrap().parse().unwrap();
+    let snap = Snapshot::from_dir(&tiny()).unwrap();
+    let ids = ids();
+    let (mut p, mut o) = fresh(&snap);
+    let policy = CheckpointPolicy {
+        dir: PathBuf::from(dir),
+        every: 1,
+    };
+    let mut slow = |_: &Progress| std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+    let mut hooks = Hooks {
+        on_progress: Some(&mut slow),
+    };
+    train(&mut p, &mut o, source(&ids, KILL_STEPS), &config(KILL_STEPS, Some(policy)), &MonotonicClock::new(), None, &mut hooks).unwrap();
+}
+
+fn target_dir(tag: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target").join(format!("qd-kill-{tag}-{}", std::process::id()));
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    dir
+}
+
+/// Every file under `root`, relative, sorted.
+fn files_under(root: &Path) -> Vec<PathBuf> {
+    fn walk(root: &Path, at: &Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(at).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(root, &p, out);
+            } else {
+                out.push(p.strip_prefix(root).unwrap().to_path_buf());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for rel in files_under(from) {
+        let dst = to.join(&rel);
+        std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+        std::fs::copy(from.join(&rel), dst).unwrap();
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum KillAt {
+    /// After checkpoint 2 is final.
+    AfterCheckpoint,
+    /// While a checkpoint at step >= 2 is still in its staging directory (before the rename).
+    DuringWrite,
+}
+
+/// The staging directory of a checkpoint at step >= 2, if one exists now.
+fn staging_at_step_2_or_later(dir: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    entries.filter_map(Result::ok).map(|e| e.path()).find(|p| {
+        p.file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_prefix(".ckpt-")?.strip_suffix(".partial")?.parse::<u64>().ok())
+            .is_some_and(|step| step >= 2)
+    })
+}
+
+fn kill_and_resume(at: KillAt, tag: &str) {
+    use std::os::unix::process::ExitStatusExt;
+
+    let snap = Snapshot::from_dir(&tiny()).unwrap();
+    let ids = ids();
+    let clock = MonotonicClock::new();
+
+    // The uninterrupted run, checkpointing every step into its own directory.
+    let full_dir = target_dir(&format!("{tag}-full"));
+    let (mut p, mut o) = fresh(&snap);
+    let full = train(
+        &mut p,
+        &mut o,
+        source(&ids, KILL_STEPS),
+        &config(KILL_STEPS, Some(CheckpointPolicy { dir: full_dir.clone(), every: 1 })),
+        &clock,
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap();
+    assert_eq!(full.optimizer_steps, KILL_STEPS);
+    let full_final = full.final_checkpoint.clone().unwrap();
+    let full_tower = p.read_parameters().unwrap();
+    let full_head: Vec<Vec<f32>> = o.head().values().into_iter().map(<[f32]>::to_vec).collect();
+    drop(p);
+
+    // The child, killed by PID.
+    let killed_dir = target_dir(&format!("{tag}-killed"));
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["gpu_kill_resume_child", "--exact", "--ignored", "--test-threads=1"])
+        .env(KILL_CHILD_ENV, &killed_dir)
+        .env(KILL_SLEEP_ENV, "400")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let started = std::time::Instant::now();
+    let torn_staging = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("child {pid} exited on its own ({status}) before the kill point: the trigger never fired");
+        }
+        let hit = match at {
+            KillAt::AfterCheckpoint => killed_dir.join("ckpt-00000002").join("trainer.json").is_file().then(PathBuf::new),
+            KillAt::DuringWrite => staging_at_step_2_or_later(&killed_dir),
+        };
+        if let Some(s) = hit {
+            child.kill().unwrap();
+            break s;
+        }
+        if started.elapsed() > KILL_WAIT {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("child {pid}: the kill point was not reached in {KILL_WAIT:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_micros(200));
+    };
+    let status = child.wait().unwrap();
+    assert_eq!(status.signal(), Some(9), "child {pid} must have died of SIGKILL, got {status}");
+
+    // What the kill left: complete checkpoints by name, and staging directories.
+    let mut names: Vec<String> = std::fs::read_dir(&killed_dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    names.sort();
+    eprintln!("kill {tag}: pid {pid} SIGKILLed after {:?}; left {names:?}", started.elapsed());
+    assert!(!names.iter().any(|n| n == &format!("ckpt-{KILL_STEPS:08}")), "the child finished before the kill: {names:?}");
+    if at == KillAt::DuringWrite {
+        assert!(
+            torn_staging.is_dir() && torn_staging.file_name().unwrap().to_str().unwrap().starts_with('.'),
+            "the kill was meant to land mid-write but the staging directory {torn_staging:?} is gone: {names:?}"
+        );
+        let step: u64 = names.iter().find_map(|n| n.strip_prefix(".ckpt-")?.strip_suffix(".partial")?.parse().ok()).unwrap();
+        assert!(!killed_dir.join(format!("ckpt-{step:08}")).exists(), "the torn step {step} was renamed into place");
+    }
+    // Resume point: the newest checkpoint by name; a staging directory is never a candidate.
+    let newest = names
+        .iter()
+        .filter(|n| n.starts_with("ckpt-"))
+        .max()
+        .map(|n| killed_dir.join(n))
+        .expect("at least one checkpoint was written before the kill");
+    let state = ResumeState::read(&newest).unwrap();
+    assert!(state.optimizer_step >= 1 && state.optimizer_step < KILL_STEPS);
+
+    // A checkpoint torn at its tail is refused, never loaded: halve each file of a copy.
+    for (i, rel) in files_under(&newest).into_iter().enumerate() {
+        let torn = target_dir(&format!("{tag}-torn{i}"));
+        copy_tree(&newest, &torn);
+        let f = std::fs::OpenOptions::new().write(true).open(torn.join(&rel)).unwrap();
+        let len = f.metadata().unwrap().len();
+        f.set_len(len / 2).unwrap();
+        drop(f);
+        assert!(ResumeState::read(&torn).is_err(), "a checkpoint with {} cut in half was loaded", rel.display());
+        std::fs::remove_dir_all(&torn).unwrap();
+    }
+
+    // The resume.
+    let resumed_dir = target_dir(&format!("{tag}-resumed"));
+    let (mut p, mut o) = fresh(&snap);
+    let resumed = train(
+        &mut p,
+        &mut o,
+        source(&ids, KILL_STEPS),
+        &config(KILL_STEPS, Some(CheckpointPolicy { dir: resumed_dir.clone(), every: 1 })),
+        &clock,
+        Some(state),
+        &mut Hooks::default(),
+    )
+    .unwrap();
+    assert_eq!(resumed.termination, Termination::StepsExhausted);
+    assert_eq!(resumed.optimizer_steps, KILL_STEPS);
+    assert_eq!(resumed.loss_log_digest().unwrap(), full.loss_log_digest().unwrap());
+    assert_eq!(resumed.consumed_digest, full.consumed_digest);
+    let tower = p.read_parameters().unwrap();
+    for ((spec, a), b) in p.parameters().iter().zip(&tower).zip(&full_tower) {
+        assert_eq!(bits(a), bits(b), "{}", spec.name);
+    }
+    for (a, b) in o.head().values().into_iter().zip(&full_head) {
+        assert_eq!(bits(a), bits(b));
+    }
+    // Weights and optimizer state: every byte of the final checkpoints (moments included).
+    let resumed_final = resumed.final_checkpoint.clone().unwrap();
+    let (want, got) = (files_under(&full_final), files_under(&resumed_final));
+    assert_eq!(want, got, "the two final checkpoints hold different files");
+    for rel in want {
+        assert_eq!(
+            std::fs::read(full_final.join(&rel)).unwrap(),
+            std::fs::read(resumed_final.join(&rel)).unwrap(),
+            "final checkpoint file {} differs between the uninterrupted and the killed-then-resumed run",
+            rel.display()
+        );
+    }
+    for d in [full_dir, killed_dir, resumed_dir] {
+        std::fs::remove_dir_all(d).unwrap();
+    }
+}
+
+#[test]
+#[ignore = "GPU: opens a Metal runtime and SIGKILLs a child that does; run only in an agreed GPU window"]
+fn gpu_tiny_sigkill_after_a_checkpoint_then_resume_is_the_uninterrupted_run_bit_for_bit() {
+    kill_and_resume(KillAt::AfterCheckpoint, "after");
+}
+
+#[test]
+#[ignore = "GPU: opens a Metal runtime and SIGKILLs a child that does; run only in an agreed GPU window"]
+fn gpu_tiny_sigkill_mid_checkpoint_write_leaves_a_staging_dir_that_resume_never_loads() {
+    kill_and_resume(KillAt::DuringWrite, "during");
 }
