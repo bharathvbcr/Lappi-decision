@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import collections
 import hashlib
 import json
 import math
@@ -174,11 +175,46 @@ def load_split_map(spec: Mapping[str, Any], repo: Path) -> tuple[dict[str, str],
     return {str(k): str(v) for k, v in repos.items()}, sha
 
 
+LABEL_CONFLICT_RULE = (
+    "the content key ignores label and span: of two rows with one content, the first row is "
+    "kept and the later one dropped; when their (class, span) differ the drop is counted here"
+)
+
+
 def content_digest(row: Mapping[str, Any]) -> str | None:
-    """sha256(before NUL after): what makes a re-id'd copy of a row a duplicate."""
+    """The key that makes a re-id'd copy of a row a duplicate. Byte-exact: no whitespace or line
+    ending normalisation.
+
+    * a row with ``before`` and ``after``: sha256(before NUL after), R4's registered key;
+    * a composed row (``qd-mutate compose``, no ``before``): sha256("diff" NUL diff), the composed
+      context the model reads. Its ``after`` is the needle file only and is not the input.
+
+    ``None`` when neither is present; a candidate with no digest is refused by :func:`plan`.
+    """
     if isinstance(row.get("before"), str) and isinstance(row.get("after"), str):
         return hashlib.sha256(f"{row['before']}\x00{row['after']}".encode()).hexdigest()
+    if isinstance(row.get("diff"), str):
+        return hashlib.sha256(f"diff\x00{row['diff']}".encode()).hexdigest()
     return None
+
+
+def _label(row: Mapping[str, Any]) -> str:
+    return json.dumps([row.get("class"), row.get("span")], sort_keys=True)
+
+
+def _tally(into: dict[str, collections.Counter[str]], row: Mapping[str, Any]) -> None:
+    into["class"][str(row.get("class", "?"))] += 1
+    into["operator"][str(row.get("operator", "?"))] += 1
+
+
+def _mix(rows: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+    t: dict[str, collections.Counter[str]] = {
+        "class": collections.Counter(),
+        "operator": collections.Counter(),
+    }
+    for r in rows:
+        _tally(t, r)
+    return {k: dict(sorted(v.items())) for k, v in t.items()}
 
 
 @dataclass
@@ -213,6 +249,15 @@ def plan(
         raise Refusal(f"{out_dir} exists; refusing to overwrite it")
     doc = check_committed(prereg, repo)
     inputs: dict[str, str] = {"preregistration": _sha256_file(prereg)}
+    # Every corpus declares a non-empty id prefix: the id-keyed val exclusion strips it, so a
+    # corpus that did not declare one could pass a prefixed val id through.
+    for corpus in doc["candidates"]["corpora"]:
+        declared = corpus.get("id_prefix")
+        if not isinstance(declared, str) or not declared:
+            raise Refusal(
+                f"corpus {corpus.get('name')}: no non-empty id_prefix is declared in the "
+                "pre-registration; every Arm B corpus must declare one"
+            )
 
     # Per set: how a candidate is matched. ``id`` (the default, and what the v5 val set uses): a
     # candidate whose un-prefixed id tail, identity key or content digest is in the set is dropped.
@@ -249,7 +294,12 @@ def plan(
     not_train = 0
     held = set(heldout_repos)
     seen_keys: set[tuple[str, str]] = set()
-    seen_digests: set[str] = set()
+    digest_label: dict[str, str] = {}
+    label_conflicts = 0
+    dropped: dict[str, dict[str, collections.Counter[str]]] = {
+        name: {"class": collections.Counter(), "operator": collections.Counter()}
+        for name in [s.name for s in sets] + ["within"]
+    }
     id_corpora: dict[str, set[str]] = {}
     offered = 0
     dup_by_set = {s.name: 0 for s in sets}
@@ -287,6 +337,12 @@ def plan(
                     not_train += 1
                     continue
             digest = content_digest(row)
+            if digest is None:
+                raise Refusal(
+                    f"corpus {corpus['name']}: {row['id']} has no before/after and no diff, so no "
+                    "content digest can be computed: a row that cannot be checked is refused, "
+                    "never kept"
+                )
             ident = normalise_key(row["id"])
             # The exclusion sets are id-keyed on the corpus's own id: strip the prefix the corpus
             # declares, so a prefix cannot take a row out of reach of the v5 val set.
@@ -306,17 +362,20 @@ def plan(
             hit = next((s.name for s in sets if s.hit(tail, idk_tail, digest)), None)
             if hit is not None:
                 dup_by_set[hit] += 1
+                _tally(dropped[hit], row)
                 continue
             within_key = (str(corpus["name"]), ident)
-            if within_key in seen_keys or (digest and digest in seen_digests):
+            if within_key in seen_keys or digest in digest_label:
                 dup_within += 1
+                _tally(dropped["within"], row)
+                if digest in digest_label and digest_label[digest] != _label(row):
+                    label_conflicts += 1
                 continue
             for s in sets:
                 if s.match != "id" and tail in s.ids:
                     id_collisions_by_set[s.name] += 1
             seen_keys.add(within_key)
-            if digest:
-                seen_digests.add(digest)
+            digest_label[digest] = _label(row)
             id_corpora.setdefault(ident, set()).add(str(corpus["name"]))
             kept.append(row)
     cap = int(doc["candidates"].get("scan_cap_rows", SCAN_CAP_ROWS))
@@ -339,6 +398,12 @@ def plan(
         "offered": offered,
         "duplicates_by_set": dup_by_set,
         "duplicates_within": dup_within,
+        "label_conflicts": label_conflicts,
+        "label_conflict_rule": LABEL_CONFLICT_RULE,
+        "dropped_by_class_and_operator": {
+            name: {k: dict(sorted(v.items())) for k, v in t.items()} for name, t in dropped.items()
+        },
+        "kept_by_class_and_operator": _mix(kept),
         "id_collisions_by_set": id_collisions_by_set,
         "id_collisions_across_corpora": sum(1 for c in id_corpora.values() if len(c) > 1),
         "ids_unique": len(candidate_ids) == len(set(candidate_ids)),

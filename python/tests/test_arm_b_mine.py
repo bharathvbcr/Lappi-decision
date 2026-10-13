@@ -28,6 +28,11 @@ sys.path.insert(0, str(ROOT / "python"))
 import arm_b_mine as mine  # noqa: E402
 
 
+#: Every Arm B corpus declares a non-empty id prefix (the driver refuses a pre-registration in
+#: which one does not); the test corpora's rows carry it.
+PFX = "w:"
+
+
 def _sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
@@ -49,7 +54,7 @@ def _git(repo: Path, *args: str) -> str:
 
 def _cand(i: int, repo: str = "own/train-repo", after: str | None = None) -> dict[str, object]:
     return {
-        "id": f"p{i}:f.py#0",
+        "id": f"{PFX}p{i}:f.py#0",
         "pool_id": f"p{i}:f.py",
         "repo": repo,
         "path": "f.py",
@@ -87,7 +92,13 @@ def world(tmp_path: Path) -> dict[str, object]:
         "scorer": {"path": str(scorer), "sha256": _sha(b"weights")},
         "candidates": {
             "corpora": [
-                {"name": "c1", "path": str(corpus), "sha256": _sha(corpus_bytes), "rows": 10}
+                {
+                    "name": "c1",
+                    "path": str(corpus),
+                    "sha256": _sha(corpus_bytes),
+                    "rows": 10,
+                    "id_prefix": PFX,
+                }
             ],
             "scan_cap_rows": 20000,
         },
@@ -146,7 +157,7 @@ def test_a_clean_plan_drops_v5_train_and_val_duplicates_and_counts_each_set(
 def test_a_content_duplicate_under_another_id_is_dropped(world: dict[str, object]) -> None:
     tmp = Path(str(world["tmp"]))
     first = _cand(3)
-    renamed = {**first, "id": "q99:g.py#0"}
+    renamed = {**first, "id": f"{PFX}q99:g.py#0"}
     train_bytes = _write_jsonl(Path(str(world["train"])), [first])
     corpus = Path(str(world["corpus"]))
     corpus_bytes = _write_jsonl(corpus, [renamed, _cand(5)])
@@ -362,7 +373,7 @@ def test_a_real_v5_val_id_in_the_mixture_format_excludes_the_corpus_row(
     assert mine.normalise_key(REAL_V5_VAL_ID) == corpus_id == mine.normalise_key(corpus_id)
     val = Path(str(world["val"]))
     val_bytes = _write_jsonl(val, [{"row_id": REAL_V5_VAL_ID}])
-    row = {**_cand(1), "id": corpus_id, "pool_id": corpus_id.split("#")[0]}
+    row = {**_cand(1), "id": f"{PFX}{corpus_id}", "pool_id": corpus_id.split("#")[0]}
     corpus = Path(str(world["corpus"]))
     corpus_bytes = _write_jsonl(corpus, [row, _cand(2)])
     doc = json.loads(Path(str(world["prereg"])).read_text())
@@ -441,7 +452,7 @@ def _two_corpora(
     *,
     train_rows: list[dict[str, object]] | None = None,
     val_rows: list[dict[str, object]] | None = None,
-    prefixes: tuple[str, str] = ("", ""),
+    prefixes: tuple[str, str] = (PFX, PFX),
     train_match: str | None = "content_or_identity_key",
 ) -> None:
     """Re-pin the world's prereg: two corpora, a v5-train set matched by content or identity key
@@ -477,8 +488,8 @@ def _two_corpora(
 def test_two_corpora_sharing_ids_are_both_kept(world: dict[str, object]) -> None:
     """`qd-mutate compose` numbers rows `compose:train:000000` in every corpus; (corpus, id) is
     the within-candidate key, so neither corpus loses its rows to the other's namespace."""
-    a = [{**_cand(i), "id": f"compose:train:{i:06d}"} for i in range(3)]
-    b = [{**_cand(i + 100), "id": f"compose:train:{i:06d}"} for i in range(3)]
+    a = [{**_cand(i), "id": f"{PFX}compose:train:{i:06d}"} for i in range(3)]
+    b = [{**_cand(i + 100), "id": f"{PFX}compose:train:{i:06d}"} for i in range(3)]
     _two_corpora(world, a, b, train_rows=[{"id": "unrelated"}], val_rows=[{"row_id": "unrelated"}])
     report = _plan(world)
     assert report["offered"] == 6 and report["kept"] == 6
@@ -490,7 +501,7 @@ def test_a_content_identical_row_is_dropped_as_a_duplicate_whatever_its_corpus_a
     world: dict[str, object],
 ) -> None:
     a = [_cand(1), _cand(2)]
-    b = [{**_cand(1), "id": "other:name#9", "pool_id": "other:name"}, _cand(7)]
+    b = [{**_cand(1), "id": f"{PFX}other:name#9", "pool_id": "other:name"}, _cand(7)]
     _two_corpora(world, a, b, train_rows=[{"id": "unrelated"}], val_rows=[{"row_id": "unrelated"}])
     report = _plan(world)
     assert report["offered"] == 4
@@ -502,7 +513,7 @@ def test_an_id_only_collision_with_v5_train_is_counted_and_not_dropped(
 ) -> None:
     """The same `pool_id#n` names a different mutation of the same file under another seed, so
     the id alone says nothing about the content. Counted, never dropped."""
-    train_row = {"id": _cand(3)["id"], "before": "other\n", "after": "different\n"}
+    train_row = {"id": _cand(3)["id"].removeprefix(PFX), "before": "other\n", "after": "different\n"}
     _two_corpora(
         world,
         [_cand(3), _cand(4)],
@@ -537,7 +548,7 @@ def test_v5_val_matches_through_a_prefixed_id(world: dict[str, object]) -> None:
         [],
         train_rows=[{"id": "unrelated"}],
         val_rows=[{"row_id": f"qdm:code.defect_class:{tail}"}],
-        prefixes=("arm-b-s:", ""),
+        prefixes=("arm-b-s:", PFX),
     )
     report = _plan(world)
     assert report["duplicates_by_set"]["v5-val"] == 1 and report["kept"] == 1
@@ -550,15 +561,15 @@ def test_a_row_without_its_corpus_declared_prefix_is_refused(world: dict[str, ob
         [],
         train_rows=[{"id": "unrelated"}],
         val_rows=[{"row_id": "unrelated"}],
-        prefixes=("arm-b-s:", ""),
+        prefixes=("arm-b-s:", PFX),
     )
     with pytest.raises(mine.Refusal, match="prefix"):
         _plan(world)
 
 
 def test_select_refuses_a_plan_whose_ids_are_not_unique(world: dict[str, object]) -> None:
-    a = [{**_cand(i), "id": f"compose:train:{i:06d}"} for i in range(3)]
-    b = [{**_cand(i + 100), "id": f"compose:train:{i:06d}"} for i in range(3)]
+    a = [{**_cand(i), "id": f"{PFX}compose:train:{i:06d}"} for i in range(3)]
+    b = [{**_cand(i + 100), "id": f"{PFX}compose:train:{i:06d}"} for i in range(3)]
     _two_corpora(world, a, b, train_rows=[{"id": "unrelated"}], val_rows=[{"row_id": "unrelated"}])
     plan_dir = Path(str(_plan(world)["out_dir"]))
     verdicts = Path(str(world["tmp"])) / "v.jsonl"
@@ -568,3 +579,124 @@ def test_select_refuses_a_plan_whose_ids_are_not_unique(world: dict[str, object]
     args.plan_dir, args.out = plan_dir, Path(str(world["tmp"])) / "mined2.json"
     with pytest.raises(mine.Refusal, match="not unique"):
         mine._select(args)
+
+
+# -- round-2 findings (2026-10-13) ---------------------------------------------------------------
+
+
+def _composed(i: int, diff: str) -> dict[str, object]:
+    """A `qd-mutate compose` row: no `before`, the model input is the composed `diff`."""
+    return {
+        "id": f"{PFX}compose:train:{i:06d}",
+        "repo": "own/train-repo",
+        "language": "typescript",
+        "class": "stub",
+        "operator": "stub.panic",
+        "span": {"start_line": 5, "end_line": 5},
+        "after": "irrelevant to the model input\n",
+        "diff": diff,
+    }
+
+
+def test_a_composed_row_is_content_deduped_on_its_diff(world: dict[str, object]) -> None:
+    """Composed rows have no `before`, so they used to skip every content check."""
+    rows = [_composed(0, "@@ a @@\n+x\n"), _composed(1, "@@ a @@\n+x\n"), _composed(2, "@@ b @@\n")]
+    _two_corpora(world, rows, [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    report = _plan(world)
+    assert report["duplicates_within"] == 1 and report["kept"] == 2
+
+
+def test_a_composed_row_content_identical_to_a_v5_train_diff_is_dropped(
+    world: dict[str, object],
+) -> None:
+    train_row = {"id": "t0", "diff": "@@ a @@\n+x\n"}
+    _two_corpora(
+        world,
+        [_composed(0, "@@ a @@\n+x\n"), _composed(1, "@@ other @@\n")],
+        [],
+        train_rows=[train_row],
+        val_rows=[{"row_id": "u"}],
+    )
+    report = _plan(world)
+    assert report["duplicates_by_set"]["v5-train"] == 1 and report["kept"] == 1
+
+
+def test_a_row_with_no_computable_content_digest_is_refused_not_kept(
+    world: dict[str, object],
+) -> None:
+    bare = {"id": f"{PFX}x", "repo": "own/train-repo", "class": "logic"}
+    _two_corpora(world, [bare], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    with pytest.raises(mine.Refusal, match="content digest"):
+        _plan(world)
+
+
+def test_identical_content_with_different_labels_is_counted_as_a_label_conflict(
+    world: dict[str, object],
+) -> None:
+    """The key is byte-exact `before NUL after`: it ignores label and span, so the later of two
+    rows with one content and two labels is dropped. Rule: the first row is kept, and the
+    conflict is counted."""
+    a = {**_cand(1), "class": "logic", "span": {"start_line": 1, "end_line": 1}}
+    b = {**_cand(2), "before": a["before"], "after": a["after"], "class": "stub"}
+    same_label = {**_cand(3), "before": a["before"], "after": a["after"], "class": "logic",
+                  "span": {"start_line": 1, "end_line": 1}}
+    _two_corpora(world, [a, b, same_label], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    report = _plan(world)
+    assert report["duplicates_within"] == 2 and report["kept"] == 1
+    assert report["label_conflicts"] == 1
+    assert "first row is kept" in report["label_conflict_rule"]
+
+
+def test_byte_exact_content_whitespace_and_crlf_are_not_normalised(
+    world: dict[str, object],
+) -> None:
+    a = _cand(1)
+    b = {**_cand(2), "before": a["before"], "after": str(a["after"]).replace("\n", "\r\n")}
+    _two_corpora(world, [a, b], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    report = _plan(world)
+    assert report["duplicates_within"] == 0 and report["kept"] == 2
+
+
+def test_a_preregistration_with_a_corpus_lacking_an_id_prefix_is_refused(
+    world: dict[str, object],
+) -> None:
+    _two_corpora(world, [_cand(1)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    doc = json.loads(Path(str(world["prereg"])).read_text())
+    for bad in (None, ""):
+        entry = doc["candidates"]["corpora"][0]
+        entry.pop("id_prefix", None)
+        if bad is not None:
+            entry["id_prefix"] = bad
+        Path(str(world["prereg"])).write_text(json.dumps(doc))
+        _git(Path(str(world["repo"])), "commit", "-q", "-am", f"no prefix {bad!r}")
+        with pytest.raises(mine.Refusal, match="id_prefix"):
+            _plan(world)
+
+
+def test_the_plan_reports_the_drop_and_the_kept_mix_by_class_and_operator(
+    world: dict[str, object],
+) -> None:
+    def row(i: int, cls: str, op: str) -> dict[str, object]:
+        return {**_cand(i), "class": cls, "operator": op}
+
+    train_row = {
+        "id": "t",
+        "before": _cand(1)["before"],
+        "after": _cand(1)["after"],
+    }
+    _two_corpora(
+        world,
+        [row(1, "stub", "stub.panic"), row(2, "logic", "logic.flip"), row(3, "stub", "stub.panic")],
+        [],
+        train_rows=[train_row],
+        val_rows=[{"row_id": "u"}],
+    )
+    report = _plan(world)
+    assert report["dropped_by_class_and_operator"]["v5-train"] == {
+        "class": {"stub": 1},
+        "operator": {"stub.panic": 1},
+    }
+    assert report["kept_by_class_and_operator"] == {
+        "class": {"logic": 1, "stub": 1},
+        "operator": {"logic.flip": 1, "stub.panic": 1},
+    }
