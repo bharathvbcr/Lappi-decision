@@ -34,6 +34,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -180,6 +181,25 @@ def content_digest(row: Mapping[str, Any]) -> str | None:
     return None
 
 
+@dataclass
+class _ExclusionSet:
+    """One pinned exclusion set: its ids, identity keys and content digests."""
+
+    name: str
+    match: str
+    ids: set[str] = field(default_factory=set)
+    identity_keys: set[str] = field(default_factory=set)
+    digests: set[str] = field(default_factory=set)
+
+    def hit(self, tail: str, identity_key: str | None, digest: str | None) -> bool:
+        """Whether a candidate is dropped by this set. ``tail`` is its un-prefixed, normalised id."""
+        if digest is not None and digest in self.digests:
+            return True
+        if identity_key is not None and identity_key in self.identity_keys:
+            return True
+        return self.match == "id" and tail in self.ids
+
+
 def plan(
     *,
     prereg: Path,
@@ -194,22 +214,31 @@ def plan(
     doc = check_committed(prereg, repo)
     inputs: dict[str, str] = {"preregistration": _sha256_file(prereg)}
 
-    sets: list[tuple[str, set[str], set[str]]] = []
+    # Per set: how a candidate is matched. ``id`` (the default, and what the v5 val set uses): a
+    # candidate whose un-prefixed id tail, identity key or content digest is in the set is dropped.
+    # ``content_or_identity_key`` (v5 train): dropped on its content digest or identity key only; an
+    # id match alone is a COUNT, because one ``pool_id#n`` names a different mutation of the same
+    # file under another seed (Fable, 2026-10-13: identity is content).
+    sets: list[_ExclusionSet] = []
     for s in doc["exclusion"]["sets"]:
         path = Path(s["path"])
         inputs[f"exclusion/{s['name']}"] = check_input(
             path, repo=repo, want_sha=s.get("sha256"), what=f"exclusion set {s['name']}"
         )
-        keys: set[str] = set()
-        digests: set[str] = set()
+        match = str(s.get("match", "id"))
+        if match not in ("id", "content_or_identity_key"):
+            raise Refusal(f"exclusion set {s['name']}: unknown match {match!r}")
+        es = _ExclusionSet(name=s["name"], match=match)
         for row in _rows(path, s["name"]):
-            for field in (s["key"], "identity_key", "id"):
+            for field in (s["key"], "id"):
                 if isinstance(row.get(field), str):
-                    keys.add(normalise_key(row[field]))
+                    es.ids.add(normalise_key(row[field]))
+            if isinstance(row.get("identity_key"), str):
+                es.identity_keys.add(normalise_key(row["identity_key"]))
             d = content_digest(row)
             if d is not None:
-                digests.add(d)
-        sets.append((s["name"], keys, digests))
+                es.digests.add(d)
+        sets.append(es)
 
     split_spec = doc["exclusion"].get("split_map")
     split_map: dict[str, str] = {}
@@ -219,10 +248,12 @@ def plan(
         inputs["split_map"] = split_sha
     not_train = 0
     held = set(heldout_repos)
-    seen_keys: set[str] = set()
+    seen_keys: set[tuple[str, str]] = set()
     seen_digests: set[str] = set()
+    id_corpora: dict[str, set[str]] = {}
     offered = 0
-    dup_by_set = {name: 0 for name, _, _ in sets}
+    dup_by_set = {s.name: 0 for s in sets}
+    id_collisions_by_set = {s.name: 0 for s in sets if s.match != "id"}
     dup_within = 0
     kept: list[dict[str, Any]] = []
     for corpus in doc["candidates"]["corpora"]:
@@ -257,26 +288,36 @@ def plan(
                     continue
             digest = content_digest(row)
             ident = normalise_key(row["id"])
+            # The exclusion sets are id-keyed on the corpus's own id: strip the prefix the corpus
+            # declares, so a prefix cannot take a row out of reach of the v5 val set.
+            prefix = str(corpus.get("id_prefix", ""))
+            if prefix and not str(row["id"]).startswith(prefix):
+                raise Refusal(
+                    f"corpus {corpus['name']}: {row['id']} does not begin with the corpus's "
+                    f"declared id_prefix {prefix!r}: refused whole"
+                )
+            tail = normalise_key(str(row["id"])[len(prefix) :])
             idk = row.get("identity_key")
-            hit = next(
-                (
-                    name
-                    for name, keys, digs in sets
-                    if ident in keys
-                    or (isinstance(idk, str) and normalise_key(idk) in keys)
-                    or (digest and digest in digs)
-                ),
-                None,
+            idk_tail = (
+                normalise_key(idk[len(prefix) :] if prefix and idk.startswith(prefix) else idk)
+                if isinstance(idk, str)
+                else None
             )
+            hit = next((s.name for s in sets if s.hit(tail, idk_tail, digest)), None)
             if hit is not None:
                 dup_by_set[hit] += 1
                 continue
-            if ident in seen_keys or (digest and digest in seen_digests):
+            within_key = (str(corpus["name"]), ident)
+            if within_key in seen_keys or (digest and digest in seen_digests):
                 dup_within += 1
                 continue
-            seen_keys.add(ident)
+            for s in sets:
+                if s.match != "id" and tail in s.ids:
+                    id_collisions_by_set[s.name] += 1
+            seen_keys.add(within_key)
             if digest:
                 seen_digests.add(digest)
+            id_corpora.setdefault(ident, set()).add(str(corpus["name"]))
             kept.append(row)
     cap = int(doc["candidates"].get("scan_cap_rows", SCAN_CAP_ROWS))
     over_cap = max(0, len(kept) - cap)
@@ -290,6 +331,7 @@ def plan(
     else:
         containment = {"state": "ran", "attestation_sha256": _sha256_file(containment_attestation)}
     body = b"".join(json.dumps(r, sort_keys=True).encode() + b"\n" for r in kept)
+    candidate_ids = sorted(normalise_key(str(r["id"])) for r in kept)
     report: dict[str, Any] = {
         "schema": "qd-arm-b-plan/v1",
         "preregistration": str(prereg),
@@ -297,10 +339,13 @@ def plan(
         "offered": offered,
         "duplicates_by_set": dup_by_set,
         "duplicates_within": dup_within,
+        "id_collisions_by_set": id_collisions_by_set,
+        "id_collisions_across_corpora": sum(1 for c in id_corpora.values() if len(c) > 1),
+        "ids_unique": len(candidate_ids) == len(set(candidate_ids)),
         "over_scan_cap": over_cap,
         "kept": len(kept),
         "leakage": {
-            "exact_identity": {"state": "ran", "sets": [n for n, _, _ in sets]},
+            "exact_identity": {"state": "ran", "sets": [s.name for s in sets]},
             "split_map": (
                 {"state": "ran", "sha256": split_sha, "dropped_not_train_split": not_train}
                 if split_map
@@ -319,7 +364,7 @@ def plan(
         },
         "inputs": inputs,
         "candidates_sha256": hashlib.sha256(body).hexdigest(),
-        "candidate_ids": sorted(normalise_key(str(r["id"])) for r in kept),
+        "candidate_ids": candidate_ids,
     }
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=out_dir.name + ".partial-", dir=out_dir.parent))
@@ -379,6 +424,12 @@ def _select(args: argparse.Namespace) -> int:
     plan_doc = json.loads((plan_dir / "plan.json").read_text())
     if _sha256_file(plan_dir / "candidates.jsonl") != plan_doc["candidates_sha256"]:
         raise Refusal(f"{plan_dir}/candidates.jsonl no longer hashes to the plan's sha256")
+    if not plan_doc.get("ids_unique", False):
+        raise Refusal(
+            "the plan's candidate ids are not unique (two corpora share an id): a verdict's "
+            "row_id could not be traced to one candidate; rebuild the corpora with distinct "
+            "--id-prefix values"
+        )
     lines = [json.loads(line) for line in verdicts.read_text().splitlines() if line.strip()]
     planned = set(plan_doc["candidate_ids"])
     foreign = sorted(

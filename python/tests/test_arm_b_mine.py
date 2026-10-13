@@ -429,3 +429,142 @@ def test_select_refuses_verdicts_scored_over_another_shard_set(world: dict[str, 
     args.plan_dir, args.out = plan_dir, Path(str(world["tmp"])) / "mined.json"
     with pytest.raises(mine.Refusal, match="not in the plan"):
         mine._select(args)
+
+
+# -- identity is content (Fable's ruling of 2026-10-13) -----------------------------------------
+
+
+def _two_corpora(
+    world: dict[str, object],
+    first: list[dict[str, object]],
+    second: list[dict[str, object]],
+    *,
+    train_rows: list[dict[str, object]] | None = None,
+    val_rows: list[dict[str, object]] | None = None,
+    prefixes: tuple[str, str] = ("", ""),
+    train_match: str | None = "content_or_identity_key",
+) -> None:
+    """Re-pin the world's prereg: two corpora, a v5-train set matched by content or identity key
+    (the ruling) and a v5-val set matched by id."""
+    tmp = Path(str(world["tmp"]))
+    doc = json.loads(Path(str(world["prereg"])).read_text())
+    corpora = []
+    for n, (rows, prefix) in enumerate(zip((first, second), prefixes, strict=True), start=1):
+        path = tmp / "data" / f"corpus{n}.jsonl"
+        body = _write_jsonl(path, rows)
+        entry: dict[str, object] = {
+            "name": f"c{n}",
+            "path": str(path),
+            "sha256": _sha(body),
+            "rows": len(rows),
+        }
+        if prefix:
+            entry["id_prefix"] = prefix
+        corpora.append(entry)
+    doc["candidates"]["corpora"] = corpora
+    if train_rows is not None:
+        body = _write_jsonl(Path(str(world["train"])), train_rows)
+        doc["exclusion"]["sets"][0]["sha256"] = _sha(body)
+    if train_match is not None:
+        doc["exclusion"]["sets"][0]["match"] = train_match
+    if val_rows is not None:
+        body = _write_jsonl(Path(str(world["val"])), val_rows)
+        doc["exclusion"]["sets"][1]["sha256"] = _sha(body)
+    Path(str(world["prereg"])).write_text(json.dumps(doc))
+    _git(Path(str(world["repo"])), "commit", "-q", "-am", "two corpora")
+
+
+def test_two_corpora_sharing_ids_are_both_kept(world: dict[str, object]) -> None:
+    """`qd-mutate compose` numbers rows `compose:train:000000` in every corpus; (corpus, id) is
+    the within-candidate key, so neither corpus loses its rows to the other's namespace."""
+    a = [{**_cand(i), "id": f"compose:train:{i:06d}"} for i in range(3)]
+    b = [{**_cand(i + 100), "id": f"compose:train:{i:06d}"} for i in range(3)]
+    _two_corpora(world, a, b, train_rows=[{"id": "unrelated"}], val_rows=[{"row_id": "unrelated"}])
+    report = _plan(world)
+    assert report["offered"] == 6 and report["kept"] == 6
+    assert report["duplicates_within"] == 0
+    assert report["ids_unique"] is False and report["id_collisions_across_corpora"] == 3
+
+
+def test_a_content_identical_row_is_dropped_as_a_duplicate_whatever_its_corpus_and_id(
+    world: dict[str, object],
+) -> None:
+    a = [_cand(1), _cand(2)]
+    b = [{**_cand(1), "id": "other:name#9", "pool_id": "other:name"}, _cand(7)]
+    _two_corpora(world, a, b, train_rows=[{"id": "unrelated"}], val_rows=[{"row_id": "unrelated"}])
+    report = _plan(world)
+    assert report["offered"] == 4
+    assert report["duplicates_within"] == 1 and report["kept"] == 3
+
+
+def test_an_id_only_collision_with_v5_train_is_counted_and_not_dropped(
+    world: dict[str, object],
+) -> None:
+    """The same `pool_id#n` names a different mutation of the same file under another seed, so
+    the id alone says nothing about the content. Counted, never dropped."""
+    train_row = {"id": _cand(3)["id"], "before": "other\n", "after": "different\n"}
+    _two_corpora(
+        world,
+        [_cand(3), _cand(4)],
+        [],
+        train_rows=[train_row],
+        val_rows=[{"row_id": "unrelated"}],
+    )
+    report = _plan(world)
+    assert report["duplicates_by_set"]["v5-train"] == 0 and report["kept"] == 2
+    assert report["id_collisions_by_set"]["v5-train"] == 1
+
+
+def test_a_row_content_identical_to_a_v5_train_row_is_dropped_under_any_id(
+    world: dict[str, object],
+) -> None:
+    train_row = {"id": "v5:name#0", "before": _cand(3)["before"], "after": _cand(3)["after"]}
+    _two_corpora(
+        world, [_cand(3), _cand(4)], [], train_rows=[train_row], val_rows=[{"row_id": "unrelated"}]
+    )
+    report = _plan(world)
+    assert report["duplicates_by_set"]["v5-train"] == 1 and report["kept"] == 1
+
+
+def test_v5_val_matches_through_a_prefixed_id(world: dict[str, object]) -> None:
+    """The prefix is declared per corpus and stripped before the id-keyed val comparison, so a
+    prefix cannot weaken the exclusion."""
+    tail = "p4:f.py#0"
+    prefixed = {**_cand(4), "id": f"arm-b-s:{tail}"}
+    _two_corpora(
+        world,
+        [prefixed, {**_cand(5), "id": "arm-b-s:p5:f.py#0"}],
+        [],
+        train_rows=[{"id": "unrelated"}],
+        val_rows=[{"row_id": f"qdm:code.defect_class:{tail}"}],
+        prefixes=("arm-b-s:", ""),
+    )
+    report = _plan(world)
+    assert report["duplicates_by_set"]["v5-val"] == 1 and report["kept"] == 1
+
+
+def test_a_row_without_its_corpus_declared_prefix_is_refused(world: dict[str, object]) -> None:
+    _two_corpora(
+        world,
+        [_cand(4)],
+        [],
+        train_rows=[{"id": "unrelated"}],
+        val_rows=[{"row_id": "unrelated"}],
+        prefixes=("arm-b-s:", ""),
+    )
+    with pytest.raises(mine.Refusal, match="prefix"):
+        _plan(world)
+
+
+def test_select_refuses_a_plan_whose_ids_are_not_unique(world: dict[str, object]) -> None:
+    a = [{**_cand(i), "id": f"compose:train:{i:06d}"} for i in range(3)]
+    b = [{**_cand(i + 100), "id": f"compose:train:{i:06d}"} for i in range(3)]
+    _two_corpora(world, a, b, train_rows=[{"id": "unrelated"}], val_rows=[{"row_id": "unrelated"}])
+    plan_dir = Path(str(_plan(world)["out_dir"]))
+    verdicts = Path(str(world["tmp"])) / "v.jsonl"
+    verdicts.write_text("")
+    args = type("A", (), {})()
+    args.prereg, args.repo, args.verdicts = world["prereg"], world["repo"], verdicts
+    args.plan_dir, args.out = plan_dir, Path(str(world["tmp"])) / "mined2.json"
+    with pytest.raises(mine.Refusal, match="not unique"):
+        mine._select(args)
