@@ -503,6 +503,87 @@ def _load_licences(download_root: Path) -> dict[str, str]:
     return out
 
 
+def _own_repos_pool_manifest(pool_path: Path) -> dict[str, Any] | None:
+    """The pool's own manifest (``<pool stem>.manifest.json``, beside it, as
+    ``commitpackft-pool-v2.manifest.json`` sits beside its pool), when it names the human's own
+    repositories as the pool's source; ``None`` for every other pool, whose join is unchanged."""
+    from .sources import OWN_REPOS_SOURCE_ID
+
+    path = pool_path.with_name(f"{pool_path.stem}.manifest.json")
+    if not path.is_file():
+        return None
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise DefectCorpusError(f"{path}: {e}") from e
+    if not isinstance(manifest, dict) or manifest.get("source_id") != OWN_REPOS_SOURCE_ID:
+        return None
+    return manifest
+
+
+def _own_repos_licences(
+    pool: Mapping[str, str],
+    manifest: Mapping[str, Any],
+    *,
+    pool_path: Path,
+    download_root: Path,
+    config: DataConfig,
+    repo_root: Path,
+) -> dict[str, str]:
+    """``pool id -> licence`` for a pool of the human's own repositories.
+
+    The licence is the source's declaration, not a per-row join: the same three checks
+    ``_load_own_prose`` makes (the source is admitted by this run, the manifest's licence is the
+    source's declared one, and that licence is admitted), then every pool id takes it. The
+    pool's ``files.jsonl`` (repo, path, sha256 per file: the human's strike list) must be the
+    bytes its manifest pinned. The commitpackft download gives this corpus no licence; it is
+    read, when present, only to prove that no pool id is also in it (one corpus is one source).
+    """
+    from qd_train.data_access import assert_path_not_held_out
+
+    from .sources import OWN_REPOS_SOURCE_ID
+
+    source = source_by_id(OWN_REPOS_SOURCE_ID)
+    refusals = source.admission_refusals(config.licence)
+    if refusals:
+        raise DefectCorpusError(
+            f"{OWN_REPOS_SOURCE_ID} is not admitted by this run: {list(refusals)}"
+        )
+    licence = str(manifest.get("licence", ""))
+    if licence != source.declared_licence:
+        raise DefectCorpusError(
+            f"{pool_path}: its manifest's licence {licence!r} is not the source's "
+            f"{source.declared_licence!r}"
+        )
+    admit_licence(licence, config=config.licence, source=OWN_REPOS_SOURCE_ID)
+    files_meta = manifest.get("files")
+    if not isinstance(files_meta, Mapping) or "sha256" not in files_meta:
+        raise DefectCorpusError(
+            f"{pool_path}: its manifest pins no files list; a pool of the human's own files "
+            "must carry the per-file sha256 list the human strikes from"
+        )
+    files_path = pool_path.with_name(f"{pool_path.stem}.files.jsonl")
+    assert_path_not_held_out(files_path, config=config, repo_root=repo_root)
+    if not files_path.is_file():
+        raise DefectCorpusError(f"{files_path} is missing; its pool manifest pins it")
+    _check_sha(files_path, str(files_meta["sha256"]), recorded_in=pool_path)
+    n_files = sum(1 for line in files_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    if n_files != len(pool) or n_files != int(files_meta.get("count", -1)):
+        raise DefectCorpusError(
+            f"{files_path} lists {n_files} file(s), the pool holds {len(pool)} and its manifest "
+            f"records {files_meta.get('count')}"
+        )
+    if (download_root / "manifest.json").is_file():
+        clash = sorted(set(pool) & set(_load_licences(download_root)))
+        if clash:
+            raise DefectCorpusError(
+                f"{len(clash)} pool id(s) of {pool_path} are also in the commitpackft download, "
+                f"first five {clash[:5]}: one corpus is one source, and a row with two licence "
+                "sources has no licence that governs it"
+            )
+    return dict.fromkeys(pool, licence)
+
+
 def _load_pool_ids(pool_path: Path) -> dict[str, str]:
     """``pool id -> repo``. The repo is kept to cross-check the example's own claim."""
     assert_no_caller_records(pool_path)
@@ -739,7 +820,14 @@ def load_defect_rows(
             f"{pool_path} holds {len(pool)} pool ids, {manifest_path} records "
             f"{pool_meta['records']}"
         )
-    licences = _load_licences(Path(download_root))
+    own_manifest = _own_repos_pool_manifest(pool_path)
+    if own_manifest is not None:
+        licences = _own_repos_licences(
+            pool, own_manifest, pool_path=pool_path, download_root=Path(download_root),
+            config=config, repo_root=Path(repo_root),
+        )
+    else:
+        licences = _load_licences(Path(download_root))
 
     raw: list[tuple[str, dict[str, Any]]] = []
     unresolved_pool: list[str] = []

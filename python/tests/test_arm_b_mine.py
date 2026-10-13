@@ -27,7 +27,6 @@ sys.path.insert(0, str(ROOT / "python"))
 
 import arm_b_mine as mine  # noqa: E402
 
-
 #: Every Arm B corpus declares a non-empty id prefix (the driver refuses a pre-registration in
 #: which one does not); the test corpora's rows carry it.
 PFX = "w:"
@@ -513,7 +512,8 @@ def test_an_id_only_collision_with_v5_train_is_counted_and_not_dropped(
 ) -> None:
     """The same `pool_id#n` names a different mutation of the same file under another seed, so
     the id alone says nothing about the content. Counted, never dropped."""
-    train_row = {"id": _cand(3)["id"].removeprefix(PFX), "before": "other\n", "after": "different\n"}
+    tail = _cand(3)["id"].removeprefix(PFX)
+    train_row = {"id": tail, "before": "other\n", "after": "different\n"}
     _two_corpora(
         world,
         [_cand(3), _cand(4)],
@@ -640,7 +640,9 @@ def test_identical_content_with_different_labels_is_counted_as_a_label_conflict(
     b = {**_cand(2), "before": a["before"], "after": a["after"], "class": "stub"}
     same_label = {**_cand(3), "before": a["before"], "after": a["after"], "class": "logic",
                   "span": {"start_line": 1, "end_line": 1}}
-    _two_corpora(world, [a, b, same_label], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    _two_corpora(
+        world, [a, b, same_label], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}]
+    )
     report = _plan(world)
     assert report["duplicates_within"] == 2 and report["kept"] == 1
     assert report["label_conflicts"] == 1

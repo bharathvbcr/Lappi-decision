@@ -228,7 +228,7 @@ class _ExclusionSet:
     digests: set[str] = field(default_factory=set)
 
     def hit(self, tail: str, identity_key: str | None, digest: str | None) -> bool:
-        """Whether a candidate is dropped by this set. ``tail`` is its un-prefixed, normalised id."""
+        """Whether this set drops a candidate. ``tail`` is its un-prefixed, normalised id."""
         if digest is not None and digest in self.digests:
             return True
         if identity_key is not None and identity_key in self.identity_keys:
@@ -275,9 +275,9 @@ def plan(
             raise Refusal(f"exclusion set {s['name']}: unknown match {match!r}")
         es = _ExclusionSet(name=s["name"], match=match)
         for row in _rows(path, s["name"]):
-            for field in (s["key"], "id"):
-                if isinstance(row.get(field), str):
-                    es.ids.add(normalise_key(row[field]))
+            for fld in (s["key"], "id"):
+                if isinstance(row.get(fld), str):
+                    es.ids.add(normalise_key(row[fld]))
             if isinstance(row.get("identity_key"), str):
                 es.identity_keys.add(normalise_key(row["identity_key"]))
             d = content_digest(row)
