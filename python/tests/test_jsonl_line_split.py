@@ -295,7 +295,7 @@ def test_no_row_reader_uses_splitlines_or_a_text_mode_open(rel):
         assert _splitting_calls(fns[name]) == [], f"{rel}:{name}"
 
 
-# -- the separator scan is chunking-independent -----------------------------------------------------
+# -- the separator scan is chunking-independent ----------------------------------------------------
 
 
 def _reference_refuses(line: bytes) -> bool:
