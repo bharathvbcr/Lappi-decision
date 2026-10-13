@@ -175,6 +175,24 @@
     },
     "label_conflicts": "The key ignores label and span. Of two rows with one content, the first row is kept and the later one dropped, as before; when their (class, span) differ the drop is counted as `label_conflicts` in the plan report, with the rule written beside it.",
     "id_prefix_required": "The driver refuses a pre-registration in which any corpus lacks a non-empty id_prefix, so a missing declaration cannot let a prefixed val id through the id-keyed val exclusion.",
+    "plan_result_from_ff782bd": {
+      "note": "Recorded after the plan was run, in a commit that changes nothing else; the plan is re-run from the new HEAD and its candidates sha256 must equal the one below. No scorer output exists.",
+      "offered": 12775,
+      "kept": 9651,
+      "dropped_not_train_split": 1038,
+      "v5_train_drops_content_identical": 2056,
+      "v5_val_drops": 0,
+      "within_candidate_drops": 30,
+      "label_conflicts": 0,
+      "v5_train_id_only_collisions_kept_and_counted": 3535,
+      "ids_unique": true,
+      "kept_by_corpus_and_language": {"arm-b-sfm-v1 go": 2129, "arm-b-sfm-v1 python": 2133, "arm-b-sfm-v1 rust": 1652, "arm-b-sfm-v1 typescript": 1429, "arm-b-swift-v1 swift": 1058, "arm-b-ts-v1 typescript": 1250},
+      "v5_train_drops_by_class": {"clean": 423, "cosmetic": 162, "logic": 282, "stub": 1189},
+      "v5_train_drops_stub_panic": 818,
+      "kept_by_class": {"clean": 1997, "cosmetic": 1397, "logic": 1871, "stub": 4386},
+      "kept_stub_panic": 3176,
+      "candidates_sha256": "0958ff52060c275e261b9a43c2eca2609dedfe904166b73dc9936f43f5537b2b"
+    },
     "reporting": "The plan report carries dropped_by_class_and_operator (per v5-train, v5-val and within-candidate drop) and kept_by_class_and_operator, because the drop is stub-heavy and the kept mix differs from the generated mix."
   }
 }
