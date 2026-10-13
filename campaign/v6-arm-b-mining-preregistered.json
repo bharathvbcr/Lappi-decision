@@ -33,7 +33,7 @@
       },
       {
         "name": "own-swift-composed-v1",
-        "ruling": "R3 item 2: Swift mutants of the admitted own TRAIN repositories (qd-prep own-swift, then qd-mutate generate --language swift --seed 20261008, then compose); GitPulse and every held-out repository are never read.",
+        "ruling": "R3 item 2: Swift mutants of the admitted own TRAIN repositories (qd-prep own-swift, then qd-mutate generate --language swift --seed 20261008, then qd-mutate compose --single-version-records); GitPulse and every held-out repository are never read.",
         "rows": 4000,
         "seed": 20261008,
         "path": null,
@@ -43,15 +43,23 @@
       {
         "name": "single-file-mutants-v1",
         "ruling": "R4: 12,000 single-file mutants from `qd-mutate generate --seed 20261008` over the existing pool data/pool/commitpackft-pool-v2.jsonl.",
-        "rows": 12000,
+        "rows": 10467,
+        "rows_registered": 12000,
         "seed": 20261008,
         "pool": {
           "path": "data/pool/commitpackft-pool-v2.jsonl",
           "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2"
         },
-        "path": "data/pool/single-file-mutants-v1/examples.jsonl",
-        "sha256": "4fd5ec76b5c541246cce33d5e7437f66c47a658110cd831cab40173789bd668a",
-        "amendment": "2026-10-13, before any scoring; no probe or mining result was read. Built twice, identical sha256 (manifest sha256 c10a740633c00ae4b341953a69f6d2ae4f1fd34f48faea0c84fe53f9f5c37a94). Build: `qd-mutate generate --pool data/pool/commitpackft-pool-v2.jsonl --seed 20261008 --limit 12000 --report false` (other options at defaults: multi-hunk diffs, clean-permille 200). --limit stops at the first 12,000 examples in pool order, so the rows are python and go only; 21 examples were dropped on span disagreement."
+        "path": "data/pool/single-file-mutants-v1-stratified/examples.jsonl",
+        "sha256": "80c2eaa856b5aef65e442d8e203b3f72d113bb4861b9f43caf35fd71a0973589",
+        "amendment": "2026-10-13, before any scoring; no probe or mining result was read. Stratified by language per Fable's ruling. Built twice, identical sha256 per part and for the concatenation. Build: for L in go python rust typescript (this fixed alphabetical order), `qd-mutate generate --pool data/pool/commitpackft-pool-v2.jsonl --seed 20261008 --language L --limit 3000 --report false` (other options at defaults: multi-hunk diffs, clean-permille 200); the four examples.jsonl files are concatenated in that order. Rows by language: go 3000, python 3000, rust 2307 (shortfall 693: the pool yields no more), typescript 2160 (shortfall 840); swift 0 (the pool holds none). Total 10,467 against 12,000. Split-map check: 9,429 train, 551 val, 487 heldout; the plan drops the val and heldout rows.",
+        "superseded_pin": {
+          "path": "data/pool/single-file-mutants-v1/examples.jsonl",
+          "sha256": "4fd5ec76b5c541246cce33d5e7437f66c47a658110cd831cab40173789bd668a",
+          "rows": 12000,
+          "recorded_in": "fe9860d",
+          "why": "`--limit 12000` over the whole pool stops at the first 12,000 examples in pool order, so that corpus held python and go only. Superseded, not rewritten: no scoring had happened."
+        }
       }
     ],
     "scan_cap_rows": 20000
