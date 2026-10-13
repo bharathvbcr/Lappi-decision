@@ -24,10 +24,12 @@
       {
         "name": "commitpackft-composed-ts-v1",
         "ruling": "R3 item 1: corpus-v3 restricted to TypeScript mutants (2,161 examples); 4,000 composed rows; seed 20261008; v2's compose Options except train_rows and seed; v2's split map sha f5621909...",
-        "rows": 4000,
+        "rows": 1250,
+        "rows_registered": 4000,
         "seed": 20261008,
-        "path": null,
-        "sha256": null
+        "path": "data/pool/commitpackft-composed-ts-v1/examples.jsonl",
+        "sha256": "93b54f07288f79a6ecc5f9ff4d749552ba2b5a0d5a81b7247b57d9e3c7137a90",
+        "amendment": "2026-10-13, before any scoring; no probe or mining result was read. Built twice, identical sha256. Row count amended 4000 -> 1250: compose's symmetric-roles rule needs one distinct needle file per mutated row, and the TypeScript-restricted v3 corpus has only 1,039 train files with a mutated rendering, so 1,250 is the maximum (1,270 and above are refused with 'only 1039 files have a mutated rendering'). Build: `qd-mutate generate --pool data/pool/commitpackft-pool-v2.jsonl --seed 0 --language typescript` into data/pool/commitpackft-ts-v3 (2,161 examples, byte-identical to v3's TypeScript rows; examples sha256 96b048cfeae79062d8429703565ca81bddb95a5ecef4f03e21071493d8df5b07), then `qd-mutate compose --corpus data/pool/commitpackft-ts-v3 --pool data/pool/commitpackft-pool-v2.jsonl --split-map data/pool/commitpackft-pool-v2.split-map.json --seed 20261008 --train-rows 1250 --val-rows 0 --min-tokens 850 --max-tokens 9100 --hard-max-tokens 9400` (no aux corpus; other Options at defaults, as v2)."
       },
       {
         "name": "own-swift-composed-v1",
@@ -47,8 +49,9 @@
           "path": "data/pool/commitpackft-pool-v2.jsonl",
           "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2"
         },
-        "path": null,
-        "sha256": null
+        "path": "data/pool/single-file-mutants-v1/examples.jsonl",
+        "sha256": "4fd5ec76b5c541246cce33d5e7437f66c47a658110cd831cab40173789bd668a",
+        "amendment": "2026-10-13, before any scoring; no probe or mining result was read. Built twice, identical sha256 (manifest sha256 c10a740633c00ae4b341953a69f6d2ae4f1fd34f48faea0c84fe53f9f5c37a94). Build: `qd-mutate generate --pool data/pool/commitpackft-pool-v2.jsonl --seed 20261008 --limit 12000 --report false` (other options at defaults: multi-hunk diffs, clean-permille 200). --limit stops at the first 12,000 examples in pool order, so the rows are python and go only; 21 examples were dropped on span disagreement."
       }
     ],
     "scan_cap_rows": 20000
