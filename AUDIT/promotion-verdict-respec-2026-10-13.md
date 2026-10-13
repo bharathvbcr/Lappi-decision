@@ -54,6 +54,7 @@ So the re-specs change the reason for refusal, not the outcome. v5 does not prom
 
 Refusal reasons that remain after the re-specs: `ood_abstain` FAIL on all seeds, and `needle_hunk_recall` FAIL on the two units that carry it (listed as `-` lines in `seeds.after.txt`).
 Caveat on seed 4: its eval unit is 3 rows, not 4, and the shuffled-label control passes on seeds 0-3 only; seed 4 is "not counted". [verified, verbatim from output]
+Seed 4 has 3 rows because it has no `--shuffled-label` row. Its unit holds only the score-val, `paired_margin_vs_linear` and option-control rows, so the control was never run on seed 4; it did not run and fail. The record's "at least 3 seeds" is met by seeds 0-3. [verified by the adversarial re-check, 2026-10-13]
 
 ## Averaged row 6af73bef (`avg.after.txt`)
 
@@ -62,7 +63,7 @@ Caveat on seed 4: its eval unit is 3 rows, not 4, and the shuffled-label control
 - `permutation_consistency`: PASS 0.9961 [2295/2304] under record (as built 0.9571 PASS).
 - `shuffled_label`: did not run ("never evaluated by this run").
 - `degenerate_head_floor`: PASS under record (as built FAIL).
-- `ece`: PASS [1/1] under `ece_population` (as built not_run).
+- `ece`: PASS [1/1] under `ece_population` (as built not_run). The same output still lists 7 of 20 inputs as not run and the per-language half as unmeasured. `ece_population` covers only the per-shape half, so per-language ECE stays unmeasured under the record.
 - `average_may_promote` is decided false by the human (2026-10-03 ruling), which refuses independently.
 
 ## Claims
