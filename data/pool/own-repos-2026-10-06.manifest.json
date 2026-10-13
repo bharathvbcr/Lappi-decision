@@ -1,0 +1,623 @@
+{
+  "admitted": [
+    {
+      "head": "be7e844207ca4dd8a06a21706eac26100d937c74",
+      "origin_url": "https://github.com/bharathvbcr/AcademiaTrack",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/AcademiaTrack"
+        }
+      ],
+      "repo": "apps/AcademiaTrack",
+      "slug": "bharathvbcr/academiatrack",
+      "split": "train",
+      "split_bucket": 3
+    },
+    {
+      "head": "aa53e581a847e3701bb1cee9eb251c12b5a36e73",
+      "origin_url": "https://github.com/bharathvbcr/Chronicle.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Chronicle.git"
+        }
+      ],
+      "repo": "apps/Chronicle",
+      "slug": "bharathvbcr/chronicle",
+      "split": "train",
+      "split_bucket": 1
+    },
+    {
+      "head": "b7a23d41c02e4e8cb88a9c6e4c96dc2c1ed2cdc4",
+      "origin_url": "https://github.com/bharathvbcr/ChronosFlow.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/ChronosFlow.git"
+        }
+      ],
+      "repo": "apps/ChronosFlow",
+      "slug": "bharathvbcr/chronosflow",
+      "split": "train",
+      "split_bucket": 2
+    },
+    {
+      "head": "c211296cf7b3cee801524320027d8ac5ec66ebd7",
+      "origin_url": "https://github.com/bharathvbcr/Curio.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Curio.git"
+        }
+      ],
+      "repo": "apps/Curio",
+      "slug": "bharathvbcr/curio",
+      "split": "train",
+      "split_bucket": 2
+    },
+    {
+      "head": "daea2b79a8f0ae9c3c76f7cb7099a1e0f9bc473c",
+      "origin_url": "https://github.com/bharathvbcr/DevType.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/DevType.git"
+        }
+      ],
+      "repo": "apps/DevType",
+      "slug": "bharathvbcr/devtype",
+      "split": "train",
+      "split_bucket": 4
+    },
+    {
+      "head": "b7cb408c112d015de0d8f8a67a8b244b8fa7030c",
+      "origin_url": "https://github.com/bharathvbcr/M5Blade",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/M5Blade"
+        }
+      ],
+      "repo": "apps/M5Blade",
+      "slug": "bharathvbcr/m5blade",
+      "split": "train",
+      "split_bucket": 3
+    },
+    {
+      "head": "0b16935a607acefba430b80ace12fbb8752b429a",
+      "origin_url": "https://github.com/bharathvbcr/Meridian.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Meridian.git"
+        }
+      ],
+      "repo": "apps/Meridian",
+      "slug": "bharathvbcr/meridian",
+      "split": "train",
+      "split_bucket": 4
+    },
+    {
+      "head": "3eafbd4c26bf0e38217b8ae33a8e12dbab336e36",
+      "origin_url": "https://github.com/bharathvbcr/SalEdge.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/SalEdge.git"
+        }
+      ],
+      "repo": "apps/SalEdge",
+      "slug": "bharathvbcr/saledge",
+      "split": "train",
+      "split_bucket": 2
+    },
+    {
+      "head": "1d28a7b918fcd89a84fc779e57fe32747421061b",
+      "origin_url": "https://github.com/bharathvbcr/TrailBlazer.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/TrailBlazer.git"
+        }
+      ],
+      "repo": "apps/TrailBlazer",
+      "slug": "bharathvbcr/trailblazer",
+      "split": "train",
+      "split_bucket": 3
+    },
+    {
+      "head": "08a77bd69dc4a3aa0c6df43a603f6c887e195c54",
+      "origin_url": "https://github.com/bharathvbcr/DevCouncil.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/DevCouncil.git"
+        }
+      ],
+      "repo": "devtools/DevCouncil",
+      "slug": "bharathvbcr/devcouncil",
+      "split": "train",
+      "split_bucket": 1
+    },
+    {
+      "head": "cff8654229125e167d996716b791b5e75895cbdf",
+      "origin_url": "https://github.com/bharathvbcr/GitPulse.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/GitPulse.git"
+        }
+      ],
+      "repo": "devtools/GitPulse",
+      "slug": "bharathvbcr/gitpulse",
+      "split": "heldout",
+      "split_bucket": 0
+    },
+    {
+      "head": "74c0cde4c593abd29c89613088ba75623836104a",
+      "origin_url": "https://github.com/bharathvbcr/Jarvis.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Jarvis.git"
+        }
+      ],
+      "repo": "devtools/Jarvis",
+      "slug": "bharathvbcr/jarvis",
+      "split": "train",
+      "split_bucket": 2
+    },
+    {
+      "head": "fd2015e99d7bf415fe9f5922c6a9426885b91bde",
+      "origin_url": "https://github.com/bharathvbcr/LiquiTask.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/LiquiTask.git"
+        }
+      ],
+      "repo": "devtools/LiquiTask",
+      "slug": "bharathvbcr/liquitask",
+      "split": "train",
+      "split_bucket": 4
+    },
+    {
+      "head": "d61ddafaa05aa688d0ef5a720073a0e82fd790af",
+      "origin_url": "https://github.com/bharathvbcr/Manvi.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Manvi.git"
+        }
+      ],
+      "repo": "devtools/Manvi",
+      "slug": "bharathvbcr/manvi",
+      "split": "train",
+      "split_bucket": 1
+    },
+    {
+      "head": "0ecf26acdadf05c4b0cad4780bb93452117d0099",
+      "origin_url": "https://github.com/bharathvbcr/MarkDev.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/MarkDev.git"
+        }
+      ],
+      "repo": "devtools/MarkDev",
+      "slug": "bharathvbcr/markdev",
+      "split": "train",
+      "split_bucket": 4
+    },
+    {
+      "head": "7ea6b3535a7a100bd1f4955e57b835324ce95267",
+      "origin_url": "https://github.com/bharathvbcr/gusset.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/gusset.git"
+        }
+      ],
+      "repo": "devtools/gusset",
+      "slug": "bharathvbcr/gusset",
+      "split": "train",
+      "split_bucket": 3
+    },
+    {
+      "head": "30f68d3f407f6e3664a9fc1050e6b74bdc2eb58b",
+      "origin_url": "https://github.com/bharathvbcr/Brain-Inspired_Neural_Network.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Brain-Inspired_Neural_Network.git"
+        }
+      ],
+      "repo": "research/BINN",
+      "slug": "bharathvbcr/brain-inspired_neural_network",
+      "split": "train",
+      "split_bucket": 1
+    },
+    {
+      "head": "8a184abbee2d510a5e290d812001ecc6d5bd1ea3",
+      "origin_url": "https://github.com/bharathvbcr/GenoThermal_Targeting.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/GenoThermal_Targeting.git"
+        }
+      ],
+      "repo": "research/GenoThermalTargeting",
+      "slug": "bharathvbcr/genothermal_targeting",
+      "split": "heldout",
+      "split_bucket": 0
+    },
+    {
+      "head": "7e56ef20dd6684b4d73fa2ec4a96e68c980d7f11",
+      "origin_url": "https://github.com/bharathvbcr/MachineLearning.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/MachineLearning.git"
+        }
+      ],
+      "repo": "research/MLSystemsLab",
+      "slug": "bharathvbcr/machinelearning",
+      "split": "train",
+      "split_bucket": 2
+    },
+    {
+      "head": "1e54907da28ddeb2cb7e32c9cdcc503a447f3103",
+      "origin_url": "https://github.com/bharathvbcr/Stress_Project.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Stress_Project.git"
+        }
+      ],
+      "repo": "research/StressProject",
+      "slug": "bharathvbcr/stress_project",
+      "split": "heldout",
+      "split_bucket": 0
+    },
+    {
+      "head": "4be10691f440ae0720ce808f5b7efa4f529c4244",
+      "origin_url": "https://github.com/bharathvbcr/ojas.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/ojas.git"
+        }
+      ],
+      "repo": "research/ojas",
+      "slug": "bharathvbcr/ojas",
+      "split": "train",
+      "split_bucket": 4
+    },
+    {
+      "head": "52c091c0f2f33cc14b20f4bd5342eb42c398f378",
+      "origin_url": "https://github.com/bharathvbcr/tessl.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/tessl.git"
+        }
+      ],
+      "repo": "research/tessl",
+      "slug": "bharathvbcr/tessl",
+      "split": "train",
+      "split_bucket": 2
+    },
+    {
+      "head": "a4738d374575fe6d55f149dfd0a99b693751244d",
+      "origin_url": "https://github.com/bharathvbcr/ScholarLM.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/ScholarLM.git"
+        }
+      ],
+      "repo": "scholarlm",
+      "slug": "bharathvbcr/scholarlm",
+      "split": "train",
+      "split_bucket": 3
+    },
+    {
+      "head": "60d7775f1baa6b635bc652d8a9cadac423fc3a73",
+      "origin_url": "https://github.com/bharathvbcr/WisDev.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/WisDev.git"
+        }
+      ],
+      "repo": "scholarlm/wisdev-arc",
+      "slug": "bharathvbcr/wisdev",
+      "split": "heldout",
+      "split_bucket": 0
+    },
+    {
+      "head": "f8355ef991e189d37e4466c62329978ee60e5a22",
+      "origin_url": "https://github.com/bharathvbcr/BlueberryFarming.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/BlueberryFarming.git"
+        }
+      ],
+      "repo": "web/BlueberryFarming",
+      "slug": "bharathvbcr/blueberryfarming",
+      "split": "train",
+      "split_bucket": 2
+    },
+    {
+      "head": "2206949cf406c64d0534e08bd509f1eda169e7f2",
+      "origin_url": "https://github.com/bharathvbcr/Portfolio-VBCR.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Portfolio-VBCR.git"
+        }
+      ],
+      "repo": "web/Portfolio",
+      "slug": "bharathvbcr/portfolio-vbcr",
+      "split": "train",
+      "split_bucket": 3
+    },
+    {
+      "head": "3ed68f5fdcc50cdee3e0633aa03d05a16708870b",
+      "origin_url": "https://github.com/bharathvbcr/Void.git",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Void.git"
+        }
+      ],
+      "repo": "web/Void",
+      "slug": "bharathvbcr/void",
+      "split": "train",
+      "split_bucket": 2
+    }
+  ],
+  "code_root": "/Users/bharath/Code",
+  "commits_read": "none: this manifest is written before any commit is read; the only git command run is rev-parse of HEAD in each admitted repository",
+  "excluded": {
+    "CodeGit/order-import-service": {
+      "reason": "fork_or_other_owner:stridefunding",
+      "remotes": [
+        {
+          "name": "template",
+          "url": "https://github.com/stridefunding/ai-labs-engineering-ta.git"
+        }
+      ]
+    },
+    "apps/AppLock": {
+      "reason": "no_remote",
+      "remotes": []
+    },
+    "career/CurriculumVitae": {
+      "reason": "no_remote",
+      "remotes": []
+    },
+    "devtools/Blitztree": {
+      "reason": "fork_or_other_owner:ahmedkhaleel2004",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/ahmedkhaleel2004/blitztree.git"
+        }
+      ]
+    },
+    "devtools/DevPrism": {
+      "reason": "upstream_remote:https://github.com/delibae/claude-prism.git",
+      "remotes": [
+        {
+          "name": "upstream",
+          "url": "https://github.com/delibae/claude-prism.git"
+        },
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/DevPrism.git"
+        }
+      ]
+    },
+    "devtools/LiquiTask/vendor/multica-ref": {
+      "reason": "fork_or_other_owner:multica-ai",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/multica-ai/multica.git"
+        }
+      ]
+    },
+    "devtools/Strait": {
+      "reason": "no_remote",
+      "remotes": []
+    },
+    "n8n-email-engine": {
+      "reason": "no_remote",
+      "remotes": []
+    },
+    "research/Lappi-decision": {
+      "reason": "excluded_by_the_human_tick",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Lappi-decision.git"
+        }
+      ]
+    },
+    "research/MLSystemsLab/Step-Audio-EditX": {
+      "reason": "fork_or_other_owner:stepfun-ai",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/stepfun-ai/Step-Audio-EditX.git"
+        }
+      ]
+    },
+    "research/MLSystemsLab/modded-nanogpt": {
+      "reason": "fork_or_other_owner:KellerJordan",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/KellerJordan/modded-nanogpt.git"
+        }
+      ]
+    },
+    "research/external/RSI-Jev": {
+      "reason": "fork_or_other_owner:Shanghua-Gao",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/Shanghua-Gao/RSI-Jev"
+        }
+      ]
+    },
+    "research/external/decider": {
+      "reason": "fork_or_other_owner:Mapika",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/Mapika/decider"
+        }
+      ]
+    },
+    "research/external/jevarena": {
+      "reason": "fork_or_other_owner:chenmingtang830",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/chenmingtang830/jevarena.git"
+        }
+      ]
+    },
+    "upstream/libc": {
+      "reason": "fork_or_other_owner:rust-lang",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/rust-lang/libc.git"
+        },
+        {
+          "name": "fork",
+          "url": "https://github.com/bharathvbcr/libc.git"
+        }
+      ]
+    },
+    "upstream/mlx": {
+      "reason": "fork_or_other_owner:ml-explore",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/ml-explore/mlx.git"
+        }
+      ]
+    },
+    "upstream/proptest": {
+      "reason": "fork_or_other_owner:proptest-rs",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/proptest-rs/proptest.git"
+        },
+        {
+          "name": "fork",
+          "url": "https://github.com/bharathvbcr/proptest.git"
+        }
+      ]
+    },
+    "upstream/wgpu": {
+      "reason": "fork_or_other_owner:gfx-rs",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/gfx-rs/wgpu.git"
+        }
+      ]
+    },
+    "web/Lappi-BDay": {
+      "reason": "struck_by_the_human",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/LAPPI.git"
+        }
+      ]
+    },
+    "web/WhimsicalLove": {
+      "reason": "struck_by_the_human",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/Whimsical-Love.git"
+        }
+      ]
+    },
+    "web/bharathvbcr": {
+      "reason": "struck_by_the_human",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/bharathvbcr/bharathvbcr.git"
+        }
+      ]
+    }
+  },
+  "rules": {
+    "admission": "a [remote] URL names github owner bharathvbcr and no [remote] URL names another owner or a non-github host (own_prose.rs::admission, ported); no remote, a remote named upstream, a .git file (linked worktree or submodule) and no origin remote are out",
+    "discovery": "directories 1..=4 levels under code_root holding a .git entry; hidden directories, node_modules and worktrees not descended into; symlinks not followed",
+    "excluded_by_the_human_tick": [
+      "research/Lappi-decision"
+    ],
+    "first_reason_wins": true,
+    "owner": "bharathvbcr",
+    "source": "campaign/v6-caller-families.DRAFT.json holdout_rule",
+    "split": "heldout iff int(sha256(slug).hexdigest()[:8], 16) % 5 == 0; slug = lowercase owner/name of the origin URL after github.com, trailing / then .git removed",
+    "struck_paths": [
+      {
+        "prefix": "docs/business/",
+        "repo": "scholarlm"
+      },
+      {
+        "prefix": "writing/",
+        "repo": "research/BINN"
+      }
+    ],
+    "struck_repos": [
+      "web/Lappi-BDay",
+      "web/WhimsicalLove",
+      "web/bharathvbcr"
+    ]
+  },
+  "schema": "qd-own-repos/v1",
+  "tool": "qd-prep own-repos",
+  "tool_version": "0.1.0",
+  "totals": {
+    "admitted": 27,
+    "discovered": 48,
+    "excluded": 21,
+    "excluded_by_reason": {
+      "excluded_by_the_human_tick": 1,
+      "fork_or_other_owner": 12,
+      "no_remote": 4,
+      "struck_by_the_human": 3,
+      "upstream_remote": 1
+    },
+    "heldout": 4,
+    "heldout_repos": [
+      "devtools/GitPulse",
+      "research/GenoThermalTargeting",
+      "research/StressProject",
+      "scholarlm/wisdev-arc"
+    ],
+    "human_exclusions_not_found": [],
+    "train": 23
+  },
+  "unreadable_dirs": [],
+  "v5_rule_comparison": {
+    "differences": [],
+    "note": "repos (other than the human's exclusions and .git files) whose verdict differs between v5's reading (every url = line in .git/config, owner rule only) and this one"
+  },
+  "written_at": "2026-10-06T18:18:48Z"
+}

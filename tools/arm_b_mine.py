@@ -202,6 +202,27 @@ def _label(row: Mapping[str, Any]) -> str:
     return json.dumps([row.get("class"), row.get("span")], sort_keys=True)
 
 
+def check_pool_manifest(corpus: Mapping[str, Any], *, repo: Path) -> None:
+    """An own-repos corpus pins its pool's manifest by sha256 in the pre-registration.
+
+    The pool manifest names the source and the licence, so the pre-registration, not the file,
+    must say which bytes are the registered ones; a corpus flagged ``own_repos_train`` with no pin
+    is refused, and a pin that does not hold is refused.
+    """
+    if not corpus.get("own_repos_train"):
+        return
+    pin = corpus.get("pool_manifest")
+    if not isinstance(pin, dict) or not pin.get("path") or not pin.get("sha256"):
+        raise Refusal(
+            f"corpus {corpus.get('name')}: own_repos_train with no pool_manifest {{path, sha256}} "
+            "pinned in the pre-registration"
+        )
+    check_input(
+        Path(pin["path"]), repo=repo, want_sha=pin["sha256"],
+        what=f"the pool manifest of corpus {corpus.get('name')}",
+    )
+
+
 def _tally(into: dict[str, collections.Counter[str]], row: Mapping[str, Any]) -> None:
     into["class"][str(row.get("class", "?"))] += 1
     into["operator"][str(row.get("operator", "?"))] += 1
@@ -315,6 +336,7 @@ def plan(
         inputs[f"corpus/{corpus['name']}"] = check_input(
             path, repo=repo, want_sha=corpus.get("sha256"), what=f"corpus {corpus['name']}"
         )
+        check_pool_manifest(corpus, repo=repo)
         for row in _rows(path, corpus["name"]):
             offered += 1
             if not isinstance(row.get("id"), str) or not row["id"]:
@@ -486,6 +508,7 @@ def materialise(
         inputs_sha = check_input(
             src, repo=repo, want_sha=corpus.get("sha256"), what=f"corpus {name}"
         )
+        check_pool_manifest(corpus, repo=repo)
         manifest_path = src.with_name("manifest.json")
         if not manifest_path.is_file():
             raise Refusal(f"corpus {name}: {manifest_path} is missing")
@@ -535,13 +558,27 @@ def materialise(
             f"the corpora hold {selected_total} of the plan's {plan_doc['kept']} kept rows: "
             "a kept row is in no pinned corpus, or two corpora hold one"
         )
-    for path, _ in planbases:
-        if path.exists():
-            raise Refusal(f"{path} exists; refusing to overwrite it")
+    # A planbase is a function of the corpus and the plan, so re-materialising writes the same one:
+    # an identical planbase already on disk is accepted, a different one is refused.
+    to_write: list[tuple[Path, str]] = []
     for path, base in planbases:
+        text = json.dumps(base, indent=2) + "\n"
+        if path.exists():
+            same = (
+                (path / "examples.jsonl").is_file()
+                and (path / "examples.jsonl").read_bytes() == b""
+                and (path / "manifest.json").is_file()
+                and (path / "manifest.json").read_text() == text
+                and sorted(p.name for p in path.iterdir()) == ["examples.jsonl", "manifest.json"]
+            )
+            if not same:
+                raise Refusal(f"the planbase {path} exists and is not the one this plan writes")
+            continue
+        to_write.append((path, text))
+    for path, text in to_write:
         path.mkdir(parents=True)
         (path / "examples.jsonl").write_bytes(b"")
-        (path / "manifest.json").write_text(json.dumps(base, indent=2) + "\n")
+        (path / "manifest.json").write_text(text)
     for dest, _, body_bytes, new in staged:
         dest.mkdir(parents=True)
         (dest / "examples.jsonl").write_bytes(body_bytes)

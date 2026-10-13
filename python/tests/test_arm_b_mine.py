@@ -424,6 +424,9 @@ def test_a_repo_outside_the_split_map_is_refused_unless_the_corpus_is_own_repos_
     _with_split_map(
         world, {"a/train": "train"}, [_cand(1, repo="x/unmapped")], own_repos_train=True
     )
+    # An own_repos_train corpus must also pin its pool manifest (see the pool-manifest test).
+    manifest = _pin_pool_manifest(world, None)
+    _pin_pool_manifest(world, _sha(manifest.read_bytes()))
     assert _plan(world)["kept"] == 1
 
 
@@ -799,6 +802,58 @@ def test_materialise_refuses_a_plan_from_another_preregistration(
     _git(Path(str(world["repo"])), "commit", "-q", "-am", "another")
     with pytest.raises(mine.Refusal, match="another pre-registration"):
         _materialise(world, plan)
+
+
+def _pin_pool_manifest(world: dict[str, object], sha: str | None, *, own: bool = True) -> Path:
+    """Declare an own-repos corpus in the prereg, pinning (or not) its pool manifest."""
+    tmp = Path(str(world["tmp"]))
+    manifest = tmp / "data" / "own-pool.manifest.json"
+    manifest.write_text('{"source_id": "bharathvbcr/own-repositories"}')
+    doc = json.loads(Path(str(world["prereg"])).read_text())
+    entry = doc["candidates"]["corpora"][0]
+    entry["own_repos_train"] = own
+    if sha is not None:
+        entry["pool_manifest"] = {"path": str(manifest), "sha256": sha}
+    Path(str(world["prereg"])).write_text(json.dumps(doc))
+    _git(Path(str(world["repo"])), "commit", "-q", "--allow-empty", "-am", "pin pool manifest")
+    return manifest
+
+
+def test_an_own_repos_corpus_must_pin_its_pool_manifest_and_the_pin_must_hold(
+    world: dict[str, object],
+) -> None:
+    _two_corpora(world, [_cand(1)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    manifest = _pin_pool_manifest(world, None)
+    with pytest.raises(mine.Refusal, match="pool_manifest"):
+        _plan(world)
+    _pin_pool_manifest(world, "0" * 64)
+    with pytest.raises(mine.Refusal, match="pool manifest"):
+        _plan(world)
+    _pin_pool_manifest(world, _sha(manifest.read_bytes()))
+    assert _plan(world)["kept"] == 1
+
+
+def test_materialise_accepts_an_identical_planbase_and_refuses_a_different_one(
+    world: dict[str, object],
+) -> None:
+    tmp = Path(str(world["tmp"]))
+    _two_corpora(world, [_cand(1)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    manifest_path = tmp / "data" / "c1" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["base_corpus"] = {"name": "base-x", "examples_sha256": "a" * 64}
+    manifest_path.write_text(json.dumps(manifest))
+    base = tmp / "pool" / "base-x"
+    base.mkdir(parents=True)
+    (base / "manifest.json").write_text(
+        json.dumps({"examples_sha256": "a" * 64, "totals": {"examples": 5}, "pool": {"k": 1}})
+    )
+    plan = _plan(world)
+    _materialise(world, plan)
+    # Again, into a new out dir: the identical planbase is accepted, not a refusal.
+    _materialise(world, plan, out_dir=tmp / "materialised-again")
+    (tmp / "pool" / "c1-planbase" / "manifest.json").write_text('{"different": true}')
+    with pytest.raises(mine.Refusal, match="planbase"):
+        _materialise(world, plan, out_dir=tmp / "materialised-third")
 
 
 def test_materialise_refuses_tampered_candidates_and_an_existing_out_dir(
