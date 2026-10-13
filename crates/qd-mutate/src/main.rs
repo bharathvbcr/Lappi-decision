@@ -198,6 +198,12 @@ fn main() -> Result<()> {
 
 fn compose(args: ComposeArgs) -> Result<()> {
     use qd_mutate::compose;
+    if args.single_version_records && args.aux_pool_out.is_some() {
+        bail!(
+            "--single-version-records does not combine with --aux-pool-out: the auxiliary pool \
+             is built from records that have a prior_source, and a single-version pool has none"
+        );
+    }
     let inputs = compose::load(&args.corpus, &args.pool, &args.split_map, args.aux.as_deref())?;
     if let Some(path) = &args.aux_pool_out {
         if path.exists() {

@@ -530,14 +530,25 @@ const SINGLE_VERSION_FLAG: &str = "--single-version-records";
 /// A fixture whose pool records have no `prior_source`, with a base corpus generated from it.
 /// `keep_prior_on` puts one record's `prior_source` back, for the refusal test.
 fn single_version_fixture(name: &str, keep_prior_on: Option<usize>) -> Fixture {
+    single_version_fixture_with(name, |i, v| {
+        if keep_prior_on != Some(i) {
+            v.as_object_mut().expect("an object").remove("prior_source");
+        }
+    })
+}
+
+/// [`single_version_fixture`] with `edit` applied to every record (which starts with a real
+/// `prior_source`), so a test can set one record's field to any JSON value.
+fn single_version_fixture_with(
+    name: &str,
+    edit: impl Fn(usize, &mut serde_json::Value),
+) -> Fixture {
     let dir = scratch(name);
     let pool = dir.join("pool.jsonl");
     let mut text = String::new();
     for i in 0..RECORDS {
         let mut v = record(i);
-        if keep_prior_on != Some(i) {
-            v.as_object_mut().expect("an object").remove("prior_source");
-        }
+        edit(i, &mut v);
         text.push_str(&serde_json::to_string(&v).expect("serialising"));
         text.push('\n');
     }
@@ -657,6 +668,59 @@ fn the_flag_does_not_combine_with_an_auxiliary_corpus() {
     let out = run(&args);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("auxiliary"));
+}
+
+#[test]
+fn the_flag_does_not_combine_with_aux_pool_out_and_writes_nothing() {
+    let f = single_version_fixture("sv-aux-pool-out", None);
+    let aux_pool = f.dir.join("aux-pool-out.jsonl");
+    let out = run(&[
+        "compose", "--corpus", s(&f.corpus), "--pool", s(&f.pool), "--split-map",
+        s(&f.split_map), "--aux-pool-out", s(&aux_pool), SINGLE_VERSION_FLAG,
+    ]);
+    assert!(!out.status.success(), "the flag was accepted beside --aux-pool-out");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--aux-pool-out"));
+    assert!(!aux_pool.exists(), "an aux pool was written");
+}
+
+#[test]
+fn an_empty_string_prior_source_is_a_prior_source_and_is_refused_under_the_flag() {
+    let f = single_version_fixture_with("sv-empty-prior", |i, v| {
+        let o = v.as_object_mut().expect("an object");
+        o.remove("prior_source");
+        if i == 5 {
+            o.insert("prior_source".to_string(), serde_json::json!(""));
+        }
+    });
+    let out = run(&single_version_args(&f, &f.dir.join("out"), true));
+    assert!(!out.status.success(), "an empty prior_source was read as absent");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("prior_source") && err.contains("rec0005"), "{err}");
+}
+
+/// Intended: a JSON `null` prior_source is the same as an absent one (serde reads `Option::None`),
+/// so a pool writer that emits `"prior_source": null` is a single-version pool.
+#[test]
+fn a_null_prior_source_is_absent_and_composes_under_the_flag() {
+    let f = single_version_fixture_with("sv-null-prior", |_, v| {
+        v.as_object_mut()
+            .expect("an object")
+            .insert("prior_source".to_string(), serde_json::Value::Null);
+    });
+    let out_dir = f.dir.join("out");
+    ok(&single_version_args(&f, &out_dir, true));
+    assert!(out_dir.join("examples.jsonl").is_file());
+}
+
+#[test]
+fn a_prior_source_record_last_in_the_pool_still_refuses_the_whole_run_with_no_output() {
+    let f = single_version_fixture("sv-prior-last", Some(RECORDS - 1));
+    let out_dir = f.dir.join("out");
+    let out = run(&single_version_args(&f, &out_dir, true));
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains(&format!("rec{:04}", RECORDS - 1)), "{err}");
+    assert!(!out_dir.exists(), "a refused run left an output directory");
 }
 
 /// Pinned from the binary built at main@94b9d0d, before `--single-version-records` existed: the
