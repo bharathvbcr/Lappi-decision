@@ -24,50 +24,86 @@
       {
         "name": "commitpackft-composed-ts-v1",
         "ruling": "R3 item 1: corpus-v3 restricted to TypeScript mutants (2,161 examples); 4,000 composed rows; seed 20261008; v2's compose Options except train_rows and seed; v2's split map sha f5621909...",
-        "rows": 4000,
+        "rows": 1250,
+        "rows_registered": 4000,
         "seed": 20261008,
-        "path": null,
-        "sha256": null
+        "path": "data/pool/commitpackft-composed-ts-v1-prefixed/examples.jsonl",
+        "sha256": "2eebbdca27c03b05ac9389e1cd09f6e145d05ac4e089652e5f46217ea0dadea7",
+        "id_prefix": "arm-b-ts-v1:",
+        "superseded_pin": {
+          "path": "data/pool/commitpackft-composed-ts-v1/examples.jsonl",
+          "sha256": "93b54f07288f79a6ecc5f9ff4d749552ba2b5a0d5a81b7247b57d9e3c7137a90",
+          "recorded_in": "fe9860d",
+          "why": "Row ids were `compose:train:NNNNNN`, the same ids as the other composed corpus. Superseded, not rewritten: no scoring had happened. The new corpus is the same rows with `--id-prefix arm-b-ts-v1:` added to the build command below (manifest sha256 f8667da0cd2c408330e23f7da6bd1f175d82a8bda9df74c43de69d5b4e04a4a9; built twice, identical). With the prefix empty the build is byte-identical to the superseded pin."
+        },
+        "amendment": "2026-10-13, before any scoring; no probe or mining result was read. Built twice, identical sha256. Row count amended 4000 -> 1250: compose's symmetric-roles rule needs one distinct needle file per mutated row, and the TypeScript-restricted v3 corpus has only 1,039 train files with a mutated rendering, so 1,250 is the maximum (1,270 and above are refused with 'only 1039 files have a mutated rendering'). Build: `qd-mutate generate --pool data/pool/commitpackft-pool-v2.jsonl --seed 0 --language typescript` into data/pool/commitpackft-ts-v3 (2,161 examples, byte-identical to v3's TypeScript rows; examples sha256 96b048cfeae79062d8429703565ca81bddb95a5ecef4f03e21071493d8df5b07), then `qd-mutate compose --corpus data/pool/commitpackft-ts-v3 --pool data/pool/commitpackft-pool-v2.jsonl --split-map data/pool/commitpackft-pool-v2.split-map.json --seed 20261008 --train-rows 1250 --val-rows 0 --min-tokens 850 --max-tokens 9100 --hard-max-tokens 9400` (no aux corpus; other Options at defaults, as v2)."
       },
       {
         "name": "own-swift-composed-v1",
-        "ruling": "R3 item 2: Swift mutants of the admitted own TRAIN repositories (qd-prep own-swift, then qd-mutate generate --language swift --seed 20261008, then compose); GitPulse and every held-out repository are never read.",
-        "rows": 4000,
+        "ruling": "R3 item 2: Swift mutants of the admitted own TRAIN repositories (qd-prep own-swift, then qd-mutate generate --language swift --seed 20261008, then qd-mutate compose --single-version-records); GitPulse and every held-out repository are never read.",
+        "rows": 1058,
+        "rows_registered": 4000,
         "seed": 20261008,
-        "path": null,
-        "sha256": null,
-        "own_repos_train": true
+        "path": "data/pool/own-swift-composed-v1-prefixed/examples.jsonl",
+        "sha256": "077aa84299e75bc6efb3d6091f2e2448a466ea06b1ba0c23f1eb938c840ae8bc",
+        "id_prefix": "arm-b-swift-v1:",
+        "superseded_pin": {
+          "path": "data/pool/own-swift-composed-v1/examples.jsonl",
+          "sha256": "218dae5e23837c619b5901e39b17fe0bf7b59a1fede8d5fedf869e25e0387503",
+          "recorded_in": "0867141",
+          "why": "Row ids were `compose:train:NNNNNN`, the same ids as the other composed corpus, so the plan dropped all 1,058 rows as within-candidate duplicates. Superseded, not rewritten: no scoring had happened. The new corpus is the same rows with `--id-prefix arm-b-swift-v1:` added to the build command below (manifest sha256 eee5173bf8957efc06404240cc3265035412d2337371178d4d23645a87cd9d6e; built twice, identical)."
+        },
+        "own_repos_train": true,
+        "pool_manifest": {
+          "path": "data/pool/own-swift-pool-v1.manifest.json",
+          "sha256": "8842700dcd51ebeac9c9d5256925949b763410ec8c60eb830c27f4444adef55d"
+        },
+        "compose_mode": "single-version, whole-file units",
+        "amendment": "2026-10-13, before any scoring; no probe or mining result was read. Fable's option (1): compose Options for whole-file units. Built twice, identical sha256 (manifest sha256 e7f35b6548c523b2efa3d14534e1c69c552c1fa7ddb52b6f47cae5047a9de396). Pins: `qd-prep own-swift` over the own-repos manifest (sha256 9fbdd9047a1cc0f1340ab2d6f2fdcae7bbd331dc2879ba67006f716344596854; 23 train repos, 1396 records, pool sha256 fd8cc9269d7916a379b40dc26fd8a888ae23cb14288470fa787be8c17466baa3); `qd-mutate generate --language swift --seed 20261008` (11141 examples, sha256 08c8e2fb2fe2542b6fce959e96b59b391694fb05272859e57e400d1ae4854144); split map from tools/compose_split_map.py over the swift pool (8 repos, all train). Build: `qd-mutate compose --corpus data/pool/own-swift-corpus-v1 --pool data/pool/own-swift-pool-v1/pool.jsonl --split-map data/pool/own-swift-pool-v1/split-map.json --seed 20261008 --train-rows 1058 --val-rows 0 --min-tokens 4000 --max-tokens 9100 --hard-max-tokens 9400 --max-share-permille 700 --single-version-records` (every other Option at its default, as v2). Differences from v2's Options, each forced by whole-file Swift units (median about 2,000 estimated tokens): min_tokens 4000 (v2 850), max_share_permille 700 (v2 400); max_tokens 9100 and hard_max_tokens 9400 are v2's. train_rows 1058 is the largest that composes, from a descending search: 4000, 1222 and 1100 refuse (supply: 1,016 files, 879 usable); 1090, 1080, 1070, 1065, 1060 and 1059 refuse (880 or more mutated rows need as many distinct needle files, and 879 exist); 1058 composes; 1057, 1050, 1040, 1030, 1020, 1010, 1000, 900, 800 and 700 also compose. 137 of the 1,016 files fit no row (a pristine or mutated rendering over 5,733 estimated tokens, the largest share any row gives one file) and are counted as files_exceeding_share_cap in the manifest, not dropped silently; 380 records have no mutated rendering (file_no_mutated_rendering); the 247 stored clean examples are unused (single_version_clean_examples_unused). Rows: 1058 (clean 179, cosmetic 251, logic 262, stub 366), all train. Shortfall against R3's 4,000: 2,942; with the TypeScript corpus, 2,308 composed rows against R3's 8,000."
+
       },
       {
         "name": "single-file-mutants-v1",
         "ruling": "R4: 12,000 single-file mutants from `qd-mutate generate --seed 20261008` over the existing pool data/pool/commitpackft-pool-v2.jsonl.",
-        "rows": 12000,
+        "rows": 10467,
+        "rows_registered": 12000,
         "seed": 20261008,
         "pool": {
           "path": "data/pool/commitpackft-pool-v2.jsonl",
           "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2"
         },
-        "path": null,
-        "sha256": null
+        "path": "data/pool/single-file-mutants-v1-prefixed/examples.jsonl",
+        "sha256": "75acb0bea3b5bec5b7f74831e0b871b04edba3337a24dc6cb2578a5f83167ad5",
+        "id_prefix": "arm-b-sfm-v1:",
+        "amendment": "2026-10-13, before any scoring; no probe or mining result was read. Stratified by language per Fable's ruling, then given a distinct id prefix (the stratified, unprefixed concatenation, sha256 80c2eaa856b5aef65e442d8e203b3f72d113bb4861b9f43caf35fd71a0973589 recorded in d380653, is superseded; the rows are identical but for the id). Built twice, identical sha256 per part and for the concatenation (part sha256: go 3c8ac289..., python 57f36be7..., rust 447fd8da..., typescript e93960c7...). Build: for L in go python rust typescript (this fixed alphabetical order), `qd-mutate generate --pool data/pool/commitpackft-pool-v2.jsonl --seed 20261008 --language L --limit 3000 --report false --id-prefix arm-b-sfm-v1:` (other options at defaults: multi-hunk diffs, clean-permille 200); the four examples.jsonl files are concatenated in that order. Rows by language: go 3000, python 3000, rust 2307 (shortfall 693: the pool yields no more), typescript 2160 (shortfall 840); swift 0 (the pool holds none). Total 10,467 against 12,000. Split-map check: 9,429 train, 551 val, 487 heldout; the plan drops the val and heldout rows.",
+        "superseded_pin": {
+          "path": "data/pool/single-file-mutants-v1/examples.jsonl",
+          "sha256": "4fd5ec76b5c541246cce33d5e7437f66c47a658110cd831cab40173789bd668a",
+          "rows": 12000,
+          "recorded_in": "fe9860d",
+          "why": "`--limit 12000` over the whole pool stops at the first 12,000 examples in pool order, so that corpus held python and go only. Superseded, not rewritten: no scoring had happened."
+        }
       }
     ],
     "scan_cap_rows": 20000
   },
   "exclusion": {
-    "exact_identity_dedupe": "a candidate whose id, identity_key or content digest sha256(before NUL after) equals a key of any set below is dropped and counted by set; within-candidate duplicates are dropped and counted. A candidate whose repo is a held-out repository of the own-repos manifest, or whose path carries a held-out marker, is refused whole (CLAUDE.md rule 3). Duplicating v5 train rows is refused.",
+    "exact_identity_dedupe": "Identity is content (Fable, 2026-10-13, superseding the id clause recorded at 1431207). Within-candidate dedupe keys on (corpus, id) plus the content digest sha256(before NUL after): two corpora that share an id both keep their rows, and a content-identical row is dropped whatever its corpus or id. A set with match `content_or_identity_key` (v5 train) drops a candidate on its content digest or identity_key only; a candidate whose id alone matches is COUNTED (`id_collisions_by_set`), never dropped. A set with match `id` (v5 val) drops a candidate whose un-prefixed id tail matches: the corpus's declared `id_prefix` is stripped first, so a prefix cannot weaken it. Duplicates are dropped and counted by set. A candidate whose repo is a held-out repository of the own-repos manifest, or whose path carries a held-out marker, is refused whole (CLAUDE.md rule 3). Duplicating v5 train rows is refused.",
     "sets": [
       {
         "name": "v5-train-corpus-v3",
         "path": "data/pool/commitpackft-corpus-v3/examples.jsonl",
         "sha256": "610bb1f0f1d86dc23f419001d8670e01418485644bea93e2b33631e5650c62e0",
-        "key": "id"
+        "key": "id",
+        "match": "content_or_identity_key"
       },
       {
         "name": "v5-val-verdict-row-ids",
         "path": "/Users/bharath/qd-campaign/preview-2026-10-05/v5-avg-verdicts/verdicts-avg.jsonl",
         "sha256": "4ea2539f36a2649ac85e3ca87d5e73b8edf8d51f6313c13f8814a7deaec7da4f",
         "key": "row_id",
-        "note": "row_id values are `qdm:code.defect_class:<corpus id>`; compared by normalised key."
+        "match": "id",
+        "note":"row_id values are `qdm:code.defect_class:<corpus id>`; compared by normalised key."
       }
     ],
     "leakage_scans": "the containment scan against val, held-out and target texts (qd-prep containment, the v5 scan), the v2 split map (sha f5621909...) and the pipeline's v6 split-priority dedupe. The driver records each as ran (with its attestation sha256) or not_run; an absent scan is never recorded as clean. The driver records heldout_exact_keys and v6_split_priority_dedupe as not_run (no held-out key set is pinned; the pipeline runs the dedupe).",
@@ -108,5 +144,68 @@
     "records": "every count (offered, refused by reason, duplicates by set, kept, abstained) and the sha256 of every input and output, in the plan and report files it writes beside the rows.",
     "select": "`select` takes --plan-dir and refuses verdicts whose row ids are not in the plan (the scorer ran over another shard set)."
   },
-  "amendments": "an amendment is a new commit that changes a null above to a sha256 and a row count, before any scoring; any other change after a candidate was scored is void."
+  "amendments": "an amendment is a new commit that changes a null above to a sha256 and a row count, before any scoring; any other change after a candidate was scored is void.",
+  "amendment_2026-10-13_identity_is_content": {
+    "recorded": "2026-10-13, before any scoring; no probe or mining result was read. Changes no gate, seed, threshold or scan cap. Changes the id clause of exclusion.exact_identity_dedupe and re-pins the three candidate corpora under distinct id prefixes (each corpus entry keeps its superseded pin).",
+    "first_plan_run_at_0867141": {
+      "note": "Measured by running the driver as it stood at 0867141 over the corpora as pinned there; the plan was not run again after this amendment (stop rule below).",
+      "offered": 12775,
+      "kept": 5062,
+      "within_candidate_drops": 1073,
+      "within_candidate_drops_attribution": {
+        "own_swift_composed_ids_colliding_with_ts_composed_ids": 1058,
+        "content_duplicates_inside_single_file_mutants": 15,
+        "basis": "replayed by data/pool/.build-b/within.py over the pinned corpora; the two add to 1,073"
+      },
+      "v5_train_drops": 5602,
+      "v5_train_drops_attribution": {
+        "id_collision_content_identical_to_the_same_v5_train_row": 1906,
+        "id_collision_content_identical_to_some_v5_train_row_under_any_id": 2008,
+        "content_identical_under_another_id_only": 48,
+        "content_identical_total": 2056,
+        "content_identical_share_of_5602": 0.367,
+        "id_only_collisions_content_differs": 3546,
+        "id_only_share_of_5602": 0.633
+      }
+    },
+    "stop_rule": "Fable: if a material share of the 5,602 is content-identical (more than 5%), record it and stop; do not run plan. 2,056 of 5,602 (36.7%) are content-identical, so the plan was not run after this amendment and goes back to Fable. Under the new rule the 3,546 id-only collisions are kept and counted and the 2,056 content-identical rows are still dropped."
+  },
+  "amendment_2026-10-13_round2": {
+    "recorded": "2026-10-13, before any scoring; no probe or mining result was read. Changes no gate, seed, threshold or scan cap.",
+    "plan_run_released": "Fable reproduced the overlap (2,283 of 10,467 single-file rows, 21.8%) and found it structural, not a recipe fault: clean disposition is seed-hashed at p=0.2 (generate.rs:546-556), and small functions offer one operator at one site (generate.rs:483-486, 764-775), stub.panic being 910 of the overlapping rows. The stop rule is released and the plan is run.",
+    "content_key": {
+      "rule": "Byte-exact; no whitespace or CRLF normalisation (that would change the registered key). A row with before and after: sha256(before NUL after), R4's key, unchanged. A composed row (qd-mutate compose, no before): sha256(\"diff\" NUL diff), over the composed unified diff, which is the context the model reads; its `after` is the needle file alone and is not the model input. A candidate for which neither can be computed is refused, never kept.",
+      "why": "The first plan skipped every content check for the 2,308 composed rows (no before) and kept them silently."
+    },
+    "label_conflicts": "The key ignores label and span. Of two rows with one content, the first row is kept and the later one dropped, as before; when their (class, span) differ the drop is counted as `label_conflicts` in the plan report, with the rule written beside it.",
+    "id_prefix_required": "The driver refuses a pre-registration in which any corpus lacks a non-empty id_prefix, so a missing declaration cannot let a prefixed val id through the id-keyed val exclusion.",
+    "plan_result_from_ff782bd": {
+      "note": "Recorded after the plan was run, in a commit that changes nothing else; the plan is re-run from the new HEAD and its candidates sha256 must equal the one below. No scorer output exists.",
+      "offered": 12775,
+      "kept": 9651,
+      "dropped_not_train_split": 1038,
+      "v5_train_drops_content_identical": 2056,
+      "v5_val_drops": 0,
+      "within_candidate_drops": 30,
+      "label_conflicts": 0,
+      "v5_train_id_only_collisions_kept_and_counted": 3535,
+      "ids_unique": true,
+      "kept_by_corpus_and_language": {"arm-b-sfm-v1 go": 2129, "arm-b-sfm-v1 python": 2133, "arm-b-sfm-v1 rust": 1652, "arm-b-sfm-v1 typescript": 1429, "arm-b-swift-v1 swift": 1058, "arm-b-ts-v1 typescript": 1250},
+      "v5_train_drops_by_class": {"clean": 423, "cosmetic": 162, "logic": 282, "stub": 1189},
+      "v5_train_drops_stub_panic": 818,
+      "kept_by_class": {"clean": 1997, "cosmetic": 1397, "logic": 1871, "stub": 4386},
+      "kept_stub_panic": 3176,
+      "candidates_sha256": "0958ff52060c275e261b9a43c2eca2609dedfe904166b73dc9936f43f5537b2b"
+    },
+    "reporting": "The plan report carries dropped_by_class_and_operator (per v5-train, v5-val and within-candidate drop) and kept_by_class_and_operator, because the drop is stub-heavy and the kept mix differs from the generated mix."
+  },
+  "amendment_2026-10-13_shards": {
+    "recorded": "2026-10-13, before any scoring; no probe or mining result was read. Changes no gate, seed, threshold or scan cap, and no corpus examples sha256: every pin above stands.",
+    "recipe_line": "own-swift-composed-v1: `qd-prep own-swift` now writes source_id, licence and a per-file sha256 list (files.jsonl) into the pool manifest; the pool is placed flat as data/pool/own-swift-pool-v1.jsonl with its manifest (own-swift-pool-v1.manifest.json, sha256 8842700dcd51ebeac9c9d5256925949b763410ec8c60eb830c27f4444adef55d), files list (own-swift-pool-v1.files.jsonl, sha256 8d8f874cf6a1b917fc22730e823f830ca63fdb2972a54f69df6d0122166bc88c) and split map (own-swift-pool-v1.split-map.json), so the loader re-anchors it by file name like commitpackft-pool-v2.jsonl. The pool bytes are unchanged (sha256 fd8cc9269d7916a379b40dc26fd8a888ae23cb14288470fa787be8c17466baa3, built twice), and so are the corpus (08c8e2fb2fe2542b6fce959e96b59b391694fb05272859e57e400d1ae4854144) and composed corpus (077aa842...) examples, rebuilt twice from the flat pool; only the corpus manifests change (own-swift-corpus-v1 f201953c73759fa588b40dbeb2eedb90562448e4ef61ffc3c470fc3ebbfb414d, composed b453cb3810dfb29051d88381e31f54b614fdbb9ceea68a1558730cc2b4bd1a7c).",
+    "recipe_line_single_file": "single-file-mutants-v1: the four per-language runs are joined by tools/arm_b_concat_corpus.py into data/pool/single-file-mutants-v1-prefixed with a manifest.json (sha256 96824d50f28bc486b2d5ac19749ef573bde68f88d5021796c144ea07a61a257d) that pins the concatenated rows (examples sha256 75acb0bea3b5bec5b7f74831e0b871b04edba3337a24dc6cb2578a5f83167ad5, unchanged; built twice).",
+    "licence_join": "python/qd_data/defect_class.py load_defect_rows: a corpus whose pool manifest names source_id bharathvbcr/own-repositories takes the source's declared licence (owner-granted) through source_by_id(...).admission_refusals(config.licence) and admit_licence(...), the three checks _load_own_prose makes; its files list must be the bytes the manifest pinned; and a pool id that is also in the commitpackft download refuses the corpus (one corpus is one source). The commitpackft join is unchanged: a test pins the real v5 defect corpus (49,953 rows) to load digest 931c0f63b4b333e8aa575d7457f3b5be386da84019cd232e39df8a3f84935fa9 as it was before the change.",
+    "provenance_rework_2026_10_13": "After an adversarial review showed a corpus of third-party rows could be admitted as owner-granted through a self-declared manifest, the licence join was narrowed: the pool's repos must be train repositories of the own-repos manifest pinned by sha256 9fbdd9047a1cc0f1340ab2d6f2fdcae7bbd331dc2879ba67006f716344596854 (kept at data/pool/own-repos-2026-10-06.manifest.json and pinned in qd_data.defect_class), not of the pool's own manifest; the pool must equal its files list row for row by (repo, path) and sha256 of the bytes; and a commitpackft-download clash check that cannot run refuses. The own-swift pool manifest is pinned here (pool_manifest, sha256 8842700d...) and the driver verifies it in plan and materialise; an own_repos_train corpus with no such pin is refused.",
+    "test_order_note": "The materialise tests (and the planbase idempotence test) were written after the code they test, not red-first; the loader and pool-manifest-pin tests were red-first.",
+    "materialise": "tools/arm_b_mine.py materialise writes, per corpus, a corpus directory holding the plan-kept rows byte for byte, with the corpus manifest, examples_sha256 and totals.examples recomputed and a selected_by_plan block. A composed corpus is written over an empty `<corpus>-planbase` base so the loader reads none of the v5-train base rows."
+  }
 }

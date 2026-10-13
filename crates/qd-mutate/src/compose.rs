@@ -145,7 +145,8 @@ pub enum ComposeError {
     #[error(
         "{mismatches} of {checked} stored clean diffs do not re-render byte for byte from their \
          pool record (first: {first:?}); a pristine file rendered by this path would not be the \
-         shape the corpus renders"
+         shape the corpus renders (a pool of records with no prior_source composes only under \
+         --single-version-records)"
     )]
     Parity {
         checked: u64,
@@ -308,6 +309,34 @@ pub struct LoadedCorpus {
     pub rows: Vec<CorpusRow>,
     pub reference: CorpusRef,
     pub manifest: serde_json::Value,
+}
+
+/// What a pool record is: a commit (the file before and after the agent's diff) or one version of
+/// a file walked off a tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RecordMode {
+    /// Every record carries a `prior_source`: its pristine rendering is the commit, `prior_source`
+    /// to `source`. Records with none have no change to read and are not in the universe.
+    #[default]
+    Commit,
+    /// `--single-version-records`: no record carries a `prior_source` (`qd-prep own-swift`). A
+    /// record's pristine rendering is its own `source` diffed against the empty file by
+    /// [`diffspan::unified_multi`] (one hunk, `@@ -1,1 +1,N @@`, every line added), and so is
+    /// every mutated rendering of it, so the diff's shape does not tell the needle from the
+    /// fillers. Any record with a `prior_source` refuses the run, so the commit semantics
+    /// cannot drift into this path.
+    SingleVersion,
+}
+
+impl RecordMode {
+    /// The manifest's name for a non-default mode. The default writes none, so a commit-pool
+    /// manifest is byte for byte what it was before this mode existed.
+    fn manifest_name(self) -> Option<&'static str> {
+        match self {
+            RecordMode::Commit => None,
+            RecordMode::SingleVersion => Some("single_version"),
+        }
+    }
 }
 
 /// Everything [`prepare`] needs, already read and checked against its recorded digests.
@@ -751,6 +780,7 @@ pub struct Prepared {
     pub units: BTreeMap<Split, Vec<FileUnit>>,
     pub refusals: BTreeMap<String, u64>,
     pub parity_checked: u64,
+    pub record_mode: RecordMode,
     pub heldout_skipped: u64,
     pub base: CorpusRef,
     pub aux: Option<CorpusRef>,
@@ -801,8 +831,51 @@ pub fn render_pristine(
     Ok(Some((diff, source)))
 }
 
-/// Build the per-split file universes, checking every invariant the module docstring names.
+/// [`render_pristine`] for a single-version record: `(diff, normalized source)` with the whole file
+/// as one added block, or `None` for an empty file.
+fn render_single_version(
+    source: &str,
+) -> Result<Option<(String, String)>, diffspan::DiffRefusal> {
+    let (source, _) = normalize::normalize(source);
+    if source.trim().is_empty() {
+        return Ok(None);
+    }
+    let diff = diffspan::unified_multi("", &source, DIFF_CONTEXT)?;
+    Ok(Some((diff, source)))
+}
+
+/// Build the per-split file universes of a commit pool, checking every invariant the module
+/// docstring names.
 pub fn prepare(inputs: &Inputs) -> Result<Prepared, ComposeError> {
+    prepare_with(inputs, RecordMode::Commit)
+}
+
+/// [`prepare`] for either kind of pool record.
+pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, ComposeError> {
+    let single = mode == RecordMode::SingleVersion;
+    if single {
+        if inputs.aux.is_some() {
+            return Err(ComposeError::Input(
+                "--single-version-records does not combine with an auxiliary corpus: the \
+                 auxiliary pool is built from records that have a prior_source"
+                    .to_string(),
+            ));
+        }
+        let with_prior: Vec<&str> = inputs
+            .pool
+            .iter()
+            .filter(|r| r.prior_source.is_some())
+            .map(|r| r.id.as_str())
+            .collect();
+        if !with_prior.is_empty() {
+            return Err(ComposeError::Input(format!(
+                "--single-version-records refuses a pool in which {} record(s) carry a \
+                 prior_source (first: {:?}): those are commits and compose without the flag",
+                with_prior.len(),
+                &with_prior[..with_prior.len().min(5)]
+            )));
+        }
+    }
     let map = &inputs.split_map;
     let mut refusals: BTreeMap<String, u64> = BTreeMap::new();
 
@@ -862,11 +935,20 @@ pub fn prepare(inputs: &Inputs) -> Result<Prepared, ComposeError> {
         aux_pool_sha256 = Some(expected);
     }
 
-    // Parity: every stored clean diff re-renders byte for byte from its pool record.
+    // Parity: every stored clean diff re-renders byte for byte from its pool record. A
+    // single-version pool has none to check: its stored clean examples carry an empty diff (the
+    // post-image against itself) and no composed row reads them, so they are counted as unused
+    // rather than reported as checked.
     let mut parity_checked = 0u64;
     let mut parity_bad: Vec<String> = Vec::new();
     let mut clean_example_of: HashMap<&str, &CorpusRow> = HashMap::new();
-    for r in inputs.base.rows.iter().filter(|r| r.class == MutationClass::Clean) {
+    if single {
+        let unused = inputs.base.rows.iter().filter(|r| r.class == MutationClass::Clean).count();
+        if unused > 0 {
+            refusals.insert("single_version_clean_examples_unused".to_string(), unused as u64);
+        }
+    }
+    for r in inputs.base.rows.iter().filter(|r| !single && r.class == MutationClass::Clean) {
         let record = pool_by_id.get(r.pool_id.as_str()).ok_or_else(|| {
             ComposeError::Input(format!(
                 "clean example {} names pool id {} the pool lacks",
@@ -919,7 +1001,12 @@ pub fn prepare(inputs: &Inputs) -> Result<Prepared, ComposeError> {
         if record.language().is_none() {
             continue;
         }
-        match render_pristine(record) {
+        let rendered = if single {
+            render_single_version(&record.source)
+        } else {
+            render_pristine(record)
+        };
+        match rendered {
             Ok(Some((diff, after))) => {
                 splits_of_diff.entry(digest(&diff)).or_default().insert(split_of(&record.repo));
                 pristine_of.insert(record.id.as_str(), (diff, after));
@@ -959,6 +1046,24 @@ pub fn prepare(inputs: &Inputs) -> Result<Prepared, ComposeError> {
             bump(&mut refusals, "file_no_mutated_rendering");
             continue;
         };
+        // A single-version needle is rendered as the whole file added, like its fillers.
+        let candidates: Vec<(std::borrow::Cow<'_, CorpusRow>, Source)> = if single {
+            let mut whole = Vec::with_capacity(candidates.len());
+            for &(r, source) in candidates {
+                let mut row = r.clone();
+                match diffspan::unified_multi("", &r.after, DIFF_CONTEXT) {
+                    Ok(diff) => row.diff = diff,
+                    Err(_) => {
+                        bump(&mut refusals, "mutated_diff_refused");
+                        continue;
+                    }
+                }
+                whole.push((std::borrow::Cow::Owned(row), source));
+            }
+            whole
+        } else {
+            candidates.iter().map(|&(r, s)| (std::borrow::Cow::Borrowed(r), s)).collect()
+        };
         if crosses(pristine) || candidates.iter().any(|(r, _)| crosses(&r.diff)) {
             bump(&mut refusals, "file_exact_twin_across_splits");
             continue;
@@ -968,7 +1073,8 @@ pub fn prepare(inputs: &Inputs) -> Result<Prepared, ComposeError> {
             continue;
         }
         let mut renderings = Vec::new();
-        for &(r, source) in candidates {
+        for (r, source) in &candidates {
+            let (r, source) = (r.as_ref(), *source);
             if r.path != record.path || r.repo != record.repo || !r.diff.ends_with('\n') {
                 bump(&mut refusals, "rendering_disagrees_with_its_record");
                 continue;
@@ -1005,6 +1111,7 @@ pub fn prepare(inputs: &Inputs) -> Result<Prepared, ComposeError> {
         units,
         refusals,
         parity_checked,
+        record_mode: mode,
         heldout_skipped,
         base: inputs.base.reference.clone(),
         aux: inputs.aux.as_ref().map(|a| a.reference.clone()),
@@ -1046,6 +1153,10 @@ pub struct Options {
     /// Report-only diag rows (half `seen_filler`, half `unseen`); never with train rows.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub diag_rows: usize,
+    /// Prepended to every composed row's id, so two composed corpora (`compose:train:000000` in
+    /// each) never share one. Empty by default, and then absent from the manifest.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id_prefix: String,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -1055,6 +1166,14 @@ fn is_zero(n: &usize) -> bool {
 impl Options {
     pub fn check(&self) -> Result<(), ComposeError> {
         let bad = |m: String| Err(ComposeError::Input(m));
+        if self.id_prefix.len() > 64
+            || self.id_prefix.chars().any(|c| c.is_control() || c.is_whitespace())
+        {
+            return bad(format!(
+                "id prefix {:?} is longer than 64 bytes or holds whitespace or a control character",
+                self.id_prefix
+            ));
+        }
         if self.min_files < 2 || self.min_files > self.max_files {
             return bad(format!(
                 "files {}..{} is not a range of at least two",
@@ -1218,6 +1337,10 @@ pub struct NeedleRateReport {
     pub appearances_histogram: BTreeMap<u64, u64>,
 }
 
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
 /// What one split's composition did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SplitReport {
@@ -1226,6 +1349,12 @@ pub struct SplitReport {
     pub files_available: u64,
     pub files_with_base_rendering: u64,
     pub files_with_aux_rendering_only: u64,
+    /// Files left out of the universe because their pristine or a mutated rendering is larger than
+    /// the largest share any row could give one file (`share_cap` at `max_tokens`): no row can
+    /// hold them. Counted here, never dropped silently. Absent when none, so a pool of small
+    /// files (the commit pool) writes the manifest it always wrote.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub files_exceeding_share_cap: u64,
     pub files_used: u64,
     pub file_slots: u64,
     pub needle_rate: NeedleRateReport,
@@ -1283,6 +1412,9 @@ pub struct ComposeManifest {
     pub prepare_refusals: BTreeMap<String, u64>,
     pub heldout_records_skipped: u64,
     pub clean_diff_parity_checked: u64,
+    /// `single_version` for a pool of single-version records; absent for a commit pool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_mode: Option<String>,
     pub splits: BTreeMap<String, SplitReport>,
     /// The diag rows' report, in a `report_only` corpus.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1797,20 +1929,30 @@ fn compose_split(
             &report.attempts_refused,
         ));
     }
-    if mutated_rows.len() > units.len() {
+    // A file whose pristine or any mutated rendering exceeds the largest share a row can give
+    // it fits no row, as needle or filler: it is out of the universe, and counted.
+    let largest_share = share_cap(opts.max_tokens, opts);
+    let mut all: Vec<usize> = (0..units.len())
+        .filter(|&i| {
+            units[i].pristine_est <= largest_share
+                && units[i].renderings.iter().all(|r| r.est <= largest_share)
+        })
+        .collect();
+    report.files_exceeding_share_cap = (units.len() - all.len()) as u64;
+    if mutated_rows.len() > all.len() {
         return Err(shortfall(
             0,
             format!(
-                "{} mutated rows need as many distinct needle files, and only {} files have a \
-                 mutated rendering",
+                "{} mutated rows need as many distinct needle files, but {} files have a mutated \
+                 rendering and {} of them fit a row",
                 mutated_rows.len(),
-                units.len()
+                units.len(),
+                all.len()
             ),
             &report.attempts_refused,
         ));
     }
     // The universe: as many files as mutated rows, each the needle exactly once.
-    let mut all: Vec<usize> = (0..units.len()).collect();
     shuffle(&mut all, &mut rng);
     let needle_files: Vec<usize> = all[..mutated_rows.len()].to_vec();
     assign_needles(&mut plans, &mutated_rows, &needle_files, units, opts, &mut rng)
@@ -1829,7 +1971,7 @@ fn compose_split(
         &mut rng,
         &mut report,
         |index, plan, rendered, fillers| {
-            let id = format!("compose:{}:{index:06}", split.as_str());
+            let id = format!("{}compose:{}:{index:06}", opts.id_prefix, split.as_str());
             build_row(id, split, units, plan, rendered, fillers, opts, Anchor::Needle)
         },
     )?;
@@ -2026,7 +2168,7 @@ fn compose_diag(
         &mut rng,
         &mut report.report,
         |index, plan, rendered, chosen| {
-            let id = format!("compose:diag:{index:06}");
+            let id = format!("{}compose:diag:{index:06}", opts.id_prefix);
             let mut row =
                 build_row(id, Split::Val, &units, plan, rendered, chosen, opts, Anchor::Filler)?;
             let (u, _) = plan.needle.ok_or_else(|| {
@@ -2426,6 +2568,7 @@ pub fn compose(
             prepare_refusals: prepared.refusals.clone(),
             heldout_records_skipped: prepared.heldout_skipped,
             clean_diff_parity_checked: prepared.parity_checked,
+            record_mode: prepared.record_mode.manifest_name().map(str::to_string),
             splits,
             diag,
         },

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import collections
 import hashlib
 import json
 import math
@@ -34,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -173,11 +175,86 @@ def load_split_map(spec: Mapping[str, Any], repo: Path) -> tuple[dict[str, str],
     return {str(k): str(v) for k, v in repos.items()}, sha
 
 
+LABEL_CONFLICT_RULE = (
+    "the content key ignores label and span: of two rows with one content, the first row is "
+    "kept and the later one dropped; when their (class, span) differ the drop is counted here"
+)
+
+
 def content_digest(row: Mapping[str, Any]) -> str | None:
-    """sha256(before NUL after): what makes a re-id'd copy of a row a duplicate."""
+    """The key that makes a re-id'd copy of a row a duplicate. Byte-exact: no whitespace or line
+    ending normalisation.
+
+    * a row with ``before`` and ``after``: sha256(before NUL after), R4's registered key;
+    * a composed row (``qd-mutate compose``, no ``before``): sha256("diff" NUL diff), the composed
+      context the model reads. Its ``after`` is the needle file only and is not the input.
+
+    ``None`` when neither is present; a candidate with no digest is refused by :func:`plan`.
+    """
     if isinstance(row.get("before"), str) and isinstance(row.get("after"), str):
         return hashlib.sha256(f"{row['before']}\x00{row['after']}".encode()).hexdigest()
+    if isinstance(row.get("diff"), str):
+        return hashlib.sha256(f"diff\x00{row['diff']}".encode()).hexdigest()
     return None
+
+
+def _label(row: Mapping[str, Any]) -> str:
+    return json.dumps([row.get("class"), row.get("span")], sort_keys=True)
+
+
+def check_pool_manifest(corpus: Mapping[str, Any], *, repo: Path) -> None:
+    """An own-repos corpus pins its pool's manifest by sha256 in the pre-registration.
+
+    The pool manifest names the source and the licence, so the pre-registration, not the file,
+    must say which bytes are the registered ones; a corpus flagged ``own_repos_train`` with no pin
+    is refused, and a pin that does not hold is refused.
+    """
+    if not corpus.get("own_repos_train"):
+        return
+    pin = corpus.get("pool_manifest")
+    if not isinstance(pin, dict) or not pin.get("path") or not pin.get("sha256"):
+        raise Refusal(
+            f"corpus {corpus.get('name')}: own_repos_train with no pool_manifest {{path, sha256}} "
+            "pinned in the pre-registration"
+        )
+    check_input(
+        Path(pin["path"]), repo=repo, want_sha=pin["sha256"],
+        what=f"the pool manifest of corpus {corpus.get('name')}",
+    )
+
+
+def _tally(into: dict[str, collections.Counter[str]], row: Mapping[str, Any]) -> None:
+    into["class"][str(row.get("class", "?"))] += 1
+    into["operator"][str(row.get("operator", "?"))] += 1
+
+
+def _mix(rows: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+    t: dict[str, collections.Counter[str]] = {
+        "class": collections.Counter(),
+        "operator": collections.Counter(),
+    }
+    for r in rows:
+        _tally(t, r)
+    return {k: dict(sorted(v.items())) for k, v in t.items()}
+
+
+@dataclass
+class _ExclusionSet:
+    """One pinned exclusion set: its ids, identity keys and content digests."""
+
+    name: str
+    match: str
+    ids: set[str] = field(default_factory=set)
+    identity_keys: set[str] = field(default_factory=set)
+    digests: set[str] = field(default_factory=set)
+
+    def hit(self, tail: str, identity_key: str | None, digest: str | None) -> bool:
+        """Whether this set drops a candidate. ``tail`` is its un-prefixed, normalised id."""
+        if digest is not None and digest in self.digests:
+            return True
+        if identity_key is not None and identity_key in self.identity_keys:
+            return True
+        return self.match == "id" and tail in self.ids
 
 
 def plan(
@@ -193,23 +270,41 @@ def plan(
         raise Refusal(f"{out_dir} exists; refusing to overwrite it")
     doc = check_committed(prereg, repo)
     inputs: dict[str, str] = {"preregistration": _sha256_file(prereg)}
+    # Every corpus declares a non-empty id prefix: the id-keyed val exclusion strips it, so a
+    # corpus that did not declare one could pass a prefixed val id through.
+    for corpus in doc["candidates"]["corpora"]:
+        declared = corpus.get("id_prefix")
+        if not isinstance(declared, str) or not declared:
+            raise Refusal(
+                f"corpus {corpus.get('name')}: no non-empty id_prefix is declared in the "
+                "pre-registration; every Arm B corpus must declare one"
+            )
 
-    sets: list[tuple[str, set[str], set[str]]] = []
+    # Per set: how a candidate is matched. ``id`` (the default, and what the v5 val set uses): a
+    # candidate whose un-prefixed id tail, identity key or content digest is in the set is dropped.
+    # ``content_or_identity_key`` (v5 train): dropped on its content digest or identity key only; an
+    # id match alone is a COUNT, because one ``pool_id#n`` names a different mutation of the same
+    # file under another seed (Fable, 2026-10-13: identity is content).
+    sets: list[_ExclusionSet] = []
     for s in doc["exclusion"]["sets"]:
         path = Path(s["path"])
         inputs[f"exclusion/{s['name']}"] = check_input(
             path, repo=repo, want_sha=s.get("sha256"), what=f"exclusion set {s['name']}"
         )
-        keys: set[str] = set()
-        digests: set[str] = set()
+        match = str(s.get("match", "id"))
+        if match not in ("id", "content_or_identity_key"):
+            raise Refusal(f"exclusion set {s['name']}: unknown match {match!r}")
+        es = _ExclusionSet(name=s["name"], match=match)
         for row in _rows(path, s["name"]):
-            for field in (s["key"], "identity_key", "id"):
-                if isinstance(row.get(field), str):
-                    keys.add(normalise_key(row[field]))
+            for fld in (s["key"], "id"):
+                if isinstance(row.get(fld), str):
+                    es.ids.add(normalise_key(row[fld]))
+            if isinstance(row.get("identity_key"), str):
+                es.identity_keys.add(normalise_key(row["identity_key"]))
             d = content_digest(row)
             if d is not None:
-                digests.add(d)
-        sets.append((s["name"], keys, digests))
+                es.digests.add(d)
+        sets.append(es)
 
     split_spec = doc["exclusion"].get("split_map")
     split_map: dict[str, str] = {}
@@ -219,10 +314,17 @@ def plan(
         inputs["split_map"] = split_sha
     not_train = 0
     held = set(heldout_repos)
-    seen_keys: set[str] = set()
-    seen_digests: set[str] = set()
+    seen_keys: set[tuple[str, str]] = set()
+    digest_label: dict[str, str] = {}
+    label_conflicts = 0
+    dropped: dict[str, dict[str, collections.Counter[str]]] = {
+        name: {"class": collections.Counter(), "operator": collections.Counter()}
+        for name in [s.name for s in sets] + ["within"]
+    }
+    id_corpora: dict[str, set[str]] = {}
     offered = 0
-    dup_by_set = {name: 0 for name, _, _ in sets}
+    dup_by_set = {s.name: 0 for s in sets}
+    id_collisions_by_set = {s.name: 0 for s in sets if s.match != "id"}
     dup_within = 0
     kept: list[dict[str, Any]] = []
     for corpus in doc["candidates"]["corpora"]:
@@ -234,6 +336,7 @@ def plan(
         inputs[f"corpus/{corpus['name']}"] = check_input(
             path, repo=repo, want_sha=corpus.get("sha256"), what=f"corpus {corpus['name']}"
         )
+        check_pool_manifest(corpus, repo=repo)
         for row in _rows(path, corpus["name"]):
             offered += 1
             if not isinstance(row.get("id"), str) or not row["id"]:
@@ -256,27 +359,46 @@ def plan(
                     not_train += 1
                     continue
             digest = content_digest(row)
+            if digest is None:
+                raise Refusal(
+                    f"corpus {corpus['name']}: {row['id']} has no before/after and no diff, so no "
+                    "content digest can be computed: a row that cannot be checked is refused, "
+                    "never kept"
+                )
             ident = normalise_key(row["id"])
+            # The exclusion sets are id-keyed on the corpus's own id: strip the prefix the corpus
+            # declares, so a prefix cannot take a row out of reach of the v5 val set.
+            prefix = str(corpus.get("id_prefix", ""))
+            if prefix and not str(row["id"]).startswith(prefix):
+                raise Refusal(
+                    f"corpus {corpus['name']}: {row['id']} does not begin with the corpus's "
+                    f"declared id_prefix {prefix!r}: refused whole"
+                )
+            tail = normalise_key(str(row["id"])[len(prefix) :])
             idk = row.get("identity_key")
-            hit = next(
-                (
-                    name
-                    for name, keys, digs in sets
-                    if ident in keys
-                    or (isinstance(idk, str) and normalise_key(idk) in keys)
-                    or (digest and digest in digs)
-                ),
-                None,
+            idk_tail = (
+                normalise_key(idk[len(prefix) :] if prefix and idk.startswith(prefix) else idk)
+                if isinstance(idk, str)
+                else None
             )
+            hit = next((s.name for s in sets if s.hit(tail, idk_tail, digest)), None)
             if hit is not None:
                 dup_by_set[hit] += 1
+                _tally(dropped[hit], row)
                 continue
-            if ident in seen_keys or (digest and digest in seen_digests):
+            within_key = (str(corpus["name"]), ident)
+            if within_key in seen_keys or digest in digest_label:
                 dup_within += 1
+                _tally(dropped["within"], row)
+                if digest in digest_label and digest_label[digest] != _label(row):
+                    label_conflicts += 1
                 continue
-            seen_keys.add(ident)
-            if digest:
-                seen_digests.add(digest)
+            for s in sets:
+                if s.match != "id" and tail in s.ids:
+                    id_collisions_by_set[s.name] += 1
+            seen_keys.add(within_key)
+            digest_label[digest] = _label(row)
+            id_corpora.setdefault(ident, set()).add(str(corpus["name"]))
             kept.append(row)
     cap = int(doc["candidates"].get("scan_cap_rows", SCAN_CAP_ROWS))
     over_cap = max(0, len(kept) - cap)
@@ -290,6 +412,7 @@ def plan(
     else:
         containment = {"state": "ran", "attestation_sha256": _sha256_file(containment_attestation)}
     body = b"".join(json.dumps(r, sort_keys=True).encode() + b"\n" for r in kept)
+    candidate_ids = sorted(normalise_key(str(r["id"])) for r in kept)
     report: dict[str, Any] = {
         "schema": "qd-arm-b-plan/v1",
         "preregistration": str(prereg),
@@ -297,10 +420,19 @@ def plan(
         "offered": offered,
         "duplicates_by_set": dup_by_set,
         "duplicates_within": dup_within,
+        "label_conflicts": label_conflicts,
+        "label_conflict_rule": LABEL_CONFLICT_RULE,
+        "dropped_by_class_and_operator": {
+            name: {k: dict(sorted(v.items())) for k, v in t.items()} for name, t in dropped.items()
+        },
+        "kept_by_class_and_operator": _mix(kept),
+        "id_collisions_by_set": id_collisions_by_set,
+        "id_collisions_across_corpora": sum(1 for c in id_corpora.values() if len(c) > 1),
+        "ids_unique": len(candidate_ids) == len(set(candidate_ids)),
         "over_scan_cap": over_cap,
         "kept": len(kept),
         "leakage": {
-            "exact_identity": {"state": "ran", "sets": [n for n, _, _ in sets]},
+            "exact_identity": {"state": "ran", "sets": [s.name for s in sets]},
             "split_map": (
                 {"state": "ran", "sha256": split_sha, "dropped_not_train_split": not_train}
                 if split_map
@@ -319,7 +451,7 @@ def plan(
         },
         "inputs": inputs,
         "candidates_sha256": hashlib.sha256(body).hexdigest(),
-        "candidate_ids": sorted(normalise_key(str(r["id"])) for r in kept),
+        "candidate_ids": candidate_ids,
     }
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=out_dir.name + ".partial-", dir=out_dir.parent))
@@ -328,6 +460,131 @@ def plan(
     tmp.rename(out_dir)
     report["out_dir"] = str(out_dir)
     return report
+
+
+def materialise(
+    *, prereg: Path, repo: Path, plan_dir: Path, out_dir: Path, pool_dir: Path
+) -> dict[str, Any]:
+    """Write each pinned corpus as the corpus directory ``load_defect_rows`` reads, holding only
+    the rows the plan kept, in corpus order.
+
+    ``<out_dir>/<corpus>/examples.jsonl`` is the corpus's own lines, byte for byte, for the rows
+    that are in ``candidates.jsonl``; ``manifest.json`` is the corpus's own manifest with
+    ``examples_sha256`` and ``totals.examples`` recomputed and a ``selected_by_plan`` block. This
+    filters and never parses a row into a ``DefectRow``: the loader (``qd_data.defect_class``)
+    stays the one reader.
+
+    A composed corpus names a ``base_corpus``, and the loader reads that base's rows first. The
+    plan holds none of them (they are v5 train rows), so a composed corpus is written over an
+    empty ``<corpus>-planbase`` corpus under ``pool_dir`` (where the loader re-anchors a base by
+    name), with the original base recorded in ``selected_by_plan``.
+    """
+    if out_dir.exists():
+        raise Refusal(f"{out_dir} exists; refusing to overwrite it")
+    doc = check_committed(prereg, repo)
+    plan_path = plan_dir / "plan.json"
+    plan_doc = json.loads(plan_path.read_text())
+    if plan_doc["inputs"]["preregistration"] != _sha256_file(prereg):
+        raise Refusal(
+            "the plan was made from another pre-registration than the one at HEAD: re-run plan"
+        )
+    cand_path = plan_dir / "candidates.jsonl"
+    if _sha256_file(cand_path) != plan_doc["candidates_sha256"]:
+        raise Refusal(f"{cand_path} no longer hashes to the plan's sha256")
+    kept_lines = {line for line in cand_path.read_bytes().split(b"\n") if line}
+    if len(kept_lines) != plan_doc["kept"]:
+        raise Refusal(
+            f"{cand_path} holds {len(kept_lines)} distinct row(s), the plan kept {plan_doc['kept']}"
+        )
+    out: dict[str, Any] = {"plan_sha256": _sha256_file(plan_path), "corpora": {}}
+    staged: list[tuple[Path, Path, bytes, dict[str, Any]]] = []
+    planbases: list[tuple[Path, dict[str, Any]]] = []
+    selected_total = 0
+    for corpus in doc["candidates"]["corpora"]:
+        name = str(corpus["name"])
+        src = Path(corpus["path"])
+        if src.name != "examples.jsonl":
+            raise Refusal(f"corpus {name}: {src} is not an examples.jsonl")
+        inputs_sha = check_input(
+            src, repo=repo, want_sha=corpus.get("sha256"), what=f"corpus {name}"
+        )
+        check_pool_manifest(corpus, repo=repo)
+        manifest_path = src.with_name("manifest.json")
+        if not manifest_path.is_file():
+            raise Refusal(f"corpus {name}: {manifest_path} is missing")
+        manifest = json.loads(manifest_path.read_text())
+        body = bytearray()
+        n_rows = n_kept = 0
+        for raw in src.read_bytes().split(b"\n"):
+            if not raw.strip():
+                continue
+            n_rows += 1
+            if json.dumps(json.loads(raw), sort_keys=True).encode() in kept_lines:
+                body += raw + b"\n"
+                n_kept += 1
+        selected_total += n_kept
+        new = dict(manifest)
+        new["examples_sha256"] = hashlib.sha256(bytes(body)).hexdigest()
+        new["totals"] = {**manifest.get("totals", {}), "examples": n_kept}
+        block: dict[str, Any] = {
+            "plan_sha256": out["plan_sha256"],
+            "candidates_sha256": plan_doc["candidates_sha256"],
+            "kept": n_kept,
+            "dropped": n_rows - n_kept,
+            "source_examples_sha256": inputs_sha,
+            "source_manifest_sha256": _sha256_file(manifest_path),
+            "totals_other_keys": "of the unfiltered corpus; only totals.examples is recomputed",
+        }
+        if "base_corpus" in manifest:
+            base_name = f"{name}-planbase"
+            base_src = pool_dir / Path(str(manifest["base_corpus"]["name"])).name
+            base_manifest = json.loads((base_src / "manifest.json").read_text())
+            empty_sha = hashlib.sha256(b"").hexdigest()
+            planbases.append(
+                (
+                    pool_dir / base_name,
+                    {**base_manifest, "examples_sha256": empty_sha,
+                     "totals": {**base_manifest.get("totals", {}), "examples": 0}},
+                )
+            )
+            block["base_corpus_original"] = manifest["base_corpus"]
+            block["base_corpus_rows_excluded"] = base_manifest.get("totals", {}).get("examples")
+            new["base_corpus"] = {"name": base_name, "examples_sha256": empty_sha}
+        new["selected_by_plan"] = block
+        staged.append((out_dir / name, src, bytes(body), new))
+        out["corpora"][name] = {"kept": n_kept, "dropped": n_rows - n_kept}
+    if selected_total != plan_doc["kept"]:
+        raise Refusal(
+            f"the corpora hold {selected_total} of the plan's {plan_doc['kept']} kept rows: "
+            "a kept row is in no pinned corpus, or two corpora hold one"
+        )
+    # A planbase is a function of the corpus and the plan, so re-materialising writes the same one:
+    # an identical planbase already on disk is accepted, a different one is refused.
+    to_write: list[tuple[Path, str]] = []
+    for path, base in planbases:
+        text = json.dumps(base, indent=2) + "\n"
+        if path.exists():
+            same = (
+                (path / "examples.jsonl").is_file()
+                and (path / "examples.jsonl").read_bytes() == b""
+                and (path / "manifest.json").is_file()
+                and (path / "manifest.json").read_text() == text
+                and sorted(p.name for p in path.iterdir()) == ["examples.jsonl", "manifest.json"]
+            )
+            if not same:
+                raise Refusal(f"the planbase {path} exists and is not the one this plan writes")
+            continue
+        to_write.append((path, text))
+    for path, text in to_write:
+        path.mkdir(parents=True)
+        (path / "examples.jsonl").write_bytes(b"")
+        (path / "manifest.json").write_text(text)
+    for dest, _, body_bytes, new in staged:
+        dest.mkdir(parents=True)
+        (dest / "examples.jsonl").write_bytes(body_bytes)
+        (dest / "manifest.json").write_text(json.dumps(new, indent=2) + "\n")
+    out["out_dir"] = str(out_dir)
+    return out
 
 
 def abstentions(lines: Iterable[Mapping[str, Any]]) -> dict[str, bool]:
@@ -379,6 +636,12 @@ def _select(args: argparse.Namespace) -> int:
     plan_doc = json.loads((plan_dir / "plan.json").read_text())
     if _sha256_file(plan_dir / "candidates.jsonl") != plan_doc["candidates_sha256"]:
         raise Refusal(f"{plan_dir}/candidates.jsonl no longer hashes to the plan's sha256")
+    if not plan_doc.get("ids_unique", False):
+        raise Refusal(
+            "the plan's candidate ids are not unique (two corpora share an id): a verdict's "
+            "row_id could not be traced to one candidate; rebuild the corpora with distinct "
+            "--id-prefix values"
+        )
     lines = [json.loads(line) for line in verdicts.read_text().splitlines() if line.strip()]
     planned = set(plan_doc["candidate_ids"])
     foreign = sorted(
@@ -438,6 +701,17 @@ def main(argv: list[str] | None = None) -> int:
         help="a text file, one held-out repository slug per line (own-repos manifest)",
     )
     a.add_argument("--containment-attestation", type=Path)
+    m = sub.add_parser("materialise", help="write each corpus's plan-kept rows as a corpus dir")
+    m.add_argument("--prereg", type=Path, required=True)
+    m.add_argument("--repo", type=Path, default=ROOT)
+    m.add_argument("--plan-dir", type=Path, required=True)
+    m.add_argument("--out", type=Path, required=True, help="a new directory")
+    m.add_argument(
+        "--pool-dir",
+        type=Path,
+        default=None,
+        help="where the loader re-anchors a base corpus by name (default: <repo>/data/pool)",
+    )
     s = sub.add_parser("select")
     s.add_argument("--prereg", type=Path, required=True)
     s.add_argument("--repo", type=Path, default=ROOT)
@@ -465,6 +739,16 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 json.dumps({k: r[k] for k in ("offered", "kept", "duplicates_by_set", "out_dir")})
             )
+            return 0
+        if args.cmd == "materialise":
+            r = materialise(
+                prereg=args.prereg,
+                repo=args.repo,
+                plan_dir=args.plan_dir,
+                out_dir=args.out,
+                pool_dir=args.pool_dir or args.repo / "data" / "pool",
+            )
+            print(json.dumps(r, sort_keys=True))
             return 0
         if args.cmd == "select":
             return _select(args)

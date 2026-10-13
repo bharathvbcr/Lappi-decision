@@ -518,3 +518,346 @@ fn diag_rows_are_refused_beside_train_rows_and_without_their_train_corpus() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("--diag-train-corpus"));
 }
+
+// -- single-version records (`--single-version-records`) ----------------------------------------
+//
+// A pool walked off a tree (`qd-prep own-swift`) has one version of each file and no
+// `prior_source`. The flag lets such a pool compose, with the file's own `source` as its pristine
+// rendering, and refuses any record that does carry a `prior_source`.
+
+const SINGLE_VERSION_FLAG: &str = "--single-version-records";
+
+/// A fixture whose pool records have no `prior_source`, with a base corpus generated from it.
+/// `keep_prior_on` puts one record's `prior_source` back, for the refusal test.
+fn single_version_fixture(name: &str, keep_prior_on: Option<usize>) -> Fixture {
+    single_version_fixture_with(name, |i, v| {
+        if keep_prior_on != Some(i) {
+            v.as_object_mut().expect("an object").remove("prior_source");
+        }
+    })
+}
+
+/// [`single_version_fixture`] with `edit` applied to every record (which starts with a real
+/// `prior_source`), so a test can set one record's field to any JSON value.
+fn single_version_fixture_with(
+    name: &str,
+    edit: impl Fn(usize, &mut serde_json::Value),
+) -> Fixture {
+    let dir = scratch(name);
+    let pool = dir.join("pool.jsonl");
+    let mut text = String::new();
+    for i in 0..RECORDS {
+        let mut v = record(i);
+        edit(i, &mut v);
+        text.push_str(&serde_json::to_string(&v).expect("serialising"));
+        text.push('\n');
+    }
+    std::fs::write(&pool, text).expect("writing the pool");
+    let corpus = dir.join("corpus");
+    std::fs::create_dir_all(&corpus).expect("mkdir");
+    ok(&[
+        "generate", "--pool", s(&pool), "--out", s(&corpus.join("examples.jsonl")),
+        "--manifest", s(&corpus.join("manifest.json")), "--seed", "0",
+        "--clean-permille", "200", "--report", "false",
+    ]);
+    let split_map = dir.join("split-map.json");
+    let repos: Vec<String> = (0..REPOS).map(repo_of).collect();
+    write_split_map(&split_map, &pool, &repos);
+    Fixture {
+        aux_pool: dir.join("none-aux-pool.jsonl"),
+        aux: dir.join("none-aux"),
+        dir,
+        pool,
+        corpus,
+        split_map,
+    }
+}
+
+fn single_version_args<'a>(f: &'a Fixture, out: &'a Path, flag: bool) -> Vec<&'a str> {
+    let mut a = vec![
+        "compose", "--corpus", s(&f.corpus), "--pool", s(&f.pool), "--split-map",
+        s(&f.split_map), "--out", s(out), "--seed", "7", "--train-rows", "40", "--val-rows", "0",
+        "--min-tokens", "1200", "--max-tokens", "2600", "--hard-max-tokens", "2900",
+        "--min-files", "3", "--max-files", "16", "--tolerance-permille", "200",
+        "--floor-uses", "2", "--soft-max-uses", "20", "--max-filler-uses", "24",
+    ];
+    if flag {
+        a.push(SINGLE_VERSION_FLAG);
+    }
+    a
+}
+
+#[test]
+fn a_record_with_no_prior_source_composes_with_its_own_source_as_the_pristine_rendering() {
+    let f = single_version_fixture("sv-compose", None);
+    let out = f.dir.join("out");
+    ok(&single_version_args(&f, &out, true));
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.join("manifest.json")).expect("read"))
+            .expect("json");
+    assert_eq!(manifest["record_mode"], "single_version");
+    assert_eq!(manifest["clean_diff_parity_checked"], 0, "no clean diff was checked");
+    assert!(
+        manifest["prepare_refusals"]["single_version_clean_examples_unused"]
+            .as_u64()
+            .is_some_and(|n| n > 0),
+        "the unused clean examples are counted, not hidden: {}",
+        manifest["prepare_refusals"]
+    );
+    let rows: Vec<ComposedRow> = std::fs::read_to_string(out.join("examples.jsonl"))
+        .expect("read")
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("a composed row"))
+        .collect();
+    assert_eq!(rows.len(), 40);
+    let examples = corpus_rows(&f.corpus);
+    let mut mutated = 0;
+    for row in &rows {
+        let lines: Vec<&str> = row.diff.split('\n').collect();
+        // Every file, needle and filler alike, is rendered as the whole file added.
+        for c in &row.constituents {
+            let header = lines[(c.first_line + 2) as usize];
+            assert!(
+                header.starts_with("@@ -1,1 +1,"),
+                "{}: {} is not a whole-file block: {header}",
+                row.id,
+                c.path
+            );
+        }
+        if row.class == MutationClass::Clean {
+            continue;
+        }
+        mutated += 1;
+        let needle = &row.constituents[row.needle_index.expect("needle") as usize];
+        let example = &examples[needle.example_id.as_deref().expect("the needle names its example")];
+        let after: Vec<&str> = example.after.split('\n').collect();
+        let span = row.diff_span.expect("diff_span");
+        let after_span = example.span.expect("span");
+        for (diff_line, after_line) in [(span.start, after_span.start), (span.end, after_span.end)] {
+            let text = lines[(diff_line - 1) as usize];
+            assert_eq!(&text[1..], after[(after_line - 1) as usize], "{}", row.id);
+        }
+    }
+    assert!(mutated > 20, "only {mutated} mutated rows");
+}
+
+#[test]
+fn a_pool_with_no_prior_source_is_refused_without_the_flag_and_the_refusal_names_it() {
+    let f = single_version_fixture("sv-noflag", None);
+    let out = run(&single_version_args(&f, &f.dir.join("out"), false));
+    assert!(!out.status.success(), "compose accepted single-version records without the flag");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains(SINGLE_VERSION_FLAG), "{err}");
+}
+
+#[test]
+fn a_record_with_a_prior_source_is_refused_under_the_flag() {
+    let f = single_version_fixture("sv-prior", Some(17));
+    let out = run(&single_version_args(&f, &f.dir.join("out"), true));
+    assert!(!out.status.success(), "the flag accepted a record that has a prior_source");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("prior_source") && err.contains("rec0017"), "{err}");
+}
+
+#[test]
+fn the_flag_does_not_combine_with_an_auxiliary_corpus() {
+    let f = single_version_fixture("sv-aux", None);
+    let out_dir = f.dir.join("out");
+    let mut args = single_version_args(&f, &out_dir, true);
+    args.extend(["--aux", s(&f.corpus)]);
+    let out = run(&args);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("auxiliary"));
+}
+
+#[test]
+fn files_too_large_for_any_row_are_counted_not_silently_dropped() {
+    let f = single_version_fixture("sv-share-cap", None);
+    let out_dir = f.dir.join("out");
+    // The largest share any row gives one file is max_tokens x (1 - tolerance) x max_share
+    // = 1000 x 0.8 x 0.4 = 320 estimated tokens, which the larger whole files exceed.
+    ok(&[
+        "compose", "--corpus", s(&f.corpus), "--pool", s(&f.pool), "--split-map",
+        s(&f.split_map), "--out", s(&out_dir), "--seed", "7", "--train-rows", "8",
+        "--val-rows", "0", "--min-tokens", "1000", "--max-tokens", "1000",
+        "--hard-max-tokens", "1200", "--min-files", "3", "--max-files", "16",
+        "--tolerance-permille", "200", "--floor-uses", "2", "--soft-max-uses", "20",
+        "--max-filler-uses", "24", SINGLE_VERSION_FLAG,
+    ]);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out_dir.join("manifest.json")).expect("read"))
+            .expect("json");
+    let train = &manifest["splits"]["train"];
+    let dropped = train["files_exceeding_share_cap"].as_u64().expect("the count is recorded");
+    assert!(dropped > 0, "the fixture has no file over the cap: {train}");
+    assert!(dropped < train["files_available"].as_u64().expect("files_available"));
+}
+
+#[test]
+fn the_flag_does_not_combine_with_aux_pool_out_and_writes_nothing() {
+    let f = single_version_fixture("sv-aux-pool-out", None);
+    let aux_pool = f.dir.join("aux-pool-out.jsonl");
+    let out = run(&[
+        "compose", "--corpus", s(&f.corpus), "--pool", s(&f.pool), "--split-map",
+        s(&f.split_map), "--aux-pool-out", s(&aux_pool), SINGLE_VERSION_FLAG,
+    ]);
+    assert!(!out.status.success(), "the flag was accepted beside --aux-pool-out");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--aux-pool-out"));
+    assert!(!aux_pool.exists(), "an aux pool was written");
+}
+
+#[test]
+fn an_empty_string_prior_source_is_a_prior_source_and_is_refused_under_the_flag() {
+    let f = single_version_fixture_with("sv-empty-prior", |i, v| {
+        let o = v.as_object_mut().expect("an object");
+        o.remove("prior_source");
+        if i == 5 {
+            o.insert("prior_source".to_string(), serde_json::json!(""));
+        }
+    });
+    let out = run(&single_version_args(&f, &f.dir.join("out"), true));
+    assert!(!out.status.success(), "an empty prior_source was read as absent");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("prior_source") && err.contains("rec0005"), "{err}");
+}
+
+/// Intended: a JSON `null` prior_source is the same as an absent one (serde reads `Option::None`),
+/// so a pool writer that emits `"prior_source": null` is a single-version pool.
+#[test]
+fn a_null_prior_source_is_absent_and_composes_under_the_flag() {
+    let f = single_version_fixture_with("sv-null-prior", |_, v| {
+        v.as_object_mut()
+            .expect("an object")
+            .insert("prior_source".to_string(), serde_json::Value::Null);
+    });
+    let out_dir = f.dir.join("out");
+    ok(&single_version_args(&f, &out_dir, true));
+    assert!(out_dir.join("examples.jsonl").is_file());
+}
+
+#[test]
+fn a_prior_source_record_last_in_the_pool_still_refuses_the_whole_run_with_no_output() {
+    let f = single_version_fixture("sv-prior-last", Some(RECORDS - 1));
+    let out_dir = f.dir.join("out");
+    let out = run(&single_version_args(&f, &out_dir, true));
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains(&format!("rec{:04}", RECORDS - 1)), "{err}");
+    assert!(!out_dir.exists(), "a refused run left an output directory");
+}
+
+/// Pinned from the binary built at main@94b9d0d, before `--single-version-records` existed: the
+/// commit-pool path (prior_source present, no flag) must compose these exact bytes.
+const COMMIT_PATH_EXAMPLES_SHA256: &str =
+    "547c92c79c5e1b15324a0cef09184e013181acd4aad3d7c1f7db2d26789cc246";
+const COMMIT_PATH_MANIFEST_SHA256: &str =
+    "c56435327bbe801ef86db56ad84f4da283491ab44d0ee76084f33053b68441f0";
+
+#[test]
+fn the_commit_pool_compose_path_is_byte_identical_to_the_pre_change_binary() {
+    let f = fixture("commit-path-pin");
+    let out = f.dir.join("out");
+    ok(&compose_args(&f, &out, &f.aux));
+    let examples = sha256_hex(&std::fs::read(out.join("examples.jsonl")).expect("read"));
+    let manifest = sha256_hex(&std::fs::read(out.join("manifest.json")).expect("read"));
+    assert_eq!(
+        (examples.as_str(), manifest.as_str()),
+        (COMMIT_PATH_EXAMPLES_SHA256, COMMIT_PATH_MANIFEST_SHA256)
+    );
+}
+
+// -- --id-prefix --------------------------------------------------------------------------------
+
+/// `generate --seed 0 --clean-permille 300` over this file's fixture pool, from the binary built
+/// before `--id-prefix` existed. (The manifest names the pool's path, so only the rows are pinned.)
+const GENERATE_DEFAULT_EXAMPLES_SHA256: &str =
+    "30f858b376bf96bb416a5365a6dd24bcde7da71e4a099c3955accd1d2df6908f";
+
+fn jsonl_values(path: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(path)
+        .expect("read")
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("a JSON row"))
+        .collect()
+}
+
+#[test]
+fn generate_with_no_id_prefix_is_byte_identical_to_the_pre_change_binary() {
+    let f = fixture("gen-pin");
+    let bytes = std::fs::read(f.corpus.join("examples.jsonl")).expect("read");
+    assert_eq!(sha256_hex(&bytes), GENERATE_DEFAULT_EXAMPLES_SHA256);
+}
+
+#[test]
+fn generate_id_prefix_changes_only_the_id() {
+    let f = fixture("gen-prefix");
+    let out = f.dir.join("prefixed");
+    std::fs::create_dir_all(&out).expect("mkdir");
+    ok(&[
+        "generate", "--pool", s(&f.pool), "--out", s(&out.join("examples.jsonl")),
+        "--manifest", s(&out.join("manifest.json")), "--seed", "0", "--clean-permille", "300",
+        "--report", "false", "--id-prefix", "arm-b-x:",
+    ]);
+    let plain = jsonl_values(&f.corpus.join("examples.jsonl"));
+    let prefixed = jsonl_values(&out.join("examples.jsonl"));
+    assert_eq!(plain.len(), prefixed.len());
+    for (a, mut b) in plain.into_iter().zip(prefixed) {
+        let id = b["id"].as_str().expect("id").to_string();
+        assert_eq!(id, format!("arm-b-x:{}", a["id"].as_str().expect("id")));
+        b["id"] = a["id"].clone();
+        assert_eq!(a, b, "a field other than id changed");
+    }
+}
+
+#[test]
+fn a_prefix_with_whitespace_is_refused() {
+    let f = fixture("gen-bad-prefix");
+    let out = f.dir.join("bad");
+    std::fs::create_dir_all(&out).expect("mkdir");
+    let r = run(&[
+        "generate", "--pool", s(&f.pool), "--out", s(&out.join("examples.jsonl")),
+        "--manifest", s(&out.join("manifest.json")), "--seed", "0", "--report", "false",
+        "--id-prefix", "a b:",
+    ]);
+    assert!(!r.status.success());
+    assert!(!out.join("examples.jsonl").exists());
+}
+
+#[test]
+fn compose_id_prefix_changes_only_the_id() {
+    let f = fixture("compose-prefix");
+    let (plain, _, _) = compose_ok(&f, "plain");
+    let out = f.dir.join("prefixed");
+    let mut args = compose_args(&f, &out, &f.aux);
+    args.extend(["--id-prefix", "arm-b-y:"]);
+    ok(&args);
+    let prefixed = jsonl_values(&out.join("examples.jsonl"));
+    assert_eq!(plain.len(), prefixed.len());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.join("manifest.json")).expect("read"))
+            .expect("json");
+    assert_eq!(manifest["options"]["id_prefix"], "arm-b-y:");
+    for (a, mut b) in plain.iter().zip(prefixed) {
+        let a = serde_json::to_value(a).expect("value");
+        let id = b["id"].as_str().expect("id").to_string();
+        assert_eq!(id, format!("arm-b-y:{}", a["id"].as_str().expect("id")));
+        b["id"] = a["id"].clone();
+        assert_eq!(a, b, "a field other than id changed");
+    }
+}
+
+#[test]
+fn the_shortfall_names_both_the_files_with_a_rendering_and_the_files_that_fit_a_row() {
+    let f = single_version_fixture("sv-shortfall", None);
+    let out_dir = f.dir.join("out");
+    let mut args = single_version_args(&f, &out_dir, true);
+    let at = args.iter().position(|a| *a == "--train-rows").expect("--train-rows") + 1;
+    args[at] = "100000";
+    let out = run(&args);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("files have a mutated rendering and") && err.contains("of them fit a row"),
+        "{err}"
+    );
+}
