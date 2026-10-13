@@ -460,8 +460,18 @@ def _two_corpora(
     doc = json.loads(Path(str(world["prereg"])).read_text())
     corpora = []
     for n, (rows, prefix) in enumerate(zip((first, second), prefixes, strict=True), start=1):
-        path = tmp / "data" / f"corpus{n}.jsonl"
+        path = tmp / "data" / f"c{n}" / "examples.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
         body = _write_jsonl(path, rows)
+        (path.parent / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "examples_sha256": _sha(body),
+                    "totals": {"examples": len(rows), "by_class": {"unfiltered": len(rows)}},
+                    "pool": {"path": "x/pool.jsonl", "sha256": "0" * 64, "records": 1},
+                }
+            )
+        )
         entry: dict[str, object] = {
             "name": f"c{n}",
             "path": str(path),
@@ -702,3 +712,106 @@ def test_the_plan_reports_the_drop_and_the_kept_mix_by_class_and_operator(
         "class": {"logic": 1, "stub": 1},
         "operator": {"logic.flip": 1, "stub.panic": 1},
     }
+
+
+# -- materialise ----------------------------------------------------------------------------------
+
+
+def _materialise(world: dict[str, object], plan: dict[str, object], **over: object) -> dict:
+    tmp = Path(str(world["tmp"]))
+    kwargs: dict[str, object] = {
+        "prereg": world["prereg"],
+        "repo": world["repo"],
+        "plan_dir": Path(str(plan["out_dir"])),
+        "out_dir": tmp / "materialised",
+        "pool_dir": tmp / "pool",
+    }
+    kwargs.update(over)
+    return mine.materialise(**kwargs)  # type: ignore[arg-type]
+
+
+def _lines(path: Path) -> list[bytes]:
+    return [line for line in path.read_bytes().split(b"\n") if line]
+
+
+def test_materialise_writes_each_corpus_with_only_the_rows_the_plan_kept(
+    world: dict[str, object],
+) -> None:
+    tmp = Path(str(world["tmp"]))
+    a = [_cand(1), _cand(2), _cand(3)]
+    b = [_cand(10), _cand(11)]
+    drop = {"id": "t", "before": _cand(2)["before"], "after": _cand(2)["after"]}
+    _two_corpora(world, a, b, train_rows=[drop], val_rows=[{"row_id": "u"}])
+    plan = _plan(world)
+    assert plan["kept"] == 4
+    out = _materialise(world, plan)
+    assert out["corpora"] == {"c1": {"kept": 2, "dropped": 1}, "c2": {"kept": 2, "dropped": 0}}
+    src = tmp / "data" / "c1" / "examples.jsonl"
+    got = out_dir = tmp / "materialised" / "c1"
+    assert _lines(got / "examples.jsonl") == [_lines(src)[0], _lines(src)[2]], "byte for byte"
+    manifest = json.loads((out_dir / "manifest.json").read_text())
+    assert manifest["examples_sha256"] == _sha((got / "examples.jsonl").read_bytes())
+    assert manifest["totals"]["examples"] == 2
+    assert manifest["totals"]["by_class"] == {"unfiltered": 3}, "other totals are left as they were"
+    sel = manifest["selected_by_plan"]
+    assert (sel["kept"], sel["dropped"]) == (2, 1)
+    assert sel["candidates_sha256"] == plan["candidates_sha256"]
+    assert sel["source_examples_sha256"] == _sha(src.read_bytes())
+
+
+def test_materialise_gives_a_composed_corpus_an_empty_plan_base(world: dict[str, object]) -> None:
+    """The loader reads a composed corpus's base rows first, and the plan holds none of them."""
+    tmp = Path(str(world["tmp"]))
+    _two_corpora(
+        world, [_cand(1), _cand(2)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}]
+    )
+    manifest_path = tmp / "data" / "c1" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["base_corpus"] = {"name": "base-x", "examples_sha256": "a" * 64}
+    manifest_path.write_text(json.dumps(manifest))
+    base = tmp / "pool" / "base-x"
+    base.mkdir(parents=True)
+    (base / "manifest.json").write_text(
+        json.dumps({"examples_sha256": "a" * 64, "totals": {"examples": 99}, "pool": {"k": 1}})
+    )
+    out = _materialise(world, _plan(world))
+    got = json.loads((tmp / "materialised" / "c1" / "manifest.json").read_text())
+    empty = _sha(b"")
+    assert got["base_corpus"] == {"name": "c1-planbase", "examples_sha256": empty}
+    assert got["selected_by_plan"]["base_corpus_original"]["name"] == "base-x"
+    assert got["selected_by_plan"]["base_corpus_rows_excluded"] == 99
+    planbase = tmp / "pool" / "c1-planbase"
+    assert (planbase / "examples.jsonl").read_bytes() == b""
+    pb = json.loads((planbase / "manifest.json").read_text())
+    assert pb["examples_sha256"] == empty and pb["totals"]["examples"] == 0
+    assert pb["pool"] == {"k": 1}, "the base's pool is kept: the loader checks it matches"
+    assert out["corpora"]["c1"]["kept"] == 2
+
+
+def test_materialise_refuses_a_plan_from_another_preregistration(
+    world: dict[str, object],
+) -> None:
+    _two_corpora(world, [_cand(1)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    plan = _plan(world)
+    doc = json.loads(Path(str(world["prereg"])).read_text())
+    doc["caps"]["floor_rows"] = 4
+    Path(str(world["prereg"])).write_text(json.dumps(doc))
+    _git(Path(str(world["repo"])), "commit", "-q", "-am", "another")
+    with pytest.raises(mine.Refusal, match="another pre-registration"):
+        _materialise(world, plan)
+
+
+def test_materialise_refuses_tampered_candidates_and_an_existing_out_dir(
+    world: dict[str, object],
+) -> None:
+    _two_corpora(world, [_cand(1)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    plan = _plan(world)
+    cand = Path(str(plan["out_dir"])) / "candidates.jsonl"
+    original = cand.read_bytes()
+    cand.write_bytes(original + b"{}\n")
+    with pytest.raises(mine.Refusal, match="no longer hashes"):
+        _materialise(world, plan)
+    cand.write_bytes(original)
+    Path(str(world["tmp"]), "materialised").mkdir()
+    with pytest.raises(mine.Refusal, match="exists"):
+        _materialise(world, plan)

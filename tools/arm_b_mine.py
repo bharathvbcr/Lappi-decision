@@ -440,6 +440,116 @@ def plan(
     return report
 
 
+def materialise(
+    *, prereg: Path, repo: Path, plan_dir: Path, out_dir: Path, pool_dir: Path
+) -> dict[str, Any]:
+    """Write each pinned corpus as the corpus directory ``load_defect_rows`` reads, holding only
+    the rows the plan kept, in corpus order.
+
+    ``<out_dir>/<corpus>/examples.jsonl`` is the corpus's own lines, byte for byte, for the rows
+    that are in ``candidates.jsonl``; ``manifest.json`` is the corpus's own manifest with
+    ``examples_sha256`` and ``totals.examples`` recomputed and a ``selected_by_plan`` block. This
+    filters and never parses a row into a ``DefectRow``: the loader (``qd_data.defect_class``)
+    stays the one reader.
+
+    A composed corpus names a ``base_corpus``, and the loader reads that base's rows first. The
+    plan holds none of them (they are v5 train rows), so a composed corpus is written over an
+    empty ``<corpus>-planbase`` corpus under ``pool_dir`` (where the loader re-anchors a base by
+    name), with the original base recorded in ``selected_by_plan``.
+    """
+    if out_dir.exists():
+        raise Refusal(f"{out_dir} exists; refusing to overwrite it")
+    doc = check_committed(prereg, repo)
+    plan_path = plan_dir / "plan.json"
+    plan_doc = json.loads(plan_path.read_text())
+    if plan_doc["inputs"]["preregistration"] != _sha256_file(prereg):
+        raise Refusal(
+            "the plan was made from another pre-registration than the one at HEAD: re-run plan"
+        )
+    cand_path = plan_dir / "candidates.jsonl"
+    if _sha256_file(cand_path) != plan_doc["candidates_sha256"]:
+        raise Refusal(f"{cand_path} no longer hashes to the plan's sha256")
+    kept_lines = {line for line in cand_path.read_bytes().split(b"\n") if line}
+    if len(kept_lines) != plan_doc["kept"]:
+        raise Refusal(
+            f"{cand_path} holds {len(kept_lines)} distinct row(s), the plan kept {plan_doc['kept']}"
+        )
+    out: dict[str, Any] = {"plan_sha256": _sha256_file(plan_path), "corpora": {}}
+    staged: list[tuple[Path, Path, bytes, dict[str, Any]]] = []
+    planbases: list[tuple[Path, dict[str, Any]]] = []
+    selected_total = 0
+    for corpus in doc["candidates"]["corpora"]:
+        name = str(corpus["name"])
+        src = Path(corpus["path"])
+        if src.name != "examples.jsonl":
+            raise Refusal(f"corpus {name}: {src} is not an examples.jsonl")
+        inputs_sha = check_input(
+            src, repo=repo, want_sha=corpus.get("sha256"), what=f"corpus {name}"
+        )
+        manifest_path = src.with_name("manifest.json")
+        if not manifest_path.is_file():
+            raise Refusal(f"corpus {name}: {manifest_path} is missing")
+        manifest = json.loads(manifest_path.read_text())
+        body = bytearray()
+        n_rows = n_kept = 0
+        for raw in src.read_bytes().split(b"\n"):
+            if not raw.strip():
+                continue
+            n_rows += 1
+            if json.dumps(json.loads(raw), sort_keys=True).encode() in kept_lines:
+                body += raw + b"\n"
+                n_kept += 1
+        selected_total += n_kept
+        new = dict(manifest)
+        new["examples_sha256"] = hashlib.sha256(bytes(body)).hexdigest()
+        new["totals"] = {**manifest.get("totals", {}), "examples": n_kept}
+        block: dict[str, Any] = {
+            "plan_sha256": out["plan_sha256"],
+            "candidates_sha256": plan_doc["candidates_sha256"],
+            "kept": n_kept,
+            "dropped": n_rows - n_kept,
+            "source_examples_sha256": inputs_sha,
+            "source_manifest_sha256": _sha256_file(manifest_path),
+            "totals_other_keys": "of the unfiltered corpus; only totals.examples is recomputed",
+        }
+        if "base_corpus" in manifest:
+            base_name = f"{name}-planbase"
+            base_src = pool_dir / Path(str(manifest["base_corpus"]["name"])).name
+            base_manifest = json.loads((base_src / "manifest.json").read_text())
+            empty_sha = hashlib.sha256(b"").hexdigest()
+            planbases.append(
+                (
+                    pool_dir / base_name,
+                    {**base_manifest, "examples_sha256": empty_sha,
+                     "totals": {**base_manifest.get("totals", {}), "examples": 0}},
+                )
+            )
+            block["base_corpus_original"] = manifest["base_corpus"]
+            block["base_corpus_rows_excluded"] = base_manifest.get("totals", {}).get("examples")
+            new["base_corpus"] = {"name": base_name, "examples_sha256": empty_sha}
+        new["selected_by_plan"] = block
+        staged.append((out_dir / name, src, bytes(body), new))
+        out["corpora"][name] = {"kept": n_kept, "dropped": n_rows - n_kept}
+    if selected_total != plan_doc["kept"]:
+        raise Refusal(
+            f"the corpora hold {selected_total} of the plan's {plan_doc['kept']} kept rows: "
+            "a kept row is in no pinned corpus, or two corpora hold one"
+        )
+    for path, _ in planbases:
+        if path.exists():
+            raise Refusal(f"{path} exists; refusing to overwrite it")
+    for path, base in planbases:
+        path.mkdir(parents=True)
+        (path / "examples.jsonl").write_bytes(b"")
+        (path / "manifest.json").write_text(json.dumps(base, indent=2) + "\n")
+    for dest, _, body_bytes, new in staged:
+        dest.mkdir(parents=True)
+        (dest / "examples.jsonl").write_bytes(body_bytes)
+        (dest / "manifest.json").write_text(json.dumps(new, indent=2) + "\n")
+    out["out_dir"] = str(out_dir)
+    return out
+
+
 def abstentions(lines: Iterable[Mapping[str, Any]]) -> dict[str, bool]:
     """``tools/real_ft_run.py``'s ``choice_rule_abstentions`` over ``--verdicts-out`` lines.
 
@@ -554,6 +664,17 @@ def main(argv: list[str] | None = None) -> int:
         help="a text file, one held-out repository slug per line (own-repos manifest)",
     )
     a.add_argument("--containment-attestation", type=Path)
+    m = sub.add_parser("materialise", help="write each corpus's plan-kept rows as a corpus dir")
+    m.add_argument("--prereg", type=Path, required=True)
+    m.add_argument("--repo", type=Path, default=ROOT)
+    m.add_argument("--plan-dir", type=Path, required=True)
+    m.add_argument("--out", type=Path, required=True, help="a new directory")
+    m.add_argument(
+        "--pool-dir",
+        type=Path,
+        default=None,
+        help="where the loader re-anchors a base corpus by name (default: <repo>/data/pool)",
+    )
     s = sub.add_parser("select")
     s.add_argument("--prereg", type=Path, required=True)
     s.add_argument("--repo", type=Path, default=ROOT)
@@ -581,6 +702,16 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 json.dumps({k: r[k] for k in ("offered", "kept", "duplicates_by_set", "out_dir")})
             )
+            return 0
+        if args.cmd == "materialise":
+            r = materialise(
+                prereg=args.prereg,
+                repo=args.repo,
+                plan_dir=args.plan_dir,
+                out_dir=args.out,
+                pool_dir=args.pool_dir or args.repo / "data" / "pool",
+            )
+            print(json.dumps(r, sort_keys=True))
             return 0
         if args.cmd == "select":
             return _select(args)
