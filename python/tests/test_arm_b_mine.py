@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "python"))
 
 import arm_b_mine as mine  # noqa: E402
+from test_defect_class import _all, _base_files, _composed_row, _write_composed  # noqa: E402
 
 #: Every Arm B corpus declares a non-empty id prefix (the driver refuses a pre-registration in
 #: which one does not); the test corpora's rows carry it.
@@ -762,33 +763,76 @@ def test_materialise_writes_each_corpus_with_only_the_rows_the_plan_kept(
     assert sel["source_examples_sha256"] == _sha(src.read_bytes())
 
 
+def _pin_loadable_composed(
+    world: dict[str, object], *, empty_diff_in_base: bool = False, n_composed: int = 2
+) -> Path:
+    """Re-pin corpus ``c1`` as a composed corpus the loader reads (the fixture of
+    ``test_defect_class``: a real base, pool and download under ``<repo>/data/pool``), with
+    ``n_composed`` composed rows. Returns the pool dir. With ``empty_diff_in_base`` the base holds
+    one ``clean`` row whose diff is empty, the shape ``own-swift-corpus-v1`` had."""
+    repo = Path(str(world["repo"]))
+    files = _base_files()
+    base = _all(files)
+    if empty_diff_in_base:
+        base[0] = {**base[0], "diff": ""}
+    t = files["train"]
+    picks = [[t[1], t[2], t[3]], [t[0], t[2], t[3]], [t[0], t[1], t[3]], [t[0], t[1], t[2]]]
+    rows = [
+        _composed_row(picks[i], needle=0, index=i) for i in range(n_composed)
+    ]
+    for i, r in enumerate(rows):
+        r["id"] = f"{PFX}compose:train:{i:06d}"
+    composed, _ = _write_composed(repo, base, rows)
+    doc = json.loads(Path(str(world["prereg"])).read_text())
+    entry = doc["candidates"]["corpora"][0]
+    entry.update(
+        {
+            "name": "c1",
+            "path": str(composed / "examples.jsonl"),
+            "sha256": _sha((composed / "examples.jsonl").read_bytes()),
+            "rows": len(rows),
+            "id_prefix": PFX,
+        }
+    )
+    doc["candidates"]["corpora"] = [entry]
+    Path(str(world["prereg"])).write_text(json.dumps(doc))
+    _git(repo, "commit", "-q", "-am", "a loadable composed corpus")
+    return repo / "data" / "pool"
+
+
 def test_materialise_gives_a_composed_corpus_an_empty_plan_base(world: dict[str, object]) -> None:
     """The loader reads a composed corpus's base rows first, and the plan holds none of them."""
     tmp = Path(str(world["tmp"]))
-    _two_corpora(
-        world, [_cand(1), _cand(2)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}]
-    )
-    manifest_path = tmp / "data" / "c1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["base_corpus"] = {"name": "base-x", "examples_sha256": "a" * 64}
-    manifest_path.write_text(json.dumps(manifest))
-    base = tmp / "pool" / "base-x"
-    base.mkdir(parents=True)
-    (base / "manifest.json").write_text(
-        json.dumps({"examples_sha256": "a" * 64, "totals": {"examples": 99}, "pool": {"k": 1}})
-    )
-    out = _materialise(world, _plan(world))
+    pool = _pin_loadable_composed(world)
+    base_manifest = json.loads((pool / "corpus" / "manifest.json").read_text())
+    out = _materialise(world, _plan(world), pool_dir=pool)
+    composed = Path(str(world["repo"])) / "data" / "pool" / "composed"
     got = json.loads((tmp / "materialised" / "c1" / "manifest.json").read_text())
     empty = _sha(b"")
     assert got["base_corpus"] == {"name": "c1-planbase", "examples_sha256": empty}
-    assert got["selected_by_plan"]["base_corpus_original"]["name"] == "base-x"
-    assert got["selected_by_plan"]["base_corpus_rows_excluded"] == 99
-    planbase = tmp / "pool" / "c1-planbase"
+    assert got["selected_by_plan"]["base_corpus_original"]["name"] == "corpus"
+    assert got["selected_by_plan"]["base_corpus_rows_excluded"] == 7
+    assert got["selected_by_plan"]["loaded_rows"] == 7 + 2, "base + composed, as pinned"
+    planbase = pool / "c1-planbase"
     assert (planbase / "examples.jsonl").read_bytes() == b""
     pb = json.loads((planbase / "manifest.json").read_text())
     assert pb["examples_sha256"] == empty and pb["totals"]["examples"] == 0
-    assert pb["pool"] == {"k": 1}, "the base's pool is kept: the loader checks it matches"
+    assert pb["pool"] == base_manifest["pool"], "the base's pool is kept: the loader checks it"
     assert out["corpora"]["c1"]["kept"] == 2
+    assert composed.is_dir()
+
+
+def test_materialise_refuses_a_pinned_composed_corpus_whose_base_the_loader_refuses(
+    world: dict[str, object],
+) -> None:
+    """The planbase hid it: the pinned corpus did not load, only its materialised form did."""
+    tmp = Path(str(world["tmp"]))
+    pool = _pin_loadable_composed(world, empty_diff_in_base=True)
+    plan = _plan(world)
+    with pytest.raises(mine.Refusal, match="load_defect_rows"):
+        _materialise(world, plan, pool_dir=pool)
+    assert not (tmp / "materialised").exists(), "a refused run left an output directory"
+    assert not (pool / "c1-planbase").exists(), "a refused run left a planbase"
 
 
 def test_materialise_refuses_a_plan_from_another_preregistration(
@@ -837,23 +881,14 @@ def test_materialise_accepts_an_identical_planbase_and_refuses_a_different_one(
     world: dict[str, object],
 ) -> None:
     tmp = Path(str(world["tmp"]))
-    _two_corpora(world, [_cand(1)], [], train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
-    manifest_path = tmp / "data" / "c1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["base_corpus"] = {"name": "base-x", "examples_sha256": "a" * 64}
-    manifest_path.write_text(json.dumps(manifest))
-    base = tmp / "pool" / "base-x"
-    base.mkdir(parents=True)
-    (base / "manifest.json").write_text(
-        json.dumps({"examples_sha256": "a" * 64, "totals": {"examples": 5}, "pool": {"k": 1}})
-    )
+    pool = _pin_loadable_composed(world)
     plan = _plan(world)
-    _materialise(world, plan)
+    _materialise(world, plan, pool_dir=pool)
     # Again, into a new out dir: the identical planbase is accepted, not a refusal.
-    _materialise(world, plan, out_dir=tmp / "materialised-again")
-    (tmp / "pool" / "c1-planbase" / "manifest.json").write_text('{"different": true}')
+    _materialise(world, plan, pool_dir=pool, out_dir=tmp / "materialised-again")
+    (pool / "c1-planbase" / "manifest.json").write_text('{"different": true}')
     with pytest.raises(mine.Refusal, match="planbase"):
-        _materialise(world, plan, out_dir=tmp / "materialised-third")
+        _materialise(world, plan, pool_dir=pool, out_dir=tmp / "materialised-third")
 
 
 def test_materialise_refuses_tampered_candidates_and_an_existing_out_dir(
