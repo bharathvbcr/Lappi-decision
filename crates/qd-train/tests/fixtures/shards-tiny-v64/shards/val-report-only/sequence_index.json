@@ -1,0 +1,53 @@
+{
+ "excluded": [],
+ "format": "qd-sequence-index/1",
+ "role": "gold",
+ "rows_in": 9,
+ "sequences": [
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000001:ff64c6f7aaf6",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000008:637d3d655372",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000f:9eea8272f4eb",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000016:c598129649a0",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000001:ff64c6f7aaf6",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000008:637d3d655372",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000f:9eea8272f4eb",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000016:c598129649a0",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00017",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  }
+ ]
+}

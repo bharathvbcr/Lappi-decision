@@ -1,0 +1,8 @@
+{
+  "detail": "every row in the manifest was tokenized into the shard set",
+  "n": 98,
+  "n_total": 98,
+  "passed": true,
+  "state": "ran",
+  "value": 98
+}
