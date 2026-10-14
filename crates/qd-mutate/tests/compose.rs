@@ -543,6 +543,16 @@ fn single_version_fixture_with(
     name: &str,
     edit: impl Fn(usize, &mut serde_json::Value),
 ) -> Fixture {
+    single_version_fixture_clean(name, edit, "0")
+}
+
+/// [`single_version_fixture_with`] with the base corpus generated at `clean_permille`. A
+/// single-version base must be generated at "0"; the refusal test passes anything else.
+fn single_version_fixture_clean(
+    name: &str,
+    edit: impl Fn(usize, &mut serde_json::Value),
+    clean_permille: &str,
+) -> Fixture {
     let dir = scratch(name);
     let pool = dir.join("pool.jsonl");
     let mut text = String::new();
@@ -558,7 +568,7 @@ fn single_version_fixture_with(
     ok(&[
         "generate", "--pool", s(&pool), "--out", s(&corpus.join("examples.jsonl")),
         "--manifest", s(&corpus.join("manifest.json")), "--seed", "0",
-        "--clean-permille", "200", "--report", "false",
+        "--clean-permille", clean_permille, "--report", "false",
     ]);
     let split_map = dir.join("split-map.json");
     let repos: Vec<String> = (0..REPOS).map(repo_of).collect();
@@ -598,10 +608,8 @@ fn a_record_with_no_prior_source_composes_with_its_own_source_as_the_pristine_re
     assert_eq!(manifest["record_mode"], "single_version");
     assert_eq!(manifest["clean_diff_parity_checked"], 0, "no clean diff was checked");
     assert!(
-        manifest["prepare_refusals"]["single_version_clean_examples_unused"]
-            .as_u64()
-            .is_some_and(|n| n > 0),
-        "the unused clean examples are counted, not hidden: {}",
+        manifest["prepare_refusals"].get("single_version_clean_examples_unused").is_none(),
+        "the retired counter is back: {}",
         manifest["prepare_refusals"]
     );
     let rows: Vec<ComposedRow> = std::fs::read_to_string(out.join("examples.jsonl"))
@@ -648,6 +656,48 @@ fn a_pool_with_no_prior_source_is_refused_without_the_flag_and_the_refusal_names
     assert!(!out.status.success(), "compose accepted single-version records without the flag");
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains(SINGLE_VERSION_FLAG), "{err}");
+}
+
+#[test]
+fn a_pool_in_which_no_record_has_a_prior_source_is_refused_without_the_flag_up_front() {
+    let f = single_version_fixture("sv-noflag-upfront", None);
+    let out_dir = f.dir.join("out");
+    let out = run(&single_version_args(&f, &out_dir, false));
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("no pool record carries a prior_source") && err.contains(SINGLE_VERSION_FLAG),
+        "{err}"
+    );
+    assert!(!out_dir.exists(), "a refused run left an output directory");
+}
+
+/// Characterisation (it passes before and after the guard): a pool with even one commit record is
+/// not "a pool walked off a tree", so the up-front rule does not fire. What compose then says
+/// about the rest is another rule's business.
+#[test]
+fn a_mixed_pool_is_not_refused_by_the_no_prior_source_rule() {
+    let f = single_version_fixture("sv-mixed-noflag", Some(17));
+    let out = run(&single_version_args(&f, &f.dir.join("out"), false));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!err.contains("no pool record carries a prior_source"), "{err}");
+}
+
+#[test]
+fn a_single_version_base_with_clean_examples_is_refused_and_names_clean_permille_0() {
+    let f = single_version_fixture_clean(
+        "sv-clean-base",
+        |_, v| {
+            v.as_object_mut().expect("an object").remove("prior_source");
+        },
+        "200",
+    );
+    let out_dir = f.dir.join("out");
+    let out = run(&single_version_args(&f, &out_dir, true));
+    assert!(!out.status.success(), "compose built on a single-version base holding clean rows");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--clean-permille 0"), "{err}");
+    assert!(!out_dir.exists(), "a refused run left an output directory");
 }
 
 #[test]

@@ -876,6 +876,15 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
             )));
         }
     }
+    if !single && !inputs.pool.is_empty() && inputs.pool.iter().all(|r| r.prior_source.is_none()) {
+        // Before the base's clean rows (which used to trip the parity check) were refused for a
+        // single-version base, this was how a pool of own-source records got named.
+        return Err(ComposeError::Input(
+            "no pool record carries a prior_source: a pool walked off a tree (qd-prep own-swift) \
+             composes only under --single-version-records"
+                .to_string(),
+        ));
+    }
     let map = &inputs.split_map;
     let mut refusals: BTreeMap<String, u64> = BTreeMap::new();
 
@@ -936,16 +945,26 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
     }
 
     // Parity: every stored clean diff re-renders byte for byte from its pool record. A
-    // single-version pool has none to check: its stored clean examples carry an empty diff (the
-    // post-image against itself) and no composed row reads them, so they are counted as unused
-    // rather than reported as checked.
+    // single-version pool has none to check: its stored clean examples would carry an empty diff
+    // (the post-image against itself), which `load_defect_rows` refuses and no composed row reads.
+    // A composed corpus names its base by sha256 and the loader reads the base first, so a base
+    // holding such rows is refused here rather than counted: compose must not build on a base the
+    // loader will not read.
     let mut parity_checked = 0u64;
     let mut parity_bad: Vec<String> = Vec::new();
     let mut clean_example_of: HashMap<&str, &CorpusRow> = HashMap::new();
     if single {
-        let unused = inputs.base.rows.iter().filter(|r| r.class == MutationClass::Clean).count();
-        if unused > 0 {
-            refusals.insert("single_version_clean_examples_unused".to_string(), unused as u64);
+        let manifest_clean =
+            inputs.base.manifest.get("totals").and_then(|t| t.get("clean")).and_then(|x| x.as_u64());
+        let stored_clean =
+            inputs.base.rows.iter().filter(|r| r.class == MutationClass::Clean).count();
+        if manifest_clean != Some(0) || stored_clean > 0 {
+            return Err(ComposeError::Input(format!(
+                "a single-version base corpus must be generated with --clean-permille 0: a pool \
+                 with no prior_source can render a clean example only as an empty diff, which \
+                 load_defect_rows refuses; the base manifest records clean={manifest_clean:?} and \
+                 the corpus holds {stored_clean} clean examples"
+            )));
         }
     }
     for r in inputs.base.rows.iter().filter(|r| !single && r.class == MutationClass::Clean) {
