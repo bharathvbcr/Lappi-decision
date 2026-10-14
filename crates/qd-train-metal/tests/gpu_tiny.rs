@@ -27,9 +27,9 @@ use qd_train::mock::SplitMix;
 use qd_train::npy::NpyArray;
 use qd_train::objective::{FtBatch, LetterSpanObjective, LetterTarget};
 use qd_train::recipe::{self, OptimizerRecipe};
+use qd_train::run_control::ConsumedPrefix;
 use qd_train::run_control::{MonotonicClock, WallClockCap};
 use qd_train::schedule::LrSchedule;
-use qd_train::shards::ConsumedPrefix;
 use qd_train::span_head::{SpanGold, SpanHead, SpanRowPlan};
 use qd_train::step::{BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider};
 use qd_train::trainer::{

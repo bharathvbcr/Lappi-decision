@@ -13,10 +13,11 @@ use common::{fixture, open_train, oracle, repo_root};
 use qd_train::held_out::DataConfig;
 use qd_train::np_random::{Pcg64, SeedSequence, default_rng};
 use qd_train::pyjson::{self, CANONICAL, SORTED_DEFAULT, float_repr};
+use qd_train::run_control::{CONSUMED_PREFIX_DOMAIN, ConsumedPrefix};
 use qd_train::shards::{
-    Batch, CONSUMED_PREFIX_DOMAIN, ConsumedPrefix, MAX_PADDING_WASTE, MAX_POSITIONS_PER_BATCH,
-    MAX_ROWS_PER_BATCH, NO_SPAN, PAD_ID, REMAP_FORMAT, SEQUENCE_INDEX_FORMAT, SHARD_FORMAT,
-    SLOT_CHOICE, SLOT_LM, SLOT_SCORE, SLOT_SPAN, SPAN_ABSTAIN,
+    Batch, MAX_PADDING_WASTE, MAX_POSITIONS_PER_BATCH, MAX_ROWS_PER_BATCH, NO_SPAN, PAD_ID,
+    REMAP_FORMAT, SEQUENCE_INDEX_FORMAT, SHARD_FORMAT, SLOT_CHOICE, SLOT_LM, SLOT_SCORE, SLOT_SPAN,
+    SPAN_ABSTAIN,
 };
 use qd_train::supervision::{
     RESERVED_NOUL_ROWS, SpanSupervision, ft_supervision, plan_span_batch, span_head_rows,

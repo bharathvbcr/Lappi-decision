@@ -54,6 +54,7 @@ use crate::np_random::default_rng;
 use crate::npy::NpyArray;
 use crate::npz::StoredZip;
 use crate::pyjson::{self, SORTED_DEFAULT};
+use crate::run_control::ConsumedPrefix;
 use crate::tristate::{Coverage, TriState, parse_tristate};
 
 /// `shards.HEADER_NAME`.
@@ -106,11 +107,6 @@ pub const NO_SPAN: i32 = -1;
 pub const SPAN_ABSTAIN: i32 = -2;
 /// `artifacts._MIN_ROW_TOKENS`.
 pub const MIN_ROW_TOKENS: u64 = 2;
-/// `run_control.ConsumedPrefix.DOMAIN`.
-pub const CONSUMED_PREFIX_DOMAIN: &[u8] = b"qd-consumed-prefix-v1";
-/// Rust-only (Python's trainer has one epoch): the tag between the domain and the earlier
-/// epoch's digest in [`ConsumedPrefix::continuing`].
-const CONSUMED_PREFIX_EPOCH_LINK: &[u8] = b"qd-consumed-prefix-epoch-link-v1";
 /// The fourth entropy word of the batch-interleaving shuffle in `ShardReader._plan`.
 const ORDER_TAG: u64 = 0xB17C;
 /// `artifacts.SPAN_COLLAPSE_POLICIES` plus the empty "written before the field" value.
@@ -2266,54 +2262,7 @@ pub fn assemble_batch(
 
 // --- the consumed digest ----------------------------------------------------------------------
 
-/// `run_control.ConsumedPrefix`: a running sha256 over the batches consumed, in order.
-#[derive(Clone)]
-pub struct ConsumedPrefix {
-    hasher: Sha256,
-    n: u64,
-}
-
-impl Default for ConsumedPrefix {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ConsumedPrefix {
-    /// An empty prefix, seeded with the domain string.
-    pub fn new() -> Self {
-        let mut hasher = Sha256::new();
-        hasher.update(CONSUMED_PREFIX_DOMAIN);
-        Self { hasher, n: 0 }
-    }
-
-    /// A prefix that continues an earlier epoch's: seeded with the domain string, then the
-    /// earlier digest (length-prefixed) and its fold count, so the digest of a second epoch
-    /// commits to everything the first consumed and `n_folded` counts across epochs. Epoch 0
-    /// never calls this, so its digest is `new()`'s and the Python oracle's.
-    pub fn continuing(prior_digest: &str, prior_n: u64) -> Self {
-        let mut prefix = Self::new();
-        prefix.hasher.update(CONSUMED_PREFIX_EPOCH_LINK);
-        prefix
-            .hasher
-            .update((prior_digest.len() as u64).to_be_bytes());
-        prefix.hasher.update(prior_digest.as_bytes());
-        prefix.n = prior_n;
-        prefix
-    }
-
-    /// `ConsumedPrefix.fold(*parts)`: every part length-prefixed, the count first.
-    pub fn fold(&mut self, parts: &[&[u8]]) {
-        let mut head = vec![0u8];
-        head.extend_from_slice(&(parts.len() as u32).to_be_bytes());
-        self.hasher.update(&head);
-        for p in parts {
-            self.hasher.update((p.len() as u64).to_be_bytes());
-            self.hasher.update(p);
-        }
-        self.n += 1;
-    }
-
     /// `trainer._fold`: index, bucket, tokens, lengths and the four supervision channels
     /// (an absent channel folds as zero bytes).
     pub fn fold_batch(&mut self, batch: &Batch) {
@@ -2349,16 +2298,6 @@ impl ConsumedPrefix {
             &mask,
         ]);
     }
-
-    /// Batches folded.
-    pub fn n_folded(&self) -> u64 {
-        self.n
-    }
-
-    /// The digest so far.
-    pub fn hexdigest(&self) -> String {
-        hex(&self.hasher.clone().finalize())
-    }
 }
 
 #[cfg(test)]
@@ -2382,20 +2321,5 @@ mod tests {
         let mut seen: Vec<usize> = plans.iter().flat_map(|p| p.rows.clone()).collect();
         seen.sort_unstable();
         assert_eq!(seen, vec![0, 1, 2, 3], "every sequence once per epoch");
-    }
-
-    #[test]
-    fn an_empty_prefix_has_a_real_digest() {
-        let empty = ConsumedPrefix::new().hexdigest();
-        assert_eq!(empty.len(), 64);
-        let mut one = ConsumedPrefix::new();
-        one.fold(&[b"ab"]);
-        let mut two = ConsumedPrefix::new();
-        two.fold(&[b"a", b"b"]);
-        assert_ne!(
-            one.hexdigest(),
-            two.hexdigest(),
-            "parts are length-prefixed"
-        );
     }
 }

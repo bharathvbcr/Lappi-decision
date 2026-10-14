@@ -26,8 +26,9 @@ use std::path::Path;
 use qd_export::safetensors::{Dtype, SafeTensorsFile};
 
 use crate::objective::{self, FtBatch, LetterTarget};
+use crate::run_control::ConsumedPrefix;
 use crate::run_control::{hex, sidecar_digest, tensor_ref_digest};
-use crate::shards::{Batch, ConsumedPrefix};
+use crate::shards::Batch;
 use crate::span_head::{self, PARAMETER_NAMES, SpanGold, SpanRowInput, SpanRowPlan};
 use crate::step::ParamSpec;
 use crate::supervision::{ft_supervision, plan_span_batch};

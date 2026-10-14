@@ -17,9 +17,10 @@ use qd_train::ft_data::{HostSpanHead, RealBatch, load_span_head};
 use qd_train::mock::{SplitMix, ToyProvider};
 use qd_train::objective::{FtBatch, LetterSpanObjective, SpanHead as _};
 use qd_train::recipe::{self, OptimizerRecipe};
+use qd_train::run_control::ConsumedPrefix;
 use qd_train::run_control::{Clock, WallClockCap};
 use qd_train::schedule::LrSchedule;
-use qd_train::shards::{Batch, ConsumedPrefix};
+use qd_train::shards::Batch;
 use qd_train::span_head::{PARAMETER_NAMES, SpanHead, SpanRowInput};
 use qd_train::trainer::{
     ConsumedBatch, Hooks, HostParams, Termination, TrainConfig, TrainError, train,

@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 
 use common::{CountingFiles, qd_data_dir, repo_root};
 use qd_train::held_out::{DataConfig, DoorError, HeldOutLayer, open_training_manifest};
-use qd_train::shards::{ConsumedPrefix, ShardOpen, ShardReader};
+use qd_train::run_control::ConsumedPrefix;
+use qd_train::shards::{ShardOpen, ShardReader};
 use qd_train::supervision::{ft_supervision, plan_span_batch};
 use qd_train::tristate::TriState;
 use serde_json::Value;

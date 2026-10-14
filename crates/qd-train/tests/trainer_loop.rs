@@ -1334,8 +1334,8 @@ fn a_second_epoch_continues_the_run_it_does_not_restart_it() {
     assert_eq!(r1.steps, continuous.0.steps);
 
     // The consumed-batch digest is chained, not reset: epoch 1 folds onto epoch 0's digest.
-    let mut chained = qd_train::shards::ConsumedPrefix::continuing(&r0.consumed_digest, 6);
-    let mut alone = qd_train::shards::ConsumedPrefix::new();
+    let mut chained = qd_train::run_control::ConsumedPrefix::continuing(&r0.consumed_digest, 6);
+    let mut alone = qd_train::run_control::ConsumedPrefix::new();
     for b in epoch_data(1) {
         let b = b.unwrap();
         b.fold_into(&mut chained).unwrap();
