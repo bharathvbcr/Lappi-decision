@@ -162,6 +162,7 @@ def _finish_own_world(
     pin_manifest: bool = True,
     write_manifest: bool = True,
     pin_pool_manifest: bool = True,
+    pin_corpus: bool = True,
 ) -> None:
     """Write the pool, files list, pool manifest, own-repos manifest and corpus from rows."""
     pool_path = pool_dir / "own-pool.jsonl"
@@ -205,6 +206,8 @@ def _finish_own_world(
         }),
         encoding="utf-8",
     )
+    if pin_corpus:
+        _pin_corpora(monkeypatch, corpus)
 
 
 def _pin_pool_manifest(monkeypatch: pytest.MonkeyPatch, manifest: Path) -> None:
@@ -216,11 +219,25 @@ def _pin_pool_manifest(monkeypatch: pytest.MonkeyPatch, manifest: Path) -> None:
     )
 
 
+def _pin_corpora(monkeypatch: pytest.MonkeyPatch, *corpora: Path) -> None:
+    """Register each corpus's current ``examples.jsonl`` bytes in ``OWN_CORPUS_PINS``, as the
+    pre-registration would. ``raising=False`` so the helper runs against a loader without it."""
+    monkeypatch.setattr(
+        defect_class, "OWN_CORPUS_PINS",
+        {c.name: _sha((c / "examples.jsonl").read_bytes()) for c in corpora}, raising=False,
+    )
+
+
 def _rewrite(
-    root: Path, corpus: Path, fn, monkeypatch: pytest.MonkeyPatch  # type: ignore[no-untyped-def]
+    root: Path, corpus: Path, fn, monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+    *, repin_corpus: bool,
 ) -> None:
     """Apply ``fn(pool_rows, files_rows, examples)`` and re-pin every sha, as an attacker would,
-    including the pool manifest's own pin (so the checks after it are the ones under test)."""
+    including the pool manifest's own pin (so the checks after it are the ones under test).
+
+    An attacker cannot edit code, so the registered corpus bytes (``OWN_CORPUS_PINS``) move only
+    when ``repin_corpus``: tests of checks that run after the corpus pin ask what happens to
+    registered bytes and pass True; tests of the pin itself pass False."""
     pool_dir = root / "data" / "pool"
     read = lambda p: [json.loads(x) for x in p.read_text().splitlines()]  # noqa: E731
     pool_rows = read(pool_dir / "own-pool.jsonl")
@@ -244,6 +261,8 @@ def _rewrite(
     cm["pool"].update(sha256=_sha(pool_path.read_bytes()), records=len(pool_rows))
     cm["totals"]["examples"] = len(examples)
     (corpus / "manifest.json").write_text(json.dumps(cm))
+    if repin_corpus:
+        _pin_corpora(monkeypatch, corpus)
 
 
 def test_an_own_repos_corpus_takes_the_sources_declared_licence(
@@ -268,7 +287,7 @@ def test_third_party_rows_relabelled_and_re_pinned_are_not_admitted_as_owner_gra
             e["id"] = e["pool_id"] + "#0"
             r["repo"] = f["repo"] = e["repo"] = "torvalds/linux"
 
-    _rewrite(tmp_path, corpus, relabel, monkeypatch)
+    _rewrite(tmp_path, corpus, relabel, monkeypatch, repin_corpus=True)
     with pytest.raises(DefectCorpusError, match="not a train repository"):
         _load(tmp_path, corpus, download)
 
@@ -337,7 +356,7 @@ def test_the_pool_must_equal_its_files_list_row_for_row_by_content(
         elif flaw == "duplicate_file_row":
             files_rows[1] = dict(files_rows[0])
 
-    _rewrite(tmp_path, corpus, damage, monkeypatch)
+    _rewrite(tmp_path, corpus, damage, monkeypatch, repin_corpus=True)
     with pytest.raises(DefectCorpusError, match="files list"):
         _load(tmp_path, corpus, download)
 
@@ -425,7 +444,7 @@ def test_an_example_that_does_not_carry_its_pool_records_bytes_is_refused(
         for e in examples:
             e["before"] = e["after"] = evil
 
-    _rewrite(tmp_path, corpus, swap, monkeypatch)
+    _rewrite(tmp_path, corpus, swap, monkeypatch, repin_corpus=True)
     with pytest.raises(DefectCorpusError, match="pool record's source"):
         _load(tmp_path, corpus, download)
 
@@ -444,7 +463,7 @@ def test_a_clean_example_must_carry_the_pool_bytes_on_both_sides(
                   "after": BEFORE})
         e[side] = "// (c) Third Party GPL\n"
 
-    _rewrite(tmp_path, corpus, clean_with_foreign_side, monkeypatch)
+    _rewrite(tmp_path, corpus, clean_with_foreign_side, monkeypatch, repin_corpus=True)
     with pytest.raises(DefectCorpusError, match="pool record's source"):
         _load(tmp_path, corpus, download)
 
@@ -463,13 +482,13 @@ def test_an_example_is_tied_to_the_pool_source_as_qd_mutate_normalises_it(
         files_rows[0]["sha256"] = _sha(raw.encode())
         examples[0]["before"] = normalised
 
-    _rewrite(tmp_path, corpus, crlf_pool, monkeypatch)
+    _rewrite(tmp_path, corpus, crlf_pool, monkeypatch, repin_corpus=True)
     assert len(_load(tmp_path, corpus, download).rows) == 6
 
     def raw_before(pool_rows: list, files_rows: list, examples: list) -> None:
         examples[0]["before"] = raw
 
-    _rewrite(tmp_path, corpus, raw_before, monkeypatch)
+    _rewrite(tmp_path, corpus, raw_before, monkeypatch, repin_corpus=True)
     with pytest.raises(DefectCorpusError, match="pool record's source"):
         _load(tmp_path, corpus, download)
 
@@ -553,7 +572,7 @@ def test_an_unsafe_pool_path_is_refused(
         if where != "pool_only":
             files_rows[0]["path"] = bad
 
-    _rewrite(tmp_path, corpus, poison, monkeypatch)
+    _rewrite(tmp_path, corpus, poison, monkeypatch, repin_corpus=True)
     with pytest.raises(DefectCorpusError, match="unsafe path"):
         _load(tmp_path, corpus, download)
 
@@ -567,7 +586,7 @@ def test_a_dotted_but_plain_path_is_still_admitted(
     def rename(pool_rows: list, files_rows: list, examples: list) -> None:
         pool_rows[0]["path"] = files_rows[0]["path"] = "src/v1..2/a.swift"
 
-    _rewrite(tmp_path, corpus, rename, monkeypatch)
+    _rewrite(tmp_path, corpus, rename, monkeypatch, repin_corpus=True)
     assert len(_load(tmp_path, corpus, download).rows) == 6
 
 
@@ -580,7 +599,7 @@ def test_a_lookalike_unicode_segment_is_an_opaque_name_not_a_refusal(
     def rename(pool_rows: list, files_rows: list, examples: list) -> None:
         pool_rows[0]["path"] = files_rows[0]["path"] = f"src/{chr(0xFF0E) * 2}/a.swift"
 
-    _rewrite(tmp_path, corpus, rename, monkeypatch)
+    _rewrite(tmp_path, corpus, rename, monkeypatch, repin_corpus=True)
     assert len(_load(tmp_path, corpus, download).rows) == 6
 
 
@@ -644,3 +663,258 @@ def test_a_clash_check_that_cannot_run_refuses_rather_than_passes(
     (download / "manifest.json").write_text("{not json")
     with pytest.raises(DefectCorpusError, match="could not run"):
         _load(tmp_path, corpus, download)
+
+
+# -- the text a row carries is tied to the registered corpus, not to the pool alone ----------
+# Fable's ruling (AUDIT/board-sweep-2026-10-13/fable-own-repos-diff-tie-ruling.md): an own-repos
+# corpus is admitted only if its bytes are ones the pre-registration pins (OWN_CORPUS_PINS).
+
+EVIL = "// (c) Third Party GPL\nfunc evil() {}\n"
+EVIL_BODY = "@@ -5,2 +5,2 @@\n // (c) Third Party GPL\n-func evil() {}\n+func evil() {}\n"
+
+
+def _own_composed_world(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, evil_fillers: bool = False,
+    n_rows: int = 1, pin: tuple[str, ...] = ("base", "composed"),
+) -> tuple[Path, Path, Path]:
+    """An own base corpus (``own-corpus``) and a ``qd-compose/v1`` corpus over it
+    (``own-composed``), both under ``tmp_path/data/pool``. Pool repo is a train repo, since a
+    composed row re-derives its split. ``pin`` names which are registered in OWN_CORPUS_PINS.
+    Returns (base, composed, download)."""
+    from test_defect_class import CLEAN_DIFF, _composed_row, _repos_in
+
+    repo = _repos_in("train", 1)[0]
+    base, download = _own_world(
+        tmp_path, monkeypatch, pool_repo=repo, train_slugs=(repo,), heldout_slugs=()
+    )
+    files = [
+        {"pool_id": f"own-swift:{repo}:src/m{i}.py", "repo": repo, "path": f"src/m{i}.py"}
+        for i in range(3)
+    ]
+    rows = []
+    for index in range(n_rows):
+        row = _composed_row(files, needle=1, index=index)
+        if evil_fillers:
+            row["diff"] = row["diff"].replace(CLEAN_DIFF, EVIL_BODY)
+            assert EVIL_BODY in row["diff"]
+        rows.append(row)
+    composed = base.parent / "own-composed"
+    composed.mkdir()
+    ex = composed / "examples.jsonl"
+    ex.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    base_manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
+    cfg = DataConfig()
+    (composed / "manifest.json").write_text(json.dumps({
+        "schema": "qd-compose/v1",
+        "base_corpus": {"name": base.name, "examples_sha256": base_manifest["examples_sha256"]},
+        "split_params": {"seed": cfg.seed, "train_fraction": cfg.train_fraction,
+                         "val_fraction": cfg.val_fraction},
+        "pool": base_manifest["pool"],
+        "examples_sha256": _sha(ex.read_bytes()),
+        "totals": {"examples": len(rows)},
+    }), encoding="utf-8")
+    _pin_corpora(
+        monkeypatch, *[{"base": base, "composed": composed}[k] for k in pin]
+    )
+    return base, composed, download
+
+
+def test_a_plain_row_whose_diff_is_not_registered_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repro (a): ``before`` is the pool file, so the row-level tie holds, but the hunk the model
+    reads is third-party text. The corpus bytes are not the registered ones."""
+    corpus, download = _own_world(tmp_path, monkeypatch)
+
+    def poison(pool_rows: list, files_rows: list, examples: list) -> None:
+        examples[0]["diff"] = (
+            "@@ -1,3 +1,3 @@\n // (c) Third Party GPL\n def f(x):\n-    return x + a\n"
+            "+    return evil(x)\n"
+        )
+
+    _rewrite(tmp_path, corpus, poison, monkeypatch, repin_corpus=False)
+    with pytest.raises(DefectCorpusError, match="OWN_CORPUS_PINS"):
+        _load(tmp_path, corpus, download)
+
+
+def test_a_composed_corpus_as_pinned_is_admitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Characterisation (not red-first): the fixture world loads when both corpora are
+    registered, so the refusals below are the pin's doing."""
+    _, composed, download = _own_composed_world(tmp_path, monkeypatch)
+    load = _load(tmp_path, composed, download)
+    assert load.n_composed == 1 and len(load.rows) == 7
+
+
+def test_a_composed_row_with_unregistered_block_bodies_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repro (b): composed rows have no ``before``; their block bodies were free text."""
+    _, composed, download = _own_composed_world(
+        tmp_path, monkeypatch, evil_fillers=True, pin=("base",)
+    )
+    with pytest.raises(DefectCorpusError, match="OWN_CORPUS_PINS"):
+        _load(tmp_path, composed, download)
+
+
+def _own_noul_dir(tmp_path: Path, base: Path) -> Path:
+    """A ``qd-noul-rows`` corpus over the own pool: one scrambled row, free-text diff."""
+    repo = json.loads((base / "examples.jsonl").read_text().splitlines()[0])["repo"]
+    noul = base.parent / "own-noul"
+    noul.mkdir()
+    row = {
+        "id": "noul:own:0", "repo": repo, "path": "src/m0.py", "language": "swift",
+        "class": "noul", "noul_source": "scrambled", "licence": OWN_LICENCE,
+        "pool_id": f"own-swift:{repo}:src/m0.py", "diff": "@@ -1,1 +1,1 @@\n-" + EVIL + "+" + EVIL,
+    }
+    ex = noul / "examples.jsonl"
+    ex.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    base_manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
+    cfg = DataConfig()
+    (noul / "manifest.json").write_text(json.dumps({
+        "examples_sha256": _sha(ex.read_bytes()), "pool": base_manifest["pool"],
+        "split": {"seed": cfg.seed, "train_fraction": cfg.train_fraction,
+                  "val_fraction": cfg.val_fraction},
+        "totals": {"examples": 1},
+    }), encoding="utf-8")
+    return noul
+
+
+def test_a_noul_scrambled_row_over_an_own_pool_is_refused_unless_registered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repro (c): a noul row is licensed from the pool and its diff was free text."""
+    from test_defect_class import _repos_in
+
+    repo = _repos_in("train", 1)[0]
+    base, download = _own_world(
+        tmp_path, monkeypatch, pool_repo=repo, train_slugs=(repo,), heldout_slugs=()
+    )
+    noul = _own_noul_dir(tmp_path, base)
+    with pytest.raises(DefectCorpusError, match="OWN_CORPUS_PINS"):
+        _load(tmp_path, base, download, noul_dir=noul)
+    _pin_corpora(monkeypatch, base, noul)
+    assert _load(tmp_path, base, download, noul_dir=noul).n_noul == 1
+
+
+def _materialise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, keep: tuple[int, ...] = (0, 2)
+) -> tuple[Path, Path, Path]:
+    """A pinned own composed corpus of 3 rows (``data/pool/own-composed``) and the form
+    ``tools/arm_b_mine.py materialise`` writes for it: ``out/own-composed`` holding the ``keep``
+    raw lines byte for byte, over an empty ``own-composed-planbase``. Returns
+    (materialised dir, pinned source dir, download)."""
+    base, composed, download = _own_composed_world(tmp_path, monkeypatch, n_rows=3)
+    lines = (composed / "examples.jsonl").read_bytes().split(b"\n")[:3]
+    planbase = base.parent / "own-composed-planbase"
+    planbase.mkdir()
+    empty = _sha(b"")
+    base_manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
+    (planbase / "examples.jsonl").write_bytes(b"")
+    (planbase / "manifest.json").write_text(json.dumps(
+        {**base_manifest, "examples_sha256": empty, "totals": {"examples": 0}}
+    ))
+    out = tmp_path / "out" / "own-composed"
+    out.mkdir(parents=True)
+    body = b"".join(lines[i] + b"\n" for i in keep)
+    (out / "examples.jsonl").write_bytes(body)
+    manifest = json.loads((composed / "manifest.json").read_text(encoding="utf-8"))
+    manifest.update(
+        examples_sha256=_sha(body), totals={"examples": len(keep)},
+        base_corpus={"name": planbase.name, "examples_sha256": empty},
+        selected_by_plan={
+            "source_examples_sha256": _sha((composed / "examples.jsonl").read_bytes()),
+            "kept": len(keep),
+        },
+    )
+    (out / "manifest.json").write_text(json.dumps(manifest))
+    return out, composed, download
+
+
+def test_a_materialised_subset_of_a_pinned_corpus_is_admitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Characterisation, not red-first (admitted before and after): the materialise path
+    survives the pin, 2 rows over an empty planbase."""
+    out, _, download = _materialise(tmp_path, monkeypatch)
+    load = _load(tmp_path, out, download)
+    assert len(load.rows) == 2 and load.n_composed == 2
+
+
+def test_a_materialised_row_that_is_not_a_line_of_the_pinned_corpus_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out, _, download = _materialise(tmp_path, monkeypatch)
+    ex = out / "examples.jsonl"
+    body = ex.read_bytes().replace(b'"est_tokens": 30', b'"est_tokens": 31', 1)
+    assert body != ex.read_bytes()
+    ex.write_bytes(body)
+    m = json.loads((out / "manifest.json").read_text())
+    m["examples_sha256"] = _sha(body)
+    (out / "manifest.json").write_text(json.dumps(m))
+    with pytest.raises(DefectCorpusError, match="not a line of the pinned corpus"):
+        _load(tmp_path, out, download)
+
+
+def test_a_materialised_corpus_whose_kept_count_disagrees_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every line is a pinned line, but the manifest says 3 were kept and 2 are present. (Three
+    present would be the pinned file itself, admitted by its sha before any subset proof.)"""
+    out, _, download = _materialise(tmp_path, monkeypatch)
+    m = json.loads((out / "manifest.json").read_text())
+    m["selected_by_plan"]["kept"] = 3
+    (out / "manifest.json").write_text(json.dumps(m))
+    with pytest.raises(DefectCorpusError, match="must agree"):
+        _load(tmp_path, out, download)
+
+
+def test_a_materialised_corpus_whose_source_cannot_be_read_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out, composed, download = _materialise(tmp_path, monkeypatch)
+    src = composed / "examples.jsonl"
+    original = src.read_bytes()
+    src.write_bytes(original + b"\n")  # exists, hashes to another value
+    with pytest.raises(DefectCorpusError, match="could not be proved against the pinned corpus"):
+        _load(tmp_path, out, download)
+    src.unlink()
+    with pytest.raises(DefectCorpusError, match="could not be proved against the pinned corpus"):
+        _load(tmp_path, out, download)
+
+
+def test_an_empty_own_corpus_is_admitted_without_a_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zero rows is zero text (a planbase, or a materialised corpus that kept nothing).
+    Characterisation: admitted before and after."""
+    corpus, download = _own_world(tmp_path, monkeypatch)
+    _rewrite(tmp_path, corpus, lambda p, f, e: e.clear(), monkeypatch, repin_corpus=False)
+    assert (corpus / "examples.jsonl").stat().st_size == 0
+    assert _load(tmp_path, corpus, download).rows == ()
+
+
+def test_the_pinned_own_corpora_are_the_ones_the_preregistration_pins() -> None:
+    """The tripwire: every ``own_repos_train`` corpus and its structured base corpus, by
+    directory name, equal ``OWN_CORPUS_PINS``; ``superseded_pin`` is never in it. A corpus
+    that names a base only in prose carries no pin the loader could mirror."""
+    prereg = json.loads(
+        (ROOT / "campaign" / "v6-arm-b-mining-preregistered.json").read_text(encoding="utf-8")
+    )
+    want: dict[str, str] = {}
+    missing_base: list[str] = []
+    for c in _corpora(prereg):
+        if not c.get("own_repos_train"):
+            continue
+        want[Path(c["path"]).parent.name] = c["sha256"]
+        base = c.get("base_corpus")
+        if isinstance(base, dict) and base.get("path") and base.get("sha256"):
+            want[Path(base["path"]).parent.name] = base["sha256"]
+        else:
+            missing_base.append(str(c.get("name")))
+    assert want, "the pre-registration pins no own-repos corpus"
+    assert not missing_base, (
+        f"corpora {missing_base} carry no structured base_corpus {{path, sha256}} pin"
+    )
+    assert want == dict(defect_class.OWN_CORPUS_PINS)

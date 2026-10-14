@@ -166,6 +166,19 @@ OWN_POOL_MANIFEST_SHA256S: Final[frozenset[str]] = frozenset(
     {"8842700dcd51ebeac9c9d5256925949b763410ec8c60eb830c27f4444adef55d"}
 )
 
+#: The own-repos corpora the Arm B pre-registration pins, mirrored here, by corpus directory name
+#: (the parent of the pre-registered ``path``) -> the sha256 of its ``examples.jsonl``: every
+#: ``own_repos_train`` corpus and its base corpus (``base_corpus``), never a ``superseded_pin``.
+#: The text a row carries (``DefectRow.diff``) is not tied to the pool by anything the corpus says
+#: of itself, so an own-repos corpus is admitted only if its bytes are ones listed here
+#: (:func:`_require_pinned_own_corpus`). Adding one is an amendment to the pre-registration made
+#: before any scoring, then an edit here; ``test_the_pinned_own_corpora_are_the_ones_the_
+#: preregistration_pins`` fails when the two disagree.
+OWN_CORPUS_PINS: Final[Mapping[str, str]] = {
+    "own-swift-composed-v1-prefixed":
+        "077aa84299e75bc6efb3d6091f2e2448a466ea06b1ba0c23f1eb938c840ae8bc",
+}
+
 #: ``MUTATION_CLASSES`` in ``qd_train.mutate_adapter``, which ``test_mutate_adapter.py``
 #: pins against ``crates/qd-mutate/src/ops.rs``. Restated rather than imported for the
 #: import-cycle reason in the module docstring; ``test_defect_class.py`` asserts the two
@@ -867,6 +880,75 @@ def _own_example_content_violation(obj: Mapping[str, Any], *, pristine: str) -> 
     return None
 
 
+def _require_pinned_own_corpus(
+    examples_path: Path, manifest: Mapping[str, Any], *, repo_root: Path, config: DataConfig
+) -> None:
+    """Refuse an own-repos corpus whose bytes the pre-registration does not pin.
+
+    Called once the corpus's pool is known to be an own-repos pool and after
+    ``manifest["examples_sha256"]`` was checked against ``examples_path``, so the sha judged here
+    is the file's. Admitted: an empty file (zero rows is zero text); a file whose sha is one of
+    :data:`OWN_CORPUS_PINS`; a materialised subset (``qd-arm-b-mine materialise``), whose
+    ``selected_by_plan.source_examples_sha256`` is the pin of the corpus directory it is named
+    after, and in which every non-empty line is, byte for byte, a line of that pinned source (read
+    from ``repo_root/data/pool/<name>/examples.jsonl``, hashed first) and the number of lines is
+    what the manifest says was kept. Anything else, including a source that cannot be read or does
+    not hash to its pin, is refused: a proof that could not run is not a proof.
+    """
+    from qd_train.data_access import assert_path_not_held_out
+
+    sha = str(manifest.get("examples_sha256"))
+    if examples_path.stat().st_size == 0 or sha in OWN_CORPUS_PINS.values():
+        return
+    name = examples_path.parent.name
+    selected = manifest.get("selected_by_plan")
+    if not isinstance(selected, Mapping):
+        raise DefectCorpusError(
+            f"{examples_path} hashes to {sha}, which is not an own-repos corpus the Arm B "
+            f"pre-registration pins (OWN_CORPUS_PINS {sorted(OWN_CORPUS_PINS.values())}): a "
+            "self-declared corpus is not provenance; register it by amendment"
+        )
+    pin = OWN_CORPUS_PINS.get(name)
+    if pin is None or selected.get("source_examples_sha256") != pin:
+        raise DefectCorpusError(
+            f"{examples_path} is a materialised subset of source "
+            f"{selected.get('source_examples_sha256')!r}, which is not the OWN_CORPUS_PINS entry "
+            f"{pin!r} of corpus {name!r}: a self-declared corpus is not provenance; register it "
+            "by amendment"
+        )
+    source = repo_root / "data" / "pool" / name / "examples.jsonl"
+    assert_path_not_held_out(source, config=config, repo_root=repo_root)
+    try:
+        assert_no_caller_records(source)
+        source_sha = sha256_file(source)
+        if source_sha != pin:
+            raise DefectCorpusError(f"{source} hashes to {source_sha}, not the pinned {pin}")
+        wanted = {raw for raw in examples_path.read_bytes().split(b"\n") if raw.strip()}
+        found: set[bytes] = set()
+        with source.open("rb") as fh:
+            for raw in fh:
+                raw = raw.removesuffix(b"\n")
+                if raw in wanted:
+                    found.add(raw)
+    except (OSError, ValueError) as e:
+        raise DefectCorpusError(
+            f"{examples_path}: it could not be proved against the pinned corpus {source}: {e}"
+        ) from e
+    if found != wanted:
+        raise DefectCorpusError(
+            f"{examples_path}: {len(wanted - found)} line(s) are not a line of the pinned corpus "
+            f"{name!r} ({pin}): a materialised row must be a registered row, byte for byte"
+        )
+    n_lines = sum(1 for raw in examples_path.read_bytes().split(b"\n") if raw.strip())
+    totals = manifest.get("totals")
+    n_total = totals.get("examples") if isinstance(totals, Mapping) else None
+    if not (n_lines == selected.get("kept") == n_total):
+        raise DefectCorpusError(
+            f"{examples_path} holds {n_lines} line(s), the manifest kept "
+            f"{selected.get('kept')} and totals {n_total}: they must agree"
+        )
+
+
 def _load_pool_ids(pool_path: Path) -> dict[str, str]:
     """``pool id -> repo``. The repo is kept to cross-check the example's own claim."""
     assert_no_caller_records(pool_path)
@@ -1111,6 +1193,9 @@ def load_defect_rows(
             download_root=Path(download_root), config=config, repo_root=Path(repo_root),
         )
         licences, pristine = admission.licences, admission.pristine
+        _require_pinned_own_corpus(
+            examples_path, manifest, repo_root=Path(repo_root), config=config
+        )
     else:
         licences = _load_licences(Path(download_root))
 
@@ -1396,6 +1481,10 @@ def _load_noul(
     if pool is None:
         _check_sha(pool_path, pool_sha, recorded_in=manifest_path)
         pool = _load_pool_ids(pool_path)
+    if _own_repos_pool_manifest(pool_path) is not None:
+        # A noul row over an own pool is trained text claimed as the human's (it is licensed from
+        # the pool), so the corpus must be one the pre-registration pins, as any own corpus.
+        _require_pinned_own_corpus(examples_path, manifest, repo_root=repo_root, config=config)
     if len(pool) != int(pool_meta["records"]):
         raise DefectCorpusError(
             f"{pool_path} holds {len(pool)} pool ids, {manifest_path} records "

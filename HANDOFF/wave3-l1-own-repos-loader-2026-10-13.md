@@ -58,6 +58,32 @@ item 3, not in the review's list). The own-swift `#clean` empty-diff failure (de
 depends on it (the real base corpus passes the new check and then stops at that failure).
 Security impact: narrows admission only; widens nothing.
 
+## Round 3: the trained text is tied to a registered corpus (step 1 of Fable's section 4)
+
+Ruling: `AUDIT/board-sweep-2026-10-13/fable-own-repos-diff-tie-ruling.md`. Closes residual (a)
+above for plain rows, composed block bodies and noul-over-own-pool rows once step 3 fills the pins.
+`OWN_CORPUS_PINS` (corpus directory -> `examples.jsonl` sha256) and `_require_pinned_own_corpus`
+in `defect_class.py`, called after `_own_repos_licences` in `load_defect_rows` and in `_load_noul`
+(so the v5 composite's scrambled parts are covered at the same seam). Admitted: an empty file, a
+pinned sha, or a materialised subset in which every non-empty line is, byte for byte, a line of the
+pinned source under `data/pool/<name>/` (hashed first) and the line count equals `kept` and
+`totals.examples`. No caps. The constant is seeded only with the composed v1 sha the 174452f
+pre-registration pins (`077aa842...`).
+
+State: step 1 only. `test_the_pinned_own_corpora_are_the_ones_the_preregistration_pins` is RED on
+purpose: the pre-registration carries no structured `base_corpus {path, sha256}` pin for
+`own-swift-composed-v1` (it appears only in prose), so there is nothing to mirror for the base. It
+goes green at step 3, after W4-1's amendment, when `OWN_CORPUS_PINS` is filled from it. Not merged
+with W4-1; steps 3-4 (merge, real-data v2 loads, `test_arm_b_mine.py`) are open.
+Red against 8dabde3: 7 failed (the 3 repro tests, the 3 materialised-refusal tests, the mirror);
+the 3 characterisation tests (composed as pinned, materialised subset admitted, empty admitted)
+pass on both by design.
+Security impact: narrows admission only; new refusals are an own-repos corpus (plain, composed,
+materialised or noul) whose bytes the pre-registration does not pin, and a materialised row that is
+not a line of the pinned file. Risk: a false refusal of a registered corpus, which step 4 checks.
+Gap recorded: `GAP-OWN-REPOS-DIFF-TIE-JUDGE-TOOLING-2026-10-13` (ListAgents unavailable to the
+judge; collisions facet truncated, 3 worktrees unscanned).
+
 ## Evidence (first commit, ab80131)
 
 - Red on 174452f (new test file copied into a detached worktree of 174452f, since removed):
