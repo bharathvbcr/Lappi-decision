@@ -159,8 +159,41 @@ whether they are the same work [U].
 - No `git` against ojas or tessl (harness), so HEADs are from ref files.
 - Not pushed, not merged; no card completed.
 
+## Rework after the Opus review of 6a5bc4f (supersedes the sections above where they conflict)
+
+The scripts under `tools/w3l4/` were one-shot and are removed from the branch (`git rm -r`); the commit
+`6a5bc4f` still holds them. 60 further lines were appended (append-only, each carrying every earlier field
+forward). Counts: **before the rework 1,577 lines / 934 ids / 448 open; after 1,637 lines / 936 ids / 452 open**
+(+2 new canonicals, +2 reopened). Total appended by this lane: 128 + 60 = 188.
+
+- **Struct-literal record restored.** `GAP-DEVMAP-DEAD-SYMBOLS-MISSES-STRUCT-LITERAL-USE-2026-10-06` again carries its
+  real answer (DevCouncil ec243008, FileRecord kept at own_prose.rs:952, replay_texts_from_prompts deleted in
+  a861d08) and updated/owner/tool, plus the ft-400418e8 annotation.
+- **Reopened, with reasons in the records.** `GAP-DEVMAP-UNIFIED-CALLERS-UNRESOLVED-R1-2026-09-30` (it is a
+  call-resolution gap, related to `GAP-DEVMAP-RUST-CALL-RESOLUTION-28PCT-2026-10-06`, not a navigation duplicate) and
+  `GAP-OJAS-ADVICE-MROPE-COLLAPSE-INFERRED-2026-10-01` (its falsifier, ojas-qwen35/tests/gpu_parity.rs:735, is an ignored
+  GPU test that has not run; the ojas-side refusal evidence is kept in the record, so the closed count of item 2 is 6, not 7).
+- **Hidden limits: I chose the two-canonical route, applied to the whole class.** New canonicals
+  `GAP-GITPULSE-COLLISIONS-FACET-PARTIAL-IN-LANE-SESSIONS-2026-10-03` and
+  `GAP-DEVMAP-WALK-INCOMPLETE-OR-TRUNCATED-IN-LANE-NAVIGATION-2026-10-03`. Rather than only the five named records, every
+  one of the 47 remaining duplicates was re-scanned in its own text and re-pointed at the new canonicals where it states the
+  limit (6 links to the collisions canonical and 12 to the walk canonical, 13 records in all, including the five: L-RECENCY, L-V5-RULES, FABLE-G-AVG-NEEDLE-CONTROL, L-ROOM-J6A, FABLE-J6A-RULING).
+  Nothing was dropped.
+- **NOT-USED-NEEDLE-OOD-LANE and OOD-ABSTAIN-DECISION-NAV-UNGRAPHED** now say the cause is DevMap tools not loaded, not a missing store.
+  **OJAS-ADVICE-NO-LISTAGENTS and OJAS-ADVICE-GITPULSE-UNTRUSTED**: re-checked; the tool limit was real and the closure stays for that, but
+  the lead's ListAgents answered the concurrency question afterwards (c1688c busy, 00e12d idle), recorded in both.
+- **Quote correction.** The earlier `duplicate_text` quotes were matched against the record's fields joined with spaces. All 47
+  were re-derived field by field (`{"field", "quote"}` for the duplicate and for each canonical); no class failed to match.
+  The correction is stated on `GAP-NAV-LANE-NAVIGATION-TOOLS-PARTIAL-IN-AGENT-WORKTREES-2026-10-03`. The ListAgents canonical now has an owner.
+- **Field restoration [V].** Every duplicate and evidence closure line now carries the base record's fields (owner, tool, impact, finding,
+  triage fields and so on); the original `answer` of a closed record is kept as `answer_before_closure`. Check run after the appends:
+  for every one of the **93 ids this lane touched that had an earlier record**, the latest record's keys are a superset of the
+  last pre-lane record's keys: **0 violations** (before the rework the same check found 56).
+- **evidence_commit wording** on the six evidence closures now reads, e.g., "ojas bc498c4 (the working tree as read at that HEAD ... by
+  read-only rg/Read; no build or test was run)", with `evidence_basis: read-only; nothing run`.
+
 ## First command for the next lane
 
-`PYTHONPATH=python /Users/bharath/Code/research/Lappi-decision/.venv/bin/python tools/w3l4/recount.py gaps.jsonl`
-(expect `{"lines": 1577, "ids": 934, "open": 448}` on this branch), then the three gap tests.
+`rg -c '"id"' gaps.jsonl` is not enough; count open ids by latest record (the rule in `qd_train.gaps.current_records` plus
+`CLOSED_STATUSES`) and expect 1,637 lines, 936 ids, 452 open on this branch, then the three gap tests.
 Merge order per the ruling: W3-4 last, resolving `gaps.jsonl` as the union of both sides' lines.
