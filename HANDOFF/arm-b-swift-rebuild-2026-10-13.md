@@ -36,6 +36,16 @@ base pin of `fable-own-repos-diff-tie-ruling.md` s4). Branch `wave4-l1-own-swift
 - Data under `data/pool/` is gitignored except manifests; the shard and `.build-b` dirs are untracked.
   Copies of L3's corpora were used (TS, single-file, commitpackft download); L3's worktree was only read.
 
+## Notes from review
+
+- `materialise` loads each composed corpus as pinned with `repo_root=repo` but writes the planbase under
+  `pool_dir`; the two differ if `--pool-dir` is not `<repo>/data/pool`, in which case the loader and the
+  planbase read different base locations. Default use is consistent.
+- The structured `base_corpus` pin in the pre-registration is read by W3-1's loader-side mirror test,
+  not by `arm_b_mine.py`.
+- Ledger row cd1b1168's `-dirty`: see `GAP-ARM-B-SWIFT-LEDGER-CD1B1168-CODE-COMMIT-DIRTY-2026-10-13`.
+- `fable-own-repos-diff-tie-ruling.md` is W3-1's file and was removed from this branch.
+
 ## First command for the next lane
 
 `QD_PREP_BIN=<repo>/target/release/qd-prep HF_HUB_OFFLINE=1 tools/mac_heavy.sh .venv/bin/python tools/real_ft_run.py --score-checkpoint ...`

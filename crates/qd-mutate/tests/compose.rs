@@ -659,6 +659,31 @@ fn a_pool_with_no_prior_source_is_refused_without_the_flag_and_the_refusal_names
 }
 
 #[test]
+fn a_pool_in_which_no_record_has_a_prior_source_is_refused_without_the_flag_up_front() {
+    let f = single_version_fixture("sv-noflag-upfront", None);
+    let out_dir = f.dir.join("out");
+    let out = run(&single_version_args(&f, &out_dir, false));
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("no pool record carries a prior_source") && err.contains(SINGLE_VERSION_FLAG),
+        "{err}"
+    );
+    assert!(!out_dir.exists(), "a refused run left an output directory");
+}
+
+/// Characterisation (it passes before and after the guard): a pool with even one commit record is
+/// not "a pool walked off a tree", so the up-front rule does not fire. What compose then says
+/// about the rest is another rule's business.
+#[test]
+fn a_mixed_pool_is_not_refused_by_the_no_prior_source_rule() {
+    let f = single_version_fixture("sv-mixed-noflag", Some(17));
+    let out = run(&single_version_args(&f, &f.dir.join("out"), false));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!err.contains("no pool record carries a prior_source"), "{err}");
+}
+
+#[test]
 fn a_single_version_base_with_clean_examples_is_refused_and_names_clean_permille_0() {
     let f = single_version_fixture_clean(
         "sv-clean-base",
