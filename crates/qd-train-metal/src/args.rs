@@ -103,6 +103,9 @@ pub struct TrainArgs {
     pub resume: Option<PathBuf>,
     /// F's layer-wise split: decoder layers `0 .. n - 1` at `lr_scale` times the schedule.
     pub lower_layers: Option<LowerLayers>,
+    /// `--unpinned-ojas`: run although the ojas checkout is not at the commit `upstream.lock.json`
+    /// pins. The row is then marked `unpinned ojas` ([`crate::pin`]); it is quick either way.
+    pub unpinned_ojas: bool,
 }
 
 impl TrainArgs {
@@ -195,7 +198,10 @@ pub const USAGE: &str = "qd-train-metal \
 --out DIR --ledger ledger/mac-ojas-*.jsonl --repo DIR \
 --seed N --lr X --steps N --batch-tokens N --span-weight X --cap-s X --operands exact_f32|bf16 \
 [--eta-at-step N --eta-margin-s X] [--checkpoint-every N] [--min-lr X] [--resume CKPT_DIR] \
-[--lower-layers-n N --lower-layers-lr-scale X]";
+[--lower-layers-n N --lower-layers-lr-scale X] [--unpinned-ojas]";
+
+/// The one flag that takes no value: run although ojas is not at the locked commit.
+pub const UNPINNED_OJAS: &str = "--unpinned-ojas";
 
 const TAKES_VALUE: [&str; 26] = [
     "--head-init-sha256",
@@ -253,6 +259,7 @@ fn number<T: std::str::FromStr>(flag: &str, raw: &str) -> Result<T, ArgsError> {
 /// Parse `args` (without the program name). Refuses before anything is read.
 pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
     let mut seen: Vec<(String, String)> = Vec::new();
+    let mut unpinned_ojas = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -264,6 +271,16 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         }
         if flag == "--help" || flag == "-h" {
             return Err(ArgsError::Usage("help requested".into()));
+        }
+        if flag == UNPINNED_OJAS {
+            if inline.is_some() {
+                return Err(ArgsError::Usage(format!("{UNPINNED_OJAS} takes no value")));
+            }
+            if unpinned_ojas {
+                return Err(ArgsError::Usage(format!("{UNPINNED_OJAS} is given twice")));
+            }
+            unpinned_ojas = true;
+            continue;
         }
         if !TAKES_VALUE.contains(&flag.as_str()) {
             return Err(ArgsError::Usage(format!("unknown argument {arg:?}")));
@@ -426,5 +443,6 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         min_lr,
         resume: get("--resume").map(PathBuf::from),
         lower_layers,
+        unpinned_ojas,
     })
 }

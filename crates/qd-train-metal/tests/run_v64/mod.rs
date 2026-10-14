@@ -118,6 +118,7 @@ pub fn args(root: &Path, steps: u64) -> TrainArgs {
         min_lr: None,
         resume: None,
         lower_layers: None,
+        unpinned_ojas: false,
     }
 }
 

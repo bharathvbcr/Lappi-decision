@@ -1,6 +1,7 @@
 //! One run, end to end. Everything that can be refused on the host is refused before the GPU
 //! is opened:
 //!
+//! 0. ojas is at the commit `upstream.lock.json` pins, or `--unpinned-ojas` marks the row ([`crate::pin`]);
 //! 1. the output directory is new or empty;
 //! 2. the train shard set opens through the held-out door, with no escape hatch, and is the
 //!    `train` split;
@@ -48,6 +49,7 @@ use qd_train::trainer::{
 use qd_train::tristate::TriState;
 
 use crate::args::TrainArgs;
+use crate::pin;
 use crate::provider::Qwen35Provider;
 use crate::remap::require_identity_remap;
 
@@ -128,6 +130,13 @@ fn check_out_dir(out: &Path) -> Result<(), RunError> {
 /// Run `a` to completion. See the module docs for the order of checks.
 pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
     // ---- host-side refusals, before the GPU ------------------------------------------------
+    // The ojas pin first: a run at an unlocked ojas writes nothing unless --unpinned-ojas.
+    let pin = pin::check_ojas(
+        Path::new(pin::LOCK_PATH),
+        Path::new(pin::OJAS_DIR),
+        a.unpinned_ojas,
+    )
+    .map_err(RunError::Refused)?;
     check_out_dir(&a.out)?;
     let config = DataConfig::default();
     let data_seed = a.data_seed();
@@ -436,7 +445,10 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         protocol,
         recipe,
         status: Status::Completed,
-        quick_reason: quick_reason(a.steps, plans.len(), a.lower_layers),
+        quick_reason: pin::mark_quick_reason(
+            quick_reason(a.steps, plans.len(), a.lower_layers),
+            &pin,
+        ),
         code_commit: ledger::git_commit(&a.repo),
         env: Environment::rust_metal(ledger::hostname()),
         metrics,

@@ -832,6 +832,7 @@ dependencies = [
  "ojas-core",
  "ojas-qwen35",
  "qd-export",
+ "qd-preflight",
  "qd-train",
  "serde_json",
 ]

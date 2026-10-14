@@ -25,6 +25,9 @@ qd-train = { path = "../qd-train" }
 # The export's `Layout` (the tensor set config.json implies), the same crate qd-train exports
 # through.
 qd-export = { path = "../qd-export" }
+# The sibling-pin check (`pin`), shared with the `make pin` gate so one implementation reads a
+# sibling's commit.
+qd-preflight = { path = "../qd-preflight" }
 serde_json = { workspace = true }
 
 # Path dependencies only, no registry crates. ojas-qwen35 depends on tessl at `../../tessl`

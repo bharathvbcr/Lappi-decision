@@ -67,7 +67,7 @@ use crate::args::Operands;
 /// (`../../../tessl` from their manifests), which ojas-qwen35's `../../tessl` also reaches.
 pub const TESSL_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../tessl");
 /// The ojas workspace ojas-qwen35 is built from.
-pub const OJAS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ojas");
+pub use crate::pin::OJAS_DIR;
 /// The child of a checkpoint's provider directory that holds ojas-qwen35's state.
 pub const STATE_DIR: &str = "qwen35-state";
 /// Host bytes beyond one f32 parameter table: hidden rows and their gradients, per sequence.

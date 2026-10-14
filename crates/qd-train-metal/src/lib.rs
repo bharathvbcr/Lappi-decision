@@ -26,6 +26,7 @@
 //! against this path.
 
 pub mod args;
+pub mod pin;
 pub mod remap;
 
 #[cfg(target_os = "macos")]
