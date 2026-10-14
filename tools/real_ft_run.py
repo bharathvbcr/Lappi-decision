@@ -187,7 +187,7 @@ from torch import nn
 
 from qd_data.config import DataConfig
 from qd_data.defect_class import CHOICE_SLOT, DEFECT_FAMILY_ID, SPAN_SLOT
-from qd_data.errors import QdRefusal
+from qd_data.errors import HeldOutViolation, QdRefusal
 from qd_data.render import DEFAULT_CAPS, PROMPT_FORMAT, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
@@ -5317,7 +5317,20 @@ def open_val_set(
     with ``supervision.npz`` puts every label on the wrong sequence (``_inventory``), and
     an option letter no set ever used as a gold has no id to decode it with.
     """
-    reader = open_val_reader(out, config=config, rev=rev, train=train)
+    return val_set_over(
+        open_val_reader(out, config=config, rev=rev, train=train), rows=rows, config=config,
+        letter_id=letter_id, require_index=require_index,
+    )
+
+
+def val_set_over(
+    reader: ShardReader, *, rows: list[DataRow], config: DataConfig,
+    letter_id: dict[str, int], require_index: bool = False,
+) -> ValSet:
+    """:func:`open_val_set` over a reader already opened and checked: the val set's labels,
+    letter ids and batches. The one owner of that half, so the Arm B candidate set
+    (:func:`open_candidate_set`), which is never opened as a val set, is read the way the val
+    set is."""
     labels, excluded = _labels(rows, config=config)
     labels = pair_labels(reader, labels, require_index=require_index)
     _inventory(reader, labels, excluded)
@@ -8827,6 +8840,405 @@ REPORT_ONLY_NOTE: Final[str] = (
 )
 
 
+# --- the Arm B throughput probe (--score-checkpoint --arm-b-candidates) ---------------------
+#
+# Fable's 2026-10-14 ruling (AUDIT/board-sweep-2026-10-13/fable-arm-b-probe-construction-ruling.md,
+# ruling 2 (c)): the 200 candidate rows `tools/arm_b_mine.py probe` wrote, tokenized by the
+# pipeline into a train-split refuse-gold shard set of their own, scored by one seed's checkpoint
+# to measure rows/s. Modelled on the OOD-only trajectory row and the composed slice: no
+# --score-val, the val set never opened, the set never a gate population, a quick row and no
+# gate. The row's abstention count is recorded and gates nothing: it is no yield estimate.
+
+#: The pipeline's build ledger a candidate set's build row is looked up in.
+ARM_B_PROBE_LEDGER: Final[Path] = REPO / "ledger" / "arm-b-shards-2026-10-13.jsonl"
+#: The ``gate`` on the probe's verdict lines. No gate is called this, so qd-gate-report refuses
+#: such a line rather than counting it toward anything.
+ARM_B_PROBE_GATE: Final[str] = "arm_b.probe.report_only"
+#: The recipe tag of the probe's eval row, and what ``arm_b_mine.py budget --eval-row`` reads.
+ARM_B_PROBE_TAG: Final[str] = "arm-b-probe"
+#: Rule 8 for a probe row, beside the device's own reason.
+ARM_B_PROBE_QUICK_REASON: Final[str] = (
+    "the Arm B throughput probe: 200 candidate rows; its abstention count gates nothing and is "
+    "no yield estimate"
+)
+#: ``probe.json``'s schema (``tools/arm_b_mine.py probe``).
+ARM_B_PROBE_SCHEMA: Final[str] = "qd-arm-b-probe/v1"
+#: The tool whose ledger row is the candidate set's build row.
+ARM_B_BUILD_TOOL: Final[str] = "tools/real_tokenizer_pipeline.py"
+ARM_B_RATE_METRIC: Final[str] = "arm_b_probe.rows_per_s"
+
+
+@dataclasses.dataclass(frozen=True)
+class CandidateSet:
+    """The Arm B candidate shard set, opened and checked before any tower loads: its labels,
+    letter ids and batches as a :class:`ValSet` (the one reader of a scored set), and what a
+    scored row records about it."""
+
+    val: ValSet
+    recipe: dict[str, object]
+
+
+def _arm_b_paths(args: argparse.Namespace) -> list[tuple[str, Path]]:
+    """Every path the candidate mode reads or writes, by the flag that names it."""
+    paths = [
+        ("--arm-b-candidates", args.arm_b_candidates),
+        ("--arm-b-candidates-corpus", args.arm_b_candidates_corpus),
+        ("--arm-b-candidates-ledger", args.arm_b_candidates_ledger),
+        ("--ledger", args.ledger),
+        ("--out", args.out),
+        ("--verdicts-out", args.verdicts_out),
+        ("--score-checkpoint", args.score_checkpoint),
+        ("--ft-ledger", args.ft_ledger),
+        ("--real-backbone", args.real_backbone),
+    ]
+    return [(flag, Path(p)) for flag, p in paths if isinstance(p, str | Path)]
+
+
+def _check_arm_b_candidates_flags(args: argparse.Namespace) -> None:
+    """Every refusal ``--arm-b-candidates`` is decidable on from argv, before anything loads:
+    what it needs, what it refuses, and rule 3 for every path it reads or writes."""
+    from qd_train.data_access import assert_path_not_held_out
+
+    companions = (
+        ("--arm-b-candidates-corpus", args.arm_b_candidates_corpus is not None),
+        ("--arm-b-candidates-build-row", args.arm_b_candidates_build_row is not None),
+    )
+    if args.arm_b_candidates is None:
+        given = [flag for flag, present in companions if present]
+        if given:
+            raise SystemExit(
+                f"{', '.join(given)} name the candidate set's corpus and build row and are "
+                "read only with --arm-b-candidates"
+            )
+        return
+    absent = [
+        flag for flag, present in (
+            ("--score-checkpoint", args.score_checkpoint is not None), *companions,
+        ) if not present
+    ]
+    if absent:
+        raise SystemExit(f"--arm-b-candidates needs {', '.join(absent)}")
+    clashing = [
+        flag for flag, given in (
+            ("--score-val", args.score_val), ("--ood", args.ood), ("--needle", args.needle),
+            ("--score-plan", args.score_plan is not None),
+            ("--composed-slice", args.composed_slice is not None),
+            ("--needle-control", args.needle_control is not None),
+            ("--suite-verdicts-out", args.suite_verdicts_out is not None),
+        ) if given
+    ]
+    if clashing:
+        raise SystemExit(
+            "--arm-b-candidates scores the candidate set alone, as a report-only throughput "
+            f"probe; it refuses {', '.join(clashing)}"
+        )
+    if _is_average(args.score_checkpoint) or _is_ensemble(args.score_checkpoint):
+        raise SystemExit(
+            "--arm-b-candidates scores one seed's checkpoint (the pinned scorer), not an "
+            "average or an ensemble"
+        )
+    for flag, path in _arm_b_paths(args):
+        try:
+            assert_path_not_held_out(path, config=DataConfig(), repo_root=REPO)
+        except HeldOutViolation as exc:
+            raise SystemExit(f"{flag} {path} is a held-out path (rule 3): {exc}") from exc
+
+
+def arm_b_probe_build(ledger_path: Path, row_id: str) -> dict[str, Any]:
+    """The pipeline's build row ``row_id`` names (a full id or a unique prefix) in
+    ``ledger_path``, refused unless it is there once, completed and the pipeline's."""
+    if len(row_id) < 8:
+        raise SystemExit(
+            f"--arm-b-candidates-build-row {row_id!r}: give at least 8 characters of the row id"
+        )
+    try:
+        text = ledger_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"--arm-b-candidates-ledger {ledger_path}: {exc}") from exc
+    found = [
+        row for row in (json.loads(line) for line in text.splitlines() if line.strip())
+        if str(row.get("row_id", "")).startswith(row_id)
+    ]
+    if len(found) != 1:
+        raise SystemExit(
+            f"{ledger_path}: {len(found)} rows match --arm-b-candidates-build-row {row_id!r}, "
+            "not 1"
+        )
+    row = found[0]
+    recipe = row.get("recipe")
+    if row.get("status") != "completed" or not isinstance(recipe, dict):
+        raise SystemExit(
+            f"build row {row['row_id']} is a {row.get('status')} row (or has no recipe); the "
+            "candidate set's build must be a completed pipeline row"
+        )
+    if recipe.get("tool") != ARM_B_BUILD_TOOL:
+        raise SystemExit(
+            f"build row {row['row_id']} is a {recipe.get('tool')!r} row, not a "
+            f"{ARM_B_BUILD_TOOL} build"
+        )
+    return dict(row)
+
+
+def open_candidate_set(
+    set_out: Path, *, corpus_dir: Path, download_root: Path, repo_root: Path,
+    config: DataConfig, train: ShardReader, letter_id: Mapping[str, int],
+    build_ledger: Path = ARM_B_PROBE_LEDGER, build_row: str,
+) -> CandidateSet:
+    """Open ``<set_out>/shards/train`` as the Arm B candidate set and refuse every way it could
+    misscore or be mistaken for a gate's population, before a tower loads.
+
+    Refused unless: every path passes rule 3; ``<set_out>/probe.json`` pins the corpus's
+    ``examples.jsonl`` and ``manifest.json`` and the corpus hashes to it; the build row is the
+    pipeline's, completed, built that corpus (``defect_class_examples_sha256``) refuse-gold, and
+    its ``shard_sequences`` is this set's sequence count; the header is split ``train``,
+    refuse-gold and not report-only, and the gate readers' own check
+    (``require_gate_population``) refuses it; the remap is the train set's; every row
+    ``load_defect_rows`` returns for the corpus is one ``probe.json`` names; and every label
+    pairs with the writer's sequence index. A loader row the shards lack (the pipeline's dedupe,
+    a refused row) is counted in the recipe, never silently kept: a shard row the loader lacks
+    is refused by the pairing.
+    """
+    from qd_data.defect_class import load_defect_rows
+    from qd_data.mixture import rewrite_defect_class
+    from qd_train.data_access import assert_path_not_held_out
+
+    for what, path in (("--arm-b-candidates", set_out), ("--arm-b-candidates-corpus", corpus_dir),
+                       ("--arm-b-candidates-ledger", build_ledger)):
+        try:
+            assert_path_not_held_out(Path(path), config=config, repo_root=Path(repo_root))
+        except HeldOutViolation as exc:
+            raise SystemExit(f"{what} {path} is a held-out path (rule 3): {exc}") from exc
+    probe_path = Path(set_out) / "probe.json"
+    try:
+        probe = json.loads(probe_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"{probe_path}: {exc}") from exc
+    pinned = probe.get("corpus") if isinstance(probe, dict) else None
+    if (not isinstance(pinned, dict) or probe.get("schema") != ARM_B_PROBE_SCHEMA
+            or not isinstance(probe.get("row_ids"), list)):
+        raise SystemExit(f"{probe_path} is not a {ARM_B_PROBE_SCHEMA} file")
+    for name, key in (("examples.jsonl", "examples_sha256"), ("manifest.json", "manifest_sha256")):
+        got = hashlib.sha256((Path(corpus_dir) / name).read_bytes()).hexdigest()
+        if got != pinned.get(key):
+            raise SystemExit(
+                f"{corpus_dir}/{name} hashes to {got[:16]}, not the {str(pinned.get(key))[:16]} "
+                f"{probe_path.name} pinned"
+            )
+    build = arm_b_probe_build(Path(build_ledger), build_row)
+    recipe = build["recipe"]
+    if recipe.get("defect_class_examples_sha256") != pinned["examples_sha256"]:
+        raise SystemExit(
+            f"build row {build['row_id']} built examples "
+            f"{str(recipe.get('defect_class_examples_sha256'))[:16]}, not the probe corpus's "
+            f"{str(pinned['examples_sha256'])[:16]}"
+        )
+    if recipe.get("span_collapse_policy") != "refuse-gold" or not isinstance(
+        recipe.get("rev"), str
+    ):
+        raise SystemExit(
+            f"build row {build['row_id']} is not a refuse-gold build at a revision "
+            f"(span_collapse_policy {recipe.get('span_collapse_policy')!r}, rev "
+            f"{recipe.get('rev')!r})"
+        )
+    set_dir = Path(set_out) / "shards" / "train"
+    if not (set_dir / HEADER_NAME).exists():
+        raise SystemExit(f"--arm-b-candidates found no candidate shard set at {set_dir}")
+    try:
+        reader = ShardReader(
+            set_dir, config=config, repo_root=Path(set_out), expect_rev=str(recipe["rev"])
+        )
+    except ShardContractViolation as exc:
+        raise SystemExit(f"--arm-b-candidates: {exc}") from exc
+    header = reader.header
+    if (header.split != "train" or header.report_only
+            or header.span_collapse_policy != "refuse-gold"):
+        raise SystemExit(
+            f"{set_dir}: the candidate set is a train-split refuse-gold set that is not "
+            f"report-only (split {header.split!r}, span_collapse_policy "
+            f"{header.span_collapse_policy or 'refuse-any'!r}, report_only {header.report_only})"
+        )
+    try:
+        header.require_gate_population(where=str(set_dir))
+    except ShardContractViolation:
+        pass
+    else:  # pragma: no cover - refuse-gold is never a gate population
+        raise SystemExit(f"{set_dir} is a gate population: it is not the candidate set")
+    if header.remap_hash != train.header.remap_hash:
+        raise SystemExit(
+            f"the candidate set's remap {header.remap_hash[:16]} is not the train set's "
+            f"{train.header.remap_hash[:16]}: the same id would name a different embedding row"
+        )
+    shard_sequences = (build.get("metrics") or {}).get("shard_sequences")
+    built_n = shard_sequences.get("n") if isinstance(shard_sequences, dict) else None
+    if built_n != len(reader):
+        raise SystemExit(
+            f"build row {build['row_id']} wrote {built_n} sequences (metrics.shard_sequences.n), "
+            f"this set holds {len(reader)}: it is not that build's set"
+        )
+    loaded = load_defect_rows(
+        Path(corpus_dir), download_root=Path(download_root), config=config,
+        repo_root=Path(repo_root),
+    )
+    named = set(str(x) for x in probe["row_ids"])
+    foreign = sorted(r.example_id for r in loaded.rows if r.example_id not in named)
+    if foreign:
+        raise SystemExit(
+            f"{len(foreign)} corpus row(s) are not in probe.json (first: {foreign[0]}): the "
+            "corpus is not the probe's"
+        )
+    index = reader.sequence_index
+    if index is None:
+        raise SystemExit(f"{set_dir} carries no sequence index")
+    in_shard = {rid for rid, _ in index.sequences} | {e.row_id for e in index.excluded}
+    rows: list[DataRow] = []
+    refused = 0
+    for i, raw in enumerate(loaded.rows):
+        try:
+            rows.append(
+                rewrite_defect_class(raw, family_id=DEFECT_FAMILY_ID, index=i, config=config)
+            )
+        except QdRefusal:
+            refused += 1
+    in_set = [r for r in rows if r.row_id in in_shard]
+    val = val_set_over(
+        reader, rows=in_set, config=config, letter_id=dict(letter_id), require_index=True
+    )
+    print(
+        f"candidate set: {len(loaded.rows)} corpus rows, {len(in_set)} in {len(reader)} "
+        f"sequences ({len(rows) - len(in_set)} not in the shards, {refused} refused by the "
+        f"rewriter), {len(val.plan)} batches, shard_hash {header.shard_hash()[:16]}, build row "
+        f"{str(build['row_id'])[:8]}"
+    )
+    return CandidateSet(
+        val=val,
+        recipe={
+            "build_row": build["row_id"], "build_ledger": Path(build_ledger).name,
+            "shard_hash": header.shard_hash(), "rev": recipe["rev"],
+            "rows": len(loaded.rows), "rows_in_shard": len(in_set),
+            "rows_not_in_shard": len(rows) - len(in_set), "rows_refused": refused,
+            "sequences": len(reader),
+            "probe_sha256": hashlib.sha256(probe_path.read_bytes()).hexdigest(),
+            "corpus": dict(pinned),
+        },
+    )
+
+
+def run_arm_b_probe(
+    args: argparse.Namespace, *, loaded: LoadedModel, load_s: float, reader: ShardReader,
+    candidates: CandidateSet, second_pass: SecondPass, device: str, ledger: Ledger,
+    reasons_for: Callable[..., list[str]], clock: Callable[[], float] = time.monotonic,
+) -> tuple[str, tuple[dict[str, object], ...], int]:
+    """The candidate set on ``loaded``: both passes (the first over every sequence, the permuted
+    second over the choice rows), then one quick ``arm-b-probe`` eval row and its verdict lines.
+    Returns ``(row id, lines, row seed)``.
+
+    The row records ``rows_per_s`` (choice rows decoded over the decode, the model load apart in
+    ``load_s``) and the abstention count :func:`choice_rule_abstentions` gives, and calls no
+    gate: the count is no yield estimate. A decode that skipped a sequence, a second pass that
+    did not run or a clock that did not advance writes no row, because none would be a rate.
+    Every line carries :data:`ARM_B_PROBE_GATE`.
+    """
+    step, ft, recipe, seed, meta = loaded
+    model = scored_model(args, ft, meta)
+    if second_pass.not_run is not None:
+        raise SystemExit(f"the Arm B probe's second pass did not run: {second_pass.not_run}")
+    val = candidates.val
+    decode_at = clock()
+    scored = _decode(step, val.plan, val.labels_for, val.letter_id)
+    _, second = score_permutation_consistency(step, val, second_pass, scored)
+    decode_s = clock() - decode_at
+    if int(scored["rows_not_decoded"]):  # type: ignore[call-overload]
+        raise SystemExit(
+            f"--arm-b-candidates: {scored['rows_not_decoded']} candidate sequences were not "
+            f"decoded (letters without an id: {scored.get('letters_without_id')})"
+        )
+    if second is None:  # pragma: no cover - second_pass.not_run was refused above
+        raise SystemExit("the Arm B probe's second pass decoded nothing")
+    if not (math.isfinite(decode_s) and decode_s > 0.0):
+        raise SystemExit(
+            f"the Arm B probe's decode took {decode_s!r} s: the clock did not advance, so no "
+            "rows/s can be recorded"
+        )
+    choice_rows = sum(
+        1 for v in scored["verdicts"] if v["kind"] == "choice"  # type: ignore[union-attr]
+    )
+    abstained = sum(choice_rule_abstentions(scored, second, second_pass.perms).values())
+    rows_decoded = int(scored["rows_decoded"])  # type: ignore[call-overload]
+    metrics: dict[str, TriState] = {
+        "arm_b_probe.rows_decoded": Ran(
+            passed=True, value=rows_decoded,
+            detail="candidate sequences decoded in the first pass (span and choice)",
+        ),
+        "arm_b_probe.choice_rows": Ran(
+            passed=True, value=choice_rows, detail="choice rows decoded in the first pass"
+        ),
+        "arm_b_probe.decode_s": Ran(
+            passed=True, value=decode_s,
+            detail="both passes' decode, the model load excluded (arm_b_probe.load_s)",
+        ),
+        "arm_b_probe.load_s": Ran(
+            passed=True, value=load_s,
+            detail="the checkpoint's pairing, the tower load and the scoring step's build",
+        ),
+        ARM_B_RATE_METRIC: (
+            Ran(passed=True, value=choice_rows / decode_s,
+                detail=f"{choice_rows} choice rows over {decode_s:.1f} s of decode: the rate "
+                "arm_b_mine.py budget reads")
+            if choice_rows else NotRun(reason="no choice row was decoded")
+        ),
+        "arm_b_probe.abstained": Ran(
+            passed=True, value=abstained,
+            detail="choice rows (gold not noul) the runtime's rule would abstain on: recorded, "
+            "gates nothing, and is no yield estimate",
+        ),
+    }
+    probe_recipe: dict[str, object] = {
+        "tool": "tools/real_ft_run.py",
+        "tag": ARM_B_PROBE_TAG,
+        "device": device,
+        **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
+        "score_dtype": args.score_dtype,
+        "scored_checkpoint": model.scored_checkpoint,
+        **model.recipe_block(),
+        "shard_hash": reader.header.shard_hash(),
+        "arm_b_candidates": candidates.recipe,
+    }
+    reasons = model_reasons(model, device=device, reasons_for=reasons_for)
+    reasons.append(ARM_B_PROBE_QUICK_REASON)
+    notes = (
+        f"tools/real_ft_run.py --score-checkpoint --arm-b-candidates of "
+        f"{model.scored_checkpoint} ({model.described}), {args.score_dtype} on {device} at "
+        f"T = 1: the Arm B throughput probe over {choice_rows} choice rows of the candidate "
+        f"set (build row {str(candidates.recipe['build_row'])[:8]}, shard_hash "
+        f"{str(candidates.recipe['shard_hash'])[:16]}), both passes, decoded the way "
+        "crates/qd-runtime/src/answer.rs decodes them. It decides one number, rows_scanned = "
+        "min(20000, floor(rows_per_s x 36 x 3600)); the abstention count is recorded, gates "
+        f"nothing and is no yield estimate. {REPORT_ONLY_NOTE}"
+    )
+    recorder = _recorder(
+        ledger, reader=reader, seed=seed, recipe=probe_recipe, run_kind="eval",
+        quick_reasons=reasons, wall_clock_s=decode_s,
+        cost=_cost(
+            device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
+            usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+            cap_s=args.wall_clock_cap_s,
+        ),
+        notes=notes,
+    )
+    with recorder:
+        recorder.metric(*model.ft_row_metric())
+        for name, state in metrics.items():
+            recorder.metric(name, state)
+        recorder.noul_rate = NotRun(reason="an Arm B probe row decodes no val row")
+    if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
+        raise RuntimeError("RunRecorder exited without writing a row")
+    lines = tuple(
+        {**line, "gate": ARM_B_PROBE_GATE}
+        for line in _verdict_lines(scored, eval_row_id=recorder.row.row_id, seed=seed)
+    )
+    return recorder.row.row_id, lines, seed
+
+
 # --- several models in one invocation (--score-plan) ---------------------------------------
 #
 # Fable I diagnostic (2026-10-01): seed 0, 1 and 2, their average and their 3-seed ensemble
@@ -9841,8 +10253,10 @@ def _check_score_checkpoint_flags(args: argparse.Namespace) -> None:
     ensemble = _is_ensemble(args.score_checkpoint)
     ood_only = _ood_only(args)
     needed = {
-        # Every mode but the OOD-only trajectory row (--ood without --score-val).
-        "--score-val": args.score_val or ood_only, "--real-backbone": args.real_backbone,
+        # Every mode but the OOD-only trajectory row (--ood without --score-val) and the Arm B
+        # candidate set, which is scored instead of the val set.
+        "--score-val": args.score_val or ood_only or args.arm_b_candidates is not None,
+        "--real-backbone": args.real_backbone,
         "--ft-ledger": args.ft_ledger, "--devices": args.devices,
     }
     if not averaged:
@@ -10014,10 +10428,10 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
         if not (args.replay_shards / HEADER_NAME).is_file():
             raise SystemExit(f"--replay-shards {args.replay_shards} holds no shard header")
     if args.verdicts_out is not None:
-        if not args.score_val:
+        if not (args.score_val or args.arm_b_candidates is not None):
             raise SystemExit(
-                "--verdicts-out writes the val verdicts --score-val decodes; without it "
-                "there are none"
+                "--verdicts-out writes the val verdicts --score-val decodes (or the Arm B "
+                "candidate set's, --arm-b-candidates); without either there are none"
             )
         if args.verdicts_out.exists():
             raise SystemExit(f"--verdicts-out {args.verdicts_out} already exists")
@@ -10875,6 +11289,29 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--arm-b-candidates", type=Path, default=None, metavar="SET_OUT",
+        help=(
+            "the Arm B throughput probe: score the candidate set `tools/arm_b_mine.py probe` "
+            "wrote and the pipeline tokenized (SET_OUT holds probe.json and shards/train), "
+            "instead of the val set -- one quick `arm-b-probe` row recording rows_per_s and the "
+            "abstention count, no gate. Needs --score-checkpoint (one seed's), "
+            "--arm-b-candidates-corpus and --arm-b-candidates-build-row; refuses --score-val, "
+            "--ood, --needle, --score-plan, --composed-slice"
+        ),
+    )
+    parser.add_argument(
+        "--arm-b-candidates-corpus", type=Path, default=None, metavar="DIR",
+        help="the probe corpus (examples.jsonl, manifest.json) pinned by SET_OUT/probe.json",
+    )
+    parser.add_argument(
+        "--arm-b-candidates-build-row", default=None, metavar="ROW_ID",
+        help="the pipeline's build row of the candidate set, in --arm-b-candidates-ledger",
+    )
+    parser.add_argument(
+        "--arm-b-candidates-ledger", type=Path, default=ARM_B_PROBE_LEDGER,
+        help="the ledger holding --arm-b-candidates-build-row (default: %(default)s)",
+    )
+    parser.add_argument(
         "--score-dtype", choices=["fp32", "bf16"], default="fp32",
         help=(
             "the dtype a --score-checkpoint tower is scored in. fp32 by default: torch bf16 "
@@ -11410,6 +11847,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"--needle-control writes its own diagnostic row and decodes no val row or "
                 f"gate; {', '.join(clashing)} would record nothing"
             )
+    _check_arm_b_candidates_flags(args)
     score_plan: ScorePlan | None = None
     if args.score_plan is not None:
         score_plan = _check_score_plan_flags(args, seeds_given=seeds_given)
@@ -11695,6 +12133,31 @@ def main(argv: list[str] | None = None) -> int:
             "deranged for the second pass"
             if ood_suite.not_run is None else f"OOD suite: not run -- {ood_suite.not_run}"
         )
+    candidates: CandidateSet | None = None
+    if args.arm_b_candidates is not None:
+        # The Arm B probe scores the candidate set in the val set's place: shards/val is never
+        # opened (open_val_reader is not called), and the set is read as a ValSet by the one
+        # reader of a scored set.
+        candidates = open_candidate_set(
+            args.arm_b_candidates, corpus_dir=args.arm_b_candidates_corpus,
+            download_root=(
+                pipeline.DEFAULT_DEFECT_DOWNLOAD if args.defect_download is None
+                else args.defect_download
+            ),
+            repo_root=REPO, config=config, train=reader, letter_id=letter_id,
+            build_ledger=args.arm_b_candidates_ledger,
+            build_row=args.arm_b_candidates_build_row,
+        )
+        val_set = candidates.val
+        second_pass = prepare_second_pass(
+            val_set, reader=val_set.reader, tokenizer_json=args.tokenizer_json, seed=config.seed,
+        )
+        print(
+            f"permutation second pass: {len(second_pass.perms)} choice rows deranged in "
+            f"{len(second_pass.batches)} batches (seed {config.seed})"
+            if second_pass.not_run is None else
+            f"permutation second pass: not run -- {second_pass.not_run}"
+        )
     train_skipped: str | None = None
     if train_side is None:
         if val_set is None:  # both scoring flags are refused at argv time without --score-val
@@ -11855,6 +12318,26 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(f"suite verdicts: {len(control_lines)} lines -> {args.suite_verdicts_out}")
             print(f"needle control row {control_row_id}")
+            return 0
+        if candidates is not None:
+            load_at = time.monotonic()
+            loaded = _checkpoint_step(
+                args, reader=reader, val=val_set, device=devices[0],
+                eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=config.seed,
+            )
+            probe_row_id, probe_lines, _ = run_arm_b_probe(
+                args, loaded=loaded, load_s=time.monotonic() - load_at, reader=reader,
+                candidates=candidates, second_pass=second_pass, device=devices[0],
+                ledger=Ledger(args.ledger),
+                reasons_for=lambda tag, device, termination=None: quick_reasons(
+                    tag=tag, device=device, real_backbone=True, corpus=corpus,
+                    termination=termination,
+                ),
+            )
+            if args.verdicts_out is not None:
+                write_verdicts_jsonl(args.verdicts_out, [dict(x) for x in probe_lines])
+                print(f"verdicts -> {args.verdicts_out}")
+            print(f"arm-b probe row {probe_row_id}")
             return 0
         if ood_only:
             loaded = _checkpoint_step(

@@ -15,7 +15,11 @@ must be refused before anything is scored, and the selection after:
             runtime's choice rule exactly (:func:`abstentions` mirrors ``choice_rule_abstentions``
             and a test holds it to that function), keep abstained rows whose gold is not ``noul``,
             apply the cap (5,000) and the floor (300: fewer reads ``no_data``).
-``budget``  the pre-registered scan size from a measured rows/s.
+``probe``   the 200-row throughput probe's inputs: the first 200 plan rows as a corpus directory
+            (through ``materialise``'s own staging) and ``probe.json`` with every sha256 and the
+            tokenizer-pipeline argv; the scorer is ``tools/real_ft_run.py --arm-b-candidates``.
+``budget``  the pre-registered scan size from a measured rows/s, or from the ``arm-b-probe`` eval
+            row that measured it (``--eval-row``/``--ledger``).
 
 Nothing here scores a row, loads a model or reads a held-out path. A check that could not run is
 recorded ``not_run``; it is never recorded as clean.
@@ -31,6 +35,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,6 +50,7 @@ sys.path.insert(0, str(ROOT / "python"))
 from qd_data.caller_records import CallerRecordRefusal, assert_no_caller_records  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_train.data_access import HeldOutViolation, assert_path_not_held_out  # noqa: E402
+from qd_train.tristate import Ran, parse_tristate  # noqa: E402
 
 #: R4: the scan is capped at 20,000 rows and the wall budget is 36 h.
 SCAN_CAP_ROWS = 20_000
@@ -96,14 +102,19 @@ def check_committed(prereg: Path, repo: Path) -> dict[str, Any]:
         raise Refusal(f"{rel}: {exc}") from exc
 
 
-def check_input(path: Path, *, repo: Path, want_sha: str | None, what: str) -> str:
-    """One input file: not held out, no caller record, pinned and matching. Returns its sha256."""
-    if want_sha is None:
-        raise Refusal(f"{what} ({path}) is not pinned: its sha256 is null in the pre-registration")
+def check_not_held_out(path: Path, *, repo: Path, what: str) -> None:
+    """Rule 3 at the path level, for a path this driver reads or writes."""
     try:
         assert_path_not_held_out(path, config=DataConfig(), repo_root=repo)
     except HeldOutViolation as exc:
         raise Refusal(f"{what} ({path}) is a held-out path and is not read: {exc}") from exc
+
+
+def check_input(path: Path, *, repo: Path, want_sha: str | None, what: str) -> str:
+    """One input file: not held out, no caller record, pinned and matching. Returns its sha256."""
+    if want_sha is None:
+        raise Refusal(f"{what} ({path}) is not pinned: its sha256 is null in the pre-registration")
+    check_not_held_out(path, repo=repo, what=what)
     if not path.is_file():
         raise Refusal(f"{what} ({path}) is not a file")
     try:
@@ -487,9 +498,15 @@ def materialise(
     out_dir: Path,
     pool_dir: Path,
     download_root: Path | None = None,
+    first_rows: int | None = None,
 ) -> dict[str, Any]:
     """Write each pinned corpus as the corpus directory ``load_defect_rows`` reads, holding only
     the rows the plan kept, in corpus order.
+
+    With ``first_rows`` (the probe, :func:`probe`) only the first ``first_rows`` lines of the
+    plan's ``candidates.jsonl`` are kept, a corpus holding none of them is not written, and each
+    written corpus's ``selected_by_plan`` carries a ``probe`` block; everything else, the loader
+    proof, the planbase, the manifest recompute, is this function's, once.
 
     ``<out_dir>/<corpus>/examples.jsonl`` is the corpus's own lines, byte for byte, for the rows
     that are in ``candidates.jsonl``; ``manifest.json`` is the corpus's own manifest with
@@ -521,11 +538,29 @@ def materialise(
     cand_path = plan_dir / "candidates.jsonl"
     if _sha256_file(cand_path) != plan_doc["candidates_sha256"]:
         raise Refusal(f"{cand_path} no longer hashes to the plan's sha256")
-    kept_lines = {line for line in cand_path.read_bytes().split(b"\n") if line}
+    ordered = [line for line in cand_path.read_bytes().split(b"\n") if line]
+    kept_lines = set(ordered)
     if len(kept_lines) != plan_doc["kept"]:
         raise Refusal(
             f"{cand_path} holds {len(kept_lines)} distinct row(s), the plan kept {plan_doc['kept']}"
         )
+    probe_block: dict[str, Any] | None = None
+    expected_total = int(plan_doc["kept"])
+    if first_rows is not None:
+        if first_rows < 1 or first_rows > len(ordered):
+            raise Refusal(
+                f"the plan holds {len(ordered)} kept row(s), fewer than the {first_rows} the "
+                "probe takes: it is not padded or shrunk"
+            )
+        cut = ordered[:first_rows]
+        kept_lines = set(cut)
+        expected_total = first_rows
+        probe_block = {
+            "rows": first_rows,
+            "first_id": json.loads(cut[0])["id"],
+            "last_id": json.loads(cut[-1])["id"],
+            "candidates_sha256": plan_doc["candidates_sha256"],
+        }
     out: dict[str, Any] = {"plan_sha256": _sha256_file(plan_path), "corpora": {}}
     staged: list[tuple[Path, Path, bytes, dict[str, Any]]] = []
     planbases: list[tuple[Path, dict[str, Any]]] = []
@@ -543,14 +578,6 @@ def materialise(
         if not manifest_path.is_file():
             raise Refusal(f"corpus {name}: {manifest_path} is missing")
         manifest = json.loads(manifest_path.read_text())
-        loaded_rows: int | None = None
-        if "base_corpus" in manifest:
-            loaded_rows = _loads_as_pinned(
-                src.parent,
-                name=name,
-                download_root=download_root or pool_dir / "commitpackft",
-                repo=repo,
-            )
         body = bytearray()
         n_rows = n_kept = 0
         for raw in src.read_bytes().split(b"\n"):
@@ -560,6 +587,16 @@ def materialise(
             if json.dumps(json.loads(raw), sort_keys=True).encode() in kept_lines:
                 body += raw + b"\n"
                 n_kept += 1
+        if first_rows is not None and n_kept == 0:
+            continue
+        loaded_rows: int | None = None
+        if "base_corpus" in manifest:
+            loaded_rows = _loads_as_pinned(
+                src.parent,
+                name=name,
+                download_root=download_root or pool_dir / "commitpackft",
+                repo=repo,
+            )
         selected_total += n_kept
         new = dict(manifest)
         new["examples_sha256"] = hashlib.sha256(bytes(body)).hexdigest()
@@ -575,6 +612,8 @@ def materialise(
         }
         if loaded_rows is not None:
             block["loaded_rows"] = loaded_rows
+        if probe_block is not None:
+            block["probe"] = probe_block
         if "base_corpus" in manifest:
             base_name = f"{name}-planbase"
             base_src = pool_dir / Path(str(manifest["base_corpus"]["name"])).name
@@ -593,10 +632,15 @@ def materialise(
         new["selected_by_plan"] = block
         staged.append((out_dir / name, src, bytes(body), new))
         out["corpora"][name] = {"kept": n_kept, "dropped": n_rows - n_kept}
-    if selected_total != plan_doc["kept"]:
+    if selected_total != expected_total:
         raise Refusal(
-            f"the corpora hold {selected_total} of the plan's {plan_doc['kept']} kept rows: "
+            f"the corpora hold {selected_total} of the plan's {expected_total} kept rows: "
             "a kept row is in no pinned corpus, or two corpora hold one"
+        )
+    if first_rows is not None and len(out["corpora"]) != 1:
+        raise Refusal(
+            f"the first {first_rows} candidate rows are in more than one corpus "
+            f"({sorted(out['corpora'])}): the probe is one corpus directory"
         )
     # A planbase is a function of the corpus and the plan, so re-materialising writes the same one:
     # an identical planbase already on disk is accepted, a different one is refused.
@@ -625,6 +669,122 @@ def materialise(
         (dest / "manifest.json").write_text(json.dumps(new, indent=2) + "\n")
     out["out_dir"] = str(out_dir)
     return out
+
+
+#: The throughput probe scores the first ``PROBE_ROWS`` plan rows (the record's "first 200 deduped
+#: candidate rows, in the corpus order the seed fixed"). A constant, not a flag: nothing the probe
+#: measures may move the cut.
+PROBE_ROWS = 200
+#: The shard-build ledger the probe's tokenizer-pipeline row is appended to (the L3 lane's).
+PROBE_PIPELINE_LEDGER = "ledger/arm-b-shards-2026-10-13.jsonl"
+#: The ledger tag of the probe's eval row (``tools/real_ft_run.py --arm-b-candidates``) and the
+#: metric ``budget --eval-row`` reads off it.
+PROBE_ROW_TAG = "arm-b-probe"
+PROBE_RATE_METRIC = "arm_b_probe.rows_per_s"
+
+
+def probe(
+    *,
+    prereg: Path,
+    repo: Path,
+    plan_dir: Path,
+    out_dir: Path,
+    pool_dir: Path,
+    download_root: Path | None = None,
+) -> dict[str, Any]:
+    """Write the throughput probe's 200-row corpus and ``probe.json`` into a new ``out_dir``.
+
+    The corpus is :func:`materialise`'s, through its own staging, cut to the first
+    :data:`PROBE_ROWS` lines of the plan's ``candidates.jsonl`` and written to
+    ``<out_dir>/corpus/<name>/``; ``probe.json`` pins every sha256 the scorer re-checks and records
+    the ``tools/real_tokenizer_pipeline.py`` argv that tokenizes the corpus into
+    ``<out_dir>/shards/``. Nothing is tokenized or scored here. Every path passes the held-out
+    check (rule 3) before anything is read or written.
+    """
+    for path, what in ((out_dir, "the probe's --out"), (plan_dir, "the plan directory"),
+                       (pool_dir, "the pool directory")):
+        check_not_held_out(path, repo=repo, what=what)
+    if out_dir.exists():
+        raise Refusal(f"{out_dir} exists; refusing to overwrite it")
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=out_dir.name + ".partial-", dir=out_dir.parent))
+    try:
+        staged = materialise(
+            prereg=prereg, repo=repo, plan_dir=plan_dir, out_dir=tmp / "corpus",
+            pool_dir=pool_dir, download_root=download_root, first_rows=PROBE_ROWS,
+        )
+        (name,) = staged["corpora"]
+        corpus_dir = tmp / "corpus" / name
+        manifest = json.loads((corpus_dir / "manifest.json").read_text())
+        block = manifest["selected_by_plan"]["probe"]
+        row_ids = [
+            json.loads(line)["id"]
+            for line in (corpus_dir / "examples.jsonl").read_bytes().split(b"\n")
+            if line
+        ]
+        final_corpus = out_dir / "corpus" / name
+        rev = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        doc: dict[str, Any] = {
+            "schema": "qd-arm-b-probe/v1",
+            "rows": block["rows"],
+            "first_id": block["first_id"],
+            "last_id": block["last_id"],
+            "row_ids": row_ids,
+            "candidates_sha256": block["candidates_sha256"],
+            "plan_sha256": staged["plan_sha256"],
+            "preregistration_sha256": _sha256_file(prereg),
+            "corpus": {
+                "name": name,
+                "examples_sha256": manifest["examples_sha256"],
+                "manifest_sha256": _sha256_file(corpus_dir / "manifest.json"),
+            },
+            "rev": rev,
+            "pipeline_argv": [
+                "--out", str(out_dir), "--no-repo-history", "--rev", rev,
+                "--defect-class", str(final_corpus),
+                "--defect-download", "data/pool/commitpackft",
+                "--vocab", "full", "--memo-limit", "0", "--max-seq-len", "10240",
+                "--span-collapse-policy", "refuse-gold", "--ledger", PROBE_PIPELINE_LEDGER,
+            ],
+        }
+        if len(row_ids) != block["rows"] or len(set(row_ids)) != len(row_ids):
+            raise Refusal(
+                f"the probe corpus holds {len(row_ids)} row id(s) ({len(set(row_ids))} distinct), "
+                f"not {block['rows']} distinct"
+            )
+        (tmp / "probe.json").write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n")
+        tmp.rename(out_dir)
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    doc["out_dir"] = str(out_dir)
+    doc["probe"] = str(out_dir / "probe.json")
+    return doc
+
+
+def probe_rows_per_s(ledger: Path, row_prefix: str) -> float:
+    """The ``arm_b_probe.rows_per_s`` of the one ``arm-b-probe`` eval row ``row_prefix`` names in
+    ``ledger``: a different row, a missing or not-run metric, or a rate that is not a positive
+    finite number is refused, so a scan size always cites a probe row that measured it."""
+    if len(row_prefix) < 8:
+        raise Refusal(f"--eval-row {row_prefix!r}: give at least 8 characters of the row id")
+    found = [r for r in _rows(ledger, "ledger") if str(r.get("row_id", "")).startswith(row_prefix)]
+    if len(found) != 1:
+        raise Refusal(f"--eval-row {row_prefix}: {len(found)} rows match in {ledger}, not 1")
+    row = found[0]
+    tag = (row.get("recipe") or {}).get("tag")
+    if tag != PROBE_ROW_TAG or row.get("run_kind") != "eval":
+        raise Refusal(
+            f"row {row['row_id']} is not an {PROBE_ROW_TAG} eval row (run_kind "
+            f"{row.get('run_kind')!r}, recipe tag {tag!r})"
+        )
+    raw = (row.get("metrics") or {}).get(PROBE_RATE_METRIC)
+    if raw is None:
+        raise Refusal(f"row {row['row_id']} has no {PROBE_RATE_METRIC} metric")
+    state = parse_tristate(raw, field=PROBE_RATE_METRIC)
+    if not isinstance(state, Ran) or not isinstance(state.value, int | float):
+        raise Refusal(f"row {row['row_id']}: {PROBE_RATE_METRIC} did not run ({state})")
+    return float(state.value)
 
 
 def abstentions(lines: Iterable[Mapping[str, Any]]) -> dict[str, bool]:
@@ -769,9 +929,28 @@ def main(argv: list[str] | None = None) -> int:
         help="the `plan` output directory the scored shard set was built from",
     )
     s.add_argument("--out", type=Path, required=True)
+    pr = sub.add_parser(
+        "probe", help=f"write the {PROBE_ROWS}-row throughput probe's corpus and probe.json"
+    )
+    pr.add_argument("--prereg", type=Path, required=True)
+    pr.add_argument("--repo", type=Path, default=ROOT)
+    pr.add_argument("--plan-dir", type=Path, required=True)
+    pr.add_argument("--out", type=Path, required=True, help="a new directory")
+    pr.add_argument("--pool-dir", type=Path, default=None,
+                    help="where the loader re-anchors a base corpus (default: <repo>/data/pool)")
+    pr.add_argument("--download-root", type=Path, default=None,
+                    help="the commitpackft download (default: <pool-dir>/commitpackft)")
     b = sub.add_parser("budget")
-    b.add_argument("--rows-per-s", type=float, required=True)
+    rate = b.add_mutually_exclusive_group(required=True)
+    rate.add_argument("--rows-per-s", type=float)
+    rate.add_argument(
+        "--eval-row", help=f"an {PROBE_ROW_TAG} eval row in --ledger whose "
+        f"{PROBE_RATE_METRIC} is the rate (at least 8 characters of its id)",
+    )
+    b.add_argument("--ledger", type=Path, help="the ledger holding --eval-row")
     args = p.parse_args(argv)
+    if args.cmd == "budget" and (args.eval_row is None) != (args.ledger is None):
+        p.error("budget: --eval-row and --ledger are given together, and --ledger only with it")
     try:
         if args.cmd == "plan":
             held = [x.strip() for x in args.heldout_repos.read_text().splitlines() if x.strip()]
@@ -799,7 +978,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "select":
             return _select(args)
-        print(scan_rows(rows_per_s=args.rows_per_s))
+        if args.cmd == "probe":
+            r = probe(
+                prereg=args.prereg,
+                repo=args.repo,
+                plan_dir=args.plan_dir,
+                out_dir=args.out,
+                pool_dir=args.pool_dir or args.repo / "data" / "pool",
+                download_root=args.download_root,
+            )
+            print(json.dumps({k: r[k] for k in ("rows", "first_id", "last_id", "rev", "probe",
+                                                "pipeline_argv")}, sort_keys=True))
+            return 0
+        rate_s = (
+            args.rows_per_s if args.eval_row is None
+            else probe_rows_per_s(args.ledger, args.eval_row)
+        )
+        print(scan_rows(rows_per_s=rate_s))
         return 0
     except Refusal as exc:
         print(f"arm_b_mine: refused: {exc}", file=sys.stderr)

@@ -905,3 +905,181 @@ def test_materialise_refuses_tampered_candidates_and_an_existing_out_dir(
     Path(str(world["tmp"]), "materialised").mkdir()
     with pytest.raises(mine.Refusal, match="exists"):
         _materialise(world, plan)
+
+
+# -- probe: the 200-row throughput cut -----------------------------------------------------------
+#
+# Fable's 2026-10-14 ruling (AUDIT/board-sweep-2026-10-13/fable-arm-b-probe-construction-ruling.md):
+# the probe is the first PROBE_ROWS rows of the plan's candidates.jsonl, in its order, written as a
+# corpus directory through materialise's own staging. PROBE_ROWS is 200: a constant, not a flag.
+
+
+def _probe(world: dict[str, object], plan: dict[str, object], **over: object) -> dict:
+    tmp = Path(str(world["tmp"]))
+    kwargs: dict[str, object] = {
+        "prereg": world["prereg"],
+        "repo": world["repo"],
+        "plan_dir": Path(str(plan["out_dir"])),
+        "out_dir": tmp / "probe",
+        "pool_dir": tmp / "pool",
+    }
+    kwargs.update(over)
+    return mine.probe(**kwargs)  # type: ignore[arg-type]
+
+
+def test_probe_writes_the_first_200_plan_rows_in_candidates_order_and_pins_them(
+    world: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert mine.PROBE_ROWS == 200, "the registered cut is a constant"
+    tmp = Path(str(world["tmp"]))
+    pool = _pin_loadable_composed(world, n_composed=4)
+    plan = _plan(world)
+    assert plan["kept"] == 4
+    monkeypatch.setattr(mine, "PROBE_ROWS", 3)
+    report = _probe(world, plan, pool_dir=pool)
+
+    out = tmp / "probe"
+    cand = Path(str(plan["out_dir"])) / "candidates.jsonl"
+    ids = [json.loads(x)["id"] for x in _lines(cand)[:3]]
+    corpus = out / "corpus" / "c1"
+    assert [json.loads(x)["id"] for x in _lines(corpus / "examples.jsonl")] == ids
+    manifest = json.loads((corpus / "manifest.json").read_text())
+    assert manifest["selected_by_plan"]["probe"] == {
+        "rows": 3, "first_id": ids[0], "last_id": ids[-1],
+        "candidates_sha256": plan["candidates_sha256"],
+    }
+    assert manifest["examples_sha256"] == _sha((corpus / "examples.jsonl").read_bytes())
+    assert manifest["selected_by_plan"]["kept"] == 3, "materialise's own staging, rows = the cut"
+    assert (pool / "c1-planbase" / "examples.jsonl").read_bytes() == b""
+
+    doc = json.loads((out / "probe.json").read_text())
+    assert doc["rows"] == 3 and doc["row_ids"] == ids
+    assert (doc["first_id"], doc["last_id"]) == (ids[0], ids[-1])
+    assert doc["candidates_sha256"] == plan["candidates_sha256"] == _sha(cand.read_bytes())
+    assert doc["plan_sha256"] == _sha((Path(str(plan["out_dir"])) / "plan.json").read_bytes())
+    assert doc["preregistration_sha256"] == _sha(Path(str(world["prereg"])).read_bytes())
+    assert doc["corpus"] == {
+        "name": "c1",
+        "examples_sha256": manifest["examples_sha256"],
+        "manifest_sha256": _sha((corpus / "manifest.json").read_bytes()),
+    }
+    head = _git(Path(str(world["repo"])), "rev-parse", "HEAD")
+    argv = doc["pipeline_argv"]
+    assert doc["rev"] == head and report["probe"] == str(out / "probe.json")
+    assert argv[argv.index("--defect-class") + 1] == str(corpus)
+    assert argv[argv.index("--out") + 1] == str(out)
+    assert argv[argv.index("--rev") + 1] == head
+    for flag, value in (
+        ("--vocab", "full"), ("--memo-limit", "0"), ("--max-seq-len", "10240"),
+        ("--span-collapse-policy", "refuse-gold"), ("--defect-download", "data/pool/commitpackft"),
+        ("--ledger", "ledger/arm-b-shards-2026-10-13.jsonl"),
+    ):
+        assert argv[argv.index(flag) + 1] == value
+    assert "--no-repo-history" in argv and "--val-shards" not in argv
+    # The cut loads through the one reader (the planbase is empty, so only the cut's rows).
+    from qd_data.config import DataConfig
+    from qd_data.defect_class import load_defect_rows
+
+    loaded = load_defect_rows(
+        corpus, download_root=pool / "commitpackft", config=DataConfig(),
+        repo_root=Path(str(world["repo"])),
+    )
+    assert len(loaded.rows) == 3
+
+
+def test_probe_refuses_a_plan_whose_candidates_changed_or_an_existing_out(
+    world: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tmp = Path(str(world["tmp"]))
+    _two_corpora(world, [_cand(1), _cand(2), _cand(3)], [_cand(10)],
+                 train_rows=[{"id": "u"}], val_rows=[{"row_id": "u"}])
+    plan = _plan(world)
+    monkeypatch.setattr(mine, "PROBE_ROWS", 2)
+    cand = Path(str(plan["out_dir"])) / "candidates.jsonl"
+    original = cand.read_bytes()
+    cand.write_bytes(original + b"{}\n")
+    with pytest.raises(mine.Refusal, match="no longer hashes"):
+        _probe(world, plan)
+    assert not (tmp / "probe").exists(), "a refused probe left an output directory"
+    cand.write_bytes(original)
+    (tmp / "probe").mkdir()
+    with pytest.raises(mine.Refusal, match="exists"):
+        _probe(world, plan)
+    (tmp / "probe").rmdir()
+    # A plan with fewer rows than the cut is refused, never padded or shrunk.
+    monkeypatch.setattr(mine, "PROBE_ROWS", 5)
+    with pytest.raises(mine.Refusal, match="4 kept row"):
+        _probe(world, plan)
+    assert not (tmp / "probe").exists()
+    # The cut is one corpus: it is written as one corpus directory.
+    monkeypatch.setattr(mine, "PROBE_ROWS", 4)
+    with pytest.raises(mine.Refusal, match="more than one corpus"):
+        _probe(world, plan)
+    assert not (tmp / "probe").exists()
+
+
+def test_probe_refuses_a_held_out_marked_path(
+    world: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tmp = Path(str(world["tmp"]))
+    _two_corpora(world, [_cand(1), _cand(2)], [], train_rows=[{"id": "u"}],
+                 val_rows=[{"row_id": "u"}])
+    plan = _plan(world)
+    monkeypatch.setattr(mine, "PROBE_ROWS", 2)
+    with pytest.raises(mine.Refusal, match="held-out"):
+        _probe(world, plan, out_dir=tmp / "heldout" / "probe")
+    assert not (tmp / "heldout").exists(), "a held-out path was written"
+    moved = tmp / "held-out" / "plan"
+    moved.parent.mkdir()
+    Path(str(plan["out_dir"])).rename(moved)
+    with pytest.raises(mine.Refusal, match="held-out"):
+        _probe(world, plan | {"out_dir": str(moved)})
+    assert not (tmp / "probe").exists()
+
+
+# -- budget from a probe row ---------------------------------------------------------------------
+
+
+def _probe_ledger(tmp_path: Path) -> Path:
+    def row(rid: str, tag: str, metrics: dict[str, object]) -> dict[str, object]:
+        return {"row_id": rid, "run_kind": "eval", "status": "completed",
+                "recipe": {"tag": tag}, "metrics": metrics}
+
+    ran = {"state": "ran", "passed": True, "value": 0.05, "detail": "x"}
+    rows = [
+        row("11111111-aaaa", "arm-b-probe", {"arm_b_probe.rows_per_s": ran}),
+        row("22222222-bbbb", "epoch-score-val", {"arm_b_probe.rows_per_s": ran}),
+        row("33333333-cccc", "arm-b-probe",
+            {"arm_b_probe.rows_per_s": {"state": "not_run", "reason": "no decode"}}),
+        row("44444444-dddd", "arm-b-probe", {}),
+        row("55555555-eeee", "arm-b-probe", {"arm_b_probe.rows_per_s": {**ran, "value": 0.0}}),
+    ]
+    path = tmp_path / "probe-ledger.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return path
+
+
+def test_budget_reads_rows_per_s_from_a_probe_row_and_refuses_another_row(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = _probe_ledger(tmp_path)
+    assert mine.main(["budget", "--eval-row", "11111111", "--ledger", str(ledger)]) == 0
+    assert capsys.readouterr().out.strip() == str(mine.scan_rows(rows_per_s=0.05)) == "6480"
+    assert mine.main(["budget", "--rows-per-s", "0.05"]) == 0, "the bare form stays"
+    assert capsys.readouterr().out.strip() == "6480"
+    for row, why in (
+        ("22222222", "not an arm-b-probe eval row"),
+        ("33333333", "not run"),
+        ("44444444", "no arm_b_probe.rows_per_s"),
+        ("55555555", "not a positive finite"),
+        ("66666666", "0 rows"),
+        ("1111", "at least 8"),
+    ):
+        capsys.readouterr()
+        assert mine.main(["budget", "--eval-row", row, "--ledger", str(ledger)]) == 2, row
+        assert why in capsys.readouterr().err, row
+    with pytest.raises(SystemExit):
+        mine.main(["budget", "--eval-row", "11111111"])  # a row needs the ledger it is in
+    with pytest.raises(SystemExit):
+        mine.main(["budget", "--rows-per-s", "1", "--eval-row", "11111111",
+                   "--ledger", str(ledger)])
