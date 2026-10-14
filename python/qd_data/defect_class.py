@@ -1298,6 +1298,7 @@ def load_defect_rows(
         noul = _load_noul_corpus(
             Path(noul_dir), config=config, repo_root=Path(repo_root), licences=licences,
             pools={str(pool_meta["sha256"]): pool},
+            own_pool_path=pool_path if own_pool is not None else None,
         )
         rows.extend(noul.rows)
     ids = Counter(r.example_id for r in rows)
@@ -1454,7 +1455,11 @@ def _load_noul(
     repo_root: Path,
     licences: Mapping[str, str],
     pools: dict[str, dict[str, str]],
+    own_pool_path: Path | None = None,
 ) -> NoulLoad:
+    """``own_pool_path`` is the own-repos pool the caller admitted, when ``licences`` derive from
+    it (``load_defect_rows`` knows; the noul manifest's own claim about its pool is never used to
+    decide it). Then the corpus must name that very pool and be one the pre-registration pins."""
     from qd_train.data_access import assert_path_not_held_out
 
     examples_path = noul_dir / "examples.jsonl"
@@ -1486,7 +1491,13 @@ def _load_noul(
     if pool is None:
         _check_sha(pool_path, pool_sha, recorded_in=manifest_path)
         pool = _load_pool_ids(pool_path)
-    if _own_repos_pool_manifest(pool_path) is not None:
+    if own_pool_path is not None and pool_path != own_pool_path:
+        raise DefectCorpusError(
+            f"{manifest_path} names pool {pool_path}, not the own-repos pool {own_pool_path} "
+            "this run's licences derive from: its rows would be licensed by a pool they were "
+            "not drawn from"
+        )
+    if own_pool_path is not None or _own_repos_pool_manifest(pool_path) is not None:
         # A noul row over an own pool is trained text claimed as the human's (it is licensed from
         # the pool), so the corpus must be one the pre-registration pins, as any own corpus.
         _require_pinned_own_corpus(examples_path, manifest, repo_root=repo_root, config=config)
@@ -1955,6 +1966,7 @@ def _load_composite(
     repo_root: Path,
     licences: Mapping[str, str],
     pools: dict[str, dict[str, str]],
+    own_pool_path: Path | None = None,
 ) -> NoulLoad:
     """A :data:`NOUL_COMPOSITE_SCHEMA` corpus: each part, a sibling directory of ``noul_dir``,
     is checked against the manifest's and data file's sha256 the composite pins, loaded by its
@@ -1984,7 +1996,8 @@ def _load_composite(
             load = _load_g6(part_dir, config=config, repo_root=repo_root)
         else:
             load = _load_noul(
-                part_dir, config=config, repo_root=repo_root, licences=licences, pools=pools
+                part_dir, config=config, repo_root=repo_root, licences=licences, pools=pools,
+                own_pool_path=own_pool_path,
             )
         if len(load.rows) != int(part["rows"]):
             raise DefectCorpusError(
@@ -2013,6 +2026,7 @@ def _load_noul_corpus(
     repo_root: Path,
     licences: Mapping[str, str],
     pools: dict[str, dict[str, str]],
+    own_pool_path: Path | None = None,
 ) -> NoulLoad:
     """A ``qd-noul-rows`` corpus, or a composite of them (v5's defect-noul-v3c)."""
     from qd_train.data_access import assert_path_not_held_out
@@ -2028,8 +2042,12 @@ def _load_noul_corpus(
             repo_root=repo_root,
             licences=licences,
             pools=pools,
+            own_pool_path=own_pool_path,
         )
-    return _load_noul(noul_dir, config=config, repo_root=repo_root, licences=licences, pools=pools)
+    return _load_noul(
+        noul_dir, config=config, repo_root=repo_root, licences=licences, pools=pools,
+        own_pool_path=own_pool_path,
+    )
 
 
 def noul_contrast_spec(noul_dir: Path) -> ContrastSpec | None:

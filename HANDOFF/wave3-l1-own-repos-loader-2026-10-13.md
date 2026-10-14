@@ -103,6 +103,20 @@ judge; collisions facet truncated, 3 worktrees unscanned).
   genuine subset. It now finds the pinned source by `source_examples_sha256`. The fixture's
   materialised directory is renamed to cover it (red before the fix: the subset-admitted test).
 
+### Round 3, final attack on 84078b5 (fixed)
+
+HIGH: `_load_noul` decided "own pool" from the noul manifest's own `pool.path` (a sidecar manifest
+beside that file), so a byte-identical decoy copy of the pool with no sidecar, named by the noul
+manifest, hid the corpus from the pin check and was licensed owner-granted. Fix at the seam:
+`load_defect_rows` passes `own_pool_path` (the admitted own pool) through `_load_noul_corpus` and
+`_load_composite` to `_load_noul`; when set, the noul manifest must name that very pool and the
+corpus must be pinned (the old sidecar test remains as an extra, narrowing-only trigger).
+`test_a_noul_corpus_naming_a_decoy_copy_of_the_own_pool_is_refused[pinned False/True]`: red on
+84078b5 (2 failed, DID NOT RAISE), green on the tip.
+Residuals added: the subset proof holds the subset's lines in memory (about 2-3x the file's size);
+the source is hashed and then re-read for the line walk (sha-then-reread, same class as residual c).
+Security impact: narrows admission only.
+
 ## Evidence (first commit, ab80131)
 
 - Red on 174452f (new test file copied into a detached worktree of 174452f, since removed):

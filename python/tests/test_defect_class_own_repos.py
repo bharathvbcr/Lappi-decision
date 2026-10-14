@@ -798,6 +798,31 @@ def test_a_noul_scrambled_row_over_an_own_pool_is_refused_unless_registered(
     assert _load(tmp_path, base, download, noul_dir=noul).n_noul == 1
 
 
+@pytest.mark.parametrize("pinned", [False, True])
+def test_a_noul_corpus_naming_a_decoy_copy_of_the_own_pool_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pinned: bool
+) -> None:
+    """Whether licences are own-derived is the main corpus's fact, not the noul manifest's claim.
+    A byte-identical copy of the pool with no sidecar manifest, named by the noul manifest, hid
+    the corpus from the pin check and was licensed owner-granted through the real pool's ids."""
+    from test_defect_class import _repos_in
+
+    repo = _repos_in("train", 1)[0]
+    base, download = _own_world(
+        tmp_path, monkeypatch, pool_repo=repo, train_slugs=(repo,), heldout_slugs=()
+    )
+    noul = _own_noul_dir(tmp_path, base)
+    pool_dir = tmp_path / "data" / "pool"
+    (pool_dir / "decoy.jsonl").write_bytes((pool_dir / "own-pool.jsonl").read_bytes())
+    m = json.loads((noul / "manifest.json").read_text())
+    m["pool"]["path"] = "/elsewhere/data/pool/decoy.jsonl"
+    (noul / "manifest.json").write_text(json.dumps(m))
+    if pinned:
+        _pin_corpora(monkeypatch, base, noul)
+    with pytest.raises(DefectCorpusError, match="own-repos pool"):
+        _load(tmp_path, base, download, noul_dir=noul)
+
+
 def _materialise(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, keep: tuple[int, ...] = (0, 2)
 ) -> tuple[Path, Path, Path]:
