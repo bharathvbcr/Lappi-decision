@@ -50,7 +50,7 @@
 #         make help
 
 REPO      := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-VENV      := $(REPO)/.venv
+VENV      ?= $(REPO)/.venv
 PY        := $(VENV)/bin/python
 RUFF      := $(VENV)/bin/ruff
 LEDGER    := $(REPO)/ledger/runs.jsonl

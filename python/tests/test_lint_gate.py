@@ -377,6 +377,30 @@ def _recipe(target: str) -> str:
     return proc.stdout
 
 
+def test_venv_can_be_named_from_the_environment_for_a_worktree():
+    """A worktree has no `.venv`, so `VENV=<main>/.venv make pytest` must reach that interpreter.
+
+    `VENV := ...` ignored the environment (only a command-line `VENV=` won), so a lane
+    that exported it ran `$(REPO)/.venv/bin/python`, found none and reported NotRun.
+    `?=` honours the environment while the command line still wins.
+    """
+    named = "/nonexistent-qd-venv"
+    proc = subprocess.run(
+        ["make", "-f", str(MAKEFILE), "--no-print-directory", "-n", "pytest"],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT_S,
+        cwd=str(REPO),
+        env={**os.environ, "VENV": named},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert f"{named}/bin/python" in proc.stdout, (
+        "VENV in the environment was ignored by the Makefile; a worktree cannot borrow "
+        f"another checkout's venv.\n{proc.stdout}"
+    )
+    assert f"{REPO}/.venv/bin/python" not in proc.stdout
+
+
 def _recorded_suite_commands() -> dict[str, str]:
     """The `--suite NAME=COMMAND` pairs `make ledger-record` hands the recorder.
 
