@@ -11,9 +11,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use qd_export::safetensors::{Dtype, PlannedTensor, Writer};
 use qd_export::ExportRequest;
-use serde_json::{json, Value};
+use qd_export::safetensors::{Dtype, PlannedTensor, Writer};
+use serde_json::{Value, json};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -106,7 +106,14 @@ pub fn values(n: usize, seed: u64) -> Vec<f32> {
 }
 
 /// Exact rounding ties and boundary values, written over the start of every F32 tensor.
-pub const F32_EDGES: [u32; 6] = [0x3F80_8000, 0x3F81_8000, 0xBF80_8000, 0x0000_8000, 0x0001_8000, 0x3FFF_FFFF];
+pub const F32_EDGES: [u32; 6] = [
+    0x3F80_8000,
+    0x3F81_8000,
+    0xBF80_8000,
+    0x0000_8000,
+    0x0001_8000,
+    0x3FFF_FFFF,
+];
 
 pub fn f32_tensor(shape: &[usize], seed: u64) -> Tensor {
     let n = shape.iter().product();
@@ -152,7 +159,10 @@ pub fn standard_tensors() -> BTreeMap<String, Tensor> {
     for (seed, (short, shape)) in (1u64..).zip(layout.text_tensors().unwrap()) {
         let t = if short.contains("mlp.") {
             f16_tensor(&shape, seed)
-        } else if short.contains("layernorm") || short.contains("self_attn") || short.ends_with("dt_bias") {
+        } else if short.contains("layernorm")
+            || short.contains("self_attn")
+            || short.ends_with("dt_bias")
+        {
             bf16_tensor(&shape, seed)
         } else {
             f32_tensor(&shape, seed)
@@ -216,12 +226,18 @@ pub fn write_train_manifest(path: &Path, families: &[&str]) -> PathBuf {
 }
 
 pub fn tokenizer_sha256(snapshot: &Path) -> String {
-    qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(snapshot.join("tokenizer.json")).unwrap()))
+    qd_runtime::hex(&qd_runtime::sha256(
+        &std::fs::read(snapshot.join("tokenizer.json")).unwrap(),
+    ))
 }
 
 /// Write `tensors` as the averaged checkpoint, its manifest (edited by `manifest_edit`), and a
 /// base snapshot with `config`.
-pub fn build(tensors: &BTreeMap<String, Tensor>, config: &Value, manifest_edit: impl FnOnce(&mut Value)) -> Fixture {
+pub fn build(
+    tensors: &BTreeMap<String, Tensor>,
+    config: &Value,
+    manifest_edit: impl FnOnce(&mut Value),
+) -> Fixture {
     let dir = TempDir::new("fx");
     let source = dir.0.join("avg.safetensors");
     let plan = tensors
@@ -251,13 +267,25 @@ pub fn build(tensors: &BTreeMap<String, Tensor>, config: &Value, manifest_edit: 
     });
     manifest_edit(&mut manifest);
     let manifest_path = dir.0.join("avg.safetensors.manifest.json");
-    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
 
     let snapshot = dir.0.join("snapshot");
     std::fs::create_dir(&snapshot).unwrap();
-    std::fs::write(snapshot.join("config.json"), serde_json::to_string_pretty(config).unwrap()).unwrap();
+    std::fs::write(
+        snapshot.join("config.json"),
+        serde_json::to_string_pretty(config).unwrap(),
+    )
+    .unwrap();
     std::fs::write(snapshot.join("tokenizer.json"), tiny_tokenizer_json()).unwrap();
-    std::fs::write(snapshot.join("tokenizer_config.json"), r#"{"model_max_length": 262144}"#).unwrap();
+    std::fs::write(
+        snapshot.join("tokenizer_config.json"),
+        r#"{"model_max_length": 262144}"#,
+    )
+    .unwrap();
     std::fs::write(snapshot.join("vocab.json"), r#"{"A": 1}"#).unwrap();
     std::fs::write(snapshot.join("merges.txt"), "#version: 0.2\n").unwrap();
 
@@ -289,7 +317,7 @@ impl Fixture {
             train_manifest: self.train_manifest.clone(),
             allow_extra: Vec::new(),
             averaged_head_preregistration: None,
-        ft_ledger: None,
+            ft_ledger: None,
             out: self.out.clone(),
         }
     }

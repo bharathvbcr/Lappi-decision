@@ -15,7 +15,7 @@
 //!    the runtime's declared shape is mirrored here and the mirror is what the test binds.
 
 use qd_mutate::diffspan::span_from_text_diff;
-use qd_mutate::span::{line_of, lines_in_span, span_from_byte_range, total_lines, LineSpan};
+use qd_mutate::span::{LineSpan, line_of, lines_in_span, span_from_byte_range, total_lines};
 
 /// A byte-for-byte mirror of `qd_runtime::schema::SpanValue`, including `deny_unknown_fields`.
 ///
@@ -79,7 +79,11 @@ fn a_replacement_that_rewrites_a_line_to_itself_is_a_disagreement_and_must_stay_
     let from_bytes = span_from_byte_range(&after, start, start + replacement.len());
     let from_diff = span_from_text_diff(FIXTURE, &after).expect("the texts differ");
     assert_eq!(from_bytes, LineSpan::new(3, 4), "what the mutator wrote");
-    assert_eq!(from_diff, LineSpan::new(4, 4), "what the text shows changed");
+    assert_eq!(
+        from_diff,
+        LineSpan::new(4, 4),
+        "what the text shows changed"
+    );
     assert_ne!(
         from_bytes, from_diff,
         "if these ever agree, one derivation has started copying the other"
@@ -109,8 +113,15 @@ fn a_single_line_span_has_equal_ends_rather_than_a_zero_width() {
     let after = FIXTURE.replacen("let a = 1", "let a = 9", 1);
     let from_bytes = span_from_byte_range(&after, start, start + "let a = 9".len());
     assert_eq!(from_bytes, LineSpan::new(2, 2));
-    assert_eq!(from_bytes, span_from_text_diff(FIXTURE, &after).expect("differ"));
-    assert_eq!(from_bytes.line_count(), 1, "an inclusive one-line span counts 1");
+    assert_eq!(
+        from_bytes,
+        span_from_text_diff(FIXTURE, &after).expect("differ")
+    );
+    assert_eq!(
+        from_bytes.line_count(),
+        1,
+        "an inclusive one-line span counts 1"
+    );
 }
 
 #[test]
@@ -123,7 +134,8 @@ fn the_wire_shape_is_the_one_the_runtime_declares() {
     );
 
     // Forwards: a span this crate emits deserializes as the runtime's value.
-    let as_runtime: RuntimeSpanValue = serde_json::from_str(&json).expect("the runtime can read it");
+    let as_runtime: RuntimeSpanValue =
+        serde_json::from_str(&json).expect("the runtime can read it");
     assert_eq!(
         as_runtime,
         RuntimeSpanValue {
@@ -152,7 +164,11 @@ fn a_trailing_newline_and_its_absence_agree_on_the_last_line() {
     // "Last line of file with no trailing newline | Span end runs past EOF" — hardening §1.
     let with_newline = "a\nb\n";
     let without = "a\nb";
-    assert_eq!(total_lines(with_newline), 3, "the phantom final line is counted");
+    assert_eq!(
+        total_lines(with_newline),
+        3,
+        "the phantom final line is counted"
+    );
     assert_eq!(total_lines(without), 2);
 
     let after_with = "a\nX\n";

@@ -57,14 +57,22 @@ fn refused(raw: &Value, needle: &str) {
 
 #[test]
 fn every_python_written_v5_header_verifies_with_the_hash_python_recorded() {
-    for text in [V5_TRAIN, V5_VAL_REPORT_ONLY, V5_EXCLUSIONS_ONLY, V5_CONTRAST_ONLY] {
+    for text in [
+        V5_TRAIN,
+        V5_VAL_REPORT_ONLY,
+        V5_EXCLUSIONS_ONLY,
+        V5_CONTRAST_ONLY,
+    ] {
         verifies(&parse(text));
     }
 }
 
 #[test]
 fn the_v4_fixture_header_still_verifies_as_it_was_written() {
-    let path = common::fixture().join("shards").join("train").join("header.json");
+    let path = common::fixture()
+        .join("shards")
+        .join("train")
+        .join("header.json");
     let raw: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     for key in ["prompt_format", "exclusions_sha256", "contrast_rows"] {
         assert!(raw.get(key).is_none(), "the v4 fixture predates {key}");
@@ -86,11 +94,15 @@ fn each_v5_pin_is_covered_by_the_hash() {
             v.as_object_mut().unwrap().remove("prompt_format");
         }),
         ("prompt_format 2 -> 1", |v| v["prompt_format"] = json!(1)),
-        ("exclusions changed", |v| v["exclusions_sha256"] = json!("f".repeat(64))),
+        ("exclusions changed", |v| {
+            v["exclusions_sha256"] = json!("f".repeat(64))
+        }),
         ("exclusions removed", |v| {
             v.as_object_mut().unwrap().remove("exclusions_sha256");
         }),
-        ("contrast count changed", |v| v["contrast_rows"]["count"] = json!(1999)),
+        ("contrast count changed", |v| {
+            v["contrast_rows"]["count"] = json!(1999)
+        }),
         ("contrast removed", |v| {
             v.as_object_mut().unwrap().remove("contrast_rows");
         }),
@@ -118,7 +130,14 @@ fn an_explicit_prompt_format_of_1_hashes_as_absent() {
 /// before the hash: a malformed pin is refused for what it is, not as a hash mismatch.
 #[test]
 fn a_malformed_v5_pin_is_refused_as_python_refuses_it() {
-    for bad in [json!(0), json!(-1), json!(true), json!("2"), json!(2.0), json!(null)] {
+    for bad in [
+        json!(0),
+        json!(-1),
+        json!(true),
+        json!("2"),
+        json!(2.0),
+        json!(null),
+    ] {
         let mut raw = parse(V5_TRAIN);
         raw["prompt_format"] = bad;
         refused(&raw, "prompt_format");

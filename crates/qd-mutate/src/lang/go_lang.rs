@@ -284,7 +284,10 @@ impl Language for Go {
     fn string_literals<'t>(&self, body: &FunctionBody<'t>) -> Vec<Node<'t>> {
         let mut out = Vec::new();
         walk_body(body.body, &is_boundary, |node| {
-            if matches!(node.kind(), "interpreted_string_literal" | "raw_string_literal") {
+            if matches!(
+                node.kind(),
+                "interpreted_string_literal" | "raw_string_literal"
+            ) {
                 out.push(node);
             }
         });
@@ -354,7 +357,8 @@ impl Language for Go {
         Some(ImportBlock {
             items,
             reorderable: !has_blank,
-            why_not: has_blank.then_some("a blank import runs for its side effect, and side effects are ordered"),
+            why_not: has_blank
+                .then_some("a blank import runs for its side effect, and side effects are ordered"),
         })
     }
 
@@ -506,7 +510,8 @@ fn result_zeros(raw: &str) -> Option<Vec<String>> {
 fn is_integer_type(ty: &str) -> bool {
     matches!(
         ty,
-        "int" | "int8"
+        "int"
+            | "int8"
             | "int16"
             | "int32"
             | "int64"

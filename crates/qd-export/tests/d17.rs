@@ -8,9 +8,9 @@
 
 mod common;
 
-use common::{build, f32_tensor, standard_tensors, tiny_config, Fixture, Tensor, HIDDEN};
+use common::{Fixture, HIDDEN, Tensor, build, f32_tensor, standard_tensors, tiny_config};
 use qd_export::safetensors::{Dtype, SafeTensorsFile};
-use qd_export::{export, RefusalKind};
+use qd_export::{RefusalKind, export};
 use serde_json::Value;
 
 const D17_FILE: &str = "d17.safetensors";
@@ -31,23 +31,33 @@ fn a_source_with_d17_exports_it_f32_bit_for_bit_and_records_it() {
     let fx = fixture_with("d17.delta", delta.clone());
     let summary = export(&fx.request()).expect("a source carrying d17.delta exports");
 
-    let file = SafeTensorsFile::open(&fx.out.join(D17_FILE)).expect("the release holds d17.safetensors");
+    let file =
+        SafeTensorsFile::open(&fx.out.join(D17_FILE)).expect("the release holds d17.safetensors");
     assert_eq!(file.tensors().len(), 1, "one tensor, `delta`");
     let info = &file.tensors()["delta"];
-    assert_eq!((info.dtype, info.shape.clone()), (Dtype::F32, vec![17, HIDDEN]));
+    assert_eq!(
+        (info.dtype, info.shape.clone()),
+        (Dtype::F32, vec![17, HIDDEN])
+    );
     let mut got = vec![0u8; delta.bytes.len()];
     file.read_tensor_range(info, 0, &mut got).unwrap();
     assert_eq!(got, delta.bytes, "F32, bit for bit");
 
     let m = manifest(&fx);
-    let sha = summary.files.get(D17_FILE).expect("the summary lists the file");
+    let sha = summary
+        .files
+        .get(D17_FILE)
+        .expect("the summary lists the file");
     assert_eq!(m["files"][D17_FILE]["sha256"].as_str(), Some(sha.as_str()));
     assert_eq!(m["d17"]["file"], D17_FILE);
     assert_eq!(m["d17"]["rows"], 17);
     assert_eq!(m["d17"]["hidden_size"], HIDDEN);
     assert_eq!(m["d17"]["dtype"], "F32");
     assert!(
-        m["d17"]["serving"].as_str().unwrap().contains("embed[answer ids] + D17"),
+        m["d17"]["serving"]
+            .as_str()
+            .unwrap()
+            .contains("embed[answer ids] + D17"),
         "the manifest states the readout: {}",
         m["d17"]["serving"]
     );
@@ -66,10 +76,30 @@ fn a_source_without_d17_exports_as_before() {
 #[test]
 fn a_d17_that_is_not_17_rows_by_hidden_f32_and_finite_is_refused() {
     let cases: [(&str, Tensor, RefusalKind, &str); 5] = [
-        ("16 rows", f32_tensor(&[16, HIDDEN], 1), RefusalKind::ShapeMismatch, "d17.delta"),
-        ("wrong width", f32_tensor(&[17, HIDDEN + 1], 2), RefusalKind::ShapeMismatch, "d17.delta"),
-        ("bf16", common::bf16_tensor(&[17, HIDDEN], 3), RefusalKind::Dtype, "d17.delta is BF16"),
-        ("f16", common::f16_tensor(&[17, HIDDEN], 4), RefusalKind::Dtype, "d17.delta is F16"),
+        (
+            "16 rows",
+            f32_tensor(&[16, HIDDEN], 1),
+            RefusalKind::ShapeMismatch,
+            "d17.delta",
+        ),
+        (
+            "wrong width",
+            f32_tensor(&[17, HIDDEN + 1], 2),
+            RefusalKind::ShapeMismatch,
+            "d17.delta",
+        ),
+        (
+            "bf16",
+            common::bf16_tensor(&[17, HIDDEN], 3),
+            RefusalKind::Dtype,
+            "d17.delta is BF16",
+        ),
+        (
+            "f16",
+            common::f16_tensor(&[17, HIDDEN], 4),
+            RefusalKind::Dtype,
+            "d17.delta is F16",
+        ),
         (
             "nan",
             {
@@ -85,7 +115,10 @@ fn a_d17_that_is_not_17_rows_by_hidden_f32_and_finite_is_refused() {
         let fx = fixture_with("d17.delta", tensor);
         let err = export(&fx.request()).expect_err(what);
         assert_eq!(err.kind, kind, "{what}: {err}");
-        assert!(err.detail.contains(needle), "{what}: expected {needle:?} in {err}");
+        assert!(
+            err.detail.contains(needle),
+            "{what}: expected {needle:?} in {err}"
+        );
         assert!(!fx.out.exists(), "{what}: nothing is published");
         assert!(fx.leftovers().is_empty(), "{what}: staging left behind");
     }

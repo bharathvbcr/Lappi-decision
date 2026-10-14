@@ -19,9 +19,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use qd_runtime::caller_record::{
-    check_store_path, validate_line, RecordKind, MAX_RECORD_BYTES,
-};
+use qd_runtime::caller_record::{MAX_RECORD_BYTES, RecordKind, check_store_path, validate_line};
 use serde_json::json;
 
 const SHOWN_INVALID: usize = 20;
@@ -84,7 +82,12 @@ fn main() -> ExitCode {
                 buf.pop();
             } else if buf.len() > MAX_RECORD_BYTES {
                 // Over the cap: report it, then skip the rest of this line without holding it.
-                note(&shown, n, format!("line over the {MAX_RECORD_BYTES}-byte record cap"), &mut invalid_total);
+                note(
+                    &shown,
+                    n,
+                    format!("line over the {MAX_RECORD_BYTES}-byte record cap"),
+                    &mut invalid_total,
+                );
                 let mut sink = Vec::new();
                 loop {
                     sink.clear();
@@ -102,7 +105,12 @@ fn main() -> ExitCode {
                 continue;
             } else {
                 // A final line with no newline is a write that was cut off, not a record.
-                note(&shown, n, "a final line with no newline (a torn write)".into(), &mut invalid_total);
+                note(
+                    &shown,
+                    n,
+                    "a final line with no newline (a torn write)".into(),
+                    &mut invalid_total,
+                );
                 lines += 1;
                 break;
             }
@@ -128,8 +136,14 @@ fn main() -> ExitCode {
 
     let duplicates: u64 = seen.values().filter(|&&c| c > 1).map(|c| c - 1).sum();
     let outcome_set: HashSet<&String> = outcome_ids.iter().collect();
-    let orphans = outcome_ids.iter().filter(|id| !decisions.contains(*id)).count();
-    let unresolved = decisions.iter().filter(|id| !outcome_set.contains(id)).count();
+    let orphans = outcome_ids
+        .iter()
+        .filter(|id| !decisions.contains(*id))
+        .count();
+    let unresolved = decisions
+        .iter()
+        .filter(|id| !outcome_set.contains(id))
+        .count();
     let report = json!({
         "files": files.len(),
         "lines": lines,

@@ -32,7 +32,7 @@ use std::time::Duration;
 
 use clap::Parser;
 
-use qd_metal::serve::{metal_starter, open_release, release_factory, MetalBounds};
+use qd_metal::serve::{MetalBounds, metal_starter, open_release, release_factory};
 use qd_runtime::registry::HeadRegistry;
 use qd_runtime::render::RenderCaps;
 use qd_runtime::runtime::RuntimeConfig;
@@ -117,16 +117,21 @@ pub struct Cli {
 
 fn default_socket_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library").join("Caches").join("qd").join("qd.sock"))
+    Some(
+        PathBuf::from(home)
+            .join("Library")
+            .join("Caches")
+            .join("qd")
+            .join("qd.sock"),
+    )
 }
 
 fn run(cli: Cli) -> Result<(), String> {
     let release = open_release(&cli.release).map_err(|e| format!("{e}; nothing was served"))?;
-    let socket = cli
-        .socket
-        .clone()
-        .or_else(default_socket_path)
-        .ok_or("no --socket given and $HOME is unset, so there is no default path to listen on")?;
+    let socket =
+        cli.socket.clone().or_else(default_socket_path).ok_or(
+            "no --socket given and $HOME is unset, so there is no default path to listen on",
+        )?;
     let bounds = MetalBounds {
         queue_capacity: cli.queue_capacity.get(),
         max_entries: cli.max_entries.get(),
@@ -134,7 +139,12 @@ fn run(cli: Cli) -> Result<(), String> {
         job_timeout: Duration::from_millis(cli.job_timeout_ms.get()),
     };
     let caps = RenderCaps::DEFAULT;
-    let factory = release_factory(release.clone(), HeadRegistry::new(), caps, metal_starter(bounds));
+    let factory = release_factory(
+        release.clone(),
+        HeadRegistry::new(),
+        caps,
+        metal_starter(bounds),
+    );
     let cfg = ServiceConfig {
         runtime: RuntimeConfig {
             caps,
@@ -190,11 +200,25 @@ mod tests {
     fn the_idle_timeout_default_is_qd_runtimes_not_a_new_one() {
         let cli = Cli::try_parse_from(["qd-metal-serve", "--release", "/r"]).unwrap();
         assert_eq!(cli.idle_timeout_ms.get(), 600_000);
-        assert_eq!(Duration::from_millis(cli.idle_timeout_ms.get()), ServiceConfig::default().idle_timeout);
-        assert_eq!(Duration::from_millis(cli.request_timeout_ms.get()), ServiceConfig::default().request_timeout);
-        assert_eq!(cli.max_in_flight.get(), ServiceConfig::default().max_in_flight);
         assert_eq!(
-            (cli.queue_capacity.get(), cli.max_entries.get(), cli.max_tokens.get(), cli.job_timeout_ms.get()),
+            Duration::from_millis(cli.idle_timeout_ms.get()),
+            ServiceConfig::default().idle_timeout
+        );
+        assert_eq!(
+            Duration::from_millis(cli.request_timeout_ms.get()),
+            ServiceConfig::default().request_timeout
+        );
+        assert_eq!(
+            cli.max_in_flight.get(),
+            ServiceConfig::default().max_in_flight
+        );
+        assert_eq!(
+            (
+                cli.queue_capacity.get(),
+                cli.max_entries.get(),
+                cli.max_tokens.get(),
+                cli.job_timeout_ms.get()
+            ),
             (8, 8, 16_384, 30_000)
         );
     }
@@ -202,7 +226,14 @@ mod tests {
     #[test]
     fn the_release_is_required() {
         assert!(Cli::try_parse_from(["qd-metal-serve"]).is_err());
-        let cli = Cli::try_parse_from(["qd-metal-serve", "--release", "/r", "--idle-timeout-ms", "3600000"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "qd-metal-serve",
+            "--release",
+            "/r",
+            "--idle-timeout-ms",
+            "3600000",
+        ])
+        .unwrap();
         assert_eq!(cli.idle_timeout_ms.get(), 3_600_000);
     }
 
@@ -262,7 +293,10 @@ mod tests {
         .unwrap();
         let e = run(cli).unwrap_err();
         assert!(e.contains("release refused (manifest)"), "{e}");
-        assert!(!socket.exists(), "a refused release must not leave a socket behind");
+        assert!(
+            !socket.exists(),
+            "a refused release must not leave a socket behind"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

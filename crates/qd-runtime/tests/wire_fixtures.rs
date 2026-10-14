@@ -22,9 +22,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use qd_runtime::fixtures::{
-    self, CorpusCheck, Manifest, CORPUS_DIR, MANIFEST,
-};
+use qd_runtime::fixtures::{self, CORPUS_DIR, CorpusCheck, MANIFEST, Manifest};
 use qd_runtime::schema::{Response, SlotAnswer};
 
 /// `crates/qd-runtime/tests/..` -> the repository root.
@@ -103,7 +101,11 @@ fn the_corpus_covers_every_refusal_and_every_backend_error() {
             _ => None,
         })
         .collect();
-    assert_eq!(error_kinds.len(), 12, "every backend-error kind needs a fixture");
+    assert_eq!(
+        error_kinds.len(),
+        12,
+        "every backend-error kind needs a fixture"
+    );
 
     let answers = entries
         .iter()

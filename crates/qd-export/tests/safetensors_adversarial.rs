@@ -46,11 +46,17 @@ impl Drop for TempFile {
 }
 
 fn u64_field(case: &Value, key: &str) -> Option<u64> {
-    case.get(key).filter(|v| !v.is_null()).map(|v| v.as_u64().unwrap_or_else(|| panic!("{key} is not a u64")))
+    case.get(key)
+        .filter(|v| !v.is_null())
+        .map(|v| v.as_u64().unwrap_or_else(|| panic!("{key} is not a u64")))
 }
 
 fn build(case: &Value, tag: &str) -> TempFile {
-    let mut header = case.get("header").and_then(Value::as_str).unwrap_or("").to_owned();
+    let mut header = case
+        .get("header")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
     let utf16 = match case.get("header_encoding").and_then(Value::as_str) {
         None => false,
         Some("utf-16-le") => true,
@@ -58,7 +64,10 @@ fn build(case: &Value, tag: &str) -> TempFile {
     };
     if let Some(n) = u64_field(case, "pad_header_to") {
         let n = usize::try_from(n).unwrap();
-        assert!(header.len() <= n, "pad_header_to is shorter than the header");
+        assert!(
+            header.len() <= n,
+            "pad_header_to is shorter than the header"
+        );
         header.push_str(&" ".repeat(n - header.len()));
     }
     let header_bytes: Vec<u8> = if utf16 {
@@ -68,7 +77,10 @@ fn build(case: &Value, tag: &str) -> TempFile {
     };
     let prefix = u64_field(case, "header_len").unwrap_or(header_bytes.len() as u64);
     let data_len = usize::try_from(u64_field(case, "data_len").unwrap_or(0)).unwrap();
-    let path = std::env::temp_dir().join(format!("qd-st-adv-{}-{tag}.safetensors", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "qd-st-adv-{}-{tag}.safetensors",
+        std::process::id()
+    ));
     let mut f = File::create(&path).unwrap();
     f.write_all(&prefix.to_le_bytes()).unwrap();
     f.write_all(&header_bytes).unwrap();
@@ -80,7 +92,8 @@ fn build(case: &Value, tag: &str) -> TempFile {
 }
 
 fn cases() -> Vec<Value> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/safetensors-adversarial.json");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/safetensors-adversarial.json");
     let doc: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(doc["schema_version"], 1, "this test reads schema version 1");
     doc["cases"].as_array().unwrap().clone()
@@ -116,11 +129,16 @@ fn both_rust_readers_refuse_and_accept_the_same_files_in_the_same_words() {
                     continue;
                 };
                 let MetalError::Weights(detail) = &adapter_err else {
-                    failures.push(format!("{name}: qd-metal's refusal is {adapter_err:?}, not Weights"));
+                    failures.push(format!(
+                        "{name}: qd-metal's refusal is {adapter_err:?}, not Weights"
+                    ));
                     continue;
                 };
                 if detail != &owner_err.detail {
-                    failures.push(format!("{name}: words differ: {detail:?} vs {:?}", owner_err.detail));
+                    failures.push(format!(
+                        "{name}: words differ: {detail:?} vs {:?}",
+                        owner_err.detail
+                    ));
                 }
                 if let Some(needle) = case.get("rust_error_contains").and_then(Value::as_str)
                     && !detail.contains(needle)
@@ -131,8 +149,17 @@ fn both_rust_readers_refuse_and_accept_the_same_files_in_the_same_words() {
             other => failures.push(format!("{name}: expect {other:?}")),
         }
     }
-    assert!(failures.is_empty(), "{} of {} cases failed:\n{}", failures.len(), cases.len(), failures.join("\n"));
-    assert!(refused >= 15 && accepted >= 3, "refused {refused}, accepted {accepted}");
+    assert!(
+        failures.is_empty(),
+        "{} of {} cases failed:\n{}",
+        failures.len(),
+        cases.len(),
+        failures.join("\n")
+    );
+    assert!(
+        refused >= 15 && accepted >= 3,
+        "refused {refused}, accepted {accepted}"
+    );
 }
 
 /// qd-metal's three-dtype admission is its own: a file the owner reads, with a dtype the serving
@@ -145,6 +172,12 @@ fn qd_metal_alone_refuses_a_valid_dtype_it_does_not_load() {
     });
     let f = build(&case, "i8");
     SafeTensorsFile::open(&f.0).expect("the owner knows I8");
-    let err = SafeTensors::open(&f.0).err().expect("qd-metal refuses I8").to_string();
-    assert!(err.contains("dtype I8 is not one this reader loads (BF16, F16, F32)"), "{err}");
+    let err = SafeTensors::open(&f.0)
+        .err()
+        .expect("qd-metal refuses I8")
+        .to_string();
+    assert!(
+        err.contains("dtype I8 is not one this reader loads (BF16, F16, F32)"),
+        "{err}"
+    );
 }

@@ -109,11 +109,7 @@ fn encode_ids(tok: &tokenizers::Tokenizer, text: &str) -> Result<Vec<u32>> {
 }
 
 /// Ids and byte offsets of `text`, the offsets shifted by `base`: `text`'s place in a longer string.
-fn encode_ids_offsets(
-    tok: &tokenizers::Tokenizer,
-    text: &str,
-    base: usize,
-) -> Result<Encoded> {
+fn encode_ids_offsets(tok: &tokenizers::Tokenizer, text: &str, base: usize) -> Result<Encoded> {
     let encoding = tok
         .encode(text, false)
         .map_err(|error| MetalError::Tokenizer(format!("encode: {error}")))?;
@@ -152,10 +148,7 @@ fn next_added_tag<'a>(text: &str, tags: &'a [(u32, String)]) -> Option<(usize, &
     best
 }
 
-fn encode_text_without_added_tags(
-    tok: &tokenizers::Tokenizer,
-    text: &str,
-) -> Result<Encoded> {
+fn encode_text_without_added_tags(tok: &tokenizers::Tokenizer, text: &str) -> Result<Encoded> {
     let tags: Vec<(u32, String)> = tok
         .get_added_tokens_decoder()
         .into_iter()
@@ -249,7 +242,8 @@ mod tests {
              got {:?}",
             raw.get_ids()
         );
-        let (safe, safe_offsets) = encode_text_without_added_tags(&tok, text).expect("untrusted encode");
+        let (safe, safe_offsets) =
+            encode_text_without_added_tags(&tok, text).expect("untrusted encode");
         assert!(
             !safe.contains(&tool_id) && !safe.contains(&close_id),
             "untrusted encode emitted added ids {safe:?}"
@@ -258,8 +252,14 @@ mod tests {
         // their place: the span head reads a line's token from them.
         assert_eq!(safe_offsets.len(), safe.len(), "one offset pair per id");
         let world = text.find("world").expect("fixture text");
-        assert!(safe_offsets.contains(&(0, 5)), "hello at (0, 5): {safe_offsets:?}");
-        assert!(safe_offsets.contains(&(world, world + 5)), "world at its byte place: {safe_offsets:?}");
+        assert!(
+            safe_offsets.contains(&(0, 5)),
+            "hello at (0, 5): {safe_offsets:?}"
+        );
+        assert!(
+            safe_offsets.contains(&(world, world + 5)),
+            "world at its byte place: {safe_offsets:?}"
+        );
         let tag_at = text.find("<tool_call>").expect("fixture text");
         for (k, ch) in "<tool_call>".char_indices() {
             assert!(
@@ -269,7 +269,9 @@ mod tests {
         }
         let plain = "hello world";
         assert_eq!(
-            encode_text_without_added_tags(&tok, plain).expect("plain").0,
+            encode_text_without_added_tags(&tok, plain)
+                .expect("plain")
+                .0,
             encode_ids(&tok, plain).expect("plain raw"),
             "text with no added tag must stay on the ordinary encode path"
         );

@@ -17,7 +17,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use qd_export::safetensors::{Dtype, PlannedTensor, SafeTensorsFile, Writer};
-use qd_train::ft_data::{load_span_head_pinned, span_head_content_digest, HeadInitPin};
+use qd_train::ft_data::{HeadInitPin, load_span_head_pinned, span_head_content_digest};
 use qd_train::run_control::{sidecar_digest, tensor_ref_digest};
 use qd_train::span_head::SpanHead;
 use qd_train::trainer::TrainError;
@@ -30,11 +30,17 @@ fn fixtures() -> PathBuf {
 
 /// L-oracle's rung (b) set, once every file in it matches its `manifest.json` `files` pins.
 fn tiny_published() -> PathBuf {
-    common::pins::verified(&fixtures().join("tiny-published"), common::pins::Form::JsonFiles)
+    common::pins::verified(
+        &fixtures().join("tiny-published"),
+        common::pins::Form::JsonFiles,
+    )
 }
 
 fn oracle() -> Value {
-    serde_json::from_str(&std::fs::read_to_string(fixtures().join("span-head-init-digest-tiny.json")).unwrap()).unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(fixtures().join("span-head-init-digest-tiny.json")).unwrap(),
+    )
+    .unwrap()
 }
 
 fn hex(b: &[u8]) -> String {
@@ -58,7 +64,11 @@ fn tiny_head_tensors() -> Vec<(String, Vec<usize>, Vec<u8>)> {
 }
 
 fn floats(b: &[u8]) -> Vec<f32> {
-    b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect()
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect()
 }
 
 fn tiny_head() -> SpanHead {
@@ -78,7 +88,11 @@ fn tiny_head() -> SpanHead {
 fn the_tensor_set_digest_is_pythons_on_the_tiny_head() {
     let o = oracle();
     let src = std::fs::read(tiny_published().join("init.safetensors")).unwrap();
-    assert_eq!(hex(&Sha256::digest(&src)), o["source_sha256"].as_str().unwrap(), "the fixture's source file");
+    assert_eq!(
+        hex(&Sha256::digest(&src)),
+        o["source_sha256"].as_str().unwrap(),
+        "the fixture's source file"
+    );
     let tensors = tiny_head_tensors();
     assert_eq!(tensors.len(), 4);
     let mut refs = Vec::new();
@@ -86,7 +100,11 @@ fn the_tensor_set_digest_is_pythons_on_the_tiny_head() {
         let want = &o["tensors"][name];
         assert_eq!(want["dtype"], "float32");
         let d = tensor_ref_digest("float32", shape, 4, bytes).unwrap();
-        assert_eq!(d, want["digest"].as_str().unwrap(), "{name}: TensorRef.digest");
+        assert_eq!(
+            d,
+            want["digest"].as_str().unwrap(),
+            "{name}: TensorRef.digest"
+        );
         refs.push((name.clone(), d));
     }
     let want = o["content_digest"].as_str().unwrap();
@@ -94,11 +112,17 @@ fn the_tensor_set_digest_is_pythons_on_the_tiny_head() {
     // The same digest from the head as the trainer holds it.
     assert_eq!(span_head_content_digest(&tiny_head()).unwrap(), want);
     // What the port refuses rather than hashes.
-    assert!(tensor_ref_digest("float32", &[64], 4, &[0u8; 255]).is_err(), "a byte count off its shape");
+    assert!(
+        tensor_ref_digest("float32", &[64], 4, &[0u8; 255]).is_err(),
+        "a byte count off its shape"
+    );
     let dup = vec![refs[0].clone(), refs[0].clone()];
     assert!(sidecar_digest(&dup).is_err(), "a name twice");
     let bad = vec![(refs[0].0.clone(), "AB".repeat(32))];
-    assert!(sidecar_digest(&bad).is_err(), "an upper-case digest is not one this code writes");
+    assert!(
+        sidecar_digest(&bad).is_err(),
+        "an upper-case digest is not one this code writes"
+    );
 }
 
 /// The tiny head as a head-only init file (all four under `span_head.`, f32), as L-oracle's
@@ -111,7 +135,11 @@ fn write_head(path: &Path, head: &SpanHead) -> String {
         .map(|(n, _)| PlannedTensor {
             name: format!("span_head.{n}"),
             dtype: Dtype::F32,
-            shape: if n.ends_with(".weight") { vec![h, h] } else { vec![h] },
+            shape: if n.ends_with(".weight") {
+                vec![h, h]
+            } else {
+                vec![h]
+            },
         })
         .collect();
     let mut w = Writer::create(path, plan).unwrap();
@@ -140,17 +168,41 @@ fn a_pinned_head_init_loads_and_any_mismatch_is_refused() {
         content_digest: content.clone(),
     };
     let (loaded, got_sha, got_content) = load_span_head_pinned(&path, 64, &pin).unwrap();
-    assert_eq!((got_sha.as_str(), got_content.as_str()), (sha.as_str(), content.as_str()));
+    assert_eq!(
+        (got_sha.as_str(), got_content.as_str()),
+        (sha.as_str(), content.as_str())
+    );
     assert_eq!(loaded.named(), head.named());
 
     let refused = |pin: &HeadInitPin, path: &Path| match load_span_head_pinned(path, 64, pin) {
         Err(TrainError::Refused(m)) => m,
-        other => panic!("expected a refusal, got {:?}", other.map(|(_, s, c)| (s, c))),
+        other => panic!(
+            "expected a refusal, got {:?}",
+            other.map(|(_, s, c)| (s, c))
+        ),
     };
-    let m = refused(&HeadInitPin { sha256: "0".repeat(64), ..pin.clone() }, &path);
-    assert!(m.contains("file sha256") && !m.contains("content digest"), "{m}");
-    let m = refused(&HeadInitPin { content_digest: "0".repeat(64), ..pin.clone() }, &path);
-    assert!(m.contains("content digest") && !m.contains("file sha256"), "{m}");
+    let m = refused(
+        &HeadInitPin {
+            sha256: "0".repeat(64),
+            ..pin.clone()
+        },
+        &path,
+    );
+    assert!(
+        m.contains("file sha256") && !m.contains("content digest"),
+        "{m}"
+    );
+    let m = refused(
+        &HeadInitPin {
+            content_digest: "0".repeat(64),
+            ..pin.clone()
+        },
+        &path,
+    );
+    assert!(
+        m.contains("content digest") && !m.contains("file sha256"),
+        "{m}"
+    );
     // One value changed by one ulp: both digests move, and both are named.
     let mut bumped = tiny_head();
     {
@@ -160,14 +212,20 @@ fn a_pinned_head_init_loads_and_any_mismatch_is_refused() {
     let other = dir.join("span_head_init-bumped.safetensors");
     write_head(&other, &bumped);
     let m = refused(&pin, &other);
-    assert!(m.contains("file sha256") && m.contains("content digest"), "{m}");
+    assert!(
+        m.contains("file sha256") && m.contains("content digest"),
+        "{m}"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// One of L-oracle's init manifests (`tools/qd_train_oracle_span_head_init.py`).
 fn init_manifest(name: &str) -> Value {
     let p = fixtures().join(name);
-    serde_json::from_str(&std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))).unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())),
+    )
+    .unwrap()
 }
 
 /// Load `path` under `manifest`'s pins through the trainer's loader, and check what the loader
@@ -176,11 +234,23 @@ fn load_under_manifest(path: &Path, manifest: &Value) {
     let hidden = manifest["construction"]["hidden"].as_u64().unwrap() as usize;
     let pin = HeadInitPin {
         sha256: manifest["file"]["sha256"].as_str().unwrap().to_owned(),
-        content_digest: manifest["content_digest"]["value"].as_str().unwrap().to_owned(),
+        content_digest: manifest["content_digest"]["value"]
+            .as_str()
+            .unwrap()
+            .to_owned(),
     };
-    assert_eq!(std::fs::metadata(path).unwrap().len(), manifest["file"]["bytes"].as_u64().unwrap(), "{}", path.display());
-    let (head, sha, content) = load_span_head_pinned(path, hidden, &pin).unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!((sha.as_str(), content.as_str()), (pin.sha256.as_str(), pin.content_digest.as_str()));
+    assert_eq!(
+        std::fs::metadata(path).unwrap().len(),
+        manifest["file"]["bytes"].as_u64().unwrap(),
+        "{}",
+        path.display()
+    );
+    let (head, sha, content) =
+        load_span_head_pinned(path, hidden, &pin).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        (sha.as_str(), content.as_str()),
+        (pin.sha256.as_str(), pin.content_digest.as_str())
+    );
     assert_eq!(head.hidden_size(), hidden);
     // Per tensor: the port's TensorRef.digest of each loaded tensor is the manifest's, where the
     // manifest lists them.
@@ -188,15 +258,34 @@ fn load_under_manifest(path: &Path, manifest: &Value) {
         assert_eq!(tensors.len(), 4);
         for (short, values) in head.named() {
             let want = &tensors[&format!("span_head.{short}")];
-            let shape: Vec<usize> = want["shape"].as_array().unwrap().iter().map(|d| d.as_u64().unwrap() as usize).collect();
+            let shape: Vec<usize> = want["shape"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| d.as_u64().unwrap() as usize)
+                .collect();
             let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
-            assert_eq!(tensor_ref_digest("float32", &shape, 4, &bytes).unwrap(), want["digest"].as_str().unwrap(), "{short}");
+            assert_eq!(
+                tensor_ref_digest("float32", &shape, 4, &bytes).unwrap(),
+                want["digest"].as_str().unwrap(),
+                "{short}"
+            );
         }
     }
     // A pin off by one hex digit is refused: the loader is checking, not echoing.
     let mut off = pin.clone();
-    off.content_digest.replace_range(0..1, if off.content_digest.starts_with('0') { "1" } else { "0" });
-    assert!(matches!(load_span_head_pinned(path, hidden, &off), Err(TrainError::Refused(_))));
+    off.content_digest.replace_range(
+        0..1,
+        if off.content_digest.starts_with('0') {
+            "1"
+        } else {
+            "0"
+        },
+    );
+    assert!(matches!(
+        load_span_head_pinned(path, hidden, &off),
+        Err(TrainError::Refused(_))
+    ));
 }
 
 #[test]

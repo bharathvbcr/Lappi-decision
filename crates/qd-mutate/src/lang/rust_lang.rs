@@ -13,11 +13,7 @@ use super::{
 
 pub struct Rust;
 
-const PANIC_STUBS: &[&str] = &[
-    "todo!()",
-    "unimplemented!()",
-    "panic!(\"not implemented\")",
-];
+const PANIC_STUBS: &[&str] = &["todo!()", "unimplemented!()", "panic!(\"not implemented\")"];
 
 fn is_boundary(kind: &str) -> bool {
     matches!(kind, "function_item" | "closure_expression")
@@ -292,9 +288,7 @@ impl Language for Rust {
         }
         // A `use` with a side effect does not exist in Rust; the only hazard is a glob shadowing
         // a later name, which reordering within a group cannot introduce.
-        let has_glob = items
-            .iter()
-            .any(|n| text(*n, src).contains("::*"));
+        let has_glob = items.iter().any(|n| text(*n, src).contains("::*"));
         Some(ImportBlock {
             items,
             reorderable: !has_glob,
@@ -305,7 +299,10 @@ impl Language for Rust {
     fn identifiers<'t>(&self, tree: &'t Tree) -> Vec<Node<'t>> {
         let mut out = Vec::new();
         walk_tree(tree, |node| {
-            if matches!(node.kind(), "identifier" | "field_identifier" | "type_identifier") {
+            if matches!(
+                node.kind(),
+                "identifier" | "field_identifier" | "type_identifier"
+            ) {
                 out.push(node);
             }
         });
@@ -497,7 +494,11 @@ mod tests {
         assert_eq!(zero_value("Option<T>").as_deref(), Some("None"));
         assert_eq!(zero_value("usize").as_deref(), Some("0"));
         assert_eq!(zero_value("()"), None, "unit is vacuous, not a zero");
-        assert_eq!(zero_value("MyOpaqueThing"), None, "declines rather than guesses");
+        assert_eq!(
+            zero_value("MyOpaqueThing"),
+            None,
+            "declines rather than guesses"
+        );
     }
 
     #[test]

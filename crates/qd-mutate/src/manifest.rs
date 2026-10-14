@@ -251,9 +251,10 @@ impl Manifest {
                 // a reader cannot tell "refused for the language" from "no import group in this
                 // slice of the pool". They are different facts and only one of them is a finding.
                 if let Some(why) = language.import_order_is_semantic() {
-                    report
-                        .restricted_operators
-                        .insert(OpId::CosmeticReorderImports.as_str().to_string(), why.to_string());
+                    report.restricted_operators.insert(
+                        OpId::CosmeticReorderImports.as_str().to_string(),
+                        why.to_string(),
+                    );
                 }
                 report
             })
@@ -501,7 +502,10 @@ mod tests {
                 .iter()
                 .find(|r| r.language == id)
                 .expect("a report per language");
-            assert_eq!(report.bodies_seen, 1, "{id} was credited to another language");
+            assert_eq!(
+                report.bodies_seen, 1,
+                "{id} was credited to another language"
+            );
         }
     }
 
@@ -574,7 +578,9 @@ mod tests {
             "and they are kept per reason, not merged into one opaque total"
         );
         assert_eq!(
-            rust.operators.get("cosmetic.edit_comment").map(|r| r.total_declined()),
+            rust.operators
+                .get("cosmetic.edit_comment")
+                .map(|r| r.total_declined()),
             None,
             "an operator that declined nothing gains no entry"
         );
@@ -606,7 +612,11 @@ mod tests {
             .iter()
             .find(|r| r.language == LangId::Rust)
             .expect("rust");
-        assert!(rust.restricted_operators.is_empty(), "{:?}", rust.restricted_operators);
+        assert!(
+            rust.restricted_operators.is_empty(),
+            "{:?}",
+            rust.restricted_operators
+        );
 
         let python = manifest
             .languages
@@ -614,7 +624,10 @@ mod tests {
             .find(|r| r.language == LangId::Python)
             .expect("python");
         assert_eq!(
-            python.restricted_operators.get("cosmetic.wrap_line").map(String::as_str),
+            python
+                .restricted_operators
+                .get("cosmetic.wrap_line")
+                .map(String::as_str),
             Some("python terminates statements at line ends")
         );
     }

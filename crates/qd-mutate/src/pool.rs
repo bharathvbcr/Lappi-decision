@@ -49,7 +49,11 @@ pub struct FunctionIdentity {
 
 impl std::fmt::Display for FunctionIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}/{}", self.repo, self.path, self.symbol, self.arity)
+        write!(
+            f,
+            "{}:{}:{}/{}",
+            self.repo, self.path, self.symbol, self.arity
+        )
     }
 }
 
@@ -102,15 +106,28 @@ impl PoolRecord {
 
 #[derive(Debug)]
 pub enum PoolError {
-    Io { detail: String },
+    Io {
+        detail: String,
+    },
     /// A malformed line stops the read and names itself. A pool this crate cannot parse in full is
     /// a pool whose record count in the manifest would be a fiction.
-    Malformed { line: u64, detail: String },
-    LineTooLong { line: u64, bytes: usize },
-    TooManyRecords { cap: usize },
+    Malformed {
+        line: u64,
+        detail: String,
+    },
+    LineTooLong {
+        line: u64,
+        bytes: usize,
+    },
+    TooManyRecords {
+        cap: usize,
+    },
     /// The content guard refused the line: a caller record (never training data, CLAUDE.md
     /// rule 3) or bytes it could not scan. `detail` is the guard's own refusal.
-    CallerRecord { line: u64, detail: String },
+    CallerRecord {
+        line: u64,
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for PoolError {
@@ -214,12 +231,16 @@ mod tests {
         // truncated ones.
         let json = r#"{"id":"r1","repo":"o/r","path":"a.rs","source":"fn f() {}\n","hunks":[{"start_line":2,"end_line":4}]}"#;
         let records = read_jsonl(json.as_bytes()).expect("parses");
-        assert_eq!(records[0].hunks.as_deref(), Some(&[LineSpan::new(2, 4)][..]));
+        assert_eq!(
+            records[0].hunks.as_deref(),
+            Some(&[LineSpan::new(2, 4)][..])
+        );
     }
 
     #[test]
     fn a_malformed_line_names_its_line_number_rather_than_being_skipped() {
-        let jsonl = "{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\nnot json\n";
+        let jsonl =
+            "{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\nnot json\n";
         match read_jsonl(jsonl.as_bytes()) {
             Err(PoolError::Malformed { line, .. }) => assert_eq!(line, 2),
             other => panic!("expected a malformed-line error, got {other:?}"),
@@ -228,7 +249,8 @@ mod tests {
 
     #[test]
     fn blank_lines_are_skipped_and_do_not_shift_the_line_number() {
-        let jsonl = "\n\n{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\n\nbad\n";
+        let jsonl =
+            "\n\n{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\n\nbad\n";
         match read_jsonl(jsonl.as_bytes()) {
             Err(PoolError::Malformed { line, .. }) => assert_eq!(line, 5),
             other => panic!("expected a malformed-line error, got {other:?}"),
@@ -237,7 +259,8 @@ mod tests {
 
     #[test]
     fn an_explicit_language_overrides_the_extension() {
-        let json = r#"{"id":"r1","repo":"o/r","path":"a.txt","language":"rust","source":"fn f(){}"}"#;
+        let json =
+            r#"{"id":"r1","repo":"o/r","path":"a.txt","language":"rust","source":"fn f(){}"}"#;
         let records = read_jsonl(json.as_bytes()).expect("parses");
         assert_eq!(records[0].language(), Some(LangId::Rust));
     }
@@ -264,8 +287,12 @@ mod tests {
     #[test]
     fn a_splitlines_separator_inside_a_string_value_stays_one_record() {
         let source = "a\u{85}b\u{2028}c\u{2029}d";
-        let line = serde_json::json!({"id":"a","repo":"o/r","path":"a.rs","source":source}).to_string();
-        assert!(line.contains('\u{2028}'), "serde_json writes U+2028 raw, which is the point");
+        let line =
+            serde_json::json!({"id":"a","repo":"o/r","path":"a.rs","source":source}).to_string();
+        assert!(
+            line.contains('\u{2028}'),
+            "serde_json writes U+2028 raw, which is the point"
+        );
         let records = read_jsonl(format!("{line}\n{line}\n").as_bytes()).expect("parses");
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].source, source);
@@ -276,7 +303,8 @@ mod tests {
     /// a record the guard passed.
     #[test]
     fn a_caller_record_behind_a_splitlines_separator_is_refused() {
-        let rec = r#"{"record":"lappi.caller_record","id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
+        let rec =
+            r#"{"record":"lappi.caller_record","id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
         for sep in SPLITLINES_SEPARATORS {
             let jsonl = format!("{OK}{sep}{rec}\n");
             match read_jsonl(jsonl.as_bytes()) {
@@ -290,7 +318,8 @@ mod tests {
     /// would parse; the guard refuses it, and names the line it sits on.
     #[test]
     fn a_pool_shaped_caller_record_is_refused_with_its_line() {
-        let rec = r#"{"record":"lappi.caller_record","id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
+        let rec =
+            r#"{"record":"lappi.caller_record","id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
         let jsonl = format!("{OK}\n{OK}\n{rec}\n");
         match read_jsonl(jsonl.as_bytes()) {
             Err(PoolError::CallerRecord { line, .. }) => assert_eq!(line, 3),
@@ -312,7 +341,8 @@ mod tests {
     #[test]
     fn a_source_that_mentions_the_prefix_is_not_a_caller_record() {
         let src = "const P: &str = \"lappi.caller_record\"; // \"record\"";
-        let line = serde_json::json!({"id":"a","repo":"o/r","path":"a.rs","source":src}).to_string();
+        let line =
+            serde_json::json!({"id":"a","repo":"o/r","path":"a.rs","source":src}).to_string();
         assert_eq!(read_jsonl(line.as_bytes()).unwrap().len(), 1);
     }
 

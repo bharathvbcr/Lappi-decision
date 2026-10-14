@@ -25,7 +25,10 @@
 
 use std::marker::PhantomData;
 
-use crate::trainer::{BatchCounts, ConsumedBatch, HostParams, MicroBatchPlan, MicroLoss, Objective, SequenceWork, TrainError};
+use crate::trainer::{
+    BatchCounts, ConsumedBatch, HostParams, MicroBatchPlan, MicroLoss, Objective, SequenceWork,
+    TrainError,
+};
 
 /// One row's letter answer: the hidden state at `position` predicts `target`
 /// (`target_index` and the token after it).
@@ -196,10 +199,9 @@ where
                     spans.push(None);
                 }
                 (None, Some(s)) => {
-                    let positions = self
-                        .head
-                        .positions(s)
-                        .map_err(|e| TrainError::Refused(format!("batch {index} row {r}: span head: {e}")))?;
+                    let positions = self.head.positions(s).map_err(|e| {
+                        TrainError::Refused(format!("batch {index} row {r}: span head: {e}"))
+                    })?;
                     if positions.is_empty() {
                         return Err(TrainError::Refused(format!(
                             "batch {index} row {r}: the span head reads no position"
@@ -216,7 +218,11 @@ where
                 }
             }
         }
-        let row_scale = if n_letter > 0 { (1.0 / n_letter as f64) as f32 } else { 0.0 };
+        let row_scale = if n_letter > 0 {
+            (1.0 / n_letter as f64) as f32
+        } else {
+            0.0
+        };
         let span_scale = if n_span > 0 {
             (self.span_weight / (2.0 * n_span as f64)) as f32
         } else {
@@ -242,13 +248,20 @@ where
         })
     }
 
-    fn hidden_grad(&mut self, seq: usize, positions: &[u32], hidden: &[f32], width: usize) -> Result<Vec<f32>, TrainError> {
-        let planned = self
-            .planned
-            .as_mut()
-            .ok_or_else(|| TrainError::Refused("hidden_grad before any batch was planned".into()))?;
+    fn hidden_grad(
+        &mut self,
+        seq: usize,
+        positions: &[u32],
+        hidden: &[f32],
+        width: usize,
+    ) -> Result<Vec<f32>, TrainError> {
+        let planned = self.planned.as_mut().ok_or_else(|| {
+            TrainError::Refused("hidden_grad before any batch was planned".into())
+        })?;
         let Some(Some((span, want))) = planned.spans.get(seq) else {
-            return Err(TrainError::Refused(format!("sequence {seq} has no span row to score")));
+            return Err(TrainError::Refused(format!(
+                "sequence {seq} has no span row to score"
+            )));
         };
         if positions != want.as_slice() {
             return Err(TrainError::Refused(format!(
@@ -282,13 +295,18 @@ where
                 p.spans.len()
             )));
         }
-        let letter = (p.n_letter > 0).then(|| row_loss_sums.iter().sum::<f64>() / p.n_letter as f64);
+        let letter =
+            (p.n_letter > 0).then(|| row_loss_sums.iter().sum::<f64>() / p.n_letter as f64);
         let span = (p.n_span > 0).then(|| p.span_sum / (2.0 * p.n_span as f64));
         let total = match (letter, span) {
             (Some(l), Some(s)) => l + self.span_weight * s,
             (Some(l), None) => l,
             (None, Some(s)) => self.span_weight * s,
-            (None, None) => return Err(TrainError::Refused("a batch with neither channel was closed".into())),
+            (None, None) => {
+                return Err(TrainError::Refused(
+                    "a batch with neither channel was closed".into(),
+                ));
+            }
         };
         Ok(MicroLoss {
             total,

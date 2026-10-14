@@ -16,16 +16,18 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 use common::{ToyBatch, ToyRow, ToySpan, ToySpanHead};
-use qd_train::adamw::{adamw_update, Moments};
+use qd_train::adamw::{Moments, adamw_update};
 use qd_train::mock::{SplitMix, ToyProvider};
 use qd_train::objective::{LetterSpanObjective, LetterTarget};
 use qd_train::recipe::{self, LowerLayers, OptimizerRecipe};
 use qd_train::run_control::{Clock, MonotonicClock, WallClockCap};
 use qd_train::schedule::LrSchedule;
-use qd_train::step::{AdamWHyper, BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider};
+use qd_train::step::{
+    AdamWHyper, BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider,
+};
 use qd_train::trainer::{
-    parameters_digest, train, CheckpointPolicy, EtaRule, Hooks, MicroLoss, Objective, ResumeState, Termination,
-    TrainConfig, TrainError, TrainResult,
+    CheckpointPolicy, EtaRule, Hooks, MicroLoss, Objective, ResumeState, Termination, TrainConfig,
+    TrainError, TrainResult, parameters_digest, train,
 };
 
 const V: usize = 13;
@@ -38,7 +40,9 @@ type Obj = LetterSpanObjective<ToyBatch, ToySpanHead>;
 fn batch(index: u64, seed: u64) -> ToyBatch {
     let mut rng = SplitMix::new(seed.wrapping_mul(7919).wrapping_add(index));
     let mut rows = Vec::new();
-    let tok = |n: usize, rng: &mut SplitMix| -> Vec<u32> { (0..n).map(|_| (rng.next_u64() % V as u64) as u32).collect() };
+    let tok = |n: usize, rng: &mut SplitMix| -> Vec<u32> {
+        (0..n).map(|_| (rng.next_u64() % V as u64) as u32).collect()
+    };
     for _ in 0..2 {
         let n = 4 + (rng.next_u64() % 4) as usize;
         let tokens = tok(n, &mut rng);
@@ -60,7 +64,11 @@ fn batch(index: u64, seed: u64) -> ToyBatch {
     rows.push(ToyRow {
         tokens,
         letter: None,
-        span: Some(ToySpan { candidates, start, end }),
+        span: Some(ToySpan {
+            candidates,
+            start,
+            end,
+        }),
     });
     let width = rows.iter().map(|r| r.tokens.len()).max().unwrap();
     ToyBatch {
@@ -100,8 +108,21 @@ fn fresh() -> (ToyProvider, Obj) {
     )
 }
 
-fn run(p: &mut ToyProvider, o: &mut Obj, data: Vec<Result<ToyBatch, TrainError>>, cfg: &TrainConfig) -> Result<TrainResult, TrainError> {
-    train(p, o, data, cfg, &MonotonicClock::new(), None, &mut Hooks::default())
+fn run(
+    p: &mut ToyProvider,
+    o: &mut Obj,
+    data: Vec<Result<ToyBatch, TrainError>>,
+    cfg: &TrainConfig,
+) -> Result<TrainResult, TrainError> {
+    train(
+        p,
+        o,
+        data,
+        cfg,
+        &MonotonicClock::new(),
+        None,
+        &mut Hooks::default(),
+    )
 }
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -121,7 +142,9 @@ fn toy_provider_gradients_match_central_differences() {
     let positions = [1u32, 4];
     let targets = [7u32, 4];
     let hidden_at = [0u32, 3];
-    let c: Vec<f32> = (0..hidden_at.len() * H).map(|i| 0.1 * (i as f32) - 0.3).collect();
+    let c: Vec<f32> = (0..hidden_at.len() * H)
+        .map(|i| 0.1 * (i as f32) - 0.3)
+        .collect();
     let scale = 0.5f32;
     let job = SequenceJob {
         tokens: &tokens,
@@ -138,14 +161,19 @@ fn toy_provider_gradients_match_central_differences() {
         let ext: f64 = hidden_at
             .iter()
             .enumerate()
-            .map(|(k, &pos)| (0..H).map(|i| f64::from(c[k * H + i] * x[pos as usize][i])).sum::<f64>())
+            .map(|(k, &pos)| {
+                (0..H)
+                    .map(|i| f64::from(c[k * H + i] * x[pos as usize][i]))
+                    .sum::<f64>()
+            })
             .sum();
         f64::from(scale) * p.row_loss(&job).unwrap() + ext
     };
     let cc = c.clone();
     let mut ext = move |_: &[u32], _: &[f32]| -> Result<Vec<f32>, StepError> { Ok(cc.clone()) };
     let ext_ref: &mut HiddenGrad<'_> = &mut ext;
-    p.accumulate(&job, BankMode::Overwrite, Some(ext_ref)).unwrap();
+    p.accumulate(&job, BankMode::Overwrite, Some(ext_ref))
+        .unwrap();
     let grads = p.grads().to_vec();
     let mut checked = 0;
     for (e, ge) in grads.iter().enumerate() {
@@ -162,7 +190,10 @@ fn toy_provider_gradients_match_central_differences() {
             let down = total(&p);
             p.values_mut()[e][i] = x0;
             let fd = (up - down) / (2.0 * f64::from(eps));
-            assert!((fd - g).abs() <= 2e-2 * g.abs().max(1e-2), "entry {e}[{i}]: analytic {g} vs central {fd}");
+            assert!(
+                (fd - g).abs() <= 2e-2 * g.abs().max(1e-2),
+                "entry {e}[{i}]: analytic {g} vs central {fd}"
+            );
             checked += 1;
         }
     }
@@ -179,7 +210,9 @@ fn the_toy_heads_gradients_match_central_differences() {
     };
     let hidden: Vec<f32> = (0..3 * H).map(|i| (i as f32 * 0.37).sin()).collect();
     use qd_train::objective::SpanHead;
-    let (loss, dh) = head.loss_and_grad(&span, &span.candidates, &hidden, H, 1.0).unwrap();
+    let (loss, dh) = head
+        .loss_and_grad(&span, &span.candidates, &hidden, H, 1.0)
+        .unwrap();
     assert!((loss - head.row_loss(&span, &hidden, H)).abs() < 1e-9);
     for i in 0..hidden.len() {
         let mut up = hidden.clone();
@@ -187,7 +220,11 @@ fn the_toy_heads_gradients_match_central_differences() {
         let mut dn = hidden.clone();
         dn[i] -= 1e-3;
         let fd = (head.row_loss(&span, &up, H) - head.row_loss(&span, &dn, H)) / 2e-3;
-        assert!((fd - f64::from(dh[i])).abs() < 1e-3, "dh[{i}]: {} vs {fd}", dh[i]);
+        assert!(
+            (fd - f64::from(dh[i])).abs() < 1e-3,
+            "dh[{i}]: {} vs {fd}",
+            dh[i]
+        );
     }
     let gu = head.gu.clone();
     for (i, g) in gu.iter().enumerate() {
@@ -220,19 +257,34 @@ fn accumulate_by_hand(p: &mut ToyProvider, o: &mut Obj, b: &ToyBatch) -> (MicroL
             },
             hidden_at: &s.hidden_at,
         };
-        let mode = if i == 0 { BankMode::Overwrite } else { BankMode::Add };
+        let mode = if i == 0 {
+            BankMode::Overwrite
+        } else {
+            BankMode::Add
+        };
         let sum = if s.hidden_at.is_empty() {
             p.accumulate(&job, mode, None).unwrap()
         } else {
             let oo = &mut *o;
-            let mut ext = |pos: &[u32], h: &[f32]| oo.hidden_grad(i, pos, h, H).map_err(|e| StepError::Contract(e.to_string()));
+            let mut ext = |pos: &[u32], h: &[f32]| {
+                oo.hidden_grad(i, pos, h, H)
+                    .map_err(|e| StepError::Contract(e.to_string()))
+            };
             p.accumulate(&job, mode, Some(&mut ext)).unwrap()
         };
         sums.push(sum);
     }
     let loss = o.close(&sums).unwrap();
     let tower_sq = p.grad_sq_norm().unwrap();
-    let host_sq: f64 = o.host_ref().unwrap().grads().into_iter().flatten().flatten().map(|&x| f64::from(x) * f64::from(x)).sum();
+    let host_sq: f64 = o
+        .host_ref()
+        .unwrap()
+        .grads()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|&x| f64::from(x) * f64::from(x))
+        .sum();
     let coef = recipe::clip_coefficient(tower_sq + host_sq, 1.0).unwrap();
     (loss, coef, plan.row_scale)
 }
@@ -253,9 +305,22 @@ fn one_loop_step_is_exactly_the_composed_step() {
         grad_scale: coef,
     };
     let n = p.parameters().len();
-    p.adamw_step(&hyper, 1, &vec![1.0; n], &vec![0.01; n]).unwrap();
-    let mut head_vals: Vec<Vec<f32>> = o.host_ref().unwrap().values().iter().map(|v| v.to_vec()).collect();
-    let head_grads: Vec<Vec<f32>> = o.host_ref().unwrap().grads().into_iter().map(|g| g.expect("a span row reached the head").to_vec()).collect();
+    p.adamw_step(&hyper, 1, &vec![1.0; n], &vec![0.01; n])
+        .unwrap();
+    let mut head_vals: Vec<Vec<f32>> = o
+        .host_ref()
+        .unwrap()
+        .values()
+        .iter()
+        .map(|v| v.to_vec())
+        .collect();
+    let head_grads: Vec<Vec<f32>> = o
+        .host_ref()
+        .unwrap()
+        .grads()
+        .into_iter()
+        .map(|g| g.expect("a span row reached the head").to_vec())
+        .collect();
     for (v, g) in head_vals.iter_mut().zip(&head_grads) {
         let mut m = Moments::zeros(v.len());
         adamw_update(v, g, &mut m, &hyper, lr, 0.01, 1).unwrap();
@@ -271,7 +336,13 @@ fn one_loop_step_is_exactly_the_composed_step() {
     for (a, b) in lp.values().iter().zip(p.values()) {
         assert_eq!(a, b, "tower parameters after one step");
     }
-    let looped: Vec<Vec<f32>> = lo.host_ref().unwrap().values().iter().map(|v| v.to_vec()).collect();
+    let looped: Vec<Vec<f32>> = lo
+        .host_ref()
+        .unwrap()
+        .values()
+        .iter()
+        .map(|v| v.to_vec())
+        .collect();
     assert_eq!(looped, head_vals, "head parameters after one step");
     // letter + 0.75 * span, and both channels logged.
     let ch = |name: &str| r.channel_log.iter().find(|(n, _)| n == name).unwrap().1[0];
@@ -306,7 +377,13 @@ fn weight_decay_reaches_every_entry_norms_included() {
         eps: 1e-8,
         grad_scale: 1.0,
     };
-    p.adamw_step(&hyper, 1, &vec![1.0; n], &recipe::weight_decays(p.parameters())).unwrap();
+    p.adamw_step(
+        &hyper,
+        1,
+        &vec![1.0; n],
+        &recipe::weight_decays(p.parameters()),
+    )
+    .unwrap();
     let f = (1.0 - 0.5f64 * 0.01) as f32;
     for (e, (a, b)) in p.values().iter().zip(&before).enumerate() {
         for (x, y) in a.iter().zip(b) {
@@ -332,7 +409,12 @@ fn letter_only(index: u64, seed: u64) -> ToyBatch {
 }
 
 fn head_values(o: &Obj) -> Vec<Vec<f32>> {
-    o.host_ref().unwrap().values().iter().map(|v| v.to_vec()).collect()
+    o.host_ref()
+        .unwrap()
+        .values()
+        .iter()
+        .map(|v| v.to_vec())
+        .collect()
 }
 
 #[test]
@@ -343,7 +425,11 @@ fn a_letter_only_step_leaves_the_span_head_bit_for_bit_where_it_was() {
     assert_eq!(r.optimizer_steps, 1);
     assert_eq!(r.counts.span_rows, 0);
     assert_ne!(p.values(), fresh().0.values(), "the tower stepped");
-    assert_eq!(head_values(&o), init, "the head moved on a step that never reached it");
+    assert_eq!(
+        head_values(&o),
+        init,
+        "the head moved on a step that never reached it"
+    );
 }
 
 #[test]
@@ -352,13 +438,36 @@ fn under_grad_accum_a_group_steps_the_head_only_when_one_of_its_micro_batches_re
     cfg.grad_accum = 2;
     // Group 0 is letter-only then span: the head has a gradient and steps. Group 1 is two
     // letter-only batches: the head is skipped.
-    let data = || vec![Ok(letter_only(0, 5)), Ok(batch(1, 5)), Ok(letter_only(2, 5)), Ok(letter_only(3, 5))];
+    let data = || {
+        vec![
+            Ok(letter_only(0, 5)),
+            Ok(batch(1, 5)),
+            Ok(letter_only(2, 5)),
+            Ok(letter_only(3, 5)),
+        ]
+    };
     let (mut p, mut o) = fresh();
-    assert_eq!(run(&mut p, &mut o, data(), &cfg).unwrap().optimizer_steps, 2);
+    assert_eq!(
+        run(&mut p, &mut o, data(), &cfg).unwrap().optimizer_steps,
+        2
+    );
     let (mut p1, mut o1) = fresh();
-    assert_eq!(run(&mut p1, &mut o1, data().into_iter().take(2).collect(), &cfg).unwrap().optimizer_steps, 1);
-    assert_ne!(head_values(&o1), head_values(&fresh().1), "the group with a span row stepped the head");
-    assert_eq!(head_values(&o), head_values(&o1), "the all-letter group left the head where it was");
+    assert_eq!(
+        run(&mut p1, &mut o1, data().into_iter().take(2).collect(), &cfg)
+            .unwrap()
+            .optimizer_steps,
+        1
+    );
+    assert_ne!(
+        head_values(&o1),
+        head_values(&fresh().1),
+        "the group with a span row stepped the head"
+    );
+    assert_eq!(
+        head_values(&o),
+        head_values(&o1),
+        "the all-letter group left the head where it was"
+    );
 }
 
 #[test]
@@ -367,7 +476,12 @@ fn the_heads_first_step_after_a_letter_only_step_bias_corrects_with_its_own_coun
     // By hand: the loop takes the letter-only step, then the span step is composed by hand. The
     // tower is at its second step; the head takes its first, with fresh moments.
     let (mut p, mut o) = fresh();
-    assert_eq!(run(&mut p, &mut o, vec![Ok(l0.clone())], &config(4)).unwrap().optimizer_steps, 1);
+    assert_eq!(
+        run(&mut p, &mut o, vec![Ok(l0.clone())], &config(4))
+            .unwrap()
+            .optimizer_steps,
+        1
+    );
     let (_, coef, _) = accumulate_by_hand(&mut p, &mut o, &s1);
     let lr = config(4).schedule.lr_at(1).unwrap();
     let hyper = AdamWHyper {
@@ -378,24 +492,48 @@ fn the_heads_first_step_after_a_letter_only_step_bias_corrects_with_its_own_coun
         grad_scale: coef,
     };
     let n = p.parameters().len();
-    p.adamw_step(&hyper, 2, &vec![1.0; n], &vec![0.01; n]).unwrap();
+    p.adamw_step(&hyper, 2, &vec![1.0; n], &vec![0.01; n])
+        .unwrap();
     let mut want_head = head_values(&o);
-    let head_grads: Vec<Vec<f32>> = o.host_ref().unwrap().grads().into_iter().map(|g| g.expect("the span row reached the head").to_vec()).collect();
+    let head_grads: Vec<Vec<f32>> = o
+        .host_ref()
+        .unwrap()
+        .grads()
+        .into_iter()
+        .map(|g| g.expect("the span row reached the head").to_vec())
+        .collect();
     for (v, g) in want_head.iter_mut().zip(&head_grads) {
         let mut fresh_moments = Moments::zeros(v.len());
         adamw_update(v, g, &mut fresh_moments, &hyper, lr, 0.01, 1).unwrap();
     }
 
     let (mut lp, mut lo) = fresh();
-    assert_eq!(run(&mut lp, &mut lo, vec![Ok(l0), Ok(s1)], &config(4)).unwrap().optimizer_steps, 2);
+    assert_eq!(
+        run(&mut lp, &mut lo, vec![Ok(l0), Ok(s1)], &config(4))
+            .unwrap()
+            .optimizer_steps,
+        2
+    );
     assert_eq!(lp.values(), p.values(), "tower parameters after two steps");
-    assert_eq!(head_values(&lo), want_head, "the head's one step, bias-corrected at t = 1");
+    assert_eq!(
+        head_values(&lo),
+        want_head,
+        "the head's one step, bias-corrected at t = 1"
+    );
 }
 
 /// Twelve batches, every third one letter-only, so at the checkpoint (step 6) the head has
 /// taken 4 steps to the tower's 6.
 fn mixed_batches(n: u64, seed: u64) -> Vec<Result<ToyBatch, TrainError>> {
-    (0..n).map(|i| Ok(if i % 3 == 1 { letter_only(i, seed) } else { batch(i, seed) })).collect()
+    (0..n)
+        .map(|i| {
+            Ok(if i % 3 == 1 {
+                letter_only(i, seed)
+            } else {
+                batch(i, seed)
+            })
+        })
+        .collect()
 }
 
 #[test]
@@ -414,31 +552,69 @@ fn a_resume_carries_each_host_entrys_own_step_count() {
     });
     let ckpt = {
         let (mut p, mut o) = fresh();
-        run(&mut p, &mut o, mixed_batches(6, 4), &cfg).unwrap().final_checkpoint.unwrap()
+        run(&mut p, &mut o, mixed_batches(6, 4), &cfg)
+            .unwrap()
+            .final_checkpoint
+            .unwrap()
     };
     let state = ResumeState::read(&ckpt).unwrap();
     assert_eq!(state.optimizer_step, 6);
-    assert_eq!(state.host_state.iter().map(|s| s.steps).collect::<Vec<_>>(), vec![4, 4], "batches 1 and 4 were letter-only");
+    assert_eq!(
+        state.host_state.iter().map(|s| s.steps).collect::<Vec<_>>(),
+        vec![4, 4],
+        "batches 1 and 4 were letter-only"
+    );
     let (mut p, mut o) = fresh();
     let mut cfg2 = config(12);
     cfg2.checkpoint = None;
-    train(&mut p, &mut o, mixed_batches(12, 4), &cfg2, &MonotonicClock::new(), Some(state), &mut Hooks::default()).unwrap();
+    train(
+        &mut p,
+        &mut o,
+        mixed_batches(12, 4),
+        &cfg2,
+        &MonotonicClock::new(),
+        Some(state),
+        &mut Hooks::default(),
+    )
+    .unwrap();
     assert_eq!(parameters_digest(&mut p, o.host_ref()).unwrap(), full);
 
     // A host count past the checkpoint's optimizer step cannot be a real run's, and is refused.
     let mut bad = ResumeState::read(&ckpt).unwrap();
     bad.host_state[0].steps = 7;
     let (mut p, mut o) = fresh();
-    let err = train(&mut p, &mut o, mixed_batches(12, 4), &cfg2, &MonotonicClock::new(), Some(bad), &mut Hooks::default()).unwrap_err();
-    assert!(matches!(&err, TrainError::Refused(m) if m.contains("7 AdamW steps")), "{err}");
+    let err = train(
+        &mut p,
+        &mut o,
+        mixed_batches(12, 4),
+        &cfg2,
+        &MonotonicClock::new(),
+        Some(bad),
+        &mut Hooks::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("7 AdamW steps")),
+        "{err}"
+    );
 
     // A v1 checkpoint carries no host counts, so it is refused rather than resumed with a guess.
     let body = ckpt.join("trainer.json");
     let text = std::fs::read_to_string(&body).unwrap();
     assert!(text.contains(qd_train::trainer::CHECKPOINT_FORMAT));
-    std::fs::write(&body, text.replace(qd_train::trainer::CHECKPOINT_FORMAT, "qd-train-checkpoint-v1")).unwrap();
+    std::fs::write(
+        &body,
+        text.replace(
+            qd_train::trainer::CHECKPOINT_FORMAT,
+            "qd-train-checkpoint-v1",
+        ),
+    )
+    .unwrap();
     let err = ResumeState::read(&ckpt).unwrap_err();
-    assert!(matches!(&err, TrainError::Refused(m) if m.contains("not a qd-train-checkpoint-v2")), "{err}");
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("not a qd-train-checkpoint-v2")),
+        "{err}"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -450,7 +626,11 @@ fn two_runs_are_the_same_bits() {
         let (mut p, mut o) = fresh();
         let r = run(&mut p, &mut o, batches(9, 1), &config(9)).unwrap();
         assert_eq!(r.termination, Termination::StepsExhausted);
-        (r.loss_log_digest().unwrap(), r.consumed_digest.clone(), parameters_digest(&mut p, o.host_ref()).unwrap())
+        (
+            r.loss_log_digest().unwrap(),
+            r.consumed_digest.clone(),
+            parameters_digest(&mut p, o.host_ref()).unwrap(),
+        )
     };
     let a = digest();
     assert_eq!(a, digest());
@@ -483,16 +663,31 @@ fn a_resume_of_six_and_six_is_the_uninterrupted_twelve() {
     assert_eq!(first.termination, Termination::DataExhausted);
     let ckpt = first.final_checkpoint.clone().unwrap();
     assert!(ckpt.ends_with("ckpt-00000006"));
-    assert!(!dir.join("ckpt-00000004").exists(), "one resume point is kept");
+    assert!(
+        !dir.join("ckpt-00000004").exists(),
+        "one resume point is kept"
+    );
 
     // Second half: a fresh model, restored, fed the whole epoch from the start.
     let state = ResumeState::read(&ckpt).unwrap();
     let (mut p, mut o) = fresh();
     let mut cfg2 = config(12);
     cfg2.checkpoint = None;
-    let second = train(&mut p, &mut o, batches(12, 3), &cfg2, &MonotonicClock::new(), Some(state), &mut Hooks::default()).unwrap();
+    let second = train(
+        &mut p,
+        &mut o,
+        batches(12, 3),
+        &cfg2,
+        &MonotonicClock::new(),
+        Some(state),
+        &mut Hooks::default(),
+    )
+    .unwrap();
     assert_eq!(second.optimizer_steps, 12);
-    assert_eq!(second.loss_log_digest().unwrap(), full.0.loss_log_digest().unwrap());
+    assert_eq!(
+        second.loss_log_digest().unwrap(),
+        full.0.loss_log_digest().unwrap()
+    );
     assert_eq!(second.consumed_digest, full.0.consumed_digest);
     assert_eq!(parameters_digest(&mut p, o.host_ref()).unwrap(), full.1);
 
@@ -501,14 +696,37 @@ fn a_resume_of_six_and_six_is_the_uninterrupted_twelve() {
     let (mut p, mut o) = fresh();
     let mut other = batches(12, 3);
     other[2] = Ok(batch(2, 99));
-    let err = train(&mut p, &mut o, other, &cfg2, &MonotonicClock::new(), Some(state), &mut Hooks::default()).unwrap_err();
-    assert!(matches!(&err, TrainError::Refused(m) if m.contains("different batches")), "{err}");
+    let err = train(
+        &mut p,
+        &mut o,
+        other,
+        &cfg2,
+        &MonotonicClock::new(),
+        Some(state),
+        &mut Hooks::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("different batches")),
+        "{err}"
+    );
     // A different seed is refused.
     let state = ResumeState::read(&ckpt).unwrap();
     let (mut p, mut o) = fresh();
     let mut cfg3 = cfg2.clone();
     cfg3.seed = 8;
-    assert!(train(&mut p, &mut o, batches(12, 3), &cfg3, &MonotonicClock::new(), Some(state), &mut Hooks::default()).is_err());
+    assert!(
+        train(
+            &mut p,
+            &mut o,
+            batches(12, 3),
+            &cfg3,
+            &MonotonicClock::new(),
+            Some(state),
+            &mut Hooks::default()
+        )
+        .is_err()
+    );
     // A tampered checkpoint is refused on read.
     let host = ckpt.join("host.f32");
     let mut bytes = std::fs::read(&host).unwrap();
@@ -538,7 +756,12 @@ impl StepProvider for Poison {
     fn vocab_size(&self) -> usize {
         self.inner.vocab_size()
     }
-    fn accumulate(&mut self, job: &SequenceJob<'_>, mode: BankMode, external: Option<&mut HiddenGrad<'_>>) -> Result<f64, StepError> {
+    fn accumulate(
+        &mut self,
+        job: &SequenceJob<'_>,
+        mode: BankMode,
+        external: Option<&mut HiddenGrad<'_>>,
+    ) -> Result<f64, StepError> {
         let hit = self.calls == self.nth;
         self.calls += 1;
         let loss = self.inner.accumulate(job, mode, external)?;
@@ -555,7 +778,13 @@ impl StepProvider for Poison {
     fn supports_lr_scale(&self) -> bool {
         self.inner.supports_lr_scale()
     }
-    fn adamw_step(&mut self, h: &AdamWHyper, s: u64, l: &[f64], w: &[f64]) -> Result<(), StepError> {
+    fn adamw_step(
+        &mut self,
+        h: &AdamWHyper,
+        s: u64,
+        l: &[f64],
+        w: &[f64],
+    ) -> Result<(), StepError> {
         self.inner.adamw_step(h, s, l, w)
     }
     fn step_count(&self) -> u64 {
@@ -593,7 +822,16 @@ fn a_non_finite_loss_stops_the_run_before_any_moment_moves() {
         nth: 3,
         gradient: false,
     };
-    let err = train(&mut p, &mut o, batches(4, 4), &config(4), &MonotonicClock::new(), None, &mut Hooks::default()).unwrap_err();
+    let err = train(
+        &mut p,
+        &mut o,
+        batches(4, 4),
+        &config(4),
+        &MonotonicClock::new(),
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap_err();
     assert!(matches!(err, TrainError::NonFinite(_)), "{err}");
     assert_eq!(p.inner.step_count(), 1);
     assert_eq!(p.inner.values(), want_values.as_slice());
@@ -610,8 +848,20 @@ fn a_non_finite_gradient_stops_the_run_before_any_moment_moves() {
         nth: 3,
         gradient: true,
     };
-    let err = train(&mut p, &mut o, batches(4, 4), &config(4), &MonotonicClock::new(), None, &mut Hooks::default()).unwrap_err();
-    assert!(matches!(&err, TrainError::NonFinite(m) if m.contains("squared norm")), "{err}");
+    let err = train(
+        &mut p,
+        &mut o,
+        batches(4, 4),
+        &config(4),
+        &MonotonicClock::new(),
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, TrainError::NonFinite(m) if m.contains("squared norm")),
+        "{err}"
+    );
     assert_eq!(p.inner.step_count(), 1);
     assert_eq!(p.inner.values(), want_values.as_slice());
     assert_eq!(p.inner.moments(), want_moments.as_slice());
@@ -636,10 +886,27 @@ fn the_cap_stops_the_loop_between_groups_only() {
     cfg.grad_accum = 2;
     let (mut p, mut o) = fresh();
     let clock = Ticking(Cell::new(0.0));
-    let r = train(&mut p, &mut o, batches(40, 6), &cfg, &clock, None, &mut Hooks::default()).unwrap();
+    let r = train(
+        &mut p,
+        &mut o,
+        batches(40, 6),
+        &cfg,
+        &clock,
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap();
     assert_eq!(r.termination, Termination::WallClockCap);
-    assert!(r.optimizer_steps > 0 && r.optimizer_steps < 20, "{} steps", r.optimizer_steps);
-    assert_eq!(r.micro_batches, 2 * r.optimizer_steps, "no group was cut in half");
+    assert!(
+        r.optimizer_steps > 0 && r.optimizer_steps < 20,
+        "{} steps",
+        r.optimizer_steps
+    );
+    assert_eq!(
+        r.micro_batches,
+        2 * r.optimizer_steps,
+        "no group was cut in half"
+    );
 }
 
 /// A clock that moves only when the test moves it.
@@ -656,14 +923,26 @@ impl Clock for Manual {
 fn eta_run(per_step: f64) -> (TrainResult, ToyProvider) {
     let mut cfg = config(200);
     cfg.cap = WallClockCap::new(21_600.0).unwrap();
-    cfg.eta = Some(EtaRule { at_step: 10, margin_s: 900.0 });
+    cfg.eta = Some(EtaRule {
+        at_step: 10,
+        margin_s: 900.0,
+    });
     let (mut p, mut o) = fresh();
     let clock = Manual(Cell::new(1_000.0));
     let mut advance = |_: &qd_train::trainer::Progress| clock.0.set(clock.0.get() + per_step);
     let mut hooks = Hooks {
         on_progress: Some(&mut advance),
     };
-    let r = train(&mut p, &mut o, batches(200, 3), &cfg, &clock, None, &mut hooks).unwrap();
+    let r = train(
+        &mut p,
+        &mut o,
+        batches(200, 3),
+        &cfg,
+        &clock,
+        None,
+        &mut hooks,
+    )
+    .unwrap();
     (r, p)
 }
 
@@ -674,27 +953,47 @@ fn the_eta_rule_stops_a_run_projected_past_the_cap_at_its_step_and_not_otherwise
     assert_eq!(r.termination, Termination::EtaRule);
     assert_eq!(r.termination.as_str(), "eta_rule");
     assert!(!r.termination.finished());
-    assert_eq!((r.optimizer_steps, p.step_count()), (10, 10), "it stops after the step it projects from");
+    assert_eq!(
+        (r.optimizer_steps, p.step_count()),
+        (10, 10),
+        "it stops after the step it projects from"
+    );
     assert_eq!(r.eta_projected_s, Some(20_725.0));
     // Exactly at the line is not past it (`>`, not `>=`).
     let (r, _) = eta_run(103.5);
     assert_eq!(r.eta_projected_s, Some(20_700.0));
-    assert_eq!((r.termination, r.optimizer_steps), (Termination::StepsExhausted, 200));
+    assert_eq!(
+        (r.termination, r.optimizer_steps),
+        (Termination::StepsExhausted, 200)
+    );
     // Comfortably inside: the run goes to its end, and the projection is recorded either way.
     let (r, _) = eta_run(60.0);
-    assert_eq!((r.termination, r.optimizer_steps), (Termination::StepsExhausted, 200));
+    assert_eq!(
+        (r.termination, r.optimizer_steps),
+        (Termination::StepsExhausted, 200)
+    );
     assert_eq!(r.eta_projected_s, Some(12_000.0));
 }
 
 #[test]
 fn an_eta_rule_that_could_not_mean_anything_is_refused_before_step_0() {
-    for (at_step, margin_s) in [(0, 900.0), (200, 900.0), (500, 900.0), (10, 21_600.0), (10, f64::NAN), (10, -1.0)] {
+    for (at_step, margin_s) in [
+        (0, 900.0),
+        (200, 900.0),
+        (500, 900.0),
+        (10, 21_600.0),
+        (10, f64::NAN),
+        (10, -1.0),
+    ] {
         let mut cfg = config(200);
         cfg.cap = WallClockCap::new(21_600.0).unwrap();
         cfg.eta = Some(EtaRule { at_step, margin_s });
         let (mut p, mut o) = fresh();
         let err = run(&mut p, &mut o, batches(200, 3), &cfg).unwrap_err();
-        assert!(matches!(&err, TrainError::Refused(m) if m.contains("ETA rule")), "({at_step}, {margin_s}): {err}");
+        assert!(
+            matches!(&err, TrainError::Refused(m) if m.contains("ETA rule")),
+            "({at_step}, {margin_s}): {err}"
+        );
         assert_eq!(p.step_count(), 0);
     }
 }
@@ -705,8 +1004,15 @@ fn a_partial_group_at_the_end_of_the_data_is_refused() {
     cfg.grad_accum = 2;
     let (mut p, mut o) = fresh();
     let err = run(&mut p, &mut o, batches(3, 1), &cfg).unwrap_err();
-    assert!(matches!(&err, TrainError::Refused(m) if m.contains("accumulation group")), "{err}");
-    assert_eq!(p.step_count(), 1, "the one full group was applied, the half one was not");
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("accumulation group")),
+        "{err}"
+    );
+    assert_eq!(
+        p.step_count(),
+        1,
+        "the one full group was applied, the half one was not"
+    );
 }
 
 #[test]
@@ -725,14 +1031,23 @@ fn indices_must_strictly_increase() {
     let (mut p, mut o) = fresh();
     let data = vec![Ok(batch(0, 1)), Ok(batch(2, 1)), Ok(batch(1, 1))];
     let err = run(&mut p, &mut o, data, &config(3)).unwrap_err();
-    assert!(matches!(&err, TrainError::Refused(m) if m.contains("strictly increasing")), "{err}");
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("strictly increasing")),
+        "{err}"
+    );
 }
 
 #[test]
 fn a_read_error_from_the_source_fails_the_run() {
     let (mut p, mut o) = fresh();
-    let data = vec![Ok(batch(0, 1)), Err(TrainError::Io("shard read failed".into()))];
-    assert!(matches!(run(&mut p, &mut o, data, &config(3)), Err(TrainError::Io(_))));
+    let data = vec![
+        Ok(batch(0, 1)),
+        Err(TrainError::Io("shard read failed".into())),
+    ];
+    assert!(matches!(
+        run(&mut p, &mut o, data, &config(3)),
+        Err(TrainError::Io(_))
+    ));
 }
 
 // ---- the layer-wise split ---------------------------------------------------------------------
@@ -740,12 +1055,18 @@ fn a_read_error_from_the_source_fails_the_run() {
 #[test]
 fn a_layer_wise_rate_is_refused_before_the_first_step_on_a_provider_without_one() {
     let mut cfg = config(3);
-    cfg.optimizer.lower_layers = Some(LowerLayers { n: 1, lr_scale: 0.1 });
+    cfg.optimizer.lower_layers = Some(LowerLayers {
+        n: 1,
+        lr_scale: 0.1,
+    });
     let mut p = ToyProvider::new(V, H, L, 11).unwrap().without_lr_scale();
     let mut o = LetterSpanObjective::new(ToySpanHead::new(H), 0.75).unwrap();
     let before = p.values().to_vec();
     let err = run(&mut p, &mut o, batches(3, 1), &cfg).unwrap_err();
-    assert!(matches!(&err, TrainError::Refused(m) if m.contains("per-entry learning rate")), "{err}");
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("per-entry learning rate")),
+        "{err}"
+    );
     assert_eq!(p.step_count(), 0);
     assert_eq!(p.values(), before.as_slice());
     // The same recipe on a provider that has one runs: after one step, layer 0 has moved by
@@ -766,7 +1087,12 @@ fn a_layer_wise_rate_is_refused_before_the_first_step_on_a_provider_without_one(
         let mut want = init[entry].clone();
         let mut m = Moments::zeros(want.len());
         adamw_update(&mut want, &q.grads()[entry], &mut m, &hyper, rate, 0.01, 1).unwrap();
-        assert_eq!(q.values()[entry], want, "{} at {rate:e}", q.parameters()[entry].name);
+        assert_eq!(
+            q.values()[entry],
+            want,
+            "{} at {rate:e}",
+            q.parameters()[entry].name
+        );
     }
 }
 
@@ -776,15 +1102,27 @@ fn the_objective_refuses_rows_in_neither_or_both_channels_and_a_wrong_letter() {
     let (mut p, mut o) = fresh();
     let mut b = batch(0, 1);
     b.rows[0].letter = None;
-    assert!(matches!(run(&mut p, &mut o, vec![Ok(b)], &config(2)), Err(TrainError::Refused(_))));
+    assert!(matches!(
+        run(&mut p, &mut o, vec![Ok(b)], &config(2)),
+        Err(TrainError::Refused(_))
+    ));
     let (mut p, mut o) = fresh();
     let mut b = batch(0, 1);
     b.rows[0].letter.as_mut().unwrap().target = (b.rows[0].letter.unwrap().target + 1) % V as u32;
-    assert!(matches!(run(&mut p, &mut o, vec![Ok(b)], &config(2)), Err(TrainError::Refused(_))));
+    assert!(matches!(
+        run(&mut p, &mut o, vec![Ok(b)], &config(2)),
+        Err(TrainError::Refused(_))
+    ));
     let (mut p, mut o) = fresh();
     let mut b = batch(0, 1);
-    b.rows[2].letter = Some(LetterTarget { position: 1, target: b.rows[2].tokens[2] });
-    assert!(matches!(run(&mut p, &mut o, vec![Ok(b)], &config(2)), Err(TrainError::Refused(_))));
+    b.rows[2].letter = Some(LetterTarget {
+        position: 1,
+        target: b.rows[2].tokens[2],
+    });
+    assert!(matches!(
+        run(&mut p, &mut o, vec![Ok(b)], &config(2)),
+        Err(TrainError::Refused(_))
+    ));
 }
 
 #[test]
@@ -792,9 +1130,15 @@ fn a_fresh_run_refuses_a_provider_that_has_already_stepped_and_a_mismatched_lr()
     let (mut p, mut o) = fresh();
     run(&mut p, &mut o, batches(1, 1), &config(3)).unwrap();
     let (_, mut o2) = fresh();
-    assert!(matches!(run(&mut p, &mut o2, batches(3, 1), &config(3)), Err(TrainError::Refused(_))));
+    assert!(matches!(
+        run(&mut p, &mut o2, batches(3, 1), &config(3)),
+        Err(TrainError::Refused(_))
+    ));
     let (mut p, mut o) = fresh();
     let mut cfg = config(3);
     cfg.optimizer.lr = LR * 2.0;
-    assert!(matches!(run(&mut p, &mut o, batches(3, 1), &cfg), Err(TrainError::Refused(_))));
+    assert!(matches!(
+        run(&mut p, &mut o, batches(3, 1), &cfg),
+        Err(TrainError::Refused(_))
+    ));
 }

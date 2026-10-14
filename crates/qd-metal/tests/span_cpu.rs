@@ -7,7 +7,9 @@
 
 mod common;
 
-use common::{edit_release_manifest, f32s, fixtures, read_json, tiny_release, write_f32, Temp, HIDDEN};
+use common::{
+    HIDDEN, Temp, edit_release_manifest, f32s, fixtures, read_json, tiny_release, write_f32,
+};
 use qd_metal::span::{self, SpanHead, SpanServing};
 use serde_json::json;
 
@@ -31,12 +33,19 @@ fn the_head_scores_equal_pythons_span_pointer_head_on_every_fixture_case() {
             ],
         );
         let head = SpanHead::load(&path, h).unwrap();
-        let got = head.scores(&f32s(&case["h_candidates"]), n, &f32s(&case["h_query"])).unwrap();
+        let got = head
+            .scores(&f32s(&case["h_candidates"]), n, &f32s(&case["h_query"]))
+            .unwrap();
         for (what, got, want) in [
             ("start", &got.start, f32s(&case["start_scores"])),
             ("end", &got.end, f32s(&case["end_scores"])),
         ] {
-            assert_eq!(got.len(), n + 1, "case {} {what}: line_count + 1 rows, abstain last", case["case"]);
+            assert_eq!(
+                got.len(),
+                n + 1,
+                "case {} {what}: line_count + 1 rows, abstain last",
+                case["case"]
+            );
             let scale = want.iter().fold(0f32, |m, v| m.max(v.abs())).max(1.0);
             for (row, (g, w)) in got.iter().zip(&want).enumerate() {
                 assert!(
@@ -54,27 +63,47 @@ fn a_head_that_is_not_exactly_four_f32_finite_tensors_of_the_towers_width_is_ref
     let dir = Temp::new("headrefuse");
     let h = 4usize;
     let good = |name: &'static str| -> (&'static str, Vec<usize>, Vec<f32>) {
-        let shape = if name.ends_with("weight") { vec![h, h] } else { vec![h] };
+        let shape = if name.ends_with("weight") {
+            vec![h, h]
+        } else {
+            vec![h]
+        };
         let n = shape.iter().product();
         (name, shape, vec![0.5; n])
     };
-    let all = ["abstain_end", "abstain_start", "end_proj.weight", "start_proj.weight"].map(good);
+    let all = [
+        "abstain_end",
+        "abstain_start",
+        "end_proj.weight",
+        "start_proj.weight",
+    ]
+    .map(good);
     let write = |tag: &str, tensors: Vec<(&str, Vec<usize>, Vec<f32>)>| {
         let p = dir.0.join(format!("{tag}.safetensors"));
         write_f32(&p, &tensors);
         p
     };
     assert!(SpanHead::load(&write("ok", all.to_vec()), h).is_ok());
-    assert!(SpanHead::load(&write("ok", all.to_vec()), h + 1).is_err(), "the tower's width");
+    assert!(
+        SpanHead::load(&write("ok", all.to_vec()), h + 1).is_err(),
+        "the tower's width"
+    );
     let missing = all[1..].to_vec();
-    let err = SpanHead::load(&write("missing", missing), h).unwrap_err().to_string();
+    let err = SpanHead::load(&write("missing", missing), h)
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("abstain_end"), "{err}");
     let mut extra = all.to_vec();
     extra.push(("start_proj.bias", vec![h], vec![0.0; h]));
-    assert!(SpanHead::load(&write("extra", extra), h).is_err(), "a bias the head does not have");
+    assert!(
+        SpanHead::load(&write("extra", extra), h).is_err(),
+        "a bias the head does not have"
+    );
     let mut nan = all.to_vec();
     nan[2].2[3] = f32::NAN;
-    let err = SpanHead::load(&write("nan", nan), h).unwrap_err().to_string();
+    let err = SpanHead::load(&write("nan", nan), h)
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("end_proj.weight[3]"), "{err}");
     let mut wrong = all.to_vec();
     wrong[3].1 = vec![h * h];
@@ -96,12 +125,25 @@ fn scores_refuse_a_query_or_candidate_block_of_the_wrong_size_and_serve_a_contex
         ],
     );
     let head = SpanHead::load(&p, h).unwrap();
-    assert!(head.scores(&[0.0; 6], 2, &[0.0; 2]).is_err(), "a query of the wrong width");
-    assert!(head.scores(&[0.0; 5], 2, &[0.0; 3]).is_err(), "a candidate block of the wrong size");
+    assert!(
+        head.scores(&[0.0; 6], 2, &[0.0; 2]).is_err(),
+        "a query of the wrong width"
+    );
+    assert!(
+        head.scores(&[0.0; 5], 2, &[0.0; 3]).is_err(),
+        "a candidate block of the wrong size"
+    );
     let none = head.scores(&[], 0, &[1.0, 1.0, 1.0]).unwrap();
-    assert_eq!((none.start.len(), none.end.len()), (1, 1), "no lines: the abstain row alone");
+    assert_eq!(
+        (none.start.len(), none.end.len()),
+        (1, 1),
+        "no lines: the abstain row alone"
+    );
     let huge = head.scores(&[], 0, &[f32::MAX, f32::MAX, f32::MAX]);
-    assert!(huge.is_err(), "an overflowing score is refused, not served as infinity");
+    assert!(
+        huge.is_err(),
+        "an overflowing score is refused, not served as infinity"
+    );
 }
 
 // ------------------------------------------------------------------- the line rule ---
@@ -113,17 +155,32 @@ fn the_context_region_and_its_lines_follow_the_runtimes_rule() {
     assert_eq!(&prefix[region.clone()], "alpha\nbeta\n\ngamma\n");
     let starts = span::line_starts_in(prefix, &region);
     let rel: Vec<usize> = starts.iter().map(|s| s - region.start).collect();
-    assert_eq!(rel, [0, 6, 11, 12], "a blank line is a line; the trailing newline opens none");
+    assert_eq!(
+        rel,
+        [0, 6, 11, 12],
+        "a blank line is a line; the trailing newline opens none"
+    );
 
     let crlf = "<|qd_context_begin|>\na\r\nb\n\n<|qd_context_end|>\n";
     let r = span::context_region(crlf).unwrap();
-    assert_eq!(span::line_starts_in(crlf, &r).len(), 2, "CR is content, never a second terminator");
+    assert_eq!(
+        span::line_starts_in(crlf, &r).len(),
+        2,
+        "CR is content, never a second terminator"
+    );
 
     let empty = "<|qd_context_begin|>\n\n<|qd_context_end|>\n";
     let r = span::context_region(empty).unwrap();
-    assert!(span::line_starts_in(empty, &r).is_empty(), "an empty context has no lines (Context::line_count)");
+    assert!(
+        span::line_starts_in(empty, &r).is_empty(),
+        "an empty context has no lines (Context::line_count)"
+    );
 
-    for bad in ["no markers here", "<|qd_context_begin|>\nonly begin", "<|qd_context_end|>\n<|qd_context_begin|>\n"] {
+    for bad in [
+        "no markers here",
+        "<|qd_context_begin|>\nonly begin",
+        "<|qd_context_end|>\n<|qd_context_begin|>\n",
+    ] {
         assert!(span::context_region(bad).is_err(), "{bad:?}");
     }
 }
@@ -136,16 +193,25 @@ fn a_line_start_maps_to_the_first_token_whose_span_contains_its_first_byte() {
     let text_len = 9;
     let offsets = [(0, 2), (2, 3), (3, 5), (5, 7), (7, 9)];
     let lines = [0, 3, 6, 7];
-    assert_eq!(span::candidate_tokens(&lines, &offsets, text_len).unwrap(), [0, 2, 3, 4]);
+    assert_eq!(
+        span::candidate_tokens(&lines, &offsets, text_len).unwrap(),
+        [0, 2, 3, 4]
+    );
 
     // Specials carry (0, 0) and never hold a line start; byte-level BPE gives several tokens one
     // span ("Ṣ" -> three tokens at (2,3)): the first of them is the candidate.
     let offsets = [(0, 0), (0, 2), (2, 3), (2, 3), (2, 3), (3, 4)];
-    assert_eq!(span::candidate_tokens(&[0, 2, 3], &offsets, 4).unwrap(), [1, 2, 5]);
+    assert_eq!(
+        span::candidate_tokens(&[0, 2, 3], &offsets, 4).unwrap(),
+        [1, 2, 5]
+    );
 
     // Offsets in no order at all give the lowest token index that contains the byte.
     let shuffled = [(3, 6), (0, 3), (3, 6)];
-    assert_eq!(span::candidate_tokens(&[0, 3], &shuffled, 6).unwrap(), [1, 0]);
+    assert_eq!(
+        span::candidate_tokens(&[0, 3], &shuffled, 6).unwrap(),
+        [1, 0]
+    );
 }
 
 #[test]
@@ -155,19 +221,40 @@ fn a_whitespace_only_last_line_maps_when_a_token_holds_it_and_is_refused_when_no
     assert_eq!(span::candidate_tokens(&[0, 2], &held, 5).unwrap(), [0, 2]);
     // A tokenizer that drops whitespace leaves byte 2 in no token: refused, no neighbour used.
     let dropped = [(0, 1)];
-    let err = span::candidate_tokens(&[0, 2], &dropped, 5).unwrap_err().to_string();
+    let err = span::candidate_tokens(&[0, 2], &dropped, 5)
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("line 2") && err.contains("no token"), "{err}");
 }
 
 #[test]
 fn collapsed_lines_malformed_offsets_and_unordered_line_starts_are_refused() {
     // Two blank lines in one "\n\n\n" token: the refuse-any policy.
-    let err = span::candidate_tokens(&[0, 1, 2], &[(0, 3)], 3).unwrap_err().to_string();
-    assert!(err.contains("both start inside token 0") && err.contains("refuse-any"), "{err}");
-    assert!(span::candidate_tokens(&[0], &[(2, 1)], 3).is_err(), "an offset that runs backward");
-    assert!(span::candidate_tokens(&[0], &[(0, 9)], 3).is_err(), "an offset past the text");
-    assert!(span::candidate_tokens(&[3, 3], &[(0, 9)], 9).is_err(), "line starts repeat");
-    assert!(span::candidate_tokens(&[], &[(0, 3)], 3).unwrap().is_empty(), "no lines, no candidates");
+    let err = span::candidate_tokens(&[0, 1, 2], &[(0, 3)], 3)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("both start inside token 0") && err.contains("refuse-any"),
+        "{err}"
+    );
+    assert!(
+        span::candidate_tokens(&[0], &[(2, 1)], 3).is_err(),
+        "an offset that runs backward"
+    );
+    assert!(
+        span::candidate_tokens(&[0], &[(0, 9)], 3).is_err(),
+        "an offset past the text"
+    );
+    assert!(
+        span::candidate_tokens(&[3, 3], &[(0, 9)], 9).is_err(),
+        "line starts repeat"
+    );
+    assert!(
+        span::candidate_tokens(&[], &[(0, 3)], 3)
+            .unwrap()
+            .is_empty(),
+        "no lines, no candidates"
+    );
 }
 
 #[test]
@@ -177,8 +264,15 @@ fn the_final_norm_is_zero_centred_rms_then_bf16() {
     let inv = 1.0 / (12.5f64 + 1e-6).sqrt();
     let want = [3.0 * inv * 1.5, 4.0 * inv * 0.75].map(|v| span::round_bf16(v as f32));
     assert_eq!(out, want);
-    assert!(out.iter().all(|v| span::round_bf16(*v) == *v), "every value is a bf16");
-    assert_eq!(span::round_bf16(1.0 + f32::EPSILON), 1.0, "ties and sub-bf16 bits round away");
+    assert!(
+        out.iter().all(|v| span::round_bf16(*v) == *v),
+        "every value is a bf16"
+    );
+    assert_eq!(
+        span::round_bf16(1.0 + f32::EPSILON),
+        1.0,
+        "ties and sub-bf16 bits round away"
+    );
 }
 
 // ------------------------------------------------------------ provenance gate ---
@@ -199,17 +293,24 @@ fn a_named_seeds_head_is_served_and_a_directory_with_no_head_is_absent() {
     };
     assert_eq!(head.hidden(), HIDDEN);
     let base = Temp::new("base");
-    assert!(matches!(span::open(&base.0, HIDDEN), SpanServing::Absent), "a base snapshot has no head");
+    assert!(
+        matches!(span::open(&base.0, HIDDEN), SpanServing::Absent),
+        "a base snapshot has no head"
+    );
 }
 
 #[test]
 fn a_blended_head_is_refused_unless_the_manifest_says_it_was_preregistered_as_the_primary_row() {
     // The averaged head, exported with no pre-registration: the blend the v5 average collapsed.
     let (_keep, release) = tiny_release("avg", |m| {
-        m["span_head_source"] = json!({"mode": "averaged", "seed": null, "input": null, "payload_digest": null});
+        m["span_head_source"] =
+            json!({"mode": "averaged", "seed": null, "input": null, "payload_digest": null});
     });
     let reason = refused(span::open(&release, HIDDEN));
-    assert!(reason.contains("weight average") && reason.contains("pre-registered"), "{reason}");
+    assert!(
+        reason.contains("weight average") && reason.contains("pre-registered"),
+        "{reason}"
+    );
 
     // The pre-registration the export records, with the committed campaign file's digest and the
     // shared-init evidence it verified from the ft ledger: served.
@@ -217,7 +318,10 @@ fn a_blended_head_is_refused_unless_the_manifest_says_it_was_preregistered_as_th
         m["span_head"]["averaged_head_preregistration"] = common::known_preregistration();
         m["span_head"]["shared_init"] = common::shared_init();
     });
-    assert!(matches!(span::open(&release, HIDDEN), SpanServing::Ready(_)));
+    assert!(matches!(
+        span::open(&release, HIDDEN),
+        SpanServing::Ready(_)
+    ));
 
     // A pre-registration that is not the primary row, or has no digest or name, does not count.
     for edit in [
@@ -226,7 +330,9 @@ fn a_blended_head_is_refused_unless_the_manifest_says_it_was_preregistered_as_th
         json!({"file": "f", "sha256": "ab".repeat(32), "name": " ", "row": "primary"}),
         json!("yes"),
     ] {
-        edit_release_manifest(&release, |m| m["span_head"]["averaged_head_preregistration"] = edit.clone());
+        edit_release_manifest(&release, |m| {
+            m["span_head"]["averaged_head_preregistration"] = edit.clone()
+        });
         assert!(
             refused(span::open(&release, HIDDEN)).contains("pre-registered"),
             "a pre-registration that does not say so must not serve the blend"
@@ -237,24 +343,33 @@ fn a_blended_head_is_refused_unless_the_manifest_says_it_was_preregistered_as_th
 #[test]
 fn an_averaged_head_needs_the_committed_preregistration_and_verified_shared_init_evidence() {
     let (_keep, release) = tiny_release("avgevidence", |m| {
-        m["span_head_source"] = json!({"mode": "averaged", "seed": null, "input": null, "payload_digest": null});
+        m["span_head_source"] =
+            json!({"mode": "averaged", "seed": null, "input": null, "payload_digest": null});
     });
     // Any 64-hex digest used to pass. Only the committed file's digest binds.
     edit_release_manifest(&release, |m| {
-        m["span_head"]["averaged_head_preregistration"] =
-            json!({"file": "v6-averaging-preregistered.json", "sha256": "ab".repeat(32), "name": "v6-averaging", "row": "primary"});
+        m["span_head"]["averaged_head_preregistration"] = json!({"file": "v6-averaging-preregistered.json", "sha256": "ab".repeat(32), "name": "v6-averaging", "row": "primary"});
         m["span_head"]["shared_init"] = common::shared_init();
     });
     let reason = refused(span::open(&release, HIDDEN));
-    assert!(reason.contains("committed") && reason.contains("campaign/v6-averaging-preregistered.json"), "{reason}");
+    assert!(
+        reason.contains("committed") && reason.contains("campaign/v6-averaging-preregistered.json"),
+        "{reason}"
+    );
 
     // The right file, but no evidence that the seeds shared one head init (a v5-style blend).
     edit_release_manifest(&release, |m| {
         m["span_head"]["averaged_head_preregistration"] = common::known_preregistration();
-        m["span_head"].as_object_mut().unwrap().remove("shared_init");
+        m["span_head"]
+            .as_object_mut()
+            .unwrap()
+            .remove("shared_init");
     });
     let reason = refused(span::open(&release, HIDDEN));
-    assert!(reason.contains("shared") && reason.contains("init"), "{reason}");
+    assert!(
+        reason.contains("shared") && reason.contains("init"),
+        "{reason}"
+    );
 
     // Evidence that says the init was not shared, names one seed, or disagrees with itself.
     for bad in [
@@ -265,10 +380,18 @@ fn an_averaged_head_needs_the_committed_preregistration_and_verified_shared_init
         json!({"shared": true, "content_digest": "nothex", "seeds": [0, 1, 2], "ft_row_ids": ["a", "b", "c"]}),
     ] {
         edit_release_manifest(&release, |m| m["span_head"]["shared_init"] = bad.clone());
-        assert!(refused(span::open(&release, HIDDEN)).contains("shared"), "{bad}");
+        assert!(
+            refused(span::open(&release, HIDDEN)).contains("shared"),
+            "{bad}"
+        );
     }
-    edit_release_manifest(&release, |m| m["span_head"]["shared_init"] = common::shared_init());
-    assert!(matches!(span::open(&release, HIDDEN), SpanServing::Ready(_)));
+    edit_release_manifest(&release, |m| {
+        m["span_head"]["shared_init"] = common::shared_init()
+    });
+    assert!(matches!(
+        span::open(&release, HIDDEN),
+        SpanServing::Ready(_)
+    ));
 }
 
 #[test]
@@ -276,7 +399,10 @@ fn a_span_head_file_that_is_missing_names_the_missing_file() {
     let (_keep, release) = tiny_release("missinghead", |_| {});
     std::fs::remove_file(release.join("span_head.safetensors")).unwrap();
     let reason = refused(span::open(&release, HIDDEN));
-    assert!(reason.contains("span_head.safetensors") && reason.contains("missing"), "{reason}");
+    assert!(
+        reason.contains("span_head.safetensors") && reason.contains("missing"),
+        "{reason}"
+    );
     // No block either: a base snapshot, genuinely absent.
     edit_release_manifest(&release, |m| {
         m.as_object_mut().unwrap().remove("span_head");
@@ -291,7 +417,10 @@ fn a_head_of_unknown_provenance_a_stale_manifest_or_a_swapped_file_is_refused_wi
         m.as_object_mut().unwrap().remove("span_head_source");
     });
     let reason = refused(span::open(&unknown, HIDDEN));
-    assert!(reason.contains("does not say how the head was made"), "{reason}");
+    assert!(
+        reason.contains("does not say how the head was made"),
+        "{reason}"
+    );
 
     // A release exported before the span_head block existed.
     let (_keep, old) = tiny_release("old", |_| {});
@@ -302,7 +431,9 @@ fn a_head_of_unknown_provenance_a_stale_manifest_or_a_swapped_file_is_refused_wi
 
     // Another contract version, another hidden size.
     let (_keep, other) = tiny_release("contract", |_| {});
-    edit_release_manifest(&other, |m| m["span_head"]["serving_contract"]["version"] = "qd-span-head.v2".into());
+    edit_release_manifest(&other, |m| {
+        m["span_head"]["serving_contract"]["version"] = "qd-span-head.v2".into()
+    });
     assert!(refused(span::open(&other, HIDDEN)).contains("qd-span-head.v2"));
     let (_keep, wide) = tiny_release("wide", |_| {});
     assert!(refused(span::open(&wide, HIDDEN * 2)).contains("hidden_size"));

@@ -15,17 +15,17 @@ use std::sync::Arc;
 
 use qd_runtime::backend::DecisionBackend;
 use qd_runtime::calibration::CalibrationTable;
-use qd_runtime::reference::{ReferenceBackend, REFERENCE_FEATURE_DIM};
+use qd_runtime::reference::{REFERENCE_FEATURE_DIM, ReferenceBackend};
 use qd_runtime::refusal::Refusal;
 use qd_runtime::registry::{HeadMatrix, HeadRegistry, RegisteredHead};
-use qd_runtime::render::{RenderCaps, ESCAPE_WORST_CASE_GROWTH};
+use qd_runtime::render::{ESCAPE_WORST_CASE_GROWTH, RenderCaps};
 use qd_runtime::runtime::Runtime;
-use qd_runtime::schema::{CallerReading, Response, MAX_OPTIONS, MAX_SLOT_NAME_BYTES};
+use qd_runtime::schema::{CallerReading, MAX_OPTIONS, MAX_SLOT_NAME_BYTES, Response};
 use qd_runtime::service::Service;
 use qd_runtime::wire::{
-    parse_line, payload_budget, JSON_ESCAPE_WORST_CASE_GROWTH, MAX_PAYLOAD_BYTES, MAX_SLOTS,
+    JSON_ESCAPE_WORST_CASE_GROWTH, MAX_PAYLOAD_BYTES, MAX_SLOTS, parse_line, payload_budget,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Send a wire value through the service and assert the refusal it earns.
 #[track_caller]
@@ -374,8 +374,9 @@ fn the_rendered_cap_still_refuses_what_actually_exceeds_it() {
     // 511 vertical tabs, each rendering as the six bytes \u000b, behind one ordinary character
     // so the option is not all-whitespace (U+000B is `White_Space`, and an option that trims to
     // nothing is `empty_option`, which would be a different test).
-    let expands: String =
-        std::iter::once('x').chain(std::iter::repeat_n('\u{000b}', 511)).collect();
+    let expands: String = std::iter::once('x')
+        .chain(std::iter::repeat_n('\u{000b}', 511))
+        .collect();
     assert_eq!(expands.len(), RenderCaps::DEFAULT.max_option_bytes);
     let options: Vec<String> = (0..16).map(|k| format!("{k:x}{}", &expands[1..])).collect();
     let mut value = common::request_with_slots(
@@ -415,7 +416,10 @@ fn the_caps_configuration_itself_is_refused_below_the_escape_floor() {
         ..at_floor
     };
     // One byte below, and every 2x-era configuration, is refused.
-    assert!(below.validate().is_err(), "one byte below the floor must be refused");
+    assert!(
+        below.validate().is_err(),
+        "one byte below the floor must be refused"
+    );
     let two_x = RenderCaps {
         max_context_bytes: 131_072,
         max_rendered_bytes: 393_216,

@@ -87,7 +87,9 @@ fn run() -> Result<()> {
             let scores = model.score(&out, &[last], &letters)?;
             let ms = start.elapsed().as_secs_f64() * 1e3;
             if let Some(bad) = scores.logits.iter().find(|x| !x.is_finite()) {
-                return Err(MetalError::Gpu(format!("T={t}: non-finite answer logit {bad}")));
+                return Err(MetalError::Gpu(format!(
+                    "T={t}: non-finite answer logit {bad}"
+                )));
             }
             Ok((ms, state.nbytes()))
         };
@@ -143,7 +145,10 @@ fn run_decision(argv: &[String]) -> Result<bool> {
     let t0 = Instant::now();
     let model = Model::load(&rt, &snapshot)?;
     let load_s = t0.elapsed().as_secs_f64();
-    println!("weights loaded in {load_s:.1} s; weight hash {}", model.weight_hash());
+    println!(
+        "weights loaded in {load_s:.1} s; weight hash {}",
+        model.weight_hash()
+    );
 
     let mut results = Vec::with_capacity(prompts.len());
     let mut tessl_after = provenance.tessl.clone();
@@ -182,7 +187,9 @@ fn run_decision(argv: &[String]) -> Result<bool> {
         println!("  arms bit-identical: {same} ({n_same}/{n} samples)");
         results.push(r);
         if moved {
-            println!("  tessl changed during this A/B: it is discarded; the row records status failed");
+            println!(
+                "  tessl changed during this A/B: it is discarded; the row records status failed"
+            );
             break;
         }
     }

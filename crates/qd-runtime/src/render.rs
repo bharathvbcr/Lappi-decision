@@ -34,7 +34,7 @@
 //! papered over.
 
 use crate::refusal::Refusal;
-use crate::schema::{check_slot_name, DecisionRequest, Route, SlotSpec, NOUL_LABEL};
+use crate::schema::{DecisionRequest, NOUL_LABEL, Route, SlotSpec, check_slot_name};
 
 // -- structural markers -------------------------------------------------------------------------
 // Transcribed from python/qd_data/render.py. Each is of the form <|qd_...|>; see the module docs.
@@ -388,7 +388,9 @@ pub fn unescape(text: &str) -> Result<String, UnescapeError> {
             }
             b'u' => {
                 let digits = text.get(i + 2..i + 6).unwrap_or("");
-                let code = u32::from_str_radix(digits, 16).ok().and_then(char::from_u32);
+                let code = u32::from_str_radix(digits, 16)
+                    .ok()
+                    .and_then(char::from_u32);
                 match code {
                     Some(c) => {
                         out.push(c);
@@ -398,7 +400,7 @@ pub fn unescape(text: &str) -> Result<String, UnescapeError> {
                         return Err(UnescapeError::BadHexEscape {
                             offset: i,
                             found: digits.to_string(),
-                        })
+                        });
                     }
                 }
             }
@@ -406,7 +408,7 @@ pub fn unescape(text: &str) -> Result<String, UnescapeError> {
                 return Err(UnescapeError::Unknown {
                     offset: i,
                     ch: other as char,
-                })
+                });
             }
         }
     }

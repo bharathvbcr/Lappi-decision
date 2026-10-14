@@ -8,10 +8,10 @@
 
 mod common;
 
-use common::{build, standard_tensors, tiny_config, Fixture};
+use common::{Fixture, build, standard_tensors, tiny_config};
 use qd_export::export::SPAN_CONTRACT_VERSION;
-use qd_export::{export, RefusalKind};
-use serde_json::{json, Value};
+use qd_export::{RefusalKind, export};
+use serde_json::{Value, json};
 
 const DIGEST: &str = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f";
 
@@ -52,23 +52,43 @@ fn a_seed_heads_source_is_recorded_with_the_serving_contract_and_the_heads_diges
     assert_eq!(block["source"], src);
     assert!(block["averaged_head_preregistration"].is_null());
     assert_eq!(block["file"], "span_head.safetensors");
-    assert_eq!(block["sha256"].as_str(), summary.files.get("span_head.safetensors").map(String::as_str));
+    assert_eq!(
+        block["sha256"].as_str(),
+        summary
+            .files
+            .get("span_head.safetensors")
+            .map(String::as_str)
+    );
     assert_eq!(block["hidden_size"], common::HIDDEN);
     assert_eq!(block["serving_contract"]["version"], SPAN_CONTRACT_VERSION);
-    assert!(block["serving_contract"]["hidden_state"].as_str().unwrap().contains("final norm"));
-    assert!(block["serving_contract"]["abstain_row"].as_str().unwrap().starts_with("last"));
+    assert!(
+        block["serving_contract"]["hidden_state"]
+            .as_str()
+            .unwrap()
+            .contains("final norm")
+    );
+    assert!(
+        block["serving_contract"]["abstain_row"]
+            .as_str()
+            .unwrap()
+            .starts_with("last")
+    );
 }
 
 #[test]
 fn a_source_that_states_none_is_recorded_as_none_not_guessed() {
     let fx = with_source(None);
     export(&fx.request()).unwrap();
-    assert!(release_manifest(&fx)["span_head"]["source"].is_null(), "unknown provenance stays unknown");
+    assert!(
+        release_manifest(&fx)["span_head"]["source"].is_null(),
+        "unknown provenance stays unknown"
+    );
 }
 
 /// The committed campaign file, which is the only pre-registration the export accepts.
 fn committed_prereg() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../campaign/v6-averaging-preregistered.json")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../campaign/v6-averaging-preregistered.json")
 }
 
 /// An ft ledger with one completed ft row per fixture seed, edited by `edit(seed, row)`.
@@ -90,7 +110,10 @@ fn ledger(fx: &Fixture, edit: impl Fn(usize, &mut Value)) -> std::path::PathBuf 
     p
 }
 
-fn averaged_request(fx: &Fixture, ledger_edit: impl Fn(usize, &mut Value)) -> qd_export::ExportRequest {
+fn averaged_request(
+    fx: &Fixture,
+    ledger_edit: impl Fn(usize, &mut Value),
+) -> qd_export::ExportRequest {
     let mut req = fx.request();
     req.averaged_head_preregistration = Some(committed_prereg());
     req.ft_ledger = Some(ledger(fx, ledger_edit));
@@ -126,8 +149,14 @@ fn the_averaged_head_carries_its_preregistration_and_the_shared_init_verified_fr
     export(&averaged_request(&fx, |_, _| {})).unwrap();
     let block = &release_manifest(&fx)["span_head"];
     let rec = &block["averaged_head_preregistration"];
-    assert_eq!((rec["name"].as_str(), rec["row"].as_str()), (Some("v6-averaging"), Some("primary")));
-    assert_eq!(rec["sha256"].as_str(), Some(qd_export::export::KNOWN_AVERAGED_PREREGISTRATIONS[0].1));
+    assert_eq!(
+        (rec["name"].as_str(), rec["row"].as_str()),
+        (Some("v6-averaging"), Some("primary"))
+    );
+    assert_eq!(
+        rec["sha256"].as_str(),
+        Some(qd_export::export::KNOWN_AVERAGED_PREREGISTRATIONS[0].1)
+    );
     let init = &block["shared_init"];
     assert_eq!(init["shared"], true);
     assert_eq!(init["seeds"], json!([0, 1, 2]));
@@ -139,18 +168,72 @@ fn the_averaged_head_carries_its_preregistration_and_the_shared_init_verified_fr
 fn an_averaged_head_is_refused_without_ledger_evidence_that_every_seed_shared_one_init() {
     type LedgerEdit = Box<dyn Fn(usize, &mut Value)>;
     let cases: Vec<(&str, LedgerEdit, &str)> = vec![
-        ("not shared", Box::new(|s, r| if s == 1 { r["recipe"]["span_head_init"]["shared"] = false.into() }), "not the shared one"),
-        ("different init", Box::new(|s, r| if s == 2 { r["recipe"]["span_head_init"]["content_digest"] = "d1".repeat(32).into() }), "different span-head init"),
-        ("no init", Box::new(|s, r| if s == 0 { r["recipe"].as_object_mut().unwrap().remove("span_head_init"); }), "no recipe.span_head_init"),
-        ("not completed", Box::new(|s, r| if s == 0 { r["status"] = "failed".into() }), "not a completed ft row"),
-        ("repeated seed", Box::new(|s, r| if s == 2 { r["protocol"]["seed"] = 1.into() }), "not distinct"),
-        ("another seed", Box::new(|s, r| if s == 2 { r["protocol"]["seed"] = 9.into() }), "not the source manifest's inputs"),
+        (
+            "not shared",
+            Box::new(|s, r| {
+                if s == 1 {
+                    r["recipe"]["span_head_init"]["shared"] = false.into()
+                }
+            }),
+            "not the shared one",
+        ),
+        (
+            "different init",
+            Box::new(|s, r| {
+                if s == 2 {
+                    r["recipe"]["span_head_init"]["content_digest"] = "d1".repeat(32).into()
+                }
+            }),
+            "different span-head init",
+        ),
+        (
+            "no init",
+            Box::new(|s, r| {
+                if s == 0 {
+                    r["recipe"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("span_head_init");
+                }
+            }),
+            "no recipe.span_head_init",
+        ),
+        (
+            "not completed",
+            Box::new(|s, r| {
+                if s == 0 {
+                    r["status"] = "failed".into()
+                }
+            }),
+            "not a completed ft row",
+        ),
+        (
+            "repeated seed",
+            Box::new(|s, r| {
+                if s == 2 {
+                    r["protocol"]["seed"] = 1.into()
+                }
+            }),
+            "not distinct",
+        ),
+        (
+            "another seed",
+            Box::new(|s, r| {
+                if s == 2 {
+                    r["protocol"]["seed"] = 9.into()
+                }
+            }),
+            "not the source manifest's inputs",
+        ),
     ];
     for (what, edit, needle) in cases {
         let fx = averaged_with_inputs();
         let err = export(&averaged_request(&fx, &*edit)).expect_err(what);
         assert_eq!(err.kind, RefusalKind::SourceManifest, "{what}: {err}");
-        assert!(err.detail.contains(needle), "{what}: expected {needle:?} in {err}");
+        assert!(
+            err.detail.contains(needle),
+            "{what}: expected {needle:?} in {err}"
+        );
         assert!(!fx.out.exists(), "{what}");
     }
     // No ledger given, and a ledger with a row missing.
@@ -162,7 +245,12 @@ fn an_averaged_head_is_refused_without_ledger_evidence_that_every_seed_shared_on
         m["span_head_source"] = averaged();
         m["ft_row_ids"] = json!(["row-seed0", "row-seed1", "row-missing"]);
     });
-    assert!(export(&averaged_request(&fx, |_, _| {})).unwrap_err().detail.contains("0 rows have row_id"));
+    assert!(
+        export(&averaged_request(&fx, |_, _| {}))
+            .unwrap_err()
+            .detail
+            .contains("0 rows have row_id")
+    );
 }
 
 #[test]
@@ -172,13 +260,19 @@ fn a_file_that_only_says_the_right_sentence_is_not_the_committed_preregistration
     req.averaged_head_preregistration = Some(prereg(&fx, the_registration()));
     let err = export(&req).unwrap_err();
     assert_eq!(err.kind, RefusalKind::SourceManifest);
-    assert!(err.detail.contains("not a committed averaged-head pre-registration"), "{err}");
+    assert!(
+        err.detail
+            .contains("not a committed averaged-head pre-registration"),
+        "{err}"
+    );
 }
 
 #[test]
 fn a_preregistration_cannot_cover_a_head_that_is_not_the_averaged_one_or_does_not_say_so() {
     // A seed's head with a pre-registration of the averaged row: it would call a seed an average.
-    let fx = with_source(Some(json!({"mode": "seed", "seed": 1, "input": "s1", "payload_digest": DIGEST})));
+    let fx = with_source(Some(
+        json!({"mode": "seed", "seed": 1, "input": "s1", "payload_digest": DIGEST}),
+    ));
     let mut req = fx.request();
     req.averaged_head_preregistration = Some(committed_prereg());
     let err = export(&req).unwrap_err();
@@ -190,7 +284,12 @@ fn a_preregistration_cannot_cover_a_head_that_is_not_the_averaged_one_or_does_no
     let fx = with_source(None);
     let mut req = fx.request();
     req.averaged_head_preregistration = Some(prereg(&fx, the_registration()));
-    assert!(export(&req).unwrap_err().detail.contains("cannot cover another head"));
+    assert!(
+        export(&req)
+            .unwrap_err()
+            .detail
+            .contains("cannot cover another head")
+    );
 
     // A file that does not pre-register the averaged primary row.
     for body in [

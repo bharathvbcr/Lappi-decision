@@ -57,9 +57,9 @@ use std::ops::Range;
 use std::path::Path;
 
 use qd_export::export::{KNOWN_AVERAGED_PREREGISTRATIONS, SPAN_CONTRACT_VERSION};
+use qd_runtime::Context;
 use qd_runtime::release::{MANIFEST_FILE, SPAN_HEAD_FILE};
 use qd_runtime::render::{M_CTX_BEGIN, M_CTX_END};
-use qd_runtime::Context;
 use serde_json::Value;
 
 use crate::error::{MetalError, Result};
@@ -156,7 +156,10 @@ impl SpanHead {
     pub fn scores(&self, candidates: &[f32], n: usize, query: &[f32]) -> Result<SpanScores> {
         let h = self.hidden;
         if query.len() != h {
-            return Err(MetalError::Input(format!("the query hidden state has {} values, not {h}", query.len())));
+            return Err(MetalError::Input(format!(
+                "the query hidden state has {} values, not {h}",
+                query.len()
+            )));
         }
         if n.checked_mul(h) != Some(candidates.len()) {
             return Err(MetalError::Input(format!(
@@ -170,7 +173,10 @@ impl SpanHead {
                 .chunks_exact(h)
                 .map(|row| dot(row, query) as f32)
                 .collect();
-            let mut out: Vec<f32> = candidates.chunks_exact(h).map(|c| dot(&q, c) as f32).collect();
+            let mut out: Vec<f32> = candidates
+                .chunks_exact(h)
+                .map(|c| dot(&q, c) as f32)
+                .collect();
             out.push(dot(&q, abstain) as f32);
             if let Some(i) = out.iter().position(|v| !v.is_finite()) {
                 return Err(MetalError::Input(format!("span score {i} is {}", out[i])));
@@ -185,7 +191,10 @@ impl SpanHead {
 }
 
 fn dot(a: &[f32], b: &[f32]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| f64::from(*x) * f64::from(*y)).sum()
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| f64::from(*x) * f64::from(*y))
+        .sum()
 }
 
 /// Round to bf16 (nearest, ties to even) and widen back: what a bf16 tower hands the head.
@@ -198,7 +207,11 @@ pub fn round_bf16(v: f32) -> f32 {
 /// `Qwen3_5RMSNorm` is zero-centred: `x * rsqrt(mean(x^2) + eps) * (1 + w)`, computed in f32 and
 /// cast back to the tower's dtype. `norm_w` is the checkpoint's `w`, not `1 + w`.
 pub fn final_hidden_row(resid: &[f32], norm_w: &[f32], eps: f32) -> Vec<f32> {
-    let mean_sq = resid.iter().map(|x| f64::from(*x) * f64::from(*x)).sum::<f64>() / resid.len() as f64;
+    let mean_sq = resid
+        .iter()
+        .map(|x| f64::from(*x) * f64::from(*x))
+        .sum::<f64>()
+        / resid.len() as f64;
     let inv = (1.0 / (mean_sq + f64::from(eps)).sqrt()) as f32;
     resid
         .iter()
@@ -216,11 +229,15 @@ pub fn context_region(prefix: &str) -> Result<Range<usize>> {
     let start = prefix
         .find(&begin)
         .map(|i| i + begin.len())
-        .ok_or_else(|| MetalError::Input("the prefix has no context region (no context-begin marker)".into()))?;
+        .ok_or_else(|| {
+            MetalError::Input("the prefix has no context region (no context-begin marker)".into())
+        })?;
     let stop = prefix
         .rfind(&end)
         .filter(|stop| *stop >= start)
-        .ok_or_else(|| MetalError::Input("the prefix has no context region (no context-end marker)".into()))?;
+        .ok_or_else(|| {
+            MetalError::Input("the prefix has no context region (no context-end marker)".into())
+        })?;
     Ok(start..stop)
 }
 
@@ -232,7 +249,10 @@ pub fn line_starts_in(prefix: &str, region: &Range<usize>) -> Vec<usize> {
     if ctx.line_count() == 0 {
         return Vec::new();
     }
-    ctx.line_starts().into_iter().map(|s| region.start + s).collect()
+    ctx.line_starts()
+        .into_iter()
+        .map(|s| region.start + s)
+        .collect()
 }
 
 /// For each line start, the index of the first token whose byte span `[s, e)` contains it.
@@ -242,11 +262,21 @@ pub fn line_starts_in(prefix: &str, region: &Range<usize>) -> Vec<usize> {
 /// line start in no token is refused (a neighbour is never substituted: a pointer at the wrong
 /// token cites the wrong evidence), and so are two line starts in one token (`refuse-any`). Every
 /// offset must lie inside the text and run forward.
-pub fn candidate_tokens(line_starts: &[usize], offsets: &[(usize, usize)], text_len: usize) -> Result<Vec<usize>> {
+pub fn candidate_tokens(
+    line_starts: &[usize],
+    offsets: &[(usize, usize)],
+    text_len: usize,
+) -> Result<Vec<usize>> {
     if line_starts.windows(2).any(|w| w[0] >= w[1]) {
-        return Err(MetalError::Input("line starts are not strictly ascending".into()));
+        return Err(MetalError::Input(
+            "line starts are not strictly ascending".into(),
+        ));
     }
-    if let Some((i, (s, e))) = offsets.iter().enumerate().find(|(_, (s, e))| s > e || *e > text_len) {
+    if let Some((i, (s, e))) = offsets
+        .iter()
+        .enumerate()
+        .find(|(_, (s, e))| s > e || *e > text_len)
+    {
         return Err(MetalError::Input(format!(
             "token {i} has offsets ({s}, {e}) in a {text_len}-byte text: the offsets do not describe \
              this text"
@@ -353,13 +383,17 @@ fn check_averaged(block: &Value) -> std::result::Result<(), String> {
         prereg.get("name").and_then(Value::as_str),
         prereg.get("sha256").and_then(Value::as_str),
     );
-    let known = KNOWN_AVERAGED_PREREGISTRATIONS.iter().any(|(n, d)| Some(*n) == name && Some(*d) == sha);
+    let known = KNOWN_AVERAGED_PREREGISTRATIONS
+        .iter()
+        .any(|(n, d)| Some(*n) == name && Some(*d) == sha);
     if prereg.get("row").and_then(Value::as_str) != Some("primary") || !known {
         return Err(not_registered());
     }
     let init = block.get("shared_init").filter(|i| i.is_object());
     let seeds = init.and_then(|i| i.get("seeds")).and_then(Value::as_array);
-    let rows = init.and_then(|i| i.get("ft_row_ids")).and_then(Value::as_array);
+    let rows = init
+        .and_then(|i| i.get("ft_row_ids"))
+        .and_then(Value::as_array);
     let distinct = seeds.is_some_and(|s| {
         let mut v: Vec<u64> = s.iter().filter_map(Value::as_u64).collect();
         let n = v.len();
@@ -369,7 +403,9 @@ fn check_averaged(block: &Value) -> std::result::Result<(), String> {
     });
     let ok = init.is_some_and(|i| {
         i.get("shared").and_then(Value::as_bool) == Some(true)
-            && i.get("content_digest").and_then(Value::as_str).is_some_and(|d| !d.trim().is_empty() && d.bytes().all(|b| b.is_ascii_hexdigit()))
+            && i.get("content_digest")
+                .and_then(Value::as_str)
+                .is_some_and(|d| !d.trim().is_empty() && d.bytes().all(|b| b.is_ascii_hexdigit()))
     }) && distinct
         && seeds.is_some_and(|s| s.len() >= 2)
         && seeds.map(Vec::len) == rows.map(Vec::len);
@@ -408,7 +444,11 @@ pub fn open(dir: &Path, hidden: usize) -> SpanServing {
     }
 }
 
-fn open_checked(dir: &Path, head_path: &Path, hidden: usize) -> std::result::Result<SpanHead, String> {
+fn open_checked(
+    dir: &Path,
+    head_path: &Path,
+    hidden: usize,
+) -> std::result::Result<SpanHead, String> {
     let manifest_path = dir.join(MANIFEST_FILE);
     let text = std::fs::read_to_string(&manifest_path).map_err(|e| {
         format!(
@@ -419,14 +459,19 @@ fn open_checked(dir: &Path, head_path: &Path, hidden: usize) -> std::result::Res
     })?;
     let manifest: Value = serde_json::from_str(&text)
         .map_err(|e| format!("{} is not JSON ({e})", manifest_path.display()))?;
-    let block = manifest.get("span_head").filter(|b| b.is_object()).ok_or_else(|| {
-        "the release manifest has no span_head block: it was exported before the head's \
+    let block = manifest
+        .get("span_head")
+        .filter(|b| b.is_object())
+        .ok_or_else(|| {
+            "the release manifest has no span_head block: it was exported before the head's \
          provenance was recorded, and a head of unknown provenance may be the blend of \
          independently trained heads that collapses the span (re-export with a current \
          qd-export from a checkpoint whose manifest records span_head_source)"
-            .to_string()
-    })?;
-    let version = block.pointer("/serving_contract/version").and_then(Value::as_str);
+                .to_string()
+        })?;
+    let version = block
+        .pointer("/serving_contract/version")
+        .and_then(Value::as_str);
     if version != Some(SPAN_CONTRACT_VERSION) {
         return Err(format!(
             "span_head.serving_contract.version is {version:?}; this loader implements {SPAN_CONTRACT_VERSION:?} \
@@ -439,14 +484,20 @@ fn open_checked(dir: &Path, head_path: &Path, hidden: usize) -> std::result::Res
     if block.get("hidden_size").and_then(Value::as_u64) != u64::try_from(hidden).ok() {
         return Err(format!(
             "span_head.hidden_size is {}, the tower's is {hidden}",
-            block.get("hidden_size").map_or_else(|| "absent".to_string(), Value::to_string)
+            block
+                .get("hidden_size")
+                .map_or_else(|| "absent".to_string(), Value::to_string)
         ));
     }
     let bytes = std::fs::read(head_path).map_err(|e| format!("{}: {e}", head_path.display()))?;
     let actual = qd_runtime::hex(&qd_runtime::sha256(&bytes));
     let recorded_block = block.get("sha256").and_then(Value::as_str);
-    let recorded_files = at(&manifest, &format!("/files/{SPAN_HEAD_FILE}/sha256")).and_then(Value::as_str);
-    for (what, recorded) in [("span_head.sha256", recorded_block), ("files sha256", recorded_files)] {
+    let recorded_files =
+        at(&manifest, &format!("/files/{SPAN_HEAD_FILE}/sha256")).and_then(Value::as_str);
+    for (what, recorded) in [
+        ("span_head.sha256", recorded_block),
+        ("files sha256", recorded_files),
+    ] {
         if recorded != Some(actual.as_str()) {
             return Err(format!(
                 "{SPAN_HEAD_FILE} has sha256 {actual}, but the manifest's {what} is {recorded:?}: it is \
@@ -457,9 +508,14 @@ fn open_checked(dir: &Path, head_path: &Path, hidden: usize) -> std::result::Res
     match block.pointer("/source/mode").and_then(Value::as_str) {
         Some("seed") => {
             let seed = block.pointer("/source/seed").and_then(Value::as_u64);
-            let digest = block.pointer("/source/payload_digest").and_then(Value::as_str);
+            let digest = block
+                .pointer("/source/payload_digest")
+                .and_then(Value::as_str);
             if seed.is_none() || !digest.is_some_and(is_hex64) {
-                return Err("span_head.source is seed-mode but names no seed or no 64-hex payload_digest".into());
+                return Err(
+                    "span_head.source is seed-mode but names no seed or no 64-hex payload_digest"
+                        .into(),
+                );
             }
         }
         Some("averaged") => check_averaged(block)?,

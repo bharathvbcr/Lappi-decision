@@ -1254,7 +1254,11 @@ mod tests {
 
         assert_eq!(batch_score_rows(1), Some([0, 1]));
         assert_eq!(batch_score_rows(3), Some([2, 5]));
-        assert_eq!(batch_score_rows(0), None, "seq 0 would underflow the score index");
+        assert_eq!(
+            batch_score_rows(0),
+            None,
+            "seq 0 would underflow the score index"
+        );
         assert_eq!(batch_score_rows(1 << 31), None, "2 * seq must not wrap");
         assert_eq!(batch_score_rows(u32::MAX), None);
         let half = u32::MAX / 2;

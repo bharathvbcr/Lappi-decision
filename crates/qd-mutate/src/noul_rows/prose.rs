@@ -15,7 +15,7 @@ use rand::seq::IndexedRandom;
 use rand_chacha::ChaCha20Rng;
 use serde::Deserialize;
 
-use crate::hunk::{self, draw_shape, has_char_in, item_rng, mark_block, order_key, Shape};
+use crate::hunk::{self, Shape, draw_shape, has_char_in, item_rng, mark_block, order_key};
 
 pub const SOURCE: &str = "prose";
 pub const LANGUAGE: &str = "prose";
@@ -127,7 +127,12 @@ pub fn read_paragraphs(
 pub fn select(paragraphs: &[Paragraph], n: usize, seed: u64) -> Result<Vec<&Paragraph>, String> {
     let mut order: Vec<(&Paragraph, [u8; 32])> = paragraphs
         .iter()
-        .map(|p| (p, order_key(seed, SOURCE, &format!("{}\u{1f}{}", p.title, p.context))))
+        .map(|p| {
+            (
+                p,
+                order_key(seed, SOURCE, &format!("{}\u{1f}{}", p.title, p.context)),
+            )
+        })
         .collect();
     order.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
     let mut per_title: BTreeMap<&str, usize> = BTreeMap::new();
@@ -163,7 +168,11 @@ fn slug(title: &str) -> String {
         }
     }
     let out = out.trim_matches('-').to_string();
-    if out.is_empty() { "section".to_string() } else { out }
+    if out.is_empty() {
+        "section".to_string()
+    } else {
+        out
+    }
 }
 
 fn camel(slug: &str) -> String {
@@ -289,8 +298,14 @@ mod tests {
             assert!(path.contains("super"), "{path}");
             let body: Vec<&str> = diff.lines().skip(1).collect();
             assert!(body.iter().all(|l| l.len() <= 101), "{body:?}");
-            assert!(body.iter().any(|l| l.starts_with(' ')), "no context line: {body:?}");
-            assert!(body.iter().any(|l| !l.starts_with(' ')), "no change: {body:?}");
+            assert!(
+                body.iter().any(|l| l.starts_with(' ')),
+                "no context line: {body:?}"
+            );
+            assert!(
+                body.iter().any(|l| !l.starts_with(' ')),
+                "no change: {body:?}"
+            );
             let words: String = body.iter().map(|l| &l[1..]).collect::<Vec<_>>().join(" ");
             assert_eq!(words, PARA.split_whitespace().collect::<Vec<_>>().join(" "));
         }
@@ -308,7 +323,11 @@ mod tests {
         let got = select(&paras, 5, 0).unwrap();
         assert_eq!(got.iter().filter(|p| p.title == "A").count(), 3);
         assert_eq!(got.iter().filter(|p| p.title == "B").count(), 2);
-        assert!(select(&paras, 6, 0).unwrap_err().contains("only 5 eligible"));
+        assert!(
+            select(&paras, 6, 0)
+                .unwrap_err()
+                .contains("only 5 eligible")
+        );
         assert_eq!(slug("Beyoncé"), "beyonc");
         assert_eq!(slug("Super_Bowl_50"), "super-bowl-50");
         assert_eq!(camel("super-bowl-50"), "superBowl50");

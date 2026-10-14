@@ -237,7 +237,12 @@ impl ContrastRows {
     fn from_json(raw: &Value) -> Result<Self, String> {
         let obj = raw
             .as_object()
-            .filter(|o| o.len() == 3 && ["count", "sha256", "seed"].iter().all(|k| o.contains_key(*k)))
+            .filter(|o| {
+                o.len() == 3
+                    && ["count", "sha256", "seed"]
+                        .iter()
+                        .all(|k| o.contains_key(*k))
+            })
             .ok_or(format!(
                 "contrast_rows is {raw}; a header states it as {{count, sha256, seed}}"
             ))?;
@@ -258,7 +263,11 @@ impl ContrastRows {
             "contrast_rows.seed {} is not a non-negative int",
             obj["seed"]
         ))?;
-        Ok(Self { count, sha256, seed })
+        Ok(Self {
+            count,
+            sha256,
+            seed,
+        })
     }
 
     /// `ContrastRows.to_json()`.

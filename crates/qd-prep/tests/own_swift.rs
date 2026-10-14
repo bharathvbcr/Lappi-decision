@@ -235,7 +235,10 @@ fn the_pool_manifest_names_its_source_and_licence_and_pins_a_per_file_sha256_lis
     assert_eq!(m["source_id"], "bharathvbcr/own-repositories");
     assert_eq!(m["licence"], "owner-granted");
     let files_bytes = fs::read(out.join("files.jsonl")).unwrap();
-    assert_eq!(m["files"]["sha256"], qd_prep::sha256::sha256_hex(&files_bytes));
+    assert_eq!(
+        m["files"]["sha256"],
+        qd_prep::sha256::sha256_hex(&files_bytes)
+    );
     let recs = pool_lines(&out);
     assert_eq!(m["files"]["count"], recs.len());
     let files: Vec<Value> = String::from_utf8(files_bytes)

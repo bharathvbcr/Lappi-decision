@@ -22,14 +22,32 @@ fn snapshot() -> std::path::PathBuf {
 fn snapshot_header_and_tensor_set_match_the_config() {
     let snap = snapshot();
     let cfg = ModelConfig::load(&snap).unwrap();
-    assert_eq!((cfg.n_gdn(), cfg.n_attention(), cfg.rotary_dim), (18, 6, 64));
+    assert_eq!(
+        (cfg.n_gdn(), cfg.n_attention(), cfg.rotary_dim),
+        (18, 6, 64)
+    );
     let st = SafeTensors::open(&qd_metal::model::weights_file(&snap).unwrap()).unwrap();
     weights::check_text_tensor_set(&st, &cfg).unwrap();
     // The dtypes the loader converts: A_log and the gated norm are F32, dt_bias is BF16.
     let p = weights::TEXT_PREFIX;
-    assert_eq!(st.info(&format!("{p}layers.0.linear_attn.A_log")).unwrap().dtype, Dtype::F32);
-    assert_eq!(st.info(&format!("{p}layers.0.linear_attn.norm.weight")).unwrap().dtype, Dtype::F32);
-    assert_eq!(st.info(&format!("{p}layers.0.linear_attn.dt_bias")).unwrap().dtype, Dtype::Bf16);
+    assert_eq!(
+        st.info(&format!("{p}layers.0.linear_attn.A_log"))
+            .unwrap()
+            .dtype,
+        Dtype::F32
+    );
+    assert_eq!(
+        st.info(&format!("{p}layers.0.linear_attn.norm.weight"))
+            .unwrap()
+            .dtype,
+        Dtype::F32
+    );
+    assert_eq!(
+        st.info(&format!("{p}layers.0.linear_attn.dt_bias"))
+            .unwrap()
+            .dtype,
+        Dtype::Bf16
+    );
     assert_eq!(
         st.info(&format!("{p}embed_tokens.weight")).unwrap().shape,
         [cfg.vocab, cfg.hidden]
@@ -51,11 +69,24 @@ fn snapshot_layers_pack_to_the_kernel_layouts() {
         assert_eq!(l.w_down.len(), inter * h);
         assert!(l.in_norm.iter().all(|w| w.is_finite()));
         match (&l.mixer, want) {
-            (HostMixer::Gdn { w_in, w_out, conv_w, a_log, dt_bias, norm_w }, LayerKind::Gdn) => {
+            (
+                HostMixer::Gdn {
+                    w_in,
+                    w_out,
+                    conv_w,
+                    a_log,
+                    dt_bias,
+                    norm_w,
+                },
+                LayerKind::Gdn,
+            ) => {
                 let lay = cfg.gdn_layout().unwrap();
                 assert_eq!(w_in.len(), h * lay.width() as usize);
                 assert_eq!(w_out.len(), lay.value_dim() as usize * h);
-                assert_eq!(conv_w.len(), lay.conv_dim() as usize * cfg.conv_kernel as usize);
+                assert_eq!(
+                    conv_w.len(),
+                    lay.conv_dim() as usize * cfg.conv_kernel as usize
+                );
                 assert_eq!((a_log.len(), dt_bias.len(), norm_w.len()), (16, 16, 128));
                 // Values read with the Python `safetensors` package from this snapshot
                 // (2026-09-29): layer 0 A_log[0] = -0.25976563 (F32), dt_bias[3] = 9.5 (BF16).
@@ -65,7 +96,15 @@ fn snapshot_layers_pack_to_the_kernel_layouts() {
                 assert_eq!(dt_bias[3], 9.5);
                 assert_eq!(dt_bias[8], -12.3125);
             }
-            (HostMixer::Attn { w_in, w_out, q_norm, k_norm }, LayerKind::Attention) => {
+            (
+                HostMixer::Attn {
+                    w_in,
+                    w_out,
+                    q_norm,
+                    k_norm,
+                },
+                LayerKind::Attention,
+            ) => {
                 let lay = cfg.attn_layout().unwrap();
                 assert_eq!(w_in.len(), h * lay.width() as usize);
                 assert_eq!(w_out.len(), (cfg.q_heads * cfg.head_dim) as usize * h);
@@ -97,15 +136,36 @@ fn snapshot_decision_prompts_fill_each_t_from_below() {
     let tok = QwenTokenizer::load(&snapshot().join("tokenizer.json")).unwrap();
     for t in qd_metal::decision::DEFAULT_T {
         let p = qd_metal::decision::build_prompt(&tok, t, 4).unwrap();
-        assert!(p.prefix.len() <= t, "T={t}: prefix {} tokens", p.prefix.len());
+        assert!(
+            p.prefix.len() <= t,
+            "T={t}: prefix {} tokens",
+            p.prefix.len()
+        );
         // One more source line must not fit, or the context is shorter than it needs to be.
-        assert!(p.prefix.len() + 64 > t, "T={t}: prefix {} tokens is far below the target", p.prefix.len());
+        assert!(
+            p.prefix.len() + 64 > t,
+            "T={t}: prefix {} tokens is far below the target",
+            p.prefix.len()
+        );
         assert_eq!(p.rows, 5);
         assert_ne!(p.passes[0], p.passes[1]);
-        assert!(p.passes.iter().all(|s| !s.is_empty() && s.len() < 64), "{:?}", p.passes.iter().map(Vec::len).collect::<Vec<_>>());
-        println!("T={t}: prefix {} tokens ({} context lines), passes {}+{} tokens", p.prefix.len(), p.context_lines, p.passes[0].len(), p.passes[1].len());
+        assert!(
+            p.passes.iter().all(|s| !s.is_empty() && s.len() < 64),
+            "{:?}",
+            p.passes.iter().map(Vec::len).collect::<Vec<_>>()
+        );
+        println!(
+            "T={t}: prefix {} tokens ({} context lines), passes {}+{} tokens",
+            p.prefix.len(),
+            p.context_lines,
+            p.passes[0].len(),
+            p.passes[1].len()
+        );
     }
-    assert!(qd_metal::decision::build_prompt(&tok, 16, 4).is_err(), "a T below the fixed text is refused");
+    assert!(
+        qd_metal::decision::build_prompt(&tok, 16, 4).is_err(),
+        "a T below the fixed text is refused"
+    );
 }
 
 /// The frozen context feeds the ids rows 147da0cc and 28505f4c fed: their `data_snapshot_hash`

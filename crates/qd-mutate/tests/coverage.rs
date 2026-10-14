@@ -278,7 +278,8 @@ fn every_operator_either_finds_sites_or_is_an_explicitly_listed_exception() {
     for id in LangId::ALL {
         let run = run_language(id);
         let report = report_for(&run, id);
-        let exceptions: BTreeSet<OpId> = expected_silent(id).into_iter().map(|(op, _)| op).collect();
+        let exceptions: BTreeSet<OpId> =
+            expected_silent(id).into_iter().map(|(op, _)| op).collect();
 
         for op in OpId::ALL {
             let sites = report
@@ -379,7 +380,10 @@ fn a_coverage_table_names_every_operator_for_every_language() {
             "the table omits the {id} section"
         );
     }
-    assert!(table.contains("span-disagreements"), "the alarm is not in the table");
+    assert!(
+        table.contains("span-disagreements"),
+        "the alarm is not in the table"
+    );
 }
 
 #[test]

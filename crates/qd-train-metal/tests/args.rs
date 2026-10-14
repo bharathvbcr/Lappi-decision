@@ -7,28 +7,46 @@ use std::process::Command;
 
 use qd_train::recipe::LowerLayers;
 use qd_train::shards::plan_epoch;
-use qd_train_metal::args::{parse, ArgsError, Operands};
+use qd_train_metal::args::{ArgsError, Operands, parse};
 
 fn base() -> Vec<String> {
     [
-        "--snapshot", "/nonexistent/snap/b1485b2f",
-        "--data-root", "/nonexistent/out",
-        "--shards", "/nonexistent/out/shards/train",
-        "--manifest", "/nonexistent/out/data/pool/train.json",
-        "--qd-data", "/nonexistent/python/qd_data",
-        "--head-init", "/nonexistent/span_head_init-seed0.safetensors",
-        "--head-init-sha256", "8f10b58bb45af911e5e8524157f1898604c3bca7fb97ff66437614cda5d48230",
-        "--head-init-content-digest", "81bd953e1f27e8e2b703264df663f15f239327c9523d3e85973687009db471d6",
-        "--out", "/nonexistent/run",
-        "--ledger", "/nonexistent/ledger/mac-ojas-rung-d-2026-10-01.jsonl",
-        "--repo", "/nonexistent",
-        "--seed", "0",
-        "--lr", "1e-5",
-        "--steps", "200",
-        "--batch-tokens", "35403",
-        "--span-weight", "1.0",
-        "--cap-s", "21600",
-        "--operands", "bf16",
+        "--snapshot",
+        "/nonexistent/snap/b1485b2f",
+        "--data-root",
+        "/nonexistent/out",
+        "--shards",
+        "/nonexistent/out/shards/train",
+        "--manifest",
+        "/nonexistent/out/data/pool/train.json",
+        "--qd-data",
+        "/nonexistent/python/qd_data",
+        "--head-init",
+        "/nonexistent/span_head_init-seed0.safetensors",
+        "--head-init-sha256",
+        "8f10b58bb45af911e5e8524157f1898604c3bca7fb97ff66437614cda5d48230",
+        "--head-init-content-digest",
+        "81bd953e1f27e8e2b703264df663f15f239327c9523d3e85973687009db471d6",
+        "--out",
+        "/nonexistent/run",
+        "--ledger",
+        "/nonexistent/ledger/mac-ojas-rung-d-2026-10-01.jsonl",
+        "--repo",
+        "/nonexistent",
+        "--seed",
+        "0",
+        "--lr",
+        "1e-5",
+        "--steps",
+        "200",
+        "--batch-tokens",
+        "35403",
+        "--span-weight",
+        "1.0",
+        "--cap-s",
+        "21600",
+        "--operands",
+        "bf16",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -44,7 +62,11 @@ fn with(extra: &[&str]) -> Vec<String> {
 fn without(flag: &str) -> Vec<String> {
     let v = base();
     let i = v.iter().position(|a| a == flag).expect("flag in base");
-    v.into_iter().enumerate().filter(|(j, _)| *j != i && *j != i + 1).map(|(_, a)| a).collect()
+    v.into_iter()
+        .enumerate()
+        .filter(|(j, _)| *j != i && *j != i + 1)
+        .map(|(_, a)| a)
+        .collect()
 }
 
 fn refused(args: &[String]) -> String {
@@ -63,7 +85,15 @@ fn usage(args: &[String]) -> String {
 
 #[test]
 fn a_complete_command_line_is_the_recipe_it_states() {
-    let a = parse(&with(&["--eta-at-step", "10", "--eta-margin-s", "900", "--expect-rev", "abc"])).unwrap();
+    let a = parse(&with(&[
+        "--eta-at-step",
+        "10",
+        "--eta-margin-s",
+        "900",
+        "--expect-rev",
+        "abc",
+    ]))
+    .unwrap();
     assert_eq!(a.snapshot, PathBuf::from("/nonexistent/snap/b1485b2f"));
     assert_eq!(a.seed, 0);
     assert_eq!(a.lr, 1e-5);
@@ -89,12 +119,31 @@ fn a_complete_command_line_is_the_recipe_it_states() {
 /// before anything is read. The one-flag and the degenerate forms stay usage errors.
 #[test]
 fn a_layer_wise_learning_rate_is_accepted_as_a_validated_pair() {
-    let a = parse(&with(&["--lower-layers-n", "8", "--lower-layers-lr-scale", "0.1"])).unwrap();
-    assert_eq!(a.lower_layers, Some(LowerLayers { n: 8, lr_scale: 0.1 }));
-    let eq = parse(&with(&["--lower-layers-n=8", "--lower-layers-lr-scale=0.1"])).unwrap();
+    let a = parse(&with(&[
+        "--lower-layers-n",
+        "8",
+        "--lower-layers-lr-scale",
+        "0.1",
+    ]))
+    .unwrap();
+    assert_eq!(
+        a.lower_layers,
+        Some(LowerLayers {
+            n: 8,
+            lr_scale: 0.1
+        })
+    );
+    let eq = parse(&with(&[
+        "--lower-layers-n=8",
+        "--lower-layers-lr-scale=0.1",
+    ]))
+    .unwrap();
     assert_eq!(eq.lower_layers, a.lower_layers);
     assert_eq!(parse(&base()).unwrap().lower_layers, None);
-    for alone in [&["--lower-layers-n", "8"][..], &["--lower-layers-lr-scale", "0.1"][..]] {
+    for alone in [
+        &["--lower-layers-n", "8"][..],
+        &["--lower-layers-lr-scale", "0.1"][..],
+    ] {
         assert!(usage(&with(alone)).contains("come together"), "{alone:?}");
     }
     for (n, scale, why) in [
@@ -104,7 +153,12 @@ fn a_layer_wise_learning_rate_is_accepted_as_a_validated_pair() {
         ("8", "nan", "finite and positive"),
         ("8", "inf", "finite and positive"),
     ] {
-        let m = usage(&with(&["--lower-layers-n", n, "--lower-layers-lr-scale", scale]));
+        let m = usage(&with(&[
+            "--lower-layers-n",
+            n,
+            "--lower-layers-lr-scale",
+            scale,
+        ]));
         assert!(m.contains(why), "{n} {scale}: {m}");
     }
 }
@@ -137,12 +191,28 @@ fn the_seed_flag_is_the_seed_the_epoch_is_planned_at() {
 fn min_lr_and_resume_are_flags_with_bounds() {
     let a = parse(&base()).unwrap();
     assert_eq!((a.min_lr, a.resume.clone()), (None, None));
-    let a = parse(&with(&["--min-lr", "0", "--resume", "/nonexistent/run/checkpoints/ckpt-00000100"])).unwrap();
+    let a = parse(&with(&[
+        "--min-lr",
+        "0",
+        "--resume",
+        "/nonexistent/run/checkpoints/ckpt-00000100",
+    ]))
+    .unwrap();
     assert_eq!(a.min_lr, Some(0.0));
-    assert_eq!(a.resume, Some(PathBuf::from("/nonexistent/run/checkpoints/ckpt-00000100")));
-    assert_eq!(parse(&with(&["--min-lr", "1e-5"])).unwrap().min_lr, Some(1e-5), "the floor may equal the peak");
+    assert_eq!(
+        a.resume,
+        Some(PathBuf::from("/nonexistent/run/checkpoints/ckpt-00000100"))
+    );
+    assert_eq!(
+        parse(&with(&["--min-lr", "1e-5"])).unwrap().min_lr,
+        Some(1e-5),
+        "the floor may equal the peak"
+    );
     for bad in ["-1", "nan", "inf", "2e-5", "low"] {
-        assert!(!usage(&with(&["--min-lr", bad])).is_empty(), "--min-lr {bad}");
+        assert!(
+            !usage(&with(&["--min-lr", bad])).is_empty(),
+            "--min-lr {bad}"
+        );
     }
     assert!(usage(&with(&["--min-lr", "0", "--min-lr", "0"])).contains("given twice"));
     assert!(usage(&with(&["--resume"])).contains("needs a value"));
@@ -152,7 +222,10 @@ fn min_lr_and_resume_are_flags_with_bounds() {
 fn the_recipe_records_the_batch_order_and_the_floor_it_was_given() {
     let none = parse(&base()).unwrap().recipe_extra(1);
     assert_eq!(none.get("batch_order"), Some(&serde_json::json!("seed")));
-    assert!(!none.contains_key("min_lr"), "no floor given, no key: the lr / 10 recipe's hash is unchanged by it");
+    assert!(
+        !none.contains_key("min_lr"),
+        "no floor given, no key: the lr / 10 recipe's hash is unchanged by it"
+    );
     let floor = parse(&with(&["--min-lr", "0"])).unwrap().recipe_extra(2);
     assert_eq!(floor.get("min_lr"), Some(&serde_json::json!(0.0)));
     assert_eq!(floor.get("prompt_format"), Some(&serde_json::json!(2)));
@@ -160,11 +233,23 @@ fn the_recipe_records_the_batch_order_and_the_floor_it_was_given() {
 
 #[test]
 fn real_fts_source_transforms_and_the_doors_escape_hatches_are_refused_by_name() {
-    for flag in ["--passes", "--max-width", "--option-permutation-seed", "--replay-shards"] {
+    for flag in [
+        "--passes",
+        "--max-width",
+        "--option-permutation-seed",
+        "--replay-shards",
+    ] {
         let m = refused(&with(&[flag, "2"]));
-        assert!(m.starts_with(flag) && m.contains("source transforms are not ported"), "{m}");
+        assert!(
+            m.starts_with(flag) && m.contains("source transforms are not ported"),
+            "{m}"
+        );
     }
-    for flag in ["--allow-stale-code", "--allow-rev-mismatch", "--allow-not-run-snapshot"] {
+    for flag in [
+        "--allow-stale-code",
+        "--allow-rev-mismatch",
+        "--allow-not-run-snapshot",
+    ] {
         let m = refused(&with(&[flag]));
         assert!(m.starts_with(flag) && m.contains("escape hatches"), "{m}");
     }
@@ -173,12 +258,29 @@ fn real_fts_source_transforms_and_the_doors_escape_hatches_are_refused_by_name()
 #[test]
 fn malformed_command_lines_are_usage_errors() {
     for required in [
-        "--snapshot", "--data-root", "--shards", "--manifest", "--qd-data", "--head-init",
-        "--head-init-sha256", "--head-init-content-digest", "--out",
-        "--ledger", "--repo", "--seed", "--lr", "--steps", "--batch-tokens", "--span-weight", "--cap-s",
+        "--snapshot",
+        "--data-root",
+        "--shards",
+        "--manifest",
+        "--qd-data",
+        "--head-init",
+        "--head-init-sha256",
+        "--head-init-content-digest",
+        "--out",
+        "--ledger",
+        "--repo",
+        "--seed",
+        "--lr",
+        "--steps",
+        "--batch-tokens",
+        "--span-weight",
+        "--cap-s",
         "--operands",
     ] {
-        assert!(usage(&without(required)).contains(required), "{required} must be required");
+        assert!(
+            usage(&without(required)).contains(required),
+            "{required} must be required"
+        );
     }
     assert!(usage(&with(&["--seed", "1"])).contains("given twice"));
     assert!(usage(&with(&["--beta2", "0.99"])).contains("unknown argument"));
@@ -199,7 +301,10 @@ fn malformed_command_lines_are_usage_errors() {
     assert!(bad("--steps", "0").contains("at least 1"));
     assert!(bad("--batch-tokens", "0").contains("at least 1"));
     assert!(bad("--span-weight", "-1").contains("positive"));
-    assert!(bad("--cap-s", "200000").contains("MAX_CAP_S"), "the program's 40 h cap is read-only");
+    assert!(
+        bad("--cap-s", "200000").contains("MAX_CAP_S"),
+        "the program's 40 h cap is read-only"
+    );
     assert!(bad("--operands", "fp16").contains("exact_f32 or bf16"));
     assert!(bad("--seed", "-1").contains("not a valid number"));
     assert!(bad("--head-init-sha256", "abc").contains("64 lowercase hex"));
@@ -209,7 +314,10 @@ fn malformed_command_lines_are_usage_errors() {
 #[test]
 fn the_row_can_only_go_to_a_mac_ojas_ledger() {
     let mut v = without("--ledger");
-    v.extend(["--ledger".to_string(), "/r/ledger/gh200-p4-v4-2026-10-01.jsonl".to_string()]);
+    v.extend([
+        "--ledger".to_string(),
+        "/r/ledger/gh200-p4-v4-2026-10-01.jsonl".to_string(),
+    ]);
     assert!(refused(&v).contains("mac-ojas"));
 }
 
@@ -234,9 +342,15 @@ fn the_binary_refuses_half_a_layer_wise_split_before_reading_anything() {
 fn a_resume_under_another_recipe_is_refused() {
     let base_args = parse(&base()).unwrap();
     let saved = base_args.checkpoint_recipe();
-    assert!(base_args.check_resume_recipe(&saved).is_ok(), "the same recipe resumes");
+    assert!(
+        base_args.check_resume_recipe(&saved).is_ok(),
+        "the same recipe resumes"
+    );
     for (what, extra) in [
-        ("lower layers", &["--lower-layers-n", "8", "--lower-layers-lr-scale", "0.1"][..]),
+        (
+            "lower layers",
+            &["--lower-layers-n", "8", "--lower-layers-lr-scale", "0.1"][..],
+        ),
         ("min-lr", &["--min-lr", "0"][..]),
         ("operands", &[][..]),
     ] {
@@ -250,15 +364,32 @@ fn a_resume_under_another_recipe_is_refused() {
         let other = parse(&v).unwrap();
         let err = other.check_resume_recipe(&saved).unwrap_err();
         assert!(err.contains("recipe"), "{what}: {err}");
-        assert!(base_args.check_resume_recipe(&other.checkpoint_recipe()).is_err(), "{what}, reversed");
+        assert!(
+            base_args
+                .check_resume_recipe(&other.checkpoint_recipe())
+                .is_err(),
+            "{what}, reversed"
+        );
     }
-    for (flag, value) in [("--seed", "9"), ("--lr", "2e-5"), ("--span-weight", "2"), ("--batch-tokens", "9000")] {
+    for (flag, value) in [
+        ("--seed", "9"),
+        ("--lr", "2e-5"),
+        ("--span-weight", "2"),
+        ("--batch-tokens", "9000"),
+    ] {
         let mut v = without(flag);
         v.extend([flag.to_string(), value.to_string()]);
-        assert!(parse(&v).unwrap().check_resume_recipe(&saved).is_err(), "{flag}");
+        assert!(
+            parse(&v).unwrap().check_resume_recipe(&saved).is_err(),
+            "{flag}"
+        );
     }
     // A checkpoint root with no recipe file at all is not a checkpoint this binary wrote.
-    assert!(base_args.check_resume_recipe(&serde_json::Value::Null).is_err());
+    assert!(
+        base_args
+            .check_resume_recipe(&serde_json::Value::Null)
+            .is_err()
+    );
 }
 
 /// The `--resume` command line itself, as `run()` checks it: `--resume` and `--checkpoint-every`
@@ -268,11 +399,25 @@ fn a_resume_under_another_recipe_is_refused() {
 fn the_resume_command_line_carries_the_original_recipe_and_names_what_changed() {
     let original = parse(&with(&["--checkpoint-every", "1"])).unwrap();
     let saved = original.checkpoint_recipe();
-    let resumed = parse(&with(&["--checkpoint-every", "2", "--resume", "/nonexistent/run/checkpoints/ckpt-00000002"])).unwrap();
+    let resumed = parse(&with(&[
+        "--checkpoint-every",
+        "2",
+        "--resume",
+        "/nonexistent/run/checkpoints/ckpt-00000002",
+    ]))
+    .unwrap();
     assert_eq!(resumed.checkpoint_recipe(), saved);
     assert!(resumed.check_resume_recipe(&saved).is_ok());
     let mut v = without("--steps");
-    v.extend(["--steps".to_string(), "199".to_string(), "--resume".to_string(), "/nonexistent/ckpt-00000002".to_string()]);
+    v.extend([
+        "--steps".to_string(),
+        "199".to_string(),
+        "--resume".to_string(),
+        "/nonexistent/ckpt-00000002".to_string(),
+    ]);
     let err = parse(&v).unwrap().check_resume_recipe(&saved).unwrap_err();
-    assert!(err.contains("\"steps\"") && !err.contains("\"lr\""), "{err}");
+    assert!(
+        err.contains("\"steps\"") && !err.contains("\"lr\""),
+        "{err}"
+    );
 }

@@ -131,7 +131,9 @@ fn top_level_record(json: &[u8]) -> bool {
                     if decode_string(token).is_some_and(|r| r.starts_with(CALLER_RECORD_PREFIX)) {
                         return true;
                     }
-                } else if expect_key && at_target && decode_string(token).as_deref() == Some("record")
+                } else if expect_key
+                    && at_target
+                    && decode_string(token).as_deref() == Some("record")
                 {
                     want_value = true;
                     expect_key = false;
@@ -665,7 +667,10 @@ mod tests {
     fn a_fifo_is_refused_as_unscannable_and_never_opened() {
         let dir = scratch("fifo");
         let fifo = dir.join("rows.jsonl");
-        let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
         assert!(made.success(), "mkfifo");
         let err = refuse_caller_records(&fifo, "pool").unwrap_err();
         assert!(
@@ -691,9 +696,11 @@ mod tests {
     fn a_file_re_separated_with_a_splitlines_separator_is_refused() {
         let dir = scratch("splitlines");
         let filler = format!("{{\"pad\":\"{}\"}}", "x".repeat(2000));
-        for (i, sep) in ['\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}']
-            .into_iter()
-            .enumerate()
+        for (i, sep) in [
+            '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}',
+        ]
+        .into_iter()
+        .enumerate()
         {
             let path = dir.join(format!("rows-{i}.jsonl"));
             let mut rows = vec![filler.as_str(); 600];
@@ -710,9 +717,15 @@ mod tests {
         for sep in ['\u{85}', '\u{2028}', '\u{2029}'] {
             let row = serde_json::json!({"text": format!("a{sep}b")}).to_string();
             assert!(row.contains(sep));
-            assert_eq!(refuse_caller_record_bytes(format!("{row}\n{row}\n").as_bytes(), "x"), Ok(()));
+            assert_eq!(
+                refuse_caller_record_bytes(format!("{row}\n{row}\n").as_bytes(), "x"),
+                Ok(())
+            );
             let outside = format!("{row}{sep}{row}\n");
-            assert!(refuse_caller_record_bytes(outside.as_bytes(), "x").is_err(), "{sep:?}");
+            assert!(
+                refuse_caller_record_bytes(outside.as_bytes(), "x").is_err(),
+                "{sep:?}"
+            );
         }
     }
 

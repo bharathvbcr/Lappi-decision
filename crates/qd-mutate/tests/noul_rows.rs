@@ -42,11 +42,17 @@ const TS: &str = "export function NAME(raw: string): Record<string, string> {\n 
     export default NAME;\n";
 
 fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn run(args: &[&str]) -> Output {
-    Command::new(BIN).args(args).output().expect("run qd-noul-rows")
+    Command::new(BIN)
+        .args(args)
+        .output()
+        .expect("run qd-noul-rows")
 }
 
 struct World {
@@ -61,8 +67,10 @@ struct World {
 
 /// Question `q` of three a fixture paragraph carries. Long enough for a word 8-gram alone.
 fn question(title: &str, k: usize, q: usize) -> String {
-    format!("Which new channels did the river of {title} section {k} cut through farmland in \
-             account {q}?")
+    format!(
+        "Which new channels did the river of {title} section {k} cut through farmland in \
+             account {q}?"
+    )
 }
 
 /// A one-hunk diff over every line of `source`, line 4 replaced: the corpus's own shape.
@@ -106,21 +114,30 @@ fn world(name: &str) -> World {
     let mut titles = serde_json::Map::new();
     for t in 0..4 {
         let title = format!("Kept {t}");
-        titles.insert(title.clone(), serde_json::json!(format!("squad-title:{title}")));
+        titles.insert(
+            title.clone(),
+            serde_json::json!(format!("squad-title:{title}")),
+        );
         for k in 0..2 {
             for q in 0..3 {
-                squad.push_str(&serde_json::json!({
-                    "title": title, "context": format!("{title} part {k}. {PARA}"),
-                    "question": question(&title, k, q),
-                }).to_string());
+                squad.push_str(
+                    &serde_json::json!({
+                        "title": title, "context": format!("{title} part {k}. {PARA}"),
+                        "question": question(&title, k, q),
+                    })
+                    .to_string(),
+                );
                 squad.push('\n');
             }
         }
     }
-    squad.push_str(&serde_json::json!({
-        "title": "Held", "context": format!("Held {MARK}. {PARA}"),
-        "question": format!("Which {MARK} question about the held river is never asked here?"),
-    }).to_string());
+    squad.push_str(
+        &serde_json::json!({
+            "title": "Held", "context": format!("Held {MARK}. {PARA}"),
+            "question": format!("Which {MARK} question about the held river is never asked here?"),
+        })
+        .to_string(),
+    );
     squad.push('\n');
     let squad_path = dir.join("train.jsonl");
     std::fs::write(&squad_path, &squad).unwrap();
@@ -138,25 +155,36 @@ fn world(name: &str) -> World {
             }
             let id = format!("c{i}:pkg/m{i}.{ext}");
             let excluded = i == 2;
-            let name = if excluded { format!("{MARK}_{i}") } else { format!("load_{i}") };
+            let name = if excluded {
+                format!("{MARK}_{i}")
+            } else {
+                format!("load_{i}")
+            };
             pool.push_str(&serde_json::json!({
                 "id": id, "repo": format!("org/{ext}{i}"), "path": format!("pkg/m{i}.{ext}"),
                 "source": body.replace("NAME", &name), "hunks": [{"start_line": 5, "end_line": 7}],
             }).to_string());
             pool.push('\n');
             let source = body.replace("NAME", &name);
-            let diff = if i == 0 && ext == "py" { two_hunks(&source) } else { one_hunk(&source) };
+            let diff = if i == 0 && ext == "py" {
+                two_hunks(&source)
+            } else {
+                one_hunk(&source)
+            };
             let language = match ext {
                 "py" => "python",
                 "go" => "go",
                 "rs" => "rust",
                 _ => "typescript",
             };
-            corpus.push_str(&serde_json::json!({
-                "id": format!("{id}#0"), "pool_id": id, "repo": format!("org/{ext}{i}"),
-                "path": format!("pkg/m{i}.{ext}"), "language": language, "class": "logic",
-                "diff": diff, "before": "unused", "after": "unused",
-            }).to_string());
+            corpus.push_str(
+                &serde_json::json!({
+                    "id": format!("{id}#0"), "pool_id": id, "repo": format!("org/{ext}{i}"),
+                    "path": format!("pkg/m{i}.{ext}"), "language": language, "class": "logic",
+                    "diff": diff, "before": "unused", "after": "unused",
+                })
+                .to_string(),
+            );
             corpus.push('\n');
             n_records += 1;
             if !excluded {
@@ -176,9 +204,17 @@ fn world(name: &str) -> World {
         .map(|u| u.as_str().unwrap().to_string())
         .collect();
     // Every unit but one per language, so the excluded ones are named and checkable.
-    let excluded_units: Vec<&String> = all.iter().filter(|u| u.ends_with("/getopts")
-        || u.ends_with("/guards") || u.ends_with("/lazy-config") || u.ends_with("/null-guard")
-        || u.ends_with("/array-column") || u.ends_with("/sealed-result")).collect();
+    let excluded_units: Vec<&String> = all
+        .iter()
+        .filter(|u| {
+            u.ends_with("/getopts")
+                || u.ends_with("/guards")
+                || u.ends_with("/lazy-config")
+                || u.ends_with("/null-guard")
+                || u.ends_with("/array-column")
+                || u.ends_with("/sealed-result")
+        })
+        .collect();
     let allowed: Vec<&String> = all.iter().filter(|u| !excluded_units.contains(u)).collect();
 
     let allow = serde_json::json!({
@@ -198,12 +234,23 @@ fn world(name: &str) -> World {
     let corpus_dir = dir.join("corpus");
     std::fs::create_dir_all(&corpus_dir).unwrap();
     std::fs::write(corpus_dir.join("examples.jsonl"), &corpus).unwrap();
-    std::fs::write(corpus_dir.join("manifest.json"), serde_json::json!({
-        "examples_sha256": sha256(corpus.as_bytes()),
-        "pool": {"path": "/elsewhere/pool.jsonl", "sha256": sha256(pool.as_bytes()),
-                 "records": n_records},
-    }).to_string()).unwrap();
-    World { dir, squad: squad_path, pool: pool_path, allowlist, corpus: corpus_dir }
+    std::fs::write(
+        corpus_dir.join("manifest.json"),
+        serde_json::json!({
+            "examples_sha256": sha256(corpus.as_bytes()),
+            "pool": {"path": "/elsewhere/pool.jsonl", "sha256": sha256(pool.as_bytes()),
+                     "records": n_records},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    World {
+        dir,
+        squad: squad_path,
+        pool: pool_path,
+        allowlist,
+        corpus: corpus_dir,
+    }
 }
 
 fn generate(w: &World, out: &Path, extra: &[&str]) -> Output {
@@ -213,9 +260,17 @@ fn generate(w: &World, out: &Path, extra: &[&str]) -> Output {
 fn generate_n(w: &World, out: &Path, per_source: usize, extra: &[&str]) -> Output {
     let n = per_source.to_string();
     let mut args = vec![
-        "generate", "--allowlist", w.allowlist.to_str().unwrap(), "--squad",
-        w.squad.to_str().unwrap(), "--pool", w.pool.to_str().unwrap(), "--out",
-        out.to_str().unwrap(), "--per-source", &n,
+        "generate",
+        "--allowlist",
+        w.allowlist.to_str().unwrap(),
+        "--squad",
+        w.squad.to_str().unwrap(),
+        "--pool",
+        w.pool.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--per-source",
+        &n,
     ];
     args.extend_from_slice(extra);
     run(&args)
@@ -228,7 +283,11 @@ fn the_same_inputs_and_seed_give_byte_identical_files() {
     assert!(generate(&w, &a, &[]).status.success());
     assert!(generate(&w, &b, &[]).status.success());
     for f in ["examples.jsonl", "manifest.json"] {
-        assert_eq!(std::fs::read(a.join(f)).unwrap(), std::fs::read(b.join(f)).unwrap(), "{f}");
+        assert_eq!(
+            std::fs::read(a.join(f)).unwrap(),
+            std::fs::read(b.join(f)).unwrap(),
+            "{f}"
+        );
     }
     let c = w.dir.join("c");
     assert!(generate(&w, &c, &["--seed", "9"]).status.success());
@@ -247,11 +306,17 @@ fn every_source_gets_its_share_and_nothing_excluded_reaches_a_row() {
     let w = world("counts");
     let out = w.dir.join("out");
     let done = generate(&w, &out, &[]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     let text = std::fs::read_to_string(out.join("examples.jsonl")).unwrap();
     assert!(!text.contains(MARK), "excluded content reached a row");
-    let rows: Vec<serde_json::Value> =
-        text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let rows: Vec<serde_json::Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
     assert_eq!(rows.len(), 3 * PER_SOURCE);
     for source in ["prose", "scrambled", "unseen-language"] {
         let n = rows.iter().filter(|r| r["noul_source"] == source).count();
@@ -260,7 +325,10 @@ fn every_source_gets_its_share_and_nothing_excluded_reaches_a_row() {
     for r in &rows {
         assert_eq!(r["class"], "noul");
         let unit = r["repo"].as_str().unwrap();
-        assert!(!unit.ends_with("/getopts") && !unit.ends_with("/guards"), "{unit}");
+        assert!(
+            !unit.ends_with("/getopts") && !unit.ends_with("/guards"),
+            "{unit}"
+        );
         assert!(r["diff"].as_str().unwrap().starts_with("@@ -"));
     }
     let manifest: serde_json::Value =
@@ -284,10 +352,16 @@ fn inputs_other_than_the_allowlisted_bytes_are_refused() {
     // nothing is written.
     let w = world("short");
     let done = generate_n(&w, &w.dir.join("y"), 40, &[]);
-    assert_eq!(done.status.code(), Some(2), "a share the inputs cannot fill is refused");
+    assert_eq!(
+        done.status.code(),
+        Some(2),
+        "a share the inputs cannot fill is refused"
+    );
     let stderr = String::from_utf8_lossy(&done.stderr);
-    assert!(stderr.contains("eligible paragraphs") && stderr.contains("40 were asked for"),
-            "{stderr}");
+    assert!(
+        stderr.contains("eligible paragraphs") && stderr.contains("40 were asked for"),
+        "{stderr}"
+    );
     assert!(!w.dir.join("y").join("examples.jsonl").exists());
 }
 
@@ -330,7 +404,10 @@ fn corpus_diffs(w: &World) -> std::collections::BTreeMap<String, String> {
         .lines()
         .map(|l| {
             let v: serde_json::Value = serde_json::from_str(l).unwrap();
-            (v["pool_id"].as_str().unwrap().to_string(), v["diff"].as_str().unwrap().to_string())
+            (
+                v["pool_id"].as_str().unwrap().to_string(),
+                v["diff"].as_str().unwrap().to_string(),
+            )
         })
         .collect()
 }
@@ -342,7 +419,10 @@ fn hunks(diff: &str) -> Vec<(String, Vec<String>)> {
         if line.starts_with("@@ -") {
             out.push((line.to_string(), Vec::new()));
         } else {
-            out.last_mut().expect("a body line before any header").1.push(line.to_string());
+            out.last_mut()
+                .expect("a body line before any header")
+                .1
+                .push(line.to_string());
         }
     }
     out
@@ -359,13 +439,31 @@ fn v1_output_is_pinned_byte_for_byte_and_is_the_default() {
     let w = world("pin");
     let (a, b) = (w.dir.join("a"), w.dir.join("b"));
     let done = generate(&w, &a, &[]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
-    assert_eq!(sha256(&std::fs::read(a.join("examples.jsonl")).unwrap()), V1_EXAMPLES_SHA256);
-    assert_eq!(sha256(&std::fs::read(a.join("manifest.json")).unwrap()), V1_MANIFEST_SHA256);
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    assert_eq!(
+        sha256(&std::fs::read(a.join("examples.jsonl")).unwrap()),
+        V1_EXAMPLES_SHA256
+    );
+    assert_eq!(
+        sha256(&std::fs::read(a.join("manifest.json")).unwrap()),
+        V1_MANIFEST_SHA256
+    );
     let done = generate(&w, &b, &["--forms", "v1"]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     for f in ["examples.jsonl", "manifest.json"] {
-        assert_eq!(std::fs::read(a.join(f)).unwrap(), std::fs::read(b.join(f)).unwrap(), "{f}");
+        assert_eq!(
+            std::fs::read(a.join(f)).unwrap(),
+            std::fs::read(b.join(f)).unwrap(),
+            "{f}"
+        );
     }
     assert!(rows_of(&a).iter().all(|r| r.get("noul_form").is_none()));
 }
@@ -375,9 +473,19 @@ fn v2_output_is_pinned_byte_for_byte() {
     let w = world("pin2");
     let out = w.dir.join("a");
     let done = generate_v2(&w, &out, &[]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
-    assert_eq!(sha256(&std::fs::read(out.join("examples.jsonl")).unwrap()), V2_EXAMPLES_SHA256);
-    assert_eq!(sha256(&std::fs::read(out.join("manifest.json")).unwrap()), V2_MANIFEST_SHA256);
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    assert_eq!(
+        sha256(&std::fs::read(out.join("examples.jsonl")).unwrap()),
+        V2_EXAMPLES_SHA256
+    );
+    assert_eq!(
+        sha256(&std::fs::read(out.join("manifest.json")).unwrap()),
+        V2_MANIFEST_SHA256
+    );
 }
 
 #[test]
@@ -388,8 +496,17 @@ fn v2_at_twice_the_share_doubles_every_form_and_repeats_no_source_but_templates(
     let w = world("double");
     let out = w.dir.join("a");
     let n = 2 * PER_SOURCE;
-    let done = generate_n(&w, &out, n, &["--forms", "v2", "--corpus", w.corpus.to_str().unwrap()]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    let done = generate_n(
+        &w,
+        &out,
+        n,
+        &["--forms", "v2", "--corpus", w.corpus.to_str().unwrap()],
+    );
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     let rows = rows_of(&out);
     assert_eq!(rows.len(), 3 * n);
     let mut by_form: std::collections::BTreeMap<String, usize> = Default::default();
@@ -398,7 +515,11 @@ fn v2_at_twice_the_share_doubles_every_form_and_repeats_no_source_but_templates(
         let form = r["noul_form"].as_str().unwrap().to_string();
         *by_form.entry(form.clone()).or_insert(0) += 1;
         let diff = r["diff"].as_str().unwrap();
-        let text: Vec<&str> = diff.lines().skip(1).flat_map(|l| l[1..].split_whitespace()).collect();
+        let text: Vec<&str> = diff
+            .lines()
+            .skip(1)
+            .flat_map(|l| l[1..].split_whitespace())
+            .collect();
         let source = match form.as_str() {
             // A paragraph row's source is the paragraph itself.
             "paragraph" => format!("paragraph:{}", text.join(" ")),
@@ -406,23 +527,37 @@ fn v2_at_twice_the_share_doubles_every_form_and_repeats_no_source_but_templates(
             // questions name it as "<title> section <k>".
             "question" => {
                 let joined = text.join(" ");
-                let at = joined.find(" section ").expect("a fixture question names its section");
+                let at = joined
+                    .find(" section ")
+                    .expect("a fixture question names its section");
                 let k = &joined[at + 9..at + 10];
                 format!("question:{}:{k}", r["squad_title"].as_str().unwrap())
             }
             "lines" | "tokens" => format!("scrambled:{}", r["repo"].as_str().unwrap()),
             _ => continue,
         };
-        assert!(sources.insert(source.clone()), "a source repeated: {source}");
+        assert!(
+            sources.insert(source.clone()),
+            "a source repeated: {source}"
+        );
     }
     let want: std::collections::BTreeMap<String, usize> = [
-        ("paragraph", n / 2), ("question", n - n / 2), ("lines", n / 2), ("tokens", n - n / 2),
+        ("paragraph", n / 2),
+        ("question", n - n / 2),
+        ("lines", n / 2),
+        ("tokens", n - n / 2),
         ("template", n),
-    ].into_iter().map(|(f, k)| (f.to_string(), k)).collect();
+    ]
+    .into_iter()
+    .map(|(f, k)| (f.to_string(), k))
+    .collect();
     assert_eq!(by_form, want);
     let manifest = manifest_of(&out);
     assert_eq!(manifest["per_source"], n);
-    assert_eq!(manifest["totals"]["units_by_source"]["scrambled"], n, "one repo per row");
+    assert_eq!(
+        manifest["totals"]["units_by_source"]["scrambled"], n,
+        "one repo per row"
+    );
 }
 
 #[test]
@@ -430,31 +565,49 @@ fn v2_fills_every_form_exactly_and_is_deterministic() {
     let w = world("v2counts");
     let (a, b, c) = (w.dir.join("a"), w.dir.join("b"), w.dir.join("c"));
     let done = generate_v2(&w, &a, &[]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     let rows = rows_of(&a);
     assert_eq!(rows.len(), 3 * PER_SOURCE);
     let mut by: std::collections::BTreeMap<(String, String), usize> = Default::default();
     for r in &rows {
-        let key = (r["noul_source"].as_str().unwrap().to_string(),
-                   r["noul_form"].as_str().expect("a v2 row names its form").to_string());
+        let key = (
+            r["noul_source"].as_str().unwrap().to_string(),
+            r["noul_form"]
+                .as_str()
+                .expect("a v2 row names its form")
+                .to_string(),
+        );
         *by.entry(key).or_insert(0) += 1;
         assert_eq!(r["class"], "noul");
         assert!(r["diff"].as_str().unwrap().starts_with("@@ -"), "{r}");
     }
     let half = PER_SOURCE / 2;
     let want: std::collections::BTreeMap<(String, String), usize> = [
-        (("prose", "paragraph"), half), (("prose", "question"), PER_SOURCE - half),
-        (("scrambled", "lines"), half), (("scrambled", "tokens"), PER_SOURCE - half),
+        (("prose", "paragraph"), half),
+        (("prose", "question"), PER_SOURCE - half),
+        (("scrambled", "lines"), half),
+        (("scrambled", "tokens"), PER_SOURCE - half),
         (("unseen-language", "template"), PER_SOURCE),
-    ].into_iter().map(|((s, f), n)| ((s.to_string(), f.to_string()), n)).collect();
+    ]
+    .into_iter()
+    .map(|((s, f), n)| ((s.to_string(), f.to_string()), n))
+    .collect();
     assert_eq!(by, want);
     let text = std::fs::read_to_string(a.join("examples.jsonl")).unwrap();
     assert!(!text.contains(MARK), "excluded content reached a row");
     // Scrambled rows: allowlisted pool files only, one per repo, and their licence.
-    let scrambled: Vec<&serde_json::Value> =
-        rows.iter().filter(|r| r["noul_source"] == "scrambled").collect();
-    let repos: std::collections::BTreeSet<&str> =
-        scrambled.iter().map(|r| r["repo"].as_str().unwrap()).collect();
+    let scrambled: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|r| r["noul_source"] == "scrambled")
+        .collect();
+    let repos: std::collections::BTreeSet<&str> = scrambled
+        .iter()
+        .map(|r| r["repo"].as_str().unwrap())
+        .collect();
     assert_eq!(repos.len(), scrambled.len());
     for r in &scrambled {
         assert!(!r["pool_id"].as_str().unwrap().starts_with("c2:"), "{r}");
@@ -472,11 +625,17 @@ fn v2_fills_every_form_exactly_and_is_deterministic() {
 
     assert!(generate_v2(&w, &b, &[]).status.success());
     for f in ["examples.jsonl", "manifest.json"] {
-        assert_eq!(std::fs::read(a.join(f)).unwrap(), std::fs::read(b.join(f)).unwrap(), "{f}");
+        assert_eq!(
+            std::fs::read(a.join(f)).unwrap(),
+            std::fs::read(b.join(f)).unwrap(),
+            "{f}"
+        );
     }
     assert!(generate_v2(&w, &c, &["--seed", "9"]).status.success());
-    assert_ne!(std::fs::read(a.join("examples.jsonl")).unwrap(),
-               std::fs::read(c.join("examples.jsonl")).unwrap());
+    assert_ne!(
+        std::fs::read(a.join("examples.jsonl")).unwrap(),
+        std::fs::read(c.join("examples.jsonl")).unwrap()
+    );
 }
 
 #[test]
@@ -484,10 +643,17 @@ fn v2_scrambled_rows_are_shuffles_of_their_own_corpus_diff() {
     let w = world("v2shape");
     let out = w.dir.join("out");
     let done = generate_v2(&w, &out, &[]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     let originals = corpus_diffs(&w);
     let mut seen = 0;
-    for r in rows_of(&out).iter().filter(|r| r["noul_source"] == "scrambled") {
+    for r in rows_of(&out)
+        .iter()
+        .filter(|r| r["noul_source"] == "scrambled")
+    {
         let diff = r["diff"].as_str().unwrap();
         let original = &originals[r["pool_id"].as_str().unwrap()];
         assert_ne!(diff, original.as_str(), "an unscrambled row");
@@ -530,9 +696,16 @@ fn v2_question_rows_are_short_questions_of_one_allowlisted_paragraph() {
     let w = world("v2questions");
     let out = w.dir.join("out");
     let done = generate_v2(&w, &out, &[]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     let mut seen = 0;
-    for r in rows_of(&out).iter().filter(|r| r["noul_form"] == "question") {
+    for r in rows_of(&out)
+        .iter()
+        .filter(|r| r["noul_form"] == "question")
+    {
         let title = r["squad_title"].as_str().unwrap();
         assert!(title.starts_with("Kept "), "{title}");
         assert_eq!(r["repo"], format!("squad-title:{title}"));
@@ -540,7 +713,10 @@ fn v2_question_rows_are_short_questions_of_one_allowlisted_paragraph() {
         assert_eq!(diff.matches("@@ -").count(), 1, "{diff}");
         let body: Vec<&str> = diff.lines().skip(1).collect();
         assert!(body.len() >= 2, "{diff}");
-        let words: Vec<&str> = body.iter().flat_map(|l| l[1..].split_whitespace()).collect();
+        let words: Vec<&str> = body
+            .iter()
+            .flat_map(|l| l[1..].split_whitespace())
+            .collect();
         let text = words.join(" ");
         // One to three of one paragraph's questions, whole, in some order.
         let found = (0..2).any(|k| {
@@ -580,8 +756,11 @@ fn v2_refuses_a_corpus_it_cannot_trust() {
     std::fs::write(&examples, &changed).unwrap();
     let done = generate_v2(&w, &w.dir.join("c"), &[]);
     assert_eq!(done.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&done.stderr).contains("examples_sha256"),
-            "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        String::from_utf8_lossy(&done.stderr).contains("examples_sha256"),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     std::fs::write(&examples, &original).unwrap();
 
     // A corpus generated from another pool than the allowlist's.
@@ -592,18 +771,32 @@ fn v2_refuses_a_corpus_it_cannot_trust() {
     std::fs::write(&manifest, m.to_string()).unwrap();
     let done = generate_v2(&w, &w.dir.join("d"), &[]);
     assert_eq!(done.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&done.stderr).contains("pool"),
-            "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        String::from_utf8_lossy(&done.stderr).contains("pool"),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     assert!(!w.dir.join("d").join("examples.jsonl").exists());
 }
 
 /// `generate --forms v2 --form-counts ...` against this world, with no `--per-source`.
 fn generate_mix(w: &World, out: &Path, counts: &str, extra: &[&str]) -> Output {
     let mut args = vec![
-        "generate", "--allowlist", w.allowlist.to_str().unwrap(), "--squad",
-        w.squad.to_str().unwrap(), "--pool", w.pool.to_str().unwrap(), "--out",
-        out.to_str().unwrap(), "--forms", "v2", "--corpus", w.corpus.to_str().unwrap(),
-        "--form-counts", counts,
+        "generate",
+        "--allowlist",
+        w.allowlist.to_str().unwrap(),
+        "--squad",
+        w.squad.to_str().unwrap(),
+        "--pool",
+        w.pool.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--forms",
+        "v2",
+        "--corpus",
+        w.corpus.to_str().unwrap(),
+        "--form-counts",
+        counts,
     ];
     args.extend_from_slice(extra);
     run(&args)
@@ -616,35 +809,58 @@ fn form_counts_set_each_form_exactly_and_the_manifest_records_the_mix() {
     let out = w.dir.join("a");
     let mix = "paragraph=3,question=5,lines=4,tokens=4,template=2";
     let done = generate_mix(&w, &out, mix, &[]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     let rows = rows_of(&out);
     let mut by_form: std::collections::BTreeMap<String, usize> = Default::default();
     for r in &rows {
-        *by_form.entry(r["noul_form"].as_str().unwrap().to_string()).or_insert(0) += 1;
+        *by_form
+            .entry(r["noul_form"].as_str().unwrap().to_string())
+            .or_insert(0) += 1;
     }
     let want: std::collections::BTreeMap<String, usize> = [
-        ("paragraph", 3), ("question", 5), ("lines", 4), ("tokens", 4), ("template", 2),
-    ].into_iter().map(|(f, k)| (f.to_string(), k)).collect();
+        ("paragraph", 3),
+        ("question", 5),
+        ("lines", 4),
+        ("tokens", 4),
+        ("template", 2),
+    ]
+    .into_iter()
+    .map(|(f, k)| (f.to_string(), k))
+    .collect();
     assert_eq!(by_form, want);
     let manifest = manifest_of(&out);
     let recorded: std::collections::BTreeMap<String, usize> =
         serde_json::from_value(manifest["form_counts"].clone()).expect("the mix is recorded");
     assert_eq!(recorded, want);
     assert_eq!(manifest["totals"]["by_form"], manifest["form_counts"]);
-    assert!(manifest.get("per_source").is_none(), "no per-source count was asked for");
+    assert!(
+        manifest.get("per_source").is_none(),
+        "no per-source count was asked for"
+    );
     assert_eq!(manifest["totals"]["by_source"]["prose"], 8);
     assert_eq!(manifest["totals"]["by_source"]["scrambled"], 8);
     assert_eq!(manifest["totals"]["by_source"]["unseen-language"], 2);
     assert_eq!(manifest["totals"]["examples"], 18);
-    let repos: std::collections::BTreeSet<&str> = rows.iter()
-        .filter(|r| r["noul_source"] == "scrambled").map(|r| r["repo"].as_str().unwrap()).collect();
+    let repos: std::collections::BTreeSet<&str> = rows
+        .iter()
+        .filter(|r| r["noul_source"] == "scrambled")
+        .map(|r| r["repo"].as_str().unwrap())
+        .collect();
     assert_eq!(repos.len(), 8, "one repo per scrambled row");
     // Deterministic, and the same counts spelled in another order are the same mix.
     let again = w.dir.join("b");
     let reordered = "template=2,tokens=4,lines=4,question=5,paragraph=3";
     assert!(generate_mix(&w, &again, reordered, &[]).status.success());
     for f in ["examples.jsonl", "manifest.json"] {
-        assert_eq!(std::fs::read(out.join(f)).unwrap(), std::fs::read(again.join(f)).unwrap(), "{f}");
+        assert_eq!(
+            std::fs::read(out.join(f)).unwrap(),
+            std::fs::read(again.join(f)).unwrap(),
+            "{f}"
+        );
     }
 }
 
@@ -655,21 +871,54 @@ fn form_counts_refuse_a_mix_they_cannot_honour() {
         let out = w.dir.join(format!("x{}", counts.len() + extra.len()));
         let done = generate_mix(&w, &out, counts, extra);
         let stderr = String::from_utf8_lossy(&done.stderr).to_string();
-        assert_eq!(done.status.code(), Some(2), "{counts} {extra:?} was accepted");
+        assert_eq!(
+            done.status.code(),
+            Some(2),
+            "{counts} {extra:?} was accepted"
+        );
         assert!(stderr.contains(needle), "{counts}: {stderr}");
         assert!(!out.join("examples.jsonl").exists());
     };
     refused("paragraph=3,question=5,lines=4,tokens=4", &[], "template");
-    refused("paragraph=3,question=5,lines=4,tokens=4,template=2,essay=1", &[], "essay");
-    refused("paragraph=3,paragraph=4,question=5,lines=4,tokens=4,template=2", &[], "twice");
-    refused("paragraph=0,question=5,lines=4,tokens=4,template=2", &[], "at least 1");
-    refused("paragraph=x,question=5,lines=4,tokens=4,template=2", &[], "paragraph");
-    refused("paragraph=3,question=5,lines=4,tokens=4,template=2", &["--per-source", "4"],
-            "--per-source");
+    refused(
+        "paragraph=3,question=5,lines=4,tokens=4,template=2,essay=1",
+        &[],
+        "essay",
+    );
+    refused(
+        "paragraph=3,paragraph=4,question=5,lines=4,tokens=4,template=2",
+        &[],
+        "twice",
+    );
+    refused(
+        "paragraph=0,question=5,lines=4,tokens=4,template=2",
+        &[],
+        "at least 1",
+    );
+    refused(
+        "paragraph=x,question=5,lines=4,tokens=4,template=2",
+        &[],
+        "paragraph",
+    );
+    refused(
+        "paragraph=3,question=5,lines=4,tokens=4,template=2",
+        &["--per-source", "4"],
+        "--per-source",
+    );
     // More paragraphs than four titles at two paragraphs each hold.
-    refused("paragraph=9,question=5,lines=4,tokens=4,template=2", &[], "eligible paragraphs");
+    refused(
+        "paragraph=9,question=5,lines=4,tokens=4,template=2",
+        &[],
+        "eligible paragraphs",
+    );
     // --form-counts is a v2 input.
-    let done = generate(&w, &w.dir.join("v1"),
-                        &["--form-counts", "paragraph=3,question=5,lines=4,tokens=4,template=2"]);
+    let done = generate(
+        &w,
+        &w.dir.join("v1"),
+        &[
+            "--form-counts",
+            "paragraph=3,question=5,lines=4,tokens=4,template=2",
+        ],
+    );
     assert_eq!(done.status.code(), Some(2));
 }

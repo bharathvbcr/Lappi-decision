@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::admission::TrainedFamilies;
-use crate::answer::{answer, AnswerContext, Deadline};
+use crate::answer::{AnswerContext, Deadline, answer};
 use crate::backend::{BackendIdentity, DecisionBackend};
 use crate::calibration::CalibrationTable;
 use crate::ensemble::EnsembleBackend;
@@ -302,11 +302,7 @@ impl Runtime {
     /// the hash the backend declares: the backend does not own the table, and a pin that passed
     /// for a table that is not serving would be approval of something unexamined
     /// (`GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-LOADED-TABLE`).
-    pub fn check_hashes(
-        &self,
-        expect: &HashExpectation,
-        head_hash: &str,
-    ) -> Result<(), Refusal> {
+    pub fn check_hashes(&self, expect: &HashExpectation, head_hash: &str) -> Result<(), Refusal> {
         let identity = self.identity();
         let calibration_hash = self.calibration.hash();
         let pairs: [(HashKind, &Option<String>, &str); 5] = [
@@ -315,7 +311,11 @@ impl Runtime {
                 &expect.tokenizer_hash,
                 &identity.tokenizer_hash,
             ),
-            (HashKind::Weights, &expect.weight_hash, &identity.weight_hash),
+            (
+                HashKind::Weights,
+                &expect.weight_hash,
+                &identity.weight_hash,
+            ),
             (HashKind::Head, &expect.head_hash, head_hash),
             (
                 HashKind::LabelSet,
@@ -364,12 +364,11 @@ impl Runtime {
         // file's, so it has to exist and be bound before there is anything to compare against.
         let head_hash = match request.route {
             Route::Generic => self.identity().head_hash.clone(),
-            Route::Registered => {
-                self.registry
-                    .resolve(&request.task, self.identity())?
-                    .head_hash
-                    .clone()
-            }
+            Route::Registered => self
+                .registry
+                .resolve(&request.task, self.identity())?
+                .head_hash
+                .clone(),
         };
         self.check_hashes(&request.expect, &head_hash)?;
         // Before the model: a task the release did not train, or a context its task was never

@@ -33,7 +33,8 @@ use qd_train::shards::ConsumedPrefix;
 use qd_train::span_head::{SpanGold, SpanHead, SpanRowPlan};
 use qd_train::step::{BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider};
 use qd_train::trainer::{
-    train, CheckpointPolicy, ConsumedBatch, HostParams, Hooks, Progress, ResumeState, Termination, TrainConfig, TrainError,
+    CheckpointPolicy, ConsumedBatch, Hooks, HostParams, Progress, ResumeState, Termination,
+    TrainConfig, TrainError, train,
 };
 use qd_train_metal::args::Operands;
 use qd_train_metal::provider::{Qwen35Provider, TESSL_DIR};
@@ -52,7 +53,10 @@ fn bits(v: &[f32]) -> Vec<u32> {
 }
 
 fn dh_of(h: &[f32]) -> Vec<f32> {
-    h.iter().enumerate().map(|(i, x)| 1e-3 * x + 1e-4 * (i % 7) as f32).collect()
+    h.iter()
+        .enumerate()
+        .map(|(i, x)| 1e-3 * x + 1e-4 * (i % 7) as f32)
+        .collect()
 }
 
 #[test]
@@ -60,7 +64,13 @@ fn dh_of(h: &[f32]) -> Vec<f32> {
 fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
     let snap = Snapshot::from_dir(&tiny()).unwrap();
     let mut adapter = Qwen35Provider::open(&snap, Operands::ExactF32).unwrap();
-    let mut direct = Qwen35Step::open(&snap, Numerics::ExactF32, Precision::F32, Budget::new(1 << 30)).unwrap();
+    let mut direct = Qwen35Step::open(
+        &snap,
+        Numerics::ExactF32,
+        Precision::F32,
+        Budget::new(1 << 30),
+    )
+    .unwrap();
     let hidden = adapter.hidden_size();
     let ids = ids();
     let n = ids.len() - 1;
@@ -111,7 +121,11 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         Ok(dh_of(h))
     };
     let a2 = adapter.accumulate(&job2, BankMode::Add, Some(cb)).unwrap();
-    assert_eq!(seen, vec![(at.to_vec(), at.len() * hidden)], "the callback is called once, at the job's positions");
+    assert_eq!(
+        seen,
+        vec![(at.to_vec(), at.len() * hidden)],
+        "the callback is called once, at the job's positions"
+    );
     let p = direct
         .forward(&Sequence {
             ids: ids2,
@@ -122,7 +136,12 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         })
         .unwrap();
     let d2 = p.letter_ce_sum();
-    let dh = Tensor::from_f32(&dh_of(&p.hidden().to_f32_vec().unwrap()), &[at.len(), hidden], &Budget::new(1 << 20)).unwrap();
+    let dh = Tensor::from_f32(
+        &dh_of(&p.hidden().to_f32_vec().unwrap()),
+        &[at.len(), hidden],
+        &Budget::new(1 << 20),
+    )
+    .unwrap();
     direct
         .backward(
             p,
@@ -133,13 +152,21 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         )
         .unwrap();
     assert_eq!(a2.to_bits(), d2.to_bits());
-    assert_eq!(adapter.grad_sq_norm().unwrap().to_bits(), direct.grad_sq_norm().unwrap().to_bits());
+    assert_eq!(
+        adapter.grad_sq_norm().unwrap().to_bits(),
+        direct.grad_sq_norm().unwrap().to_bits()
+    );
     let ga = adapter.qwen35().read_table(Which::Gradients).unwrap();
     let gd = direct.read_table(Which::Gradients).unwrap();
     assert_eq!(ga.len(), gd.len());
     for (a, d) in ga.iter().zip(&gd) {
         assert_eq!(a.name, d.name);
-        assert_eq!(bits(&a.tensor.to_f32_vec().unwrap()), bits(&d.tensor.to_f32_vec().unwrap()), "{}", a.name);
+        assert_eq!(
+            bits(&a.tensor.to_f32_vec().unwrap()),
+            bits(&d.tensor.to_f32_vec().unwrap()),
+            "{}",
+            a.name
+        );
     }
 
     // Overwrite on a holding bank starts the bank again: one sequence's gradient, as direct's.
@@ -155,14 +182,25 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         })
         .unwrap();
     direct.backward(p, None).unwrap();
-    assert_eq!(adapter.grad_sq_norm().unwrap().to_bits(), direct.grad_sq_norm().unwrap().to_bits());
+    assert_eq!(
+        adapter.grad_sq_norm().unwrap().to_bits(),
+        direct.grad_sq_norm().unwrap().to_bits()
+    );
 
     // Refusals, on a fresh adapter whose bank is empty.
     let mut fresh = Qwen35Provider::open(&snap, Operands::ExactF32).unwrap();
     let err = fresh.accumulate(&job, BankMode::Add, None).unwrap_err();
-    assert!(matches!(&err, StepError::Contract(m) if m.contains("empty bank")), "{err}");
-    let err = fresh.accumulate(&job2, BankMode::Overwrite, None).unwrap_err();
-    assert!(matches!(&err, StepError::Contract(m) if m.contains("no gradient callback")), "{err}");
+    assert!(
+        matches!(&err, StepError::Contract(m) if m.contains("empty bank")),
+        "{err}"
+    );
+    let err = fresh
+        .accumulate(&job2, BankMode::Overwrite, None)
+        .unwrap_err();
+    assert!(
+        matches!(&err, StepError::Contract(m) if m.contains("no gradient callback")),
+        "{err}"
+    );
     let ones = vec![1.0; fresh.parameters().len()];
     let mut scaled = ones.clone();
     scaled[0] = 0.1;
@@ -176,11 +214,17 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         grad_scale: 1.0,
     };
     let err = fresh.adamw_step(&hyper, 2, &ones, &wd).unwrap_err();
-    assert!(matches!(&err, StepError::Contract(m) if m.contains("has taken 0")), "{err}");
+    assert!(
+        matches!(&err, StepError::Contract(m) if m.contains("has taken 0")),
+        "{err}"
+    );
     let mut negative = ones.clone();
     negative[0] = -0.1;
     let err = fresh.adamw_step(&hyper, 1, &negative, &wd).unwrap_err();
-    assert!(matches!(&err, StepError::Contract(m) if m.contains("entry 0") && m.contains("must be finite and > 0")), "{err}");
+    assert!(
+        matches!(&err, StepError::Contract(m) if m.contains("entry 0") && m.contains("must be finite and > 0")),
+        "{err}"
+    );
     assert_eq!(fresh.step_count(), 0, "a refused step moves nothing");
 
     // A per-entry lr_scale is supported (f5f0cb2, board-sweep ruling 2h) and APPLIED: entry k
@@ -199,7 +243,10 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         ..hyper
     };
     slow.adamw_step(&slow_hyper, 1, &ones, &wd).unwrap();
-    assert_eq!((fresh.step_count(), uniform.step_count(), slow.step_count()), (1, 1, 1));
+    assert_eq!(
+        (fresh.step_count(), uniform.step_count(), slow.step_count()),
+        (1, 1, 1)
+    );
     let pf = fresh.qwen35().read_table(Which::Parameters).unwrap();
     let pu = uniform.qwen35().read_table(Which::Parameters).unwrap();
     let ps = slow.qwen35().read_table(Which::Parameters).unwrap();
@@ -215,7 +262,10 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
             assert_eq!(f, s, "entry 0 must take the step lr * 0.1 would give it");
             assert_ne!(f, u, "entry 0 must not take the full-lr step");
         } else {
-            assert_eq!(f, u, "entry {k} is scaled 1.0 and must be untouched by entry 0's scale");
+            assert_eq!(
+                f, u,
+                "entry {k} is scaled 1.0 and must be untouched by entry 0's scale"
+            );
         }
     }
 }
@@ -283,7 +333,11 @@ fn batch(ids: &[u32], i: u64) -> TinyBatch {
     let a = ids[off..off + 30].to_vec();
     let b = ids[off + 5..off + 41].to_vec();
     let lb = b.len() as u32;
-    let gold = if i.is_multiple_of(2) { SpanGold::Lines { start: 1, end: 2 } } else { SpanGold::Abstain };
+    let gold = if i.is_multiple_of(2) {
+        SpanGold::Lines { start: 1, end: 2 }
+    } else {
+        SpanGold::Abstain
+    };
     TinyBatch {
         index: i,
         width: 48,
@@ -308,7 +362,14 @@ fn batch(ids: &[u32], i: u64) -> TinyBatch {
 fn head(hidden: usize) -> SpanHead {
     let mut rng = SplitMix::new(7);
     let mut v = |n: usize| -> Vec<f32> { (0..n).map(|_| rng.uniform(0.05)).collect() };
-    SpanHead::new(hidden, v(hidden * hidden), v(hidden * hidden), v(hidden), v(hidden)).unwrap()
+    SpanHead::new(
+        hidden,
+        v(hidden * hidden),
+        v(hidden * hidden),
+        v(hidden),
+        v(hidden),
+    )
+    .unwrap()
 }
 
 fn config(steps: u64, checkpoint: Option<CheckpointPolicy>) -> TrainConfig {
@@ -333,7 +394,8 @@ type Objective = LetterSpanObjective<TinyBatch, HostSpanHead>;
 
 fn fresh(snap: &Snapshot) -> (Qwen35Provider, Objective) {
     let p = Qwen35Provider::open(snap, Operands::ExactF32).unwrap();
-    let o = LetterSpanObjective::new(HostSpanHead::new(head(p.hidden_size())).unwrap(), 1.0).unwrap();
+    let o =
+        LetterSpanObjective::new(HostSpanHead::new(head(p.hidden_size())).unwrap(), 1.0).unwrap();
     (p, o)
 }
 
@@ -349,7 +411,16 @@ fn gpu_tiny_loop_resumed_from_a_checkpoint_is_the_uninterrupted_run_bit_for_bit(
     let clock = MonotonicClock::new();
 
     let (mut p, mut o) = fresh(&snap);
-    let full = train(&mut p, &mut o, source(&ids, 4), &config(4, None), &clock, None, &mut Hooks::default()).unwrap();
+    let full = train(
+        &mut p,
+        &mut o,
+        source(&ids, 4),
+        &config(4, None),
+        &clock,
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap();
     assert_eq!(full.termination, Termination::StepsExhausted);
     assert_eq!(full.optimizer_steps, 4);
     let full_tower = p.read_parameters().unwrap();
@@ -370,17 +441,42 @@ fn gpu_tiny_loop_resumed_from_a_checkpoint_is_the_uninterrupted_run_bit_for_bit(
         every: 2,
     };
     let (mut p, mut o) = fresh(&snap);
-    let first = train(&mut p, &mut o, source(&ids, 2), &config(4, Some(policy)), &clock, None, &mut Hooks::default()).unwrap();
+    let first = train(
+        &mut p,
+        &mut o,
+        source(&ids, 2),
+        &config(4, Some(policy)),
+        &clock,
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap();
     assert_eq!(first.termination, Termination::DataExhausted);
     let ckpt = first.final_checkpoint.clone().unwrap();
-    assert!(ckpt.join("provider").join(qd_train_metal::provider::STATE_DIR).is_dir());
+    assert!(
+        ckpt.join("provider")
+            .join(qd_train_metal::provider::STATE_DIR)
+            .is_dir()
+    );
     drop(p);
 
     let (mut p, mut o) = fresh(&snap);
     let state = ResumeState::read(&ckpt).unwrap();
-    let second = train(&mut p, &mut o, source(&ids, 4), &config(4, None), &clock, Some(state), &mut Hooks::default()).unwrap();
+    let second = train(
+        &mut p,
+        &mut o,
+        source(&ids, 4),
+        &config(4, None),
+        &clock,
+        Some(state),
+        &mut Hooks::default(),
+    )
+    .unwrap();
     assert_eq!(second.optimizer_steps, 4);
-    assert_eq!(second.loss_log_digest().unwrap(), full.loss_log_digest().unwrap());
+    assert_eq!(
+        second.loss_log_digest().unwrap(),
+        full.loss_log_digest().unwrap()
+    );
     assert_eq!(second.consumed_digest, full.consumed_digest);
     let tower = p.read_parameters().unwrap();
     assert_eq!(tower.len(), full_tower.len());
@@ -413,7 +509,9 @@ const KILL_WAIT: std::time::Duration = std::time::Duration::from_secs(240);
 #[ignore = "GPU: the child half of the kill tests; does nothing without its environment"]
 fn gpu_kill_resume_child() {
     let Ok(dir) = std::env::var(KILL_CHILD_ENV) else {
-        eprintln!("gpu_kill_resume_child: not run: {KILL_CHILD_ENV} is unset (this is the kill tests' child)");
+        eprintln!(
+            "gpu_kill_resume_child: not run: {KILL_CHILD_ENV} is unset (this is the kill tests' child)"
+        );
         return;
     };
     let sleep_ms: u64 = std::env::var(KILL_SLEEP_ENV).unwrap().parse().unwrap();
@@ -428,11 +526,22 @@ fn gpu_kill_resume_child() {
     let mut hooks = Hooks {
         on_progress: Some(&mut slow),
     };
-    train(&mut p, &mut o, source(&ids, KILL_STEPS), &config(KILL_STEPS, Some(policy)), &MonotonicClock::new(), None, &mut hooks).unwrap();
+    train(
+        &mut p,
+        &mut o,
+        source(&ids, KILL_STEPS),
+        &config(KILL_STEPS, Some(policy)),
+        &MonotonicClock::new(),
+        None,
+        &mut hooks,
+    )
+    .unwrap();
 }
 
 fn target_dir(tag: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target").join(format!("qd-kill-{tag}-{}", std::process::id()));
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("qd-kill-{tag}-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -480,7 +589,12 @@ fn staging_at_step_2_or_later(dir: &Path) -> Option<PathBuf> {
     entries.filter_map(Result::ok).map(|e| e.path()).find(|p| {
         p.file_name()
             .and_then(|n| n.to_str())
-            .and_then(|n| n.strip_prefix(".ckpt-")?.strip_suffix(".partial")?.parse::<u64>().ok())
+            .and_then(|n| {
+                n.strip_prefix(".ckpt-")?
+                    .strip_suffix(".partial")?
+                    .parse::<u64>()
+                    .ok()
+            })
             .is_some_and(|step| step >= 2)
     })
 }
@@ -499,7 +613,13 @@ fn kill_and_resume(at: KillAt, tag: &str) {
         &mut p,
         &mut o,
         source(&ids, KILL_STEPS),
-        &config(KILL_STEPS, Some(CheckpointPolicy { dir: full_dir.clone(), every: 1 })),
+        &config(
+            KILL_STEPS,
+            Some(CheckpointPolicy {
+                dir: full_dir.clone(),
+                every: 1,
+            }),
+        ),
         &clock,
         None,
         &mut Hooks::default(),
@@ -514,7 +634,12 @@ fn kill_and_resume(at: KillAt, tag: &str) {
     // The child, killed by PID.
     let killed_dir = target_dir(&format!("{tag}-killed"));
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["gpu_kill_resume_child", "--exact", "--ignored", "--test-threads=1"])
+        .args([
+            "gpu_kill_resume_child",
+            "--exact",
+            "--ignored",
+            "--test-threads=1",
+        ])
         .env(KILL_CHILD_ENV, &killed_dir)
         .env(KILL_SLEEP_ENV, "400")
         .stdout(std::process::Stdio::null())
@@ -525,10 +650,16 @@ fn kill_and_resume(at: KillAt, tag: &str) {
     let started = std::time::Instant::now();
     let torn_staging = loop {
         if let Some(status) = child.try_wait().unwrap() {
-            panic!("child {pid} exited on its own ({status}) before the kill point: the trigger never fired");
+            panic!(
+                "child {pid} exited on its own ({status}) before the kill point: the trigger never fired"
+            );
         }
         let hit = match at {
-            KillAt::AfterCheckpoint => killed_dir.join("ckpt-00000002").join("trainer.json").is_file().then(PathBuf::new),
+            KillAt::AfterCheckpoint => killed_dir
+                .join("ckpt-00000002")
+                .join("trainer.json")
+                .is_file()
+                .then(PathBuf::new),
             KillAt::DuringWrite => staging_at_step_2_or_later(&killed_dir),
         };
         if let Some(s) = hit {
@@ -543,20 +674,50 @@ fn kill_and_resume(at: KillAt, tag: &str) {
         std::thread::sleep(std::time::Duration::from_micros(200));
     };
     let status = child.wait().unwrap();
-    assert_eq!(status.signal(), Some(9), "child {pid} must have died of SIGKILL, got {status}");
+    assert_eq!(
+        status.signal(),
+        Some(9),
+        "child {pid} must have died of SIGKILL, got {status}"
+    );
 
     // What the kill left: complete checkpoints by name, and staging directories.
-    let mut names: Vec<String> = std::fs::read_dir(&killed_dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    let mut names: Vec<String> = std::fs::read_dir(&killed_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
     names.sort();
-    eprintln!("kill {tag}: pid {pid} SIGKILLed after {:?}; left {names:?}", started.elapsed());
-    assert!(!names.iter().any(|n| n == &format!("ckpt-{KILL_STEPS:08}")), "the child finished before the kill: {names:?}");
+    eprintln!(
+        "kill {tag}: pid {pid} SIGKILLed after {:?}; left {names:?}",
+        started.elapsed()
+    );
+    assert!(
+        !names.iter().any(|n| n == &format!("ckpt-{KILL_STEPS:08}")),
+        "the child finished before the kill: {names:?}"
+    );
     if at == KillAt::DuringWrite {
         assert!(
-            torn_staging.is_dir() && torn_staging.file_name().unwrap().to_str().unwrap().starts_with('.'),
+            torn_staging.is_dir()
+                && torn_staging
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with('.'),
             "the kill was meant to land mid-write but the staging directory {torn_staging:?} is gone: {names:?}"
         );
-        let step: u64 = names.iter().find_map(|n| n.strip_prefix(".ckpt-")?.strip_suffix(".partial")?.parse().ok()).unwrap();
-        assert!(!killed_dir.join(format!("ckpt-{step:08}")).exists(), "the torn step {step} was renamed into place");
+        let step: u64 = names
+            .iter()
+            .find_map(|n| {
+                n.strip_prefix(".ckpt-")?
+                    .strip_suffix(".partial")?
+                    .parse()
+                    .ok()
+            })
+            .unwrap();
+        assert!(
+            !killed_dir.join(format!("ckpt-{step:08}")).exists(),
+            "the torn step {step} was renamed into place"
+        );
     }
     // Resume point: the newest checkpoint by name; a staging directory is never a candidate.
     let newest = names
@@ -572,11 +733,18 @@ fn kill_and_resume(at: KillAt, tag: &str) {
     for (i, rel) in files_under(&newest).into_iter().enumerate() {
         let torn = target_dir(&format!("{tag}-torn{i}"));
         copy_tree(&newest, &torn);
-        let f = std::fs::OpenOptions::new().write(true).open(torn.join(&rel)).unwrap();
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(torn.join(&rel))
+            .unwrap();
         let len = f.metadata().unwrap().len();
         f.set_len(len / 2).unwrap();
         drop(f);
-        assert!(ResumeState::read(&torn).is_err(), "a checkpoint with {} cut in half was loaded", rel.display());
+        assert!(
+            ResumeState::read(&torn).is_err(),
+            "a checkpoint with {} cut in half was loaded",
+            rel.display()
+        );
         std::fs::remove_dir_all(&torn).unwrap();
     }
 
@@ -587,7 +755,13 @@ fn kill_and_resume(at: KillAt, tag: &str) {
         &mut p,
         &mut o,
         source(&ids, KILL_STEPS),
-        &config(KILL_STEPS, Some(CheckpointPolicy { dir: resumed_dir.clone(), every: 1 })),
+        &config(
+            KILL_STEPS,
+            Some(CheckpointPolicy {
+                dir: resumed_dir.clone(),
+                every: 1,
+            }),
+        ),
         &clock,
         Some(state),
         &mut Hooks::default(),
@@ -595,7 +769,10 @@ fn kill_and_resume(at: KillAt, tag: &str) {
     .unwrap();
     assert_eq!(resumed.termination, Termination::StepsExhausted);
     assert_eq!(resumed.optimizer_steps, KILL_STEPS);
-    assert_eq!(resumed.loss_log_digest().unwrap(), full.loss_log_digest().unwrap());
+    assert_eq!(
+        resumed.loss_log_digest().unwrap(),
+        full.loss_log_digest().unwrap()
+    );
     assert_eq!(resumed.consumed_digest, full.consumed_digest);
     let tower = p.read_parameters().unwrap();
     for ((spec, a), b) in p.parameters().iter().zip(&tower).zip(&full_tower) {
@@ -642,7 +819,7 @@ fn gpu_tiny_sigkill_mid_checkpoint_write_leaves_a_staging_dir_that_resume_never_
 // What no test here reaches: `write_checkpoint` refusing an existing `.ckpt-N.partial` -- `run()`
 // only writes into a new or empty directory, so the staging name is never there to collide.
 
-use qd_train_metal::run::{run, RunError};
+use qd_train_metal::run::{RunError, run};
 use run_v64::{args, rows, scratch};
 
 const RUN_CHILD_ENV: &str = "QD_RUN_CHILD_ROOT";
@@ -655,7 +832,9 @@ const RUN_STEPS: u64 = 24;
 #[ignore = "GPU: the child half of the run() kill tests; does nothing without its environment"]
 fn gpu_run_kill_child() {
     let Ok(root) = std::env::var(RUN_CHILD_ENV) else {
-        eprintln!("gpu_run_kill_child: not run: {RUN_CHILD_ENV} is unset (this is the run() kill tests' child)");
+        eprintln!(
+            "gpu_run_kill_child: not run: {RUN_CHILD_ENV} is unset (this is the run() kill tests' child)"
+        );
         return;
     };
     run(&args(Path::new(&root), RUN_STEPS)).unwrap();
@@ -671,7 +850,11 @@ fn newest_checkpoint(root: &Path) -> PathBuf {
         .filter(|n| n.starts_with("ckpt-"))
         .collect();
     names.sort();
-    dir.join(names.pop().unwrap_or_else(|| panic!("no checkpoint under {}", dir.display())))
+    dir.join(
+        names
+            .pop()
+            .unwrap_or_else(|| panic!("no checkpoint under {}", dir.display())),
+    )
 }
 
 /// Re-execute this binary as the `run()` child over `root`, SIGKILL it by its PID once checkpoint
@@ -680,7 +863,12 @@ fn kill_run_child(root: &Path) -> Vec<String> {
     use std::os::unix::process::ExitStatusExt;
 
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["gpu_run_kill_child", "--exact", "--ignored", "--test-threads=1"])
+        .args([
+            "gpu_run_kill_child",
+            "--exact",
+            "--ignored",
+            "--test-threads=1",
+        ])
         .env(RUN_CHILD_ENV, root)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -691,7 +879,9 @@ fn kill_run_child(root: &Path) -> Vec<String> {
     let started = std::time::Instant::now();
     loop {
         if let Some(status) = child.try_wait().unwrap() {
-            panic!("run() child {pid} exited on its own ({status}) before the kill point: the trigger never fired");
+            panic!(
+                "run() child {pid} exited on its own ({status}) before the kill point: the trigger never fired"
+            );
         }
         if ckpts.join("ckpt-00000002").join("trainer.json").is_file() {
             child.kill().unwrap();
@@ -705,11 +895,24 @@ fn kill_run_child(root: &Path) -> Vec<String> {
         std::thread::sleep(std::time::Duration::from_micros(200));
     }
     let status = child.wait().unwrap();
-    assert_eq!(status.signal(), Some(9), "run() child {pid} must have died of SIGKILL, got {status}");
-    let mut names: Vec<String> = std::fs::read_dir(&ckpts).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(
+        status.signal(),
+        Some(9),
+        "run() child {pid} must have died of SIGKILL, got {status}"
+    );
+    let mut names: Vec<String> = std::fs::read_dir(&ckpts)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
     names.sort();
-    eprintln!("run() child {pid} SIGKILLed after {:?}; left {names:?}", started.elapsed());
-    assert!(!names.iter().any(|n| n == &format!("ckpt-{RUN_STEPS:08}")), "the child finished before the kill: {names:?}");
+    eprintln!(
+        "run() child {pid} SIGKILLed after {:?}; left {names:?}",
+        started.elapsed()
+    );
+    assert!(
+        !names.iter().any(|n| n == &format!("ckpt-{RUN_STEPS:08}")),
+        "the child finished before the kill: {names:?}"
+    );
     names
 }
 
@@ -731,7 +934,10 @@ fn gpu_run_completed_writes_exactly_one_quick_row() {
     assert_eq!(row["recipe"]["optimizer_recipe"].as_str(), Some("f32"));
     assert_ne!(row["recipe"]["optimizer_recipe"].as_str(), Some("master"));
     assert_eq!(row["recipe"]["backbone_vocab"].as_u64(), Some(64));
-    assert_eq!(row["metrics"]["train.vocab_remap"]["value"].as_str(), Some("identity"));
+    assert_eq!(
+        row["metrics"]["train.vocab_remap"]["value"].as_str(),
+        Some("identity")
+    );
     std::fs::remove_dir_all(&root).unwrap();
 }
 
@@ -752,19 +958,33 @@ fn gpu_run_resume_refuses_another_recipe_and_a_matching_one_ends_at_the_uninterr
     // The uninterrupted run, and the killed one it is compared with: same recipe, other `--out`.
     let full_root = scratch("resume-full");
     let full = run(&args(&full_root, RUN_STEPS)).unwrap();
-    assert_eq!((full.termination, full.optimizer_steps), (Termination::StepsExhausted, RUN_STEPS));
+    assert_eq!(
+        (full.termination, full.optimizer_steps),
+        (Termination::StepsExhausted, RUN_STEPS)
+    );
     let full_final = newest_checkpoint(&full_root);
-    assert_eq!(full_final.file_name().unwrap().to_str().unwrap(), format!("ckpt-{RUN_STEPS:08}"));
+    assert_eq!(
+        full_final.file_name().unwrap().to_str().unwrap(),
+        format!("ckpt-{RUN_STEPS:08}")
+    );
 
     let killed_root = scratch("resume-killed");
     kill_run_child(&killed_root);
     let ckpt = newest_checkpoint(&killed_root);
     let state = ResumeState::read(&ckpt).unwrap();
-    assert!(state.optimizer_step >= 2 && state.optimizer_step < RUN_STEPS, "resume point {}", state.optimizer_step);
+    assert!(
+        state.optimizer_step >= 2 && state.optimizer_step < RUN_STEPS,
+        "resume point {}",
+        state.optimizer_step
+    );
 
     // A changed recipe is refused against the recipe.json the killed run recorded, and writes no row.
     for (what, change) in [
-        ("lr", (|a: &mut qd_train_metal::args::TrainArgs| a.lr = 5e-4) as fn(&mut qd_train_metal::args::TrainArgs)),
+        (
+            "lr",
+            (|a: &mut qd_train_metal::args::TrainArgs| a.lr = 5e-4)
+                as fn(&mut qd_train_metal::args::TrainArgs),
+        ),
         ("steps", |a| a.steps = RUN_STEPS - 1),
         ("seed", |a| a.seed = 1),
         ("span_weight", |a| a.span_weight = 2.0),
@@ -773,10 +993,16 @@ fn gpu_run_resume_refuses_another_recipe_and_a_matching_one_ends_at_the_uninterr
         other.resume = Some(ckpt.clone());
         change(&mut other);
         match run(&other) {
-            Err(RunError::Refused(m)) => assert!(m.contains("another recipe") && m.contains(what), "{what}: {m}"),
+            Err(RunError::Refused(m)) => assert!(
+                m.contains("another recipe") && m.contains(what),
+                "{what}: {m}"
+            ),
             got => panic!("{what}: expected a refusal, got {got:?}"),
         }
-        assert!(rows(&other.ledger).is_empty(), "{what}: a refused resume wrote a row");
+        assert!(
+            rows(&other.ledger).is_empty(),
+            "{what}: a refused resume wrote a row"
+        );
     }
 
     // The matching resume runs to the end of the schedule and lands on the same bytes.
@@ -784,10 +1010,20 @@ fn gpu_run_resume_refuses_another_recipe_and_a_matching_one_ends_at_the_uninterr
     let mut a = args(&resumed_root, RUN_STEPS);
     a.resume = Some(ckpt.clone());
     let resumed = run(&a).unwrap();
-    assert_eq!((resumed.termination, resumed.optimizer_steps), (Termination::StepsExhausted, RUN_STEPS));
+    assert_eq!(
+        (resumed.termination, resumed.optimizer_steps),
+        (Termination::StepsExhausted, RUN_STEPS)
+    );
     let rows = rows(&a.ledger);
     assert_eq!(rows.len(), 1, "the resumed run writes its one row");
-    assert!(rows[0]["notes"].as_str().unwrap().contains("Resumed from checkpoint"), "{}", rows[0]["notes"]);
+    assert!(
+        rows[0]["notes"]
+            .as_str()
+            .unwrap()
+            .contains("Resumed from checkpoint"),
+        "{}",
+        rows[0]["notes"]
+    );
     let resumed_final = newest_checkpoint(&resumed_root);
     let (want, got) = (files_under(&full_final), files_under(&resumed_final));
     assert_eq!(want, got, "the two final checkpoints hold different files");

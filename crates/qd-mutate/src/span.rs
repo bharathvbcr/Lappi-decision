@@ -66,7 +66,9 @@ pub fn line_of(text: &str, offset: usize) -> u32 {
     // A file cannot have more lines than it has bytes plus one, so u32 is safe for any file this
     // crate will parse (bounded at 10 MiB by `parse::MAX_SOURCE_BYTES`). Saturating rather than
     // wrapping: a silently wrapped line number is exactly the failure this module exists to stop.
-    u32::try_from(newlines).unwrap_or(u32::MAX - 1).saturating_add(1)
+    u32::try_from(newlines)
+        .unwrap_or(u32::MAX - 1)
+        .saturating_add(1)
 }
 
 /// Total lines in `text`, under the same convention `line_of` uses.

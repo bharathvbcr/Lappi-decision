@@ -14,7 +14,9 @@
 
 mod common;
 
-use common::{decode, edit_release_manifest, rel_diff, start, tiny_release, Reference, HIDDEN, SCORE_REL};
+use common::{
+    HIDDEN, Reference, SCORE_REL, decode, edit_release_manifest, rel_diff, start, tiny_release,
+};
 use qd_metal::model::Model;
 use qd_metal::tokenizer::QwenTokenizer;
 use qd_metal::weights::AnswerDelta;
@@ -28,7 +30,10 @@ fn gpu_d17_zero_reproduces_todays_scores_bit_for_bit_and_a_real_d17_equals_pytho
     let (_keep, release) = tiny_release("gpud17", |_| {});
     let rt = tessl::GpuRuntime::new().expect("runtime");
     let mut model = Model::load(&rt, &release).expect("load");
-    assert!(!model.has_answer_delta(), "a plain Model::load carries no D17: today's readout");
+    assert!(
+        !model.has_answer_delta(),
+        "a plain Model::load carries no D17: today's readout"
+    );
     let tok = QwenTokenizer::load(&release.join("tokenizer.json")).unwrap();
     let text = format!("{}{}", refc.str("prefix"), refc.str("choice_suffix"));
     let ids = tok.encode_untrusted(&text).unwrap();
@@ -42,10 +47,21 @@ fn gpu_d17_zero_reproduces_todays_scores_bit_for_bit_and_a_real_d17_equals_pytho
     model.set_answer_delta(zero, *tok.letter_ids()).unwrap();
     let with_zero = model.score(&out, &[seq - 1], &answers).unwrap();
     let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
-    assert_eq!(bits(&with_zero.logits), bits(&today.logits), "logits: D17 = 0 is the tied embedding, bit for bit");
-    assert_eq!(bits(&with_zero.logprobs), bits(&today.logprobs), "log-softmax likewise");
+    assert_eq!(
+        bits(&with_zero.logits),
+        bits(&today.logits),
+        "logits: D17 = 0 is the tied embedding, bit for bit"
+    );
+    assert_eq!(
+        bits(&with_zero.logprobs),
+        bits(&today.logprobs),
+        "log-softmax likewise"
+    );
     // A second score with the same answers reuses the composed head and still agrees.
-    assert_eq!(bits(&model.score(&out, &[seq - 1], &answers).unwrap().logits), bits(&today.logits));
+    assert_eq!(
+        bits(&model.score(&out, &[seq - 1], &answers).unwrap().logits),
+        bits(&today.logits)
+    );
 
     // Today's scores against Python's tied-embedding rows.
     let base_d = rel_diff(&today.logits, &refc.floats("choice_logits_base"));
@@ -59,11 +75,17 @@ fn gpu_d17_zero_reproduces_todays_scores_bit_for_bit_and_a_real_d17_equals_pytho
     let d17_d = rel_diff(&with_d17.logits, &refc.floats("choice_logits_d17"));
     println!("embed + D17 letter logits vs Python AnswerRowDelta: {d17_d:.5}");
     assert!(d17_d <= SCORE_REL, "{d17_d}");
-    assert_ne!(bits(&with_d17.logits), bits(&today.logits), "the fixture's D17 must move the scores");
+    assert_ne!(
+        bits(&with_d17.logits),
+        bits(&today.logits),
+        "the fixture's D17 must move the scores"
+    );
 
     // A different answer set recomposes: the 3-row set (A, B, noul) scores the same logits those
     // letters had in the 5-row set, which the cache for the 5-row set must not leak into.
-    let three = model.score(&out, &[seq - 1], &tok.answer_ids(3).unwrap()).unwrap();
+    let three = model
+        .score(&out, &[seq - 1], &tok.answer_ids(3).unwrap())
+        .unwrap();
     assert_eq!(
         bits(&three.logits),
         bits(&[with_d17.logits[0], with_d17.logits[1], with_d17.logits[4]]),
@@ -71,7 +93,10 @@ fn gpu_d17_zero_reproduces_todays_scores_bit_for_bit_and_a_real_d17_equals_pytho
     );
 
     // An id that is not one of the 17 letters (id 0, [UNK]) has no D17 row.
-    let err = model.score(&out, &[seq - 1], &[answers[0], 0]).unwrap_err().to_string();
+    let err = model
+        .score(&out, &[seq - 1], &[answers[0], 0])
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("not one of the 17 answer letters"), "{err}");
 }
 
@@ -94,12 +119,18 @@ fn gpu_a_release_with_d17_serves_the_letter_rows_through_the_backend() {
     std::fs::remove_file(plain.join("d17.safetensors")).unwrap();
     edit_release_manifest(&plain, |m| {
         m["d17"] = Value::Null;
-        m["files"].as_object_mut().unwrap().remove("d17.safetensors");
+        m["files"]
+            .as_object_mut()
+            .unwrap()
+            .remove("d17.safetensors");
     });
     let plain_backend = start(&plain);
-    assert_ne!(plain_backend.identity().head_hash, id, "D17 and a served span head are part of the head's identity");
+    assert_ne!(
+        plain_backend.identity().head_hash,
+        id,
+        "D17 and a served span head are part of the head's identity"
+    );
 }
-
 
 /// The same bit-for-bit claim on the real 2B snapshot: 2048-wide rows out of a 248,320-row bf16
 /// table, 17 letters, a real prompt.
@@ -120,7 +151,10 @@ fn gpu_snapshot_d17_zero_is_the_tied_embedding_on_the_real_2b() {
     let answers = tok.answer_ids(5).unwrap();
     let today = model.score(&out, &[seq - 1], &answers).unwrap();
     model
-        .set_answer_delta(AnswerDelta::from_values(hidden, vec![0.0; 17 * hidden]).unwrap(), *tok.letter_ids())
+        .set_answer_delta(
+            AnswerDelta::from_values(hidden, vec![0.0; 17 * hidden]).unwrap(),
+            *tok.letter_ids(),
+        )
         .unwrap();
     let zero = model.score(&out, &[seq - 1], &answers).unwrap();
     let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();

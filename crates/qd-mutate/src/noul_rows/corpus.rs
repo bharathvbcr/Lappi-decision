@@ -35,7 +35,7 @@ use qd_mutate::lang::LangId;
 use qd_mutate::manifest::sha256_hex;
 
 use crate::hunk::{has_char_in, item_rng, order_key};
-use crate::scramble::{shuffle_tokens, LANGUAGES};
+use crate::scramble::{LANGUAGES, shuffle_tokens};
 
 /// The key every v2 scrambled draw is derived under, distinct from v1's `scrambled`.
 pub const SOURCE_KEY: &str = "scrambled-corpus";
@@ -127,8 +127,8 @@ pub fn read(
             manifest.pool.sha256
         ));
     }
-    let bytes =
-        fs::read(&examples_path).map_err(|e| format!("reading {}: {e}", examples_path.display()))?;
+    let bytes = fs::read(&examples_path)
+        .map_err(|e| format!("reading {}: {e}", examples_path.display()))?;
     let sha = sha256_hex(&bytes);
     if sha != manifest.examples_sha256 {
         return Err(format!(
@@ -146,21 +146,38 @@ pub fn read(
             continue;
         }
         if i >= MAX_LINES {
-            return Err(format!("{} holds more than {MAX_LINES} lines", examples_path.display()));
+            return Err(format!(
+                "{} holds more than {MAX_LINES} lines",
+                examples_path.display()
+            ));
         }
         if line.len() > MAX_LINE_BYTES {
-            return Err(format!("{}:{}: {} bytes", examples_path.display(), i + 1, line.len()));
+            return Err(format!(
+                "{}:{}: {} bytes",
+                examples_path.display(),
+                i + 1,
+                line.len()
+            ));
         }
-        let ex: CorpusExample = serde_json::from_slice(line)
-            .map_err(|e| format!("{}:{} is not a corpus row: {e}", examples_path.display(), i + 1))?;
+        let ex: CorpusExample = serde_json::from_slice(line).map_err(|e| {
+            format!(
+                "{}:{} is not a corpus row: {e}",
+                examples_path.display(),
+                i + 1
+            )
+        })?;
         read += 1;
         if !allowed.contains_key(&ex.pool_id) {
             // Val or held-out repo, or a licence the allowlist did not admit: never read further.
-            *excluded.entry("pool_id_not_allowlisted".to_string()).or_insert(0) += 1;
+            *excluded
+                .entry("pool_id_not_allowlisted".to_string())
+                .or_insert(0) += 1;
             continue;
         }
         if !wanted.contains(ex.language.as_str()) {
-            *excluded.entry(format!("language:{}", ex.language)).or_insert(0) += 1;
+            *excluded
+                .entry(format!("language:{}", ex.language))
+                .or_insert(0) += 1;
             continue;
         }
         examples.push(ex);
@@ -185,8 +202,12 @@ pub fn read(
 pub fn candidates(examples: &[CorpusExample], seed: u64) -> BTreeMap<LangId, Vec<&CorpusExample>> {
     let mut out: BTreeMap<LangId, Vec<(&CorpusExample, [u8; 32])>> = BTreeMap::new();
     for ex in examples {
-        let Some(lang) = LANGUAGES.iter().find(|l| l.as_str() == ex.language) else { continue };
-        out.entry(*lang).or_default().push((ex, order_key(seed, SOURCE_KEY, &ex.id)));
+        let Some(lang) = LANGUAGES.iter().find(|l| l.as_str() == ex.language) else {
+            continue;
+        };
+        out.entry(*lang)
+            .or_default()
+            .push((ex, order_key(seed, SOURCE_KEY, &ex.id)));
     }
     out.into_iter()
         .map(|(lang, mut v)| {
@@ -236,10 +257,15 @@ fn parse(diff: &str) -> Result<Vec<Hunk<'_>>, Skip> {
     let mut hunks: Vec<Hunk> = Vec::new();
     for line in diff.lines() {
         if line.starts_with("@@ -") {
-            hunks.push(Hunk { header: line, body: Vec::new() });
+            hunks.push(Hunk {
+                header: line,
+                body: Vec::new(),
+            });
             continue;
         }
-        let Some(h) = hunks.last_mut() else { return Err(Skip::NotAHunk) };
+        let Some(h) = hunks.last_mut() else {
+            return Err(Skip::NotAHunk);
+        };
         if !matches!(line.chars().next(), Some(' ' | '-' | '+')) {
             return Err(Skip::NotAHunk);
         }
@@ -313,7 +339,11 @@ pub fn render(
     let mut bodies: Vec<Vec<String>> = Vec::with_capacity(hunks.len());
     for h in &hunks {
         let p = permutation(h.body.len(), &mut rng);
-        moved += p.iter().enumerate().filter(|&(i, &j)| h.body[i] != h.body[j]).count();
+        moved += p
+            .iter()
+            .enumerate()
+            .filter(|&(i, &j)| h.body[i] != h.body[j])
+            .count();
         bodies.push(p.iter().map(|&j| h.body[j].to_string()).collect());
     }
     if moved * MIN_MOVED_DEN < total * MIN_MOVED_NUM {
@@ -439,27 +469,36 @@ mod tests {
             assert!(shingle_jaccard(&out, DIFF) < MAX_SHINGLE_JACCARD);
         }
         assert!(rendered >= 30, "only {rendered} of 40 seeds rendered");
-        assert_eq!(render(&ex("a", DIFF), FORM_LINES, 3, &[]),
-                   render(&ex("a", DIFF), FORM_LINES, 3, &[]));
+        assert_eq!(
+            render(&ex("a", DIFF), FORM_LINES, 3, &[]),
+            render(&ex("a", DIFF), FORM_LINES, 3, &[])
+        );
     }
 
     #[test]
     fn a_multi_hunk_diff_keeps_each_header_with_its_own_lines_and_its_order_can_move() {
         let mut moved_order = 0;
         for seed in 0..40 {
-            let Ok(out) = render(&ex("b", TWO), FORM_LINES, seed, &[]) else { continue };
+            let Ok(out) = render(&ex("b", TWO), FORM_LINES, seed, &[]) else {
+                continue;
+            };
             assert_eq!(body_multiset(&out), body_multiset(TWO));
             assert!(out.starts_with("@@ -"));
             moved_order += usize::from(out.starts_with("@@ -40,6"));
         }
-        assert!(moved_order >= 30, "hunk order moved on {moved_order} of 40 seeds");
+        assert!(
+            moved_order >= 30,
+            "hunk order moved on {moved_order} of 40 seeds"
+        );
     }
 
     #[test]
     fn the_tokens_form_also_shuffles_tokens_inside_lines_keeping_markers_and_indent() {
         let mut rendered = 0;
         for seed in 0..40 {
-            let Ok(out) = render(&ex("c", DIFF), FORM_TOKENS, seed, &[]) else { continue };
+            let Ok(out) = render(&ex("c", DIFF), FORM_TOKENS, seed, &[]) else {
+                continue;
+            };
             rendered += 1;
             let key = |l: &str| {
                 let indent = l.len() - l[1..].trim_start().len() - 1;
@@ -473,30 +512,75 @@ mod tests {
             want.sort();
             assert_eq!(got, want);
             let originals: BTreeSet<&str> = DIFF.lines().collect();
-            assert!(out.lines().skip(1).filter(|l| !originals.contains(l)).count() >= 4, "{out}");
+            assert!(
+                out.lines()
+                    .skip(1)
+                    .filter(|l| !originals.contains(l))
+                    .count()
+                    >= 4,
+                "{out}"
+            );
         }
         assert!(rendered >= 30, "only {rendered} of 40 seeds rendered");
     }
 
     #[test]
     fn every_reason_an_example_has_no_row_is_named() {
-        assert_eq!(render(&ex("d", "@@ -1,2 +1,2 @@\n a\n-b\n+c\n"), FORM_LINES, 0, &[]),
-                   Err(Skip::TooShort));
-        assert_eq!(render(&ex("e", &DIFF.replace('\n', "\r\n")), FORM_LINES, 0, &[]),
-                   Err(Skip::CarriageReturn));
-        assert_eq!(render(&ex("f", &format!("{DIFF}\\ No newline at end of file\n")),
-                          FORM_LINES, 0, &[]), Err(Skip::NotAHunk));
-        assert_eq!(render(&ex("g", &DIFF.replace("dict(", "dict\u{FEFF}(")), FORM_LINES, 0,
-                          &[(0xFEFF, 0xFEFF)]), Err(Skip::InvisibleFormat));
+        assert_eq!(
+            render(
+                &ex("d", "@@ -1,2 +1,2 @@\n a\n-b\n+c\n"),
+                FORM_LINES,
+                0,
+                &[]
+            ),
+            Err(Skip::TooShort)
+        );
+        assert_eq!(
+            render(&ex("e", &DIFF.replace('\n', "\r\n")), FORM_LINES, 0, &[]),
+            Err(Skip::CarriageReturn)
+        );
+        assert_eq!(
+            render(
+                &ex("f", &format!("{DIFF}\\ No newline at end of file\n")),
+                FORM_LINES,
+                0,
+                &[]
+            ),
+            Err(Skip::NotAHunk)
+        );
+        assert_eq!(
+            render(
+                &ex("g", &DIFF.replace("dict(", "dict\u{FEFF}(")),
+                FORM_LINES,
+                0,
+                &[(0xFEFF, 0xFEFF)]
+            ),
+            Err(Skip::InvisibleFormat)
+        );
         let same = format!("@@ -1,8 +1,8 @@\n{}", " x = 1\n".repeat(8));
-        assert_eq!(render(&ex("h", &same), FORM_LINES, 0, &[]), Err(Skip::Unscrambled));
-        let flat = format!("@@ -1,8 +1,8 @@\n{}", (0..8).map(|i| format!(" x{i}\n"))
-            .collect::<String>());
-        assert_eq!(render(&ex("i", &flat), FORM_TOKENS, 0, &[]),
-                   Err(Skip::TooFewShufflableLines));
-        let names: BTreeSet<&str> = [Skip::TooShort, Skip::NotAHunk, Skip::Unscrambled,
-            Skip::TooCloseToOriginal, Skip::DiffLength, Skip::LongLine]
-            .into_iter().map(Skip::as_str).collect();
+        assert_eq!(
+            render(&ex("h", &same), FORM_LINES, 0, &[]),
+            Err(Skip::Unscrambled)
+        );
+        let flat = format!(
+            "@@ -1,8 +1,8 @@\n{}",
+            (0..8).map(|i| format!(" x{i}\n")).collect::<String>()
+        );
+        assert_eq!(
+            render(&ex("i", &flat), FORM_TOKENS, 0, &[]),
+            Err(Skip::TooFewShufflableLines)
+        );
+        let names: BTreeSet<&str> = [
+            Skip::TooShort,
+            Skip::NotAHunk,
+            Skip::Unscrambled,
+            Skip::TooCloseToOriginal,
+            Skip::DiffLength,
+            Skip::LongLine,
+        ]
+        .into_iter()
+        .map(Skip::as_str)
+        .collect();
         assert_eq!(names.len(), 6);
     }
 

@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use qd_train::export::METAL_TRAINER;
-use qd_train::ledger::{self, Environment, FtRecipe, FtRow, Protocol, RunFacts, Stamp, Status, WallClockSource};
+use qd_train::ledger::{
+    self, Environment, FtRecipe, FtRow, Protocol, RunFacts, Stamp, Status, WallClockSource,
+};
 use qd_train::run_control::{LossLog, LossPoint};
 use qd_train::trainer::{BatchCounts, EtaRule, Termination, TrainResult};
 use qd_train::tristate::TriState;
@@ -88,13 +90,20 @@ fn row(o: &serde_json::Value, termination: Termination) -> FtRow {
         0,
     )
     .unwrap();
-    let projected = if termination == Termination::EtaRule { 20_725.0 } else { 12_000.0 };
+    let projected = if termination == Termination::EtaRule {
+        20_725.0
+    } else {
+        12_000.0
+    };
     let head_digest = "01".repeat(32);
     let facts = RunFacts {
         cap_s: 21_600.0,
         provider: "ojas-qwen35 over tessl",
         head_init: Some((HEAD_INIT, &head_digest)),
-        eta: Some(EtaRule { at_step: 10, margin_s: 900.0 }),
+        eta: Some(EtaRule {
+            at_step: 10,
+            margin_s: 900.0,
+        }),
     };
     let mut metrics = ledger::ft_metrics(&result(o, termination, projected), &facts).unwrap();
     metrics.insert(
@@ -119,8 +128,14 @@ fn row(o: &serde_json::Value, termination: Termination) -> FtRow {
 fn the_recipe_and_protocol_hash_as_python_hashes_them() {
     let o = common::trainer_oracle();
     let r = row(&o, Termination::StepsExhausted);
-    assert_eq!(r.protocol.recipe_hash, o["ledger"]["recipe_hash"].as_str().unwrap());
-    assert_eq!(r.protocol.hash().unwrap(), o["ledger"]["protocol_hash"].as_str().unwrap());
+    assert_eq!(
+        r.protocol.recipe_hash,
+        o["ledger"]["recipe_hash"].as_str().unwrap()
+    );
+    assert_eq!(
+        r.protocol.hash().unwrap(),
+        o["ledger"]["protocol_hash"].as_str().unwrap()
+    );
 }
 
 /// The recipe key `crates/qd-train-metal/src/run.rs` takes from the train shard header: named
@@ -129,23 +144,45 @@ fn the_recipe_and_protocol_hash_as_python_hashes_them() {
 #[test]
 fn a_prompt_format_other_than_1_is_a_recipe_key_and_1_is_none() {
     assert!(ledger::prompt_format_extra(1).is_empty());
-    let v4 = FtRecipe { extra: ledger::prompt_format_extra(1), ..recipe() };
-    assert_eq!(v4.to_json().unwrap(), recipe().to_json().unwrap(), "format 1 adds no key");
+    let v4 = FtRecipe {
+        extra: ledger::prompt_format_extra(1),
+        ..recipe()
+    };
+    assert_eq!(
+        v4.to_json().unwrap(),
+        recipe().to_json().unwrap(),
+        "format 1 adds no key"
+    );
     assert!(v4.to_json().unwrap().get("prompt_format").is_none());
     let hash = |r: &FtRecipe| Protocol::for_recipe(r, "d", "t", 0).unwrap().recipe_hash;
-    assert_eq!(hash(&v4), hash(&recipe()), "a v4 row's recipe_hash does not move");
+    assert_eq!(
+        hash(&v4),
+        hash(&recipe()),
+        "a v4 row's recipe_hash does not move"
+    );
 
-    let v5 = FtRecipe { extra: ledger::prompt_format_extra(2), ..recipe() };
+    let v5 = FtRecipe {
+        extra: ledger::prompt_format_extra(2),
+        ..recipe()
+    };
     let json = v5.to_json().unwrap();
     assert_eq!(json["prompt_format"], 2);
-    assert!(json["prompt_format"].is_u64(), "an int, as Python's recipe holds it");
+    assert!(
+        json["prompt_format"].is_u64(),
+        "an int, as Python's recipe holds it"
+    );
     assert_ne!(hash(&v5), hash(&recipe()), "two layouts are two recipes");
 }
 
 #[test]
 fn rows_are_pythons_lines_and_chain_as_python_chains_them() {
     let o = common::trainer_oracle();
-    let lines: Vec<&str> = o["ledger"]["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+    let lines: Vec<&str> = o["ledger"]["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l.as_str().unwrap())
+        .collect();
     let first = row(&o, Termination::StepsExhausted)
         .line(&Stamp {
             row_id: "00000000-0000-4000-8000-000000000000".into(),
@@ -188,7 +225,12 @@ fn rows_are_pythons_lines_and_chain_as_python_chains_them() {
     assert_eq!(v["metrics"]["train.termination"]["value"], "eta_rule");
     assert_eq!(v["metrics"]["train.termination"]["passed"], false);
     assert_eq!(v["metrics"]["train.eta_projected_s"]["passed"], false);
-    assert!(v["quick_reason"].as_str().unwrap().contains("'eta_rule', not 'steps_exhausted'"));
+    assert!(
+        v["quick_reason"]
+            .as_str()
+            .unwrap()
+            .contains("'eta_rule', not 'steps_exhausted'")
+    );
 }
 
 #[test]
@@ -203,23 +245,35 @@ fn the_row_carries_what_the_scorer_requires_of_a_metal_ft_row() {
         })
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["run_kind"].as_str(), v["status"].as_str()), (Some("ft"), Some("completed")));
+    assert_eq!(
+        (v["run_kind"].as_str(), v["status"].as_str()),
+        (Some("ft"), Some("completed"))
+    );
     let r = &v["recipe"];
     assert_eq!(r["trainer"], "qd-train-metal");
     assert_eq!(r["tag"], "epoch");
     assert_eq!(r["device"], "metal");
-    assert_eq!(r["attn_implementation"], "sdpa", "a torch kernel the scorer can build its step with");
+    assert_eq!(
+        r["attn_implementation"], "sdpa",
+        "a torch kernel the scorer can build its step with"
+    );
     assert_eq!(r["optimizer_recipe"], "master");
     for k in ["lr", "span_weight", "shard_hash", "backbone_snapshot"] {
         assert!(!r[k].is_null(), "recipe lacks {k}");
     }
-    assert!(r.get("trained_by").is_none(), "trained_by is the scoring rows', never the ft row's");
+    assert!(
+        r.get("trained_by").is_none(),
+        "trained_by is the scoring rows', never the ft row's"
+    );
     assert_eq!(v["quick"], true);
     assert!(!v["quick_reason"].as_str().unwrap().trim().is_empty());
     assert!(v["protocol"]["seed"].is_u64());
     assert!(v["metrics"]["train.optimizer_steps"]["value"].is_u64());
     assert!(v["metrics"]["train.termination"]["value"].is_string());
-    assert_eq!(v["metrics"]["train.head_init_digest"]["value"], "01".repeat(32));
+    assert_eq!(
+        v["metrics"]["train.head_init_digest"]["value"],
+        "01".repeat(32)
+    );
     // An empty trainer, tag, device, kernel or optimizer recipe is refused, not written.
     let mut bad = row(&o, Termination::StepsExhausted);
     bad.recipe.trainer = String::new();
@@ -238,19 +292,40 @@ fn append_chains_refuses_duplicates_and_writes_only_mac_ojas_ledgers() {
         std::fs::remove_dir_all(&dir).unwrap();
     }
     let r = row(&o, Termination::StepsExhausted);
-    let s1 = ledger::append(&path, &r, "00000000-0000-4000-8000-000000000000".into(), "2026-10-01T18:02:09.195699+00:00".into()).unwrap();
+    let s1 = ledger::append(
+        &path,
+        &r,
+        "00000000-0000-4000-8000-000000000000".into(),
+        "2026-10-01T18:02:09.195699+00:00".into(),
+    )
+    .unwrap();
     assert_eq!(s1.prev_row_hash, None);
-    let s2 = ledger::append(&path, &r, "00000000-0000-4000-8000-000000000009".into(), "2026-10-01T18:02:09.195699+00:00".into()).unwrap();
+    let s2 = ledger::append(
+        &path,
+        &r,
+        "00000000-0000-4000-8000-000000000009".into(),
+        "2026-10-01T18:02:09.195699+00:00".into(),
+    )
+    .unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     let first_line = text.lines().next().unwrap();
     assert_eq!(first_line, o["ledger"]["lines"][0].as_str().unwrap());
     let want = {
         use sha2::Digest;
-        sha2::Sha256::digest(first_line.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>()
+        sha2::Sha256::digest(first_line.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     };
     assert_eq!(s2.prev_row_hash.as_deref(), Some(want.as_str()));
     assert!(
-        ledger::append(&path, &r, "00000000-0000-4000-8000-000000000009".into(), "x".into()).is_err(),
+        ledger::append(
+            &path,
+            &r,
+            "00000000-0000-4000-8000-000000000009".into(),
+            "x".into()
+        )
+        .is_err(),
         "a repeated row_id"
     );
     let campaign = dir.join("ledger").join("gh200-p4-v4-2026-10-01.jsonl");
@@ -272,16 +347,37 @@ fn a_row_whose_recipe_hash_is_not_its_recipes_is_refused() {
     assert!(r.line(&stamp).is_err());
     let mut q = row(&o, Termination::StepsExhausted);
     q.quick_reason = " ".into();
-    assert!(q.line(&stamp).is_err(), "every row is quick, and quick needs a reason");
+    assert!(
+        q.line(&stamp).is_err(),
+        "every row is quick, and quick needs a reason"
+    );
     let mut b = row(&o, Termination::StepsExhausted);
     b.protocol.tokenizer_hash = ledger::NOT_APPLICABLE.into();
-    assert!(b.line(&stamp).is_err(), "the build marker in a training row");
+    assert!(
+        b.line(&stamp).is_err(),
+        "the build marker in a training row"
+    );
     let mut p = row(&o, Termination::StepsExhausted);
     p.recipe.backbone_snapshot = "/Users/bharath/snap".into();
     assert!(p.recipe.to_json().is_err(), "a path is not a revision");
     // The scorer's pairing keys are all present in the stored recipe.
-    let serde_json::Value::Object(m) = row(&o, Termination::StepsExhausted).recipe.to_json().unwrap() else { panic!() };
-    for k in ["tag", "device", "shard_hash", "backbone_snapshot", "attn_implementation", "lr", "span_weight", "optimizer_recipe"] {
+    let serde_json::Value::Object(m) = row(&o, Termination::StepsExhausted)
+        .recipe
+        .to_json()
+        .unwrap()
+    else {
+        panic!()
+    };
+    for k in [
+        "tag",
+        "device",
+        "shard_hash",
+        "backbone_snapshot",
+        "attn_implementation",
+        "lr",
+        "span_weight",
+        "optimizer_recipe",
+    ] {
         assert!(m.contains_key(k), "recipe lacks {k}");
     }
 }

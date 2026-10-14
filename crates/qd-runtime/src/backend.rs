@@ -261,10 +261,7 @@ pub trait DecisionBackend: Send + Sync {
 ///
 /// A wrong row count, a NaN or an infinity is a backend failure, not a low-confidence answer: every
 /// one of them would otherwise reach the caller as a letter.
-pub fn validate_logits(
-    logits: &Logits,
-    query: &SlotQuery<'_>,
-) -> Result<(), BackendError> {
+pub fn validate_logits(logits: &Logits, query: &SlotQuery<'_>) -> Result<(), BackendError> {
     if logits.kind != query.kind {
         return Err(BackendError::LogitKindMismatch {
             slot: query.slot_name.to_string(),

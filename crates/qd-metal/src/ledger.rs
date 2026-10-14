@@ -147,17 +147,23 @@ fn hash_tree(root: &Path) -> Result<(String, u64)> {
     let mut files: Vec<PathBuf> = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(d) = stack.pop() {
-        let entries = std::fs::read_dir(&d).map_err(|e| MetalError::Ledger(format!("{}: {e}", d.display())))?;
+        let entries = std::fs::read_dir(&d)
+            .map_err(|e| MetalError::Ledger(format!("{}: {e}", d.display())))?;
         for e in entries {
             let e = e.map_err(|e| MetalError::Ledger(format!("{}: {e}", d.display())))?;
-            let ft = e.file_type().map_err(|err| MetalError::Ledger(format!("{}: {err}", e.path().display())))?;
+            let ft = e
+                .file_type()
+                .map_err(|err| MetalError::Ledger(format!("{}: {err}", e.path().display())))?;
             if ft.is_dir() {
                 stack.push(e.path());
             } else {
                 files.push(e.path());
             }
             if files.len() > TREE_MAX_FILES {
-                return Ok((format!("tree over the hashing bound ({TREE_MAX_FILES} files)"), 0));
+                return Ok((
+                    format!("tree over the hashing bound ({TREE_MAX_FILES} files)"),
+                    0,
+                ));
             }
         }
     }
@@ -165,22 +171,34 @@ fn hash_tree(root: &Path) -> Result<(String, u64)> {
     let (mut acc, mut bytes, mut newest) = (String::new(), 0u64, 0u64);
     for f in &files {
         let rel = f.strip_prefix(root).unwrap_or(f).display().to_string();
-        let meta = std::fs::symlink_metadata(f).map_err(|e| MetalError::Ledger(format!("{}: {e}", f.display())))?;
+        let meta = std::fs::symlink_metadata(f)
+            .map_err(|e| MetalError::Ledger(format!("{}: {e}", f.display())))?;
         newest = newest.max(mtime_s(f).unwrap_or(0));
         let sha = if meta.file_type().is_symlink() {
-            let to = std::fs::read_link(f).map_err(|e| MetalError::Ledger(format!("{}: {e}", f.display())))?;
+            let to = std::fs::read_link(f)
+                .map_err(|e| MetalError::Ledger(format!("{}: {e}", f.display())))?;
             format!("symlink:{}", to.display())
         } else {
             bytes += meta.len();
             if bytes > TREE_MAX_BYTES {
-                return Ok((format!("tree over the hashing bound ({TREE_MAX_BYTES} bytes)"), newest));
+                return Ok((
+                    format!("tree over the hashing bound ({TREE_MAX_BYTES} bytes)"),
+                    newest,
+                ));
             }
-            let b = std::fs::read(f).map_err(|e| MetalError::Ledger(format!("{}: {e}", f.display())))?;
+            let b = std::fs::read(f)
+                .map_err(|e| MetalError::Ledger(format!("{}: {e}", f.display())))?;
             qd_runtime::hex(&qd_runtime::sha256(&b))
         };
         acc.push_str(&format!("{rel}\t{sha}\n"));
     }
-    Ok((format!("tree:{}", qd_runtime::hex(&qd_runtime::sha256(acc.as_bytes()))), newest))
+    Ok((
+        format!(
+            "tree:{}",
+            qd_runtime::hex(&qd_runtime::sha256(acc.as_bytes()))
+        ),
+        newest,
+    ))
 }
 
 impl TreeState {
@@ -201,7 +219,11 @@ impl TreeState {
         let mut dirty = BTreeMap::new();
         for line in status.lines().filter(|l| l.len() > 3) {
             // `XY path` or `XY old -> new` for a rename; the new path is what compiles.
-            let path = line[3..].rsplit(" -> ").next().unwrap_or(&line[3..]).trim_matches('"');
+            let path = line[3..]
+                .rsplit(" -> ")
+                .next()
+                .unwrap_or(&line[3..])
+                .trim_matches('"');
             let full = dir.join(path);
             let what = if full.is_dir() {
                 if is_build_output(path) {
@@ -245,7 +267,11 @@ impl TreeState {
     /// One line a row can carry: `HEAD` and the dirty count. The entries themselves are
     /// [`TreeState::files_json`].
     pub fn describe(&self) -> String {
-        let skipped = self.dirty.values().filter(|v| v.as_str() == BUILD_OUTPUT).count();
+        let skipped = self
+            .dirty
+            .values()
+            .filter(|v| v.as_str() == BUILD_OUTPUT)
+            .count();
         format!(
             "{} HEAD {}; {} dirty path(s), {skipped} of them build output (not hashed)",
             self.dir.display(),
@@ -380,7 +406,9 @@ mod tests {
     #[test]
     fn only_mac_qd_metal_ledgers_are_writable() {
         assert!(check_ledger_path(Path::new("/r/ledger/mac-qd-metal-2026-10-02.jsonl")).is_ok());
-        assert!(check_ledger_path(Path::new("/r/ledger/mac-ojas-rung-b-2026-10-01.jsonl")).is_err());
+        assert!(
+            check_ledger_path(Path::new("/r/ledger/mac-ojas-rung-b-2026-10-01.jsonl")).is_err()
+        );
         assert!(check_ledger_path(Path::new("/r/ledger/runs.jsonl")).is_err());
         assert!(check_ledger_path(Path::new("/r/ledger/gh200-p4-v4-2026-10-01.jsonl")).is_err());
         assert!(check_ledger_path(Path::new("/r/elsewhere/mac-qd-metal-x.jsonl")).is_err());
@@ -409,7 +437,10 @@ mod tests {
         assert_ne!(d, other_head.digest());
         assert_ne!(d, other_bytes.digest());
         assert_ne!(d, clean.digest());
-        assert!(base.describe().contains("1 dirty path(s), 0 of them build output"));
+        assert!(
+            base.describe()
+                .contains("1 dirty path(s), 0 of them build output")
+        );
         assert_eq!(base.files_json()[" M kernels/x.metal"], "1".repeat(64));
     }
 
@@ -428,10 +459,18 @@ mod tests {
         assert!(h1.starts_with("tree:"), "{h1}");
         assert_eq!(hash_tree(&root).unwrap().0, h1, "deterministic");
         std::fs::write(root.join("a/b/x.rs"), b"onE").unwrap();
-        assert_ne!(hash_tree(&root).unwrap().0, h1, "a changed byte moves the tree hash");
+        assert_ne!(
+            hash_tree(&root).unwrap().0,
+            h1,
+            "a changed byte moves the tree hash"
+        );
         std::fs::write(root.join("a/b/x.rs"), b"one").unwrap();
         std::fs::rename(root.join("y.rs"), root.join("z.rs")).unwrap();
-        assert_ne!(hash_tree(&root).unwrap().0, h1, "a renamed file moves the tree hash");
+        assert_ne!(
+            hash_tree(&root).unwrap().0,
+            h1,
+            "a renamed file moves the tree hash"
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 

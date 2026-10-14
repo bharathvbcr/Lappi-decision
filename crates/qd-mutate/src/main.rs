@@ -17,12 +17,12 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
 use qd_mutate::generate::{DiffShape, Generator, Options};
 use qd_mutate::lang::LangId;
-use qd_mutate::manifest::{sha256_hex, PoolReport};
+use qd_mutate::manifest::{PoolReport, sha256_hex};
 use qd_mutate::pool::{self, PoolRecord};
 
 #[derive(Parser, Debug)]
@@ -212,10 +212,18 @@ fn compose(args: ComposeArgs) -> Result<()> {
              is built from records that have a prior_source, and a single-version pool has none"
         );
     }
-    let inputs = compose::load(&args.corpus, &args.pool, &args.split_map, args.aux.as_deref())?;
+    let inputs = compose::load(
+        &args.corpus,
+        &args.pool,
+        &args.split_map,
+        args.aux.as_deref(),
+    )?;
     if let Some(path) = &args.aux_pool_out {
         if path.exists() {
-            bail!("{} already exists; refusing to overwrite it", path.display());
+            bail!(
+                "{} already exists; refusing to overwrite it",
+                path.display()
+            );
         }
         let (jsonl, records) = compose::aux_pool(&inputs)?;
         write_atomically(path, jsonl.as_bytes())?;
@@ -320,7 +328,10 @@ fn generate(args: GenerateArgs) -> Result<()> {
     });
     let mut run = generator.run(&records, report);
     if args.id_prefix.len() > 64
-        || args.id_prefix.chars().any(|c| c.is_control() || c.is_whitespace())
+        || args
+            .id_prefix
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace())
     {
         bail!(
             "id prefix {:?} is longer than 64 bytes or holds whitespace or a control character",

@@ -45,10 +45,13 @@ use std::path::PathBuf;
 use clap::Parser;
 use serde::Serialize;
 
-use tristate::{aggregate, TriState};
+use tristate::{TriState, aggregate};
 
 #[derive(Parser, Debug)]
-#[command(name = "qd-preflight", about = "Preflight gate for the qwen-decision training box")]
+#[command(
+    name = "qd-preflight",
+    about = "Preflight gate for the qwen-decision training box"
+)]
 struct Args {
     /// JSON manifest of pinned artifacts (name, path, sha256).
     #[arg(long)]
@@ -113,7 +116,10 @@ fn check_device_count(probe: Option<&cuda::CudaProbe>, want: usize) -> TriState 
             "this job requires {want} device(s); the driver reports {}",
             p.devices.len()
         )),
-        Some(p) => TriState::pass(format!("{} device(s) available, {want} required", p.devices.len())),
+        Some(p) => TriState::pass(format!(
+            "{} device(s) available, {want} required",
+            p.devices.len()
+        )),
     }
 }
 
@@ -203,12 +209,18 @@ fn main() -> std::process::ExitCode {
 
     let report = Report {
         schema_version: 1,
-        checks: parts.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect(),
+        checks: parts
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect(),
         overall: overall.clone(),
     };
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).unwrap_or_default()
+        );
     } else {
         for (name, state) in &report.checks {
             let tag = match state {
@@ -225,7 +237,11 @@ fn main() -> std::process::ExitCode {
         println!();
         match &overall {
             TriState::Ran { passed: true, .. } => println!("preflight: PASS"),
-            TriState::Ran { passed: false, detail, .. } => println!("preflight: FAIL -- {detail}"),
+            TriState::Ran {
+                passed: false,
+                detail,
+                ..
+            } => println!("preflight: FAIL -- {detail}"),
             TriState::NotRun { reason } => println!("preflight: NOT RUN -- {reason}"),
         }
         println!(
@@ -266,7 +282,10 @@ mod tests {
         // One A10 at 24 GiB against a job whose static state alone needs 40 GiB.
         let p = probe_of(1, 24.0, "NVIDIA A10");
         let s = check_device_memory(Some(&p), Some(40.0));
-        assert!(s.did_run(), "a driver that answered gives a real answer, never not_run");
+        assert!(
+            s.did_run(),
+            "a driver that answered gives a real answer, never not_run"
+        );
         assert!(
             !s.is_pass(),
             "24.0 GiB cannot hold a job that needs 40.0 GiB, and a gate that says it can \
@@ -284,7 +303,10 @@ mod tests {
             ("artifacts", TriState::pass("pinned")),
         ];
         let overall = aggregate("preflight", &parts);
-        assert!(overall.did_run(), "every input ran, so the aggregate must too");
+        assert!(
+            overall.did_run(),
+            "every input ran, so the aggregate must too"
+        );
         assert!(
             !overall.is_pass(),
             "device_count alone passes this box -- that is exactly why counting devices \
@@ -323,7 +345,10 @@ mod tests {
             total_mem_gib: 24.0,
         });
         let s = check_device_memory(Some(&p), Some(40.0));
-        assert!(s.did_run() && !s.is_pass(), "the 24 GiB card must fail the box");
+        assert!(
+            s.did_run() && !s.is_pass(),
+            "the 24 GiB card must fail the box"
+        );
     }
 
     #[test]
@@ -348,7 +373,10 @@ mod tests {
         let p = probe_of(1, 80.0, "NVIDIA H100");
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             let s = check_device_memory(Some(&p), Some(bad));
-            assert!(s.did_run() && !s.is_pass(), "{bad} must be refused, not treated as 0");
+            assert!(
+                s.did_run() && !s.is_pass(),
+                "{bad} must be refused, not treated as 0"
+            );
         }
     }
 
@@ -372,7 +400,11 @@ mod tests {
 
     #[test]
     fn too_few_devices_fails_rather_than_not_running() {
-        let p = cuda::CudaProbe { soname: "x".into(), driver_version: 12080, devices: vec![] };
+        let p = cuda::CudaProbe {
+            soname: "x".into(),
+            driver_version: 12080,
+            devices: vec![],
+        };
         let s = check_device_count(Some(&p), 8);
         assert!(s.did_run(), "a driver that answered gives a real answer");
         assert!(!s.is_pass());
@@ -402,7 +434,10 @@ mod tests {
         let parts = [
             ("cuda_driver", cuda_state),
             ("device_count", check_device_count(probe.as_ref(), 1)),
-            ("artifacts", artifacts::check_artifacts(None, std::path::Path::new("."))),
+            (
+                "artifacts",
+                artifacts::check_artifacts(None, std::path::Path::new(".")),
+            ),
         ];
         let overall = aggregate("preflight", &parts);
         assert!(!overall.is_pass());

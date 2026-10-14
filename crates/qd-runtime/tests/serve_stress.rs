@@ -29,7 +29,10 @@ use serde_json::Value;
 
 fn config() -> ServiceConfig {
     ServiceConfig {
-        runtime: RuntimeConfig { caps: RenderCaps::DEFAULT, enable_reference_backend: true },
+        runtime: RuntimeConfig {
+            caps: RenderCaps::DEFAULT,
+            enable_reference_backend: true,
+        },
         idle_timeout: Duration::from_secs(600),
         request_timeout: Duration::from_secs(10),
         max_in_flight: 8,
@@ -86,12 +89,25 @@ fn ping_ok(path: &Path) -> bool {
 /// A reply is one of the contract's three envelopes, or a ping's ack; nothing else is acceptable.
 fn classify(reply: &[u8]) -> String {
     let v: Value = serde_json::from_slice(reply).unwrap_or_else(|e| {
-        panic!("a reply that is not JSON: {e}: {}", String::from_utf8_lossy(reply))
+        panic!(
+            "a reply that is not JSON: {e}: {}",
+            String::from_utf8_lossy(reply)
+        )
     });
     match v.get("status").and_then(Value::as_str) {
         Some("ok") => "ok".into(),
-        Some("refused") => format!("refused:{}", v.pointer("/refusal/kind").and_then(Value::as_str).unwrap_or("?")),
-        Some("error") => format!("error:{}", v.pointer("/error/kind").and_then(Value::as_str).unwrap_or("?")),
+        Some("refused") => format!(
+            "refused:{}",
+            v.pointer("/refusal/kind")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+        ),
+        Some("error") => format!(
+            "error:{}",
+            v.pointer("/error/kind")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+        ),
         other => panic!("a reply with status {other:?}: {v}"),
     }
 }
@@ -104,7 +120,11 @@ fn a_reply_slower_than_the_write_timeout_to_compute_is_still_delivered() {
     // Here the backend takes 1 s and the write timeout is 300 ms: the reply must still arrive.
     let service = Service::with_factory(
         config(),
-        Arc::new(|| Ok(common::Wrapped::runtime(common::Behaviour::SlowForTask { delay: Duration::from_secs(1) }))),
+        Arc::new(|| {
+            Ok(common::Wrapped::runtime(common::Behaviour::SlowForTask {
+                delay: Duration::from_secs(1),
+            }))
+        }),
     );
     with_service_server(
         "stress-slowreply",
@@ -117,9 +137,22 @@ fn a_reply_slower_than_the_write_timeout_to_compute_is_still_delivered() {
             slow["task"] = serde_json::json!("slow-task");
             let started = Instant::now();
             let reply = ask_over_socket(path, &common::line(&slow), Duration::from_secs(10))
-                .unwrap_or_else(|e| panic!("the slow reply never arrived ({:?} in): {e}", started.elapsed()));
-            assert_eq!(classify(&reply), "ok", "{}", String::from_utf8_lossy(&reply));
-            assert!(started.elapsed() >= Duration::from_secs(1), "the backend's delay was not exercised");
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "the slow reply never arrived ({:?} in): {e}",
+                        started.elapsed()
+                    )
+                });
+            assert_eq!(
+                classify(&reply),
+                "ok",
+                "{}",
+                String::from_utf8_lossy(&reply)
+            );
+            assert!(
+                started.elapsed() >= Duration::from_secs(1),
+                "the backend's delay was not exercised"
+            );
             // And the connection is still usable for the next request.
             assert!(ping_ok(path));
         },
@@ -139,15 +172,20 @@ fn many_concurrent_clients_through_a_small_cap_each_get_a_whole_reply() {
                     let request = request.clone();
                     scope.spawn(move || {
                         (0..PER_CLIENT)
-                            .map(|_| match ask_over_socket(path, &request, Duration::from_secs(20)) {
-                                Ok(reply) => classify(&reply),
-                                Err(e) => format!("io:{:?}", e.kind()),
+                            .map(|_| {
+                                match ask_over_socket(path, &request, Duration::from_secs(20)) {
+                                    Ok(reply) => classify(&reply),
+                                    Err(e) => format!("io:{:?}", e.kind()),
+                                }
                             })
                             .collect::<Vec<_>>()
                     })
                 })
                 .collect();
-            handles.into_iter().map(|h| h.join().expect("client thread")).collect()
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("client thread"))
+                .collect()
         });
         let elapsed = started.elapsed();
         let flat: Vec<&String> = outcomes.iter().flatten().collect();
@@ -161,15 +199,26 @@ fn many_concurrent_clients_through_a_small_cap_each_get_a_whole_reply() {
         let refused = count("io:ConnectionRefused");
         let other: Vec<_> = flat
             .iter()
-            .filter(|s| !matches!(s.as_str(), "ok" | "error:overloaded" | "io:ConnectionRefused"))
+            .filter(|s| {
+                !matches!(
+                    s.as_str(),
+                    "ok" | "error:overloaded" | "io:ConnectionRefused"
+                )
+            })
             .collect();
         assert!(
             other.is_empty(),
             "saw {other:?} (ok {ok}, overloaded {overloaded}, refused {refused})"
         );
         eprintln!("burst: ok {ok}, overloaded {overloaded}, connect refused {refused}");
-        assert!(ok > 0, "some requests were answered (ok {ok}, overloaded {overloaded})");
-        assert!(elapsed < Duration::from_secs(60), "the burst took {elapsed:?}");
+        assert!(
+            ok > 0,
+            "some requests were answered (ok {ok}, overloaded {overloaded})"
+        );
+        assert!(
+            elapsed < Duration::from_secs(60),
+            "the burst took {elapsed:?}"
+        );
         assert!(ping_ok(path), "the agent still answers after the burst");
     });
 }
@@ -191,7 +240,10 @@ fn a_dripping_request_loses_its_slot_once_the_line_outlasts_the_read_timeout() {
             std::thread::sleep(Duration::from_millis(200));
             // A dropped connection shows as EOF on read, an error on the next write, or (macOS)
             // EINVAL from setsockopt on a socket the peer has already shut down.
-            if dripper.set_read_timeout(Some(Duration::from_millis(1))).is_err() {
+            if dripper
+                .set_read_timeout(Some(Duration::from_millis(1)))
+                .is_err()
+            {
                 closed_at = Some(started.elapsed());
                 break;
             }
@@ -216,26 +268,38 @@ fn a_dripping_request_loses_its_slot_once_the_line_outlasts_the_read_timeout() {
             closed_at < Duration::from_millis(2000),
             "the agent held a dripping line for {closed_at:?}; the bound is the 600 ms read timeout from the line's first byte"
         );
-        assert!(ping_ok(path), "the slot was released and the next caller is served");
+        assert!(
+            ping_ok(path),
+            "the slot was released and the next caller is served"
+        );
     });
 }
 
 #[test]
 fn silent_connections_fill_the_cap_and_the_next_caller_is_told_at_once() {
     with_server("stress-silent", 4, Duration::from_millis(800), |path| {
-        let silent: Vec<UnixStream> =
-            (0..4).map(|_| UnixStream::connect(path).expect("connects")).collect();
+        let silent: Vec<UnixStream> = (0..4)
+            .map(|_| UnixStream::connect(path).expect("connects"))
+            .collect();
         // Let the accept loop register all four.
         std::thread::sleep(Duration::from_millis(100));
         let started = Instant::now();
-        let reply = ask_over_socket(path, br#"{"op":"ping"}"#, Duration::from_secs(5)).expect("a reply");
+        let reply =
+            ask_over_socket(path, br#"{"op":"ping"}"#, Duration::from_secs(5)).expect("a reply");
         assert_eq!(classify(&reply), "error:overloaded");
-        assert!(started.elapsed() < Duration::from_millis(500), "told in {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "told in {:?}",
+            started.elapsed()
+        );
         drop(silent);
         // The silent four also time out on their own; either way the cap frees.
         let deadline = Instant::now() + Duration::from_secs(5);
         while !ping_ok(path) {
-            assert!(Instant::now() < deadline, "the agent did not recover after the silent connections left");
+            assert!(
+                Instant::now() < deadline,
+                "the agent did not recover after the silent connections left"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     });
@@ -260,10 +324,16 @@ fn torn_lines_garbage_and_churn_leave_the_agent_serving() {
                 Err(e) => panic!("connect #{i} failed with something other than a refusal: {e}"),
             }
         }
-        assert!(refused < 250, "every churn connect was refused; the agent never accepted");
+        assert!(
+            refused < 250,
+            "every churn connect was refused; the agent never accepted"
+        );
         let deadline = Instant::now() + Duration::from_secs(5);
         while !ping_ok(path) {
-            assert!(Instant::now() < deadline, "the agent did not recover after the churn ({refused} refused)");
+            assert!(
+                Instant::now() < deadline,
+                "the agent did not recover after the churn ({refused} refused)"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
         // Garbage lines: each gets a typed refusal, never a hang or a crash.
@@ -276,20 +346,29 @@ fn torn_lines_garbage_and_churn_leave_the_agent_serving() {
             b"{\"schema_version\":1}",
         ];
         for g in garbage {
-            let reply = ask_over_socket(path, g, Duration::from_secs(5)).expect("a reply to garbage");
+            let reply =
+                ask_over_socket(path, g, Duration::from_secs(5)).expect("a reply to garbage");
             let kind = classify(&reply);
-            assert!(kind.starts_with("refused:"), "{:?} -> {kind}", String::from_utf8_lossy(g));
+            assert!(
+                kind.starts_with("refused:"),
+                "{:?} -> {kind}",
+                String::from_utf8_lossy(g)
+            );
         }
         // Several requests down one connection still work after all that.
         let s = UnixStream::connect(path).expect("connects");
-        s.set_read_timeout(Some(Duration::from_secs(5))).expect("timeout");
+        s.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("timeout");
         let mut w = s.try_clone().expect("clone");
         let mut r = BufReader::new(s);
         for _ in 0..10 {
             w.write_all(b"{\"op\":\"ping\"}\n").expect("writes");
             let mut line = String::new();
             r.read_line(&mut line).expect("reads");
-            assert!(line.ends_with('\n') && serde_json::from_str::<Value>(line.trim()).is_ok(), "{line:?}");
+            assert!(
+                line.ends_with('\n') && serde_json::from_str::<Value>(line.trim()).is_ok(),
+                "{line:?}"
+            );
         }
         assert!(ping_ok(path));
     });

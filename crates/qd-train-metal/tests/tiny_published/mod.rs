@@ -25,7 +25,10 @@ pub fn dir() -> PathBuf {
 
 pub fn json(rel: &str) -> Value {
     let p = dir().join(rel);
-    serde_json::from_str(&std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))).unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())),
+    )
+    .unwrap()
 }
 
 pub struct Sequences {
@@ -41,25 +44,59 @@ pub struct Sequences {
 impl Sequences {
     pub fn load() -> Self {
         let raw = std::fs::read(dir().join("batches/tokens.u32")).unwrap();
-        let tokens: Vec<u32> = raw.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
+        let tokens: Vec<u32> = raw
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect();
         let offsets = NpyArray::parse(&std::fs::read(dir().join("batches/offsets.npy")).unwrap())
             .unwrap()
             .cast::<i64>("offsets")
             .unwrap();
-        let zip = StoredZip::parse(&std::fs::read(dir().join("batches/supervision.npz")).unwrap()).unwrap();
-        let st: Vec<i32> = zip.array("span_target").unwrap().cast::<i32>("span_target").unwrap();
+        let zip = StoredZip::parse(&std::fs::read(dir().join("batches/supervision.npz")).unwrap())
+            .unwrap();
+        let st: Vec<i32> = zip
+            .array("span_target")
+            .unwrap()
+            .cast::<i32>("span_target")
+            .unwrap();
         let s = Self {
             tokens,
             offsets,
-            slot_kind: zip.array("slot_kind").unwrap().cast::<u8>("slot_kind").unwrap(),
-            target_index: zip.array("target_index").unwrap().cast::<i32>("target_index").unwrap(),
+            slot_kind: zip
+                .array("slot_kind")
+                .unwrap()
+                .cast::<u8>("slot_kind")
+                .unwrap(),
+            target_index: zip
+                .array("target_index")
+                .unwrap()
+                .cast::<i32>("target_index")
+                .unwrap(),
             span_target: st.as_chunks::<2>().0.to_vec(),
-            candidate_offsets: zip.array("candidate_offsets").unwrap().cast::<i64>("candidate_offsets").unwrap(),
-            candidate_positions: zip.array("candidate_positions").unwrap().cast::<i32>("candidate_positions").unwrap(),
+            candidate_offsets: zip
+                .array("candidate_offsets")
+                .unwrap()
+                .cast::<i64>("candidate_offsets")
+                .unwrap(),
+            candidate_positions: zip
+                .array("candidate_positions")
+                .unwrap()
+                .cast::<i32>("candidate_positions")
+                .unwrap(),
         };
         let n = s.offsets.len() - 1;
         assert_eq!(*s.offsets.last().unwrap() as usize, s.tokens.len());
-        assert_eq!((s.slot_kind.len(), s.target_index.len(), s.span_target.len(), s.candidate_offsets.len()), (n, n, n, n + 1));
+        assert_eq!(
+            (
+                s.slot_kind.len(),
+                s.target_index.len(),
+                s.span_target.len(),
+                s.candidate_offsets.len()
+            ),
+            (n, n, n, n + 1)
+        );
         s
     }
 
@@ -68,14 +105,25 @@ impl Sequences {
     }
 
     pub fn candidates(&self, i: usize) -> &[i32] {
-        &self.candidate_positions[self.candidate_offsets[i] as usize..self.candidate_offsets[i + 1] as usize]
+        &self.candidate_positions
+            [self.candidate_offsets[i] as usize..self.candidate_offsets[i + 1] as usize]
     }
 
     /// `plan.json`'s batch `b` as the shard reader's [`Batch`].
     pub fn batch(&self, b: &Value) -> Batch {
-        let rows: Vec<usize> = b["rows"].as_array().unwrap().iter().map(|r| r.as_u64().unwrap() as usize).collect();
+        let rows: Vec<usize> = b["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r.as_u64().unwrap() as usize)
+            .collect();
         let width = b["width"].as_u64().unwrap() as usize;
-        let lengths: Vec<i64> = b["lengths"].as_array().unwrap().iter().map(|l| l.as_i64().unwrap()).collect();
+        let lengths: Vec<i64> = b["lengths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l.as_i64().unwrap())
+            .collect();
         let any_span = rows.iter().any(|&s| self.slot_kind[s] == SLOT_SPAN);
         let mut tokens = Vec::with_capacity(rows.len() * width);
         let mut line_starts = vec![false; rows.len() * width];
@@ -103,7 +151,12 @@ impl Sequences {
     }
 
     pub fn batches(&self) -> Vec<Batch> {
-        json("batches/plan.json")["batches"].as_array().unwrap().iter().map(|b| self.batch(b)).collect()
+        json("batches/plan.json")["batches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| self.batch(b))
+            .collect()
     }
 }
 
@@ -118,12 +171,20 @@ pub fn tensors(path: &Path) -> BTreeMap<String, (Vec<usize>, Vec<f32>)> {
                 Dtype::F32 => {
                     let mut b = vec![0u8; n * 4];
                     file.read_tensor_range(info, 0, &mut b).unwrap();
-                    b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect()
+                    b.as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|c| f32::from_le_bytes(*c))
+                        .collect()
                 }
                 Dtype::Bf16 => {
                     let mut b = vec![0u8; n * 2];
                     file.read_tensor_range(info, 0, &mut b).unwrap();
-                    b.as_chunks::<2>().0.iter().map(|c| f32::from_bits(u32::from(u16::from_le_bytes(*c)) << 16)).collect()
+                    b.as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|c| f32::from_bits(u32::from(u16::from_le_bytes(*c)) << 16))
+                        .collect()
                 }
                 other => panic!("{name}: {other:?}"),
             };
@@ -137,5 +198,12 @@ pub fn init_head() -> SpanHead {
     let t = tensors(&dir().join("init.safetensors"));
     let get = |n: &str| t[&format!("span_head.{n}")].1.clone();
     let h = t["span_head.abstain_start"].0[0];
-    SpanHead::new(h, get("start_proj.weight"), get("end_proj.weight"), get("abstain_start"), get("abstain_end")).unwrap()
+    SpanHead::new(
+        h,
+        get("start_proj.weight"),
+        get("end_proj.weight"),
+        get("abstain_start"),
+        get("abstain_end"),
+    )
+    .unwrap()
 }

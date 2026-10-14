@@ -218,7 +218,11 @@ mod tests {
             ("oanc", "oanc"),
             ("Synthetic-By-Rule", "synthetic-by-rule"),
         ] {
-            assert_eq!(gate(Some(raw)), Ok(Verdict::Admitted(id.to_owned())), "{raw}");
+            assert_eq!(
+                gate(Some(raw)),
+                Ok(Verdict::Admitted(id.to_owned())),
+                "{raw}"
+            );
         }
         assert!(
             gate(Some("other"))

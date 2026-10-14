@@ -262,7 +262,10 @@ struct DecisionCapsIo {
 /// `qd-prep decision-caps`: the config and two surveys in, the refreshed caps out.
 fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     if io.output.exists() {
-        return Err(format!("{} exists; refusing to overwrite it", io.output.display()));
+        return Err(format!(
+            "{} exists; refusing to overwrite it",
+            io.output.display()
+        ));
     }
     let read = |p: &PathBuf| {
         let bytes = qd_prep::files::read_bounded(p, qd_prep::files::MAX_RECORD_BYTES, "input")?;
@@ -287,7 +290,11 @@ fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     let mut bytes = serde_json::to_vec_pretty(&out).map_err(|e| e.to_string())?;
     bytes.push(b'\n');
     qd_prep::files::write_new_file(&io.output, &bytes)?;
-    Ok(format!("{} cap(s) moved -> {}", moved.len(), io.output.display()))
+    Ok(format!(
+        "{} cap(s) moved -> {}",
+        moved.len(),
+        io.output.display()
+    ))
 }
 
 /// `qd-prep own-repos`' inputs.
@@ -399,7 +406,10 @@ fn parse_target(s: &str) -> Result<(String, PathBuf), String> {
 /// `qd-prep decisions`: the sources in, the pool directory out.
 fn run_decisions(io: &DecisionsIo) -> Result<String, String> {
     if io.out_dir.exists() {
-        return Err(format!("{} exists; refusing to overwrite it", io.out_dir.display()));
+        return Err(format!(
+            "{} exists; refusing to overwrite it",
+            io.out_dir.display()
+        ));
     }
     let threads = bounded_threads(io.threads)?;
     let inputs = decisions::Inputs {
@@ -411,7 +421,11 @@ fn run_decisions(io: &DecisionsIo) -> Result<String, String> {
     };
     let built = decisions::run(&inputs, threads)?;
     decisions::write_out(&io.out_dir, &built)?;
-    Ok(format!("{} on {threads} thread(s) -> {}", built.summary, io.out_dir.display()))
+    Ok(format!(
+        "{} on {threads} thread(s) -> {}",
+        built.summary,
+        io.out_dir.display()
+    ))
 }
 
 /// The arguments of a subcommand whose answer is a directory of files.

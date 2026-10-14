@@ -222,7 +222,11 @@ impl Config {
                     .ok_or("config: probe.report_only is not an object")?
                     .iter()
                     .map(|(family, v)| {
-                        match v.get("ruling").and_then(Value::as_str).filter(|r| !r.is_empty()) {
+                        match v
+                            .get("ruling")
+                            .and_then(Value::as_str)
+                            .filter(|r| !r.is_empty())
+                        {
                             Some(r) => Ok((family.clone(), r.to_owned())),
                             None => Err(format!(
                                 "config: probe.report_only.{family}.ruling is not a non-empty path"
@@ -517,10 +521,7 @@ pub fn assemble_heldout(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, Str
 
 /// Families whose module states `noul` as a zero. A `noul` gold there is a generator defect:
 /// refused and counted as `noul_on_a_family_stating_zero`, never admitted.
-const NOUL_STATED_ZERO: [&str; 2] = [
-    crate::synth_tools::FAMILY,
-    crate::synth_tools::ROUTE_FAMILY,
-];
+const NOUL_STATED_ZERO: [&str; 2] = [crate::synth_tools::FAMILY, crate::synth_tools::ROUTE_FAMILY];
 
 /// Families whose option order is the caller's, in the contract (section 4): the app sends the
 /// same list in the same order every time, so a row with the options shuffled is a prompt the app
@@ -1529,7 +1530,15 @@ pub(crate) mod tests {
             "stand-in".to_owned(),
             vec![("t0".to_owned(), "lighthouse keepers counting migrating cranes over a frozen northern estuary at dawn".to_owned())],
         );
-        let e = match build(&c, "sha", &g.drafts, &[target], BTreeMap::new(), &Value::Null, 1) {
+        let e = match build(
+            &c,
+            "sha",
+            &g.drafts,
+            &[target],
+            BTreeMap::new(),
+            &Value::Null,
+            1,
+        ) {
             Err(e) => e,
             Ok(_) => panic!("a probe over its bound built"),
         };
@@ -1540,16 +1549,32 @@ pub(crate) mod tests {
     fn report_only_needs_the_code_entry_the_config_key_and_the_ruling_file() {
         let mut c = cfg(Kind::Route);
         // Neither key: the route family is listed in code, the config lacks its key.
-        assert!(check_report_only(&c).unwrap_err().contains("both keys or neither"));
+        assert!(
+            check_report_only(&c)
+                .unwrap_err()
+                .contains("both keys or neither")
+        );
         let (_, ruling, _, _) = LEAK_PROBE_REPORT_ONLY[0];
-        c.probe.report_only.insert(crate::synth_tools::ROUTE_FAMILY.to_owned(), ruling.to_owned());
+        c.probe.report_only.insert(
+            crate::synth_tools::ROUTE_FAMILY.to_owned(),
+            ruling.to_owned(),
+        );
         check_report_only(&c).unwrap();
         // The config key names another path.
-        c.probe.report_only.insert(crate::synth_tools::ROUTE_FAMILY.to_owned(), "AUDIT/x.md".to_owned());
-        assert!(check_report_only(&c).unwrap_err().contains("not the ruling the code names"));
+        c.probe.report_only.insert(
+            crate::synth_tools::ROUTE_FAMILY.to_owned(),
+            "AUDIT/x.md".to_owned(),
+        );
+        assert!(
+            check_report_only(&c)
+                .unwrap_err()
+                .contains("not the ruling the code names")
+        );
         // A config key for a family no ruling grants.
         let mut e = cfg(Kind::Email);
-        e.probe.report_only.insert("email.category".to_owned(), ruling.to_owned());
+        e.probe
+            .report_only
+            .insert("email.category".to_owned(), ruling.to_owned());
         assert!(check_report_only(&e).unwrap_err().contains("stays gated"));
     }
 
@@ -1559,14 +1584,21 @@ pub(crate) mod tests {
     fn a_missing_ruling_file_refuses_report_only() {
         let (_, ruling, _, _) = LEAK_PROBE_REPORT_ONLY[0];
         let mut c = cfg(Kind::Route);
-        c.probe.report_only.insert(crate::synth_tools::ROUTE_FAMILY.to_owned(), ruling.to_owned());
+        c.probe.report_only.insert(
+            crate::synth_tools::ROUTE_FAMILY.to_owned(),
+            ruling.to_owned(),
+        );
         let tmp = std::env::temp_dir().join(format!("qd-ruling-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let err = check_report_only_in(&c, &tmp).unwrap_err();
         assert!(err.contains("does not exist"), "{err}");
         // A directory at the ruling path is not the file.
         std::fs::create_dir_all(tmp.join(ruling)).unwrap();
-        assert!(check_report_only_in(&c, &tmp).unwrap_err().contains("does not exist"));
+        assert!(
+            check_report_only_in(&c, &tmp)
+                .unwrap_err()
+                .contains("does not exist")
+        );
         std::fs::remove_dir_all(&tmp).unwrap();
         // The real repo root has the file.
         check_report_only(&c).unwrap();

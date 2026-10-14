@@ -47,9 +47,9 @@ fn field<'a>(obj: &'a Value, key: &str) -> Result<&'a Value> {
 }
 
 fn usize_field(obj: &Value, key: &str) -> Result<usize> {
-    let v = field(obj, key)?
-        .as_u64()
-        .ok_or_else(|| MetalError::Config(format!("text_config.{key} is not a non-negative integer")))?;
+    let v = field(obj, key)?.as_u64().ok_or_else(|| {
+        MetalError::Config(format!("text_config.{key} is not a non-negative integer"))
+    })?;
     let v = usize::try_from(v)
         .map_err(|_| MetalError::Config(format!("text_config.{key} = {v} overflows usize")))?;
     if v == 0 {
@@ -68,7 +68,9 @@ fn f64_field(obj: &Value, key: &str) -> Result<f64> {
         .as_f64()
         .ok_or_else(|| MetalError::Config(format!("text_config.{key} is not a number")))?;
     if !v.is_finite() {
-        return Err(MetalError::Config(format!("text_config.{key} is not finite")));
+        return Err(MetalError::Config(format!(
+            "text_config.{key} is not finite"
+        )));
     }
     Ok(v)
 }
@@ -128,7 +130,9 @@ impl ModelConfig {
 
         let eps = f64_field(tc, "rms_norm_eps")?;
         if eps <= 0.0 {
-            return Err(MetalError::Config("text_config.rms_norm_eps must be positive".into()));
+            return Err(MetalError::Config(
+                "text_config.rms_norm_eps must be positive".into(),
+            ));
         }
 
         // Semantics the kernels hard-code. Each is a property of the forward pass, so a
@@ -164,7 +168,12 @@ impl ModelConfig {
             .and_then(Value::as_array)
             .map(Vec::len)
             .unwrap_or(0);
-        require_eq("mlp_only_layers (length)", mlp_only, 0, "every layer has a mixer")?;
+        require_eq(
+            "mlp_only_layers (length)",
+            mlp_only,
+            0,
+            "every layer has a mixer",
+        )?;
 
         let gdn_k_dim = u32_field(tc, "linear_key_head_dim")?;
         require_eq(
@@ -222,7 +231,9 @@ impl ModelConfig {
         // `rotary` is a whole number in (0, head_dim], so it fits u32.
         let rotary_dim = rotary as u32;
         if !rotary_dim.is_multiple_of(2) {
-            return Err(MetalError::Config(format!("rotary dim {rotary_dim} is odd")));
+            return Err(MetalError::Config(format!(
+                "rotary dim {rotary_dim} is odd"
+            )));
         }
 
         Ok(Self {
@@ -249,7 +260,10 @@ impl ModelConfig {
     }
 
     pub fn n_gdn(&self) -> usize {
-        self.layer_kinds.iter().filter(|k| **k == LayerKind::Gdn).count()
+        self.layer_kinds
+            .iter()
+            .filter(|k| **k == LayerKind::Gdn)
+            .count()
     }
 
     pub fn n_attention(&self) -> usize {
@@ -272,14 +286,17 @@ impl ModelConfig {
 pub fn resolve_snapshot(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(p) = explicit {
         if !p.join("config.json").is_file() {
-            return Err(MetalError::Config(format!("{}: no config.json", p.display())));
+            return Err(MetalError::Config(format!(
+                "{}: no config.json",
+                p.display()
+            )));
         }
         return Ok(p.to_path_buf());
     }
     let home = std::env::var_os("HOME")
         .ok_or_else(|| MetalError::Config("HOME is unset; pass the snapshot directory".into()))?;
-    let root = PathBuf::from(home)
-        .join(".cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots");
+    let root =
+        PathBuf::from(home).join(".cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots");
     let entries = std::fs::read_dir(&root)
         .map_err(|e| MetalError::Config(format!("{}: {e}", root.display())))?;
     let mut dirs = Vec::new();
@@ -291,7 +308,10 @@ pub fn resolve_snapshot(explicit: Option<&Path>) -> Result<PathBuf> {
     }
     match dirs.len() {
         1 => Ok(dirs.remove(0)),
-        0 => Err(MetalError::Config(format!("{}: no snapshot with a config.json", root.display()))),
+        0 => Err(MetalError::Config(format!(
+            "{}: no snapshot with a config.json",
+            root.display()
+        ))),
         n => Err(MetalError::Config(format!(
             "{}: {n} snapshots; pass the one to load explicitly",
             root.display()
@@ -351,14 +371,38 @@ mod tests {
     #[test]
     fn refuses_what_the_kernels_do_not_implement() {
         let cases: Vec<(String, &str)> = vec![
-            (with(|v| v["text_config"]["hidden_act"] = "gelu".into()), "hidden_act"),
-            (with(|v| v["text_config"]["linear_key_head_dim"] = 64.into()), "linear_key_head_dim"),
-            (with(|v| v["text_config"]["linear_value_head_dim"] = 48.into()), "GDN shape"),
-            (with(|v| v["text_config"]["head_dim"] = 128.into()), "head_dim"),
-            (with(|v| v["text_config"]["num_hidden_layers"] = 23.into()), "layer_types has 24"),
-            (with(|v| v["text_config"]["layer_types"][0] = "sliding".into()), "layer_types[0]"),
-            (with(|v| v["text_config"]["attn_output_gate"] = false.into()), "attn_output_gate"),
-            (with(|v| v["tie_word_embeddings"] = false.into()), "tie_word_embeddings"),
+            (
+                with(|v| v["text_config"]["hidden_act"] = "gelu".into()),
+                "hidden_act",
+            ),
+            (
+                with(|v| v["text_config"]["linear_key_head_dim"] = 64.into()),
+                "linear_key_head_dim",
+            ),
+            (
+                with(|v| v["text_config"]["linear_value_head_dim"] = 48.into()),
+                "GDN shape",
+            ),
+            (
+                with(|v| v["text_config"]["head_dim"] = 128.into()),
+                "head_dim",
+            ),
+            (
+                with(|v| v["text_config"]["num_hidden_layers"] = 23.into()),
+                "layer_types has 24",
+            ),
+            (
+                with(|v| v["text_config"]["layer_types"][0] = "sliding".into()),
+                "layer_types[0]",
+            ),
+            (
+                with(|v| v["text_config"]["attn_output_gate"] = false.into()),
+                "attn_output_gate",
+            ),
+            (
+                with(|v| v["tie_word_embeddings"] = false.into()),
+                "tie_word_embeddings",
+            ),
             (
                 with(|v| v["text_config"]["rope_parameters"]["partial_rotary_factor"] = 0.3.into()),
                 "partial_rotary_factor",
@@ -367,11 +411,20 @@ mod tests {
                 with(|v| v["text_config"]["rope_parameters"]["rope_type"] = "yarn".into()),
                 "rope_type",
             ),
-            (with(|v| v["text_config"]["mlp_only_layers"] = serde_json::json!([3])), "mlp_only"),
-            (with(|v| v["text_config"]["rms_norm_eps"] = 0.0.into()), "rms_norm_eps"),
+            (
+                with(|v| v["text_config"]["mlp_only_layers"] = serde_json::json!([3])),
+                "mlp_only",
+            ),
+            (
+                with(|v| v["text_config"]["rms_norm_eps"] = 0.0.into()),
+                "rms_norm_eps",
+            ),
             (
                 with(|v| {
-                    v["text_config"].as_object_mut().unwrap().remove("vocab_size");
+                    v["text_config"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("vocab_size");
                 }),
                 "vocab_size is missing",
             ),

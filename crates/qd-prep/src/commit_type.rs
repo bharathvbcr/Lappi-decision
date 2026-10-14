@@ -129,9 +129,11 @@ pub fn prefix_of(message: &str) -> Prefix {
 /// Whether the message carries a `Co-Authored-By:` trailer line (agent-authored, by the
 /// convention of the human's own repositories).
 pub fn is_agent_authored(message: &str) -> bool {
-    message
-        .lines()
-        .any(|l| l.trim_start().to_ascii_lowercase().starts_with("co-authored-by:"))
+    message.lines().any(|l| {
+        l.trim_start()
+            .to_ascii_lowercase()
+            .starts_with("co-authored-by:")
+    })
 }
 
 /// The commits of `t` reachable from its pinned head, merges excluded:
@@ -221,7 +223,11 @@ fn refuse_producer(view: &View, t: &TrainRepo) -> Result<(), String> {
         .map_err(|e| format!("{}: no readable origin remote: {e}", t.repo))?;
     let origin = String::from_utf8_lossy(&origin);
     let Some(origin_slug) = crate::own_repos::slug(origin.trim()) else {
-        return Err(format!("{}: origin {:?} is not a github owner/name", t.repo, origin.trim()));
+        return Err(format!(
+            "{}: origin {:?} is not a github owner/name",
+            t.repo,
+            origin.trim()
+        ));
     };
     if REFUSED_PRODUCERS.contains(&origin_slug.as_str()) {
         return refused(format!("GitPulse by its origin remote {origin_slug}"));
@@ -282,8 +288,14 @@ fn changed_files(
     let out = gitcli::run(
         &root.join(&t.repo),
         &[
-            "diff", "--raw", "-z", "--no-abbrev", "--no-renames", "--no-ext-diff",
-            parent.unwrap_or(EMPTY_TREE), sha,
+            "diff",
+            "--raw",
+            "-z",
+            "--no-abbrev",
+            "--no-renames",
+            "--no-ext-diff",
+            parent.unwrap_or(EMPTY_TREE),
+            sha,
         ],
         64 << 20,
     )
@@ -294,7 +306,10 @@ fn changed_files(
         let meta = String::from_utf8_lossy(meta);
         let f: Vec<&str> = meta.trim_start_matches(':').split_whitespace().collect();
         let (Some(path), true) = (parts.next(), f.len() >= 5) else {
-            return Err(format!("{}: a diff --raw record is malformed: {meta:?}", t.repo));
+            return Err(format!(
+                "{}: a diff --raw record is malformed: {meta:?}",
+                t.repo
+            ));
         };
         files.push(Changed {
             path: String::from_utf8_lossy(path).into_owned(),
@@ -418,13 +433,12 @@ pub fn candidates_capped(
                 tally.drop("exact_duplicate", agent);
                 continue;
             }
-            let split = if decisions::unit_draw(seed, &["commit-type-val", &t.slug, &sha])
-                < VAL_SHARE
-            {
-                "val"
-            } else {
-                "train"
-            };
+            let split =
+                if decisions::unit_draw(seed, &["commit-type-val", &t.slug, &sha]) < VAL_SHARE {
+                    "val"
+                } else {
+                    "train"
+                };
             let c = Candidate {
                 id: format!("commit-type:{}:{}", t.slug, &sha[..12]),
                 source_id: SOURCE,
@@ -441,7 +455,10 @@ pub fn candidates_capped(
                 split,
             };
             if let Some(reason) = decisions::structural_refusal(&c) {
-                return Err(format!("{}: a row built here is refused ({reason}): {}", t.repo, c.id));
+                return Err(format!(
+                    "{}: a row built here is refused ({reason}): {}",
+                    t.repo, c.id
+                ));
             }
             taken += 1;
             tally.kept += 1;
@@ -579,7 +596,16 @@ mod tests {
         assert_eq!(prefix_of("fix(core)!: y\n\nbody"), Prefix::Known(1));
         assert_eq!(prefix_of("revert: z"), Prefix::Known(10));
         assert_eq!(prefix_of("wip: z"), Prefix::Other("wip".into()));
-        for none in ["Feat: x", "feat:x", "feat (a): x", "feat(: x", "feat(): x", ": x", "", "feat"] {
+        for none in [
+            "Feat: x",
+            "feat:x",
+            "feat (a): x",
+            "feat(: x",
+            "feat(): x",
+            ": x",
+            "",
+            "feat",
+        ] {
             assert_eq!(prefix_of(none), Prefix::None, "{none:?}");
         }
     }
@@ -595,6 +621,8 @@ mod tests {
     fn a_trailer_marks_a_commit_agent_authored() {
         assert!(is_agent_authored("fix: x\n\nCo-Authored-By: A <a@b>"));
         assert!(is_agent_authored("fix: x\n\nco-authored-by: A <a@b>"));
-        assert!(!is_agent_authored("fix: x\n\nbody mentions Co-Authored-By inline"));
+        assert!(!is_agent_authored(
+            "fix: x\n\nbody mentions Co-Authored-By inline"
+        ));
     }
 }

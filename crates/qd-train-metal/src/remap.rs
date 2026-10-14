@@ -17,7 +17,7 @@ use std::path::Path;
 
 use qd_train::files::ShardFiles;
 use qd_train::npz::StoredZip;
-use qd_train::shards::{ShardReader, REMAP_NAME};
+use qd_train::shards::{REMAP_NAME, ShardReader};
 
 /// The reader's check that the remap beside the shards is the one the header pins.
 pub const REMAP_CHECK: &str = "shard_remap_matches_header";
@@ -40,7 +40,11 @@ pub fn check_identity(old_to_new: &[i32], new_to_old: &[i32]) -> Result<u64, Str
         ));
     }
     for (table, values) in [("new_to_old", new_to_old), ("old_to_new", old_to_new)] {
-        if let Some((i, v)) = values.iter().enumerate().find(|(i, v)| i32::try_from(*i).ok() != Some(**v)) {
+        if let Some((i, v)) = values
+            .iter()
+            .enumerate()
+            .find(|(i, v)| i32::try_from(*i).ok() != Some(**v))
+        {
             return Err(format!(
                 "{table}[{i}] = {v}: the remap renumbers ids, so the shards' ids are not the \
                  snapshot's and its embedding rows would be trained as the wrong tokens; \
@@ -52,16 +56,23 @@ pub fn check_identity(old_to_new: &[i32], new_to_old: &[i32]) -> Result<u64, Str
 }
 
 fn table(zip: &StoredZip, npz: &Path, key: &str) -> Result<Vec<i32>, String> {
-    let a = zip.array(key).map_err(|e| format!("{}: {e}", npz.display()))?;
+    let a = zip
+        .array(key)
+        .map_err(|e| format!("{}: {e}", npz.display()))?;
     if a.shape.len() != 1 {
         return Err(format!("{}: {key} is not 1-D", npz.display()));
     }
-    a.cast::<i32>(key).map_err(|e| format!("{}: {e}", npz.display()))
+    a.cast::<i32>(key)
+        .map_err(|e| format!("{}: {e}", npz.display()))
 }
 
 /// Refuse unless the reader's remap check passed, the remap beside the shards is the identity,
 /// and its vocabulary is both the header's and the snapshot's. Returns that vocabulary.
-pub fn require_identity_remap(reader: &ShardReader, files: &dyn ShardFiles, snapshot_vocab: u64) -> Result<u64, String> {
+pub fn require_identity_remap(
+    reader: &ShardReader,
+    files: &dyn ShardFiles,
+    snapshot_vocab: u64,
+) -> Result<u64, String> {
     match reader.check(REMAP_CHECK) {
         Some(t) if t.is_pass() => {}
         Some(t) => {
@@ -73,10 +84,15 @@ pub fn require_identity_remap(reader: &ShardReader, files: &dyn ShardFiles, snap
         None => return Err(format!("the reader recorded no {REMAP_CHECK} check")),
     }
     let npz = reader.root().join(format!("{REMAP_NAME}.npz"));
-    let bytes = files.read(&npz, MAX_REMAP_BYTES).map_err(|e| format!("{}: {e}", npz.display()))?;
-    let zip = StoredZip::parse(&bytes).map_err(|e| format!("{}: {e}", npz.display()))?;
-    let vocab = check_identity(&table(&zip, &npz, "old_to_new")?, &table(&zip, &npz, "new_to_old")?)
+    let bytes = files
+        .read(&npz, MAX_REMAP_BYTES)
         .map_err(|e| format!("{}: {e}", npz.display()))?;
+    let zip = StoredZip::parse(&bytes).map_err(|e| format!("{}: {e}", npz.display()))?;
+    let vocab = check_identity(
+        &table(&zip, &npz, "old_to_new")?,
+        &table(&zip, &npz, "new_to_old")?,
+    )
+    .map_err(|e| format!("{}: {e}", npz.display()))?;
     let header = reader.header().vocab_size;
     if vocab != header || vocab != snapshot_vocab {
         return Err(format!(

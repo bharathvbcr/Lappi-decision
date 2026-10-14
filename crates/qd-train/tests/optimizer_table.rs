@@ -22,17 +22,24 @@ use qd_train::ft_data::HostSpanHead;
 use qd_train::mock::{SplitMix, ToyProvider};
 use qd_train::objective::{LetterSpanObjective, LetterTarget};
 use qd_train::pyjson::float_fromhex;
-use qd_train::recipe::{self, clip_coefficient, optimizer_table, EntryHyper, LowerLayers, OptimizerRecipe};
+use qd_train::recipe::{
+    self, EntryHyper, LowerLayers, OptimizerRecipe, clip_coefficient, optimizer_table,
+};
 use qd_train::run_control::{MonotonicClock, WallClockCap};
 use qd_train::schedule::LrSchedule;
 use qd_train::span_head::SpanHead;
-use qd_train::step::{AdamWHyper, BankMode, HiddenGrad, ParamSpec, SequenceJob, StepError, StepProvider};
-use qd_train::trainer::{train, HostParams, Hooks, TrainConfig, TrainError};
+use qd_train::step::{
+    AdamWHyper, BankMode, HiddenGrad, ParamSpec, SequenceJob, StepError, StepProvider,
+};
+use qd_train::trainer::{Hooks, HostParams, TrainConfig, TrainError, train};
 use serde_json::Value;
 
 fn fixture() -> Value {
     let path = common::crate_dir().join("tests/fixtures/optimizer-table-2b.json");
-    serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+    )
+    .unwrap()
 }
 
 /// F's optimizer flags (`campaign/f-v4-preregistered.json`: `--optimizer master --lr 1e-5
@@ -42,7 +49,10 @@ fn f_recipe(o: &Value) -> OptimizerRecipe {
     let r = OptimizerRecipe {
         lr: 1e-5,
         beta2: recipe::DEFAULT_BETA2,
-        lower_layers: Some(LowerLayers { n: 8, lr_scale: 0.1 }),
+        lower_layers: Some(LowerLayers {
+            n: 8,
+            lr_scale: 0.1,
+        }),
     };
     assert_eq!(common::fhex(&o["recipe"]["lr"]), r.lr);
     assert_eq!(common::fhex(&o["recipe"]["beta2"]), r.beta2);
@@ -61,7 +71,12 @@ fn tower(o: &Value) -> Vec<ParamSpec> {
         .iter()
         .zip(shapes)
         .map(|(n, s)| {
-            let shape: Vec<usize> = s.as_array().unwrap().iter().map(|d| d.as_u64().unwrap() as usize).collect();
+            let shape: Vec<usize> = s
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| d.as_u64().unwrap() as usize)
+                .collect();
             ParamSpec::new(n.as_str().unwrap(), &shape)
         })
         .collect()
@@ -70,7 +85,9 @@ fn tower(o: &Value) -> Vec<ParamSpec> {
 /// The span head's entries as the trainer holds them: the real head type's own names.
 fn head(o: &Value) -> Vec<ParamSpec> {
     let h = o["hidden_size"].as_u64().unwrap() as usize;
-    HostSpanHead::new(SpanHead::zeros(h).unwrap()).unwrap().entries()
+    HostSpanHead::new(SpanHead::zeros(h).unwrap())
+        .unwrap()
+        .entries()
 }
 
 /// The oracle's row for each name, as an [`EntryHyper`].
@@ -107,7 +124,11 @@ fn keyed(table: &[EntryHyper], n_tower: usize) -> BTreeMap<String, EntryHyper> {
         .iter()
         .enumerate()
         .map(|(i, e)| {
-            let name = if i < n_tower { e.name.clone() } else { format!("span_head.{}", e.name) };
+            let name = if i < n_tower {
+                e.name.clone()
+            } else {
+                format!("span_head.{}", e.name)
+            };
             (name.clone(), EntryHyper { name, ..e.clone() })
         })
         .collect()
@@ -116,10 +137,22 @@ fn keyed(table: &[EntryHyper], n_tower: usize) -> BTreeMap<String, EntryHyper> {
 fn assert_tables_equal(got: &BTreeMap<String, EntryHyper>, want: &BTreeMap<String, EntryHyper>) {
     let missing: Vec<&String> = want.keys().filter(|k| !got.contains_key(*k)).collect();
     let extra: Vec<&String> = got.keys().filter(|k| !want.contains_key(*k)).collect();
-    assert!(missing.is_empty() && extra.is_empty(), "missing {missing:?}, extra {extra:?}");
-    let wrong: Vec<(&String, &EntryHyper, &EntryHyper)> =
-        want.iter().filter(|(k, w)| bits(&got[*k]) != bits(w)).map(|(k, w)| (k, &got[k], w)).collect();
-    assert!(wrong.is_empty(), "{} of {} entries differ, first: {:?}", wrong.len(), want.len(), wrong.first());
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "missing {missing:?}, extra {extra:?}"
+    );
+    let wrong: Vec<(&String, &EntryHyper, &EntryHyper)> = want
+        .iter()
+        .filter(|(k, w)| bits(&got[*k]) != bits(w))
+        .map(|(k, w)| (k, &got[k], w))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "{} of {} entries differ, first: {:?}",
+        wrong.len(),
+        want.len(),
+        wrong.first()
+    );
 }
 
 #[test]
@@ -137,7 +170,12 @@ fn the_trainers_table_is_fs_builder_table_on_the_2b_names_exactly() {
     // entry, norms and dt_bias included (tessl's default exclusions would fail this test).
     let lower = want.values().filter(|e| e.lr_scale == 0.1).count();
     assert_eq!(lower, 106);
-    for name in ["layers.0.linear_attn.dt_bias", "layers.0.input_layernorm.weight", "norm.weight", "span_head.abstain_start"] {
+    for name in [
+        "layers.0.linear_attn.dt_bias",
+        "layers.0.input_layernorm.weight",
+        "norm.weight",
+        "span_head.abstain_start",
+    ] {
         assert_eq!(want[name].weight_decay, 0.01, "{name}");
     }
 }
@@ -163,7 +201,12 @@ impl StepProvider for Recording {
         self.inner.vocab_size()
     }
 
-    fn accumulate(&mut self, job: &SequenceJob<'_>, mode: BankMode, external: Option<&mut HiddenGrad<'_>>) -> Result<f64, StepError> {
+    fn accumulate(
+        &mut self,
+        job: &SequenceJob<'_>,
+        mode: BankMode,
+        external: Option<&mut HiddenGrad<'_>>,
+    ) -> Result<f64, StepError> {
         self.inner.accumulate(job, mode, external)
     }
 
@@ -175,10 +218,18 @@ impl StepProvider for Recording {
         true
     }
 
-    fn adamw_step(&mut self, hyper: &AdamWHyper, step: u64, lr_scale: &[f64], weight_decay: &[f64]) -> Result<(), StepError> {
-        self.calls.push((*hyper, step, lr_scale.to_vec(), weight_decay.to_vec()));
+    fn adamw_step(
+        &mut self,
+        hyper: &AdamWHyper,
+        step: u64,
+        lr_scale: &[f64],
+        weight_decay: &[f64],
+    ) -> Result<(), StepError> {
+        self.calls
+            .push((*hyper, step, lr_scale.to_vec(), weight_decay.to_vec()));
         let n = self.inner.parameters().len();
-        self.inner.adamw_step(hyper, step, &vec![1.0; n], &vec![recipe::WEIGHT_DECAY; n])
+        self.inner
+            .adamw_step(hyper, step, &vec![1.0; n], &vec![recipe::WEIGHT_DECAY; n])
     }
 
     fn step_count(&self) -> u64 {
@@ -186,7 +237,9 @@ impl StepProvider for Recording {
     }
 
     fn read_parameters(&mut self) -> Result<Vec<Vec<f32>>, StepError> {
-        Err(StepError::Unsupported("a recording provider holds no 2B values".into()))
+        Err(StepError::Unsupported(
+            "a recording provider holds no 2B values".into(),
+        ))
     }
 
     fn describe(&self) -> String {
@@ -194,17 +247,23 @@ impl StepProvider for Recording {
     }
 
     fn save_state(&mut self, _dir: &Path) -> Result<Vec<std::path::PathBuf>, StepError> {
-        Err(StepError::Unsupported("a recording provider is not checkpointed".into()))
+        Err(StepError::Unsupported(
+            "a recording provider is not checkpointed".into(),
+        ))
     }
 
     fn load_state(&mut self, _dir: &Path) -> Result<(), StepError> {
-        Err(StepError::Unsupported("a recording provider is not checkpointed".into()))
+        Err(StepError::Unsupported(
+            "a recording provider is not checkpointed".into(),
+        ))
     }
 }
 
 fn toy_batch(index: u64) -> ToyBatch {
     let mut rng = SplitMix::new(31 + index);
-    let tok = |n: usize, rng: &mut SplitMix| -> Vec<u32> { (0..n).map(|_| (rng.next_u64() % 13) as u32).collect() };
+    let tok = |n: usize, rng: &mut SplitMix| -> Vec<u32> {
+        (0..n).map(|_| (rng.next_u64() % 13) as u32).collect()
+    };
     let a = tok(6, &mut rng);
     let b = tok(7, &mut rng);
     ToyBatch {
@@ -213,7 +272,10 @@ fn toy_batch(index: u64) -> ToyBatch {
         width: 7,
         rows: vec![
             ToyRow {
-                letter: Some(LetterTarget { position: 4, target: a[5] }),
+                letter: Some(LetterTarget {
+                    position: 4,
+                    target: a[5],
+                }),
                 tokens: a,
                 span: None,
             },
@@ -239,7 +301,8 @@ fn the_loop_hands_adamw_step_exactly_the_validated_table() {
         entries: tower.clone(),
         calls: Vec::new(),
     };
-    let mut obj: LetterSpanObjective<ToyBatch, ToySpanHead> = LetterSpanObjective::new(ToySpanHead::new(4), 1.0).unwrap();
+    let mut obj: LetterSpanObjective<ToyBatch, ToySpanHead> =
+        LetterSpanObjective::new(ToySpanHead::new(4), 1.0).unwrap();
     let cfg = TrainConfig {
         schedule: LrSchedule::real_ft(1e-5, 3).unwrap(),
         cap: WallClockCap::new(3600.0).unwrap(),
@@ -252,7 +315,16 @@ fn the_loop_hands_adamw_step_exactly_the_validated_table() {
         eta: None,
     };
     let batches: Vec<Result<ToyBatch, TrainError>> = (0..3).map(|i| Ok(toy_batch(i))).collect();
-    let r = train(&mut p, &mut obj, batches, &cfg, &MonotonicClock::new(), None, &mut Hooks::default()).unwrap();
+    let r = train(
+        &mut p,
+        &mut obj,
+        batches,
+        &cfg,
+        &MonotonicClock::new(),
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap();
     assert_eq!(r.optimizer_steps, 3);
     assert_eq!(p.calls.len(), 3);
     let want = expected(&o);
@@ -262,8 +334,20 @@ fn the_loop_hands_adamw_step_exactly_the_validated_table() {
         assert_eq!(weight_decay.len(), tower.len());
         for (j, e) in tower.iter().enumerate() {
             let w = &want[&e.name];
-            let handed = [lr_scale[j], weight_decay[j], hyper.eps, hyper.beta1, hyper.beta2].map(f64::to_bits);
-            assert_eq!(handed, bits(w), "step {step}: {} was handed another row than test 1's", e.name);
+            let handed = [
+                lr_scale[j],
+                weight_decay[j],
+                hyper.eps,
+                hyper.beta1,
+                hyper.beta2,
+            ]
+            .map(f64::to_bits);
+            assert_eq!(
+                handed,
+                bits(w),
+                "step {step}: {} was handed another row than test 1's",
+                e.name
+            );
         }
     }
 }
@@ -276,17 +360,32 @@ fn the_clip_coefficient_is_the_formula_exactly_and_refuses_a_non_finite_norm() {
     // norm = 1 - 1e-6: norm + 1e-6 rounds to exactly 1.0, so the coefficient is exactly 1.
     let n: f64 = 1.0 - 1e-6;
     assert_eq!((n * n).sqrt(), n, "the squared norm round-trips");
-    assert_eq!(clip_coefficient(n * n, 1.0).unwrap().to_bits(), hex("0x1.0000000000000p+0").to_bits());
+    assert_eq!(
+        clip_coefficient(n * n, 1.0).unwrap().to_bits(),
+        hex("0x1.0000000000000p+0").to_bits()
+    );
     // norm = 1: just past the clamp.
-    assert_eq!(clip_coefficient(1.0, 1.0).unwrap().to_bits(), hex("0x1.ffffde7212f19p-1").to_bits());
+    assert_eq!(
+        clip_coefficient(1.0, 1.0).unwrap().to_bits(),
+        hex("0x1.ffffde7212f19p-1").to_bits()
+    );
     // norm above: 1 / (4 + 1e-6), and the max_norm=150 arm at norm 200 and 62.
-    assert_eq!(clip_coefficient(16.0, 1.0).unwrap().to_bits(), hex("0x1.fffff79c8452dp-3").to_bits());
-    assert_eq!(clip_coefficient(40_000.0, 150.0).unwrap().to_bits(), hex("0x1.7fffffdfc9a9bp-1").to_bits());
+    assert_eq!(
+        clip_coefficient(16.0, 1.0).unwrap().to_bits(),
+        hex("0x1.fffff79c8452dp-3").to_bits()
+    );
+    assert_eq!(
+        clip_coefficient(40_000.0, 150.0).unwrap().to_bits(),
+        hex("0x1.7fffffdfc9a9bp-1").to_bits()
+    );
     assert_eq!(clip_coefficient(3_844.0, 150.0).unwrap(), 1.0);
     // zero: 1 / 1e-6, clamped.
     assert_eq!(clip_coefficient(0.0, 1.0).unwrap(), 1.0);
     // not finite, or negative: refused, never a NaN coefficient.
     for bad in [f64::INFINITY, f64::NAN, -1.0] {
-        assert!(matches!(clip_coefficient(bad, 1.0), Err(StepError::Contract(_))), "{bad}");
+        assert!(
+            matches!(clip_coefficient(bad, 1.0), Err(StepError::Contract(_))),
+            "{bad}"
+        );
     }
 }

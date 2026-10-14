@@ -128,7 +128,10 @@ fn the_release_records_the_families_its_train_manifest_holds() {
         block["rows_by_family"],
         json!({"code.change_scope": 1, "code.defect_class": 2, "intent.in_scope": 1})
     );
-    assert_eq!(block["data_snapshot_hash_as_recorded"], json!(SNAPSHOT_HASH));
+    assert_eq!(
+        block["data_snapshot_hash_as_recorded"],
+        json!(SNAPSHOT_HASH)
+    );
     assert!(
         stdout.contains("trained_families: code.change_scope, code.defect_class, intent.in_scope"),
         "{stdout}"
@@ -141,7 +144,9 @@ fn the_release_records_the_families_its_train_manifest_holds() {
 fn write_padded_json(path: &Path, doc: &Value, len: u64) -> PathBuf {
     use std::io::Write;
     let body = serde_json::to_vec(doc).unwrap();
-    let mut left = len.checked_sub(body.len() as u64).expect("len holds the document");
+    let mut left = len
+        .checked_sub(body.len() as u64)
+        .expect("len holds the document");
     let mut file = std::fs::File::create(path).unwrap();
     file.write_all(&body).unwrap();
     let chunk = vec![b' '; 1 << 20];
@@ -168,7 +173,10 @@ fn a_train_manifest_past_the_small_file_bound_is_read() {
     let done = run(&fx, Some(&path));
     let stderr = String::from_utf8_lossy(&done.stderr);
     assert_eq!(done.status.code(), Some(0), "{stderr}");
-    assert_eq!(release_manifest(&fx.out)["trained_families"], json!(["code.defect_class"]));
+    assert_eq!(
+        release_manifest(&fx.out)["trained_families"],
+        json!(["code.defect_class"])
+    );
     std::fs::remove_file(&path).unwrap();
 }
 
@@ -179,15 +187,23 @@ fn a_train_manifest_past_its_own_bound_is_refused() {
     let fx = common::standard();
     let path = fx.dir.0.join("huge.json");
     let file = std::fs::File::create(&path).unwrap();
-    file.set_len(qd_export::export::MAX_TRAIN_MANIFEST_BYTES + 1).unwrap();
+    file.set_len(qd_export::export::MAX_TRAIN_MANIFEST_BYTES + 1)
+        .unwrap();
     drop(file);
     let done = run(&fx, Some(&path));
     let stderr = String::from_utf8_lossy(&done.stderr);
     assert_eq!(done.status.code(), Some(2), "{stderr}");
-    assert!(stderr.contains("qd-export: refused: TrainManifest"), "{stderr}");
+    assert!(
+        stderr.contains("qd-export: refused: TrainManifest"),
+        "{stderr}"
+    );
     let bound = qd_export::export::MAX_TRAIN_MANIFEST_BYTES.to_string();
     assert!(stderr.contains(&bound), "{bound} not in {stderr}");
-    assert!(!fx.out.exists(), "a refused export left {} behind", fx.out.display());
+    assert!(
+        !fx.out.exists(),
+        "a refused export left {} behind",
+        fx.out.display()
+    );
     std::fs::remove_file(&path).unwrap();
 }
 
@@ -198,7 +214,11 @@ fn an_export_that_cannot_say_what_was_trained_is_refused() {
     let stderr = String::from_utf8_lossy(&done.stderr);
     assert_eq!(done.status.code(), Some(2), "{stderr}");
     assert!(stderr.contains("--train-manifest"), "{stderr}");
-    assert!(!fx.out.exists(), "a refused export left {} behind", fx.out.display());
+    assert!(
+        !fx.out.exists(),
+        "a refused export left {} behind",
+        fx.out.display()
+    );
 }
 
 #[test]
@@ -210,19 +230,36 @@ fn a_train_manifest_that_does_not_describe_trained_rows_is_refused() {
     unhashed["data_snapshot_hash"] = json!("not a hash");
     let cases: Vec<(&str, Value, &str)> = vec![
         ("heldout", manifest_json("heldout", &heldout_rows), "split"),
-        ("val", manifest_json("val", &[("val", "code.defect_class")]), "split"),
+        (
+            "val",
+            manifest_json("val", &[("val", "code.defect_class")]),
+            "split",
+        ),
         (
             "mixed-split",
-            manifest_json("train", &[("train", "code.defect_class"), ("val", "intent.in_scope")]),
+            manifest_json(
+                "train",
+                &[("train", "code.defect_class"), ("val", "intent.in_scope")],
+            ),
             "row-1",
         ),
         (
             "held-out-family",
-            manifest_json("train", &[("train", "code.defect_class"), ("train", "qa.answerability")]),
+            manifest_json(
+                "train",
+                &[
+                    ("train", "code.defect_class"),
+                    ("train", "qa.answerability"),
+                ],
+            ),
             "qa.answerability",
         ),
         ("no-rows", manifest_json("train", &[]), "no rows"),
-        ("blank-family", manifest_json("train", &[("train", "  ")]), "family_id"),
+        (
+            "blank-family",
+            manifest_json("train", &[("train", "  ")]),
+            "family_id",
+        ),
         ("version", versioned, "manifest_format_version"),
         ("unhashed", unhashed, "data_snapshot_hash"),
         ("not-an-object", json!(["train"]), "object"),
@@ -233,8 +270,15 @@ fn a_train_manifest_that_does_not_describe_trained_rows_is_refused() {
         let done = run(&fx, Some(&path));
         let stderr = String::from_utf8_lossy(&done.stderr);
         assert_eq!(done.status.code(), Some(2), "{tag}: {stderr}");
-        assert!(stderr.contains("qd-export: refused: TrainManifest"), "{tag}: {stderr}");
+        assert!(
+            stderr.contains("qd-export: refused: TrainManifest"),
+            "{tag}: {stderr}"
+        );
         assert!(stderr.contains(needle), "{tag}: {needle:?} not in {stderr}");
-        assert!(!fx.out.exists(), "{tag}: a refused export left {} behind", fx.out.display());
+        assert!(
+            !fx.out.exists(),
+            "{tag}: a refused export left {} behind",
+            fx.out.display()
+        );
     }
 }

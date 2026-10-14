@@ -15,7 +15,7 @@
 //! | `in_proj_{qkv,z,b,a}` | one bf16 `[in, width]` | `GdnProjLayout`: `[q | k | v | z | b | a]` |
 //! | `q_proj, k_proj, v_proj` | one bf16 `[in, width]` | `AttnProjLayout`: `[q+gate | k | v]`; `q_proj`'s rows are already `[D q, D gate]` per head (`view(..., -1, head_dim * 2)` then `chunk`, l.683) |
 
-use tessl::qwen35::{pack_linear_weights_bf16, AttnProjLayout, GdnProjLayout};
+use tessl::qwen35::{AttnProjLayout, GdnProjLayout, pack_linear_weights_bf16};
 
 use crate::config::{LayerKind, ModelConfig};
 use crate::error::{MetalError, Result};
@@ -285,9 +285,14 @@ impl AnswerDelta {
                 qd_export::layout::D17_TENSOR
             )));
         }
-        st.expect(qd_export::layout::D17_TENSOR, &[D17_ROWS, hidden], &[Dtype::F32])?;
+        st.expect(
+            qd_export::layout::D17_TENSOR,
+            &[D17_ROWS, hidden],
+            &[Dtype::F32],
+        )?;
         let values = st.f32(qd_export::layout::D17_TENSOR, &[D17_ROWS, hidden])?;
-        let bytes = std::fs::read(path).map_err(|e| MetalError::Weights(format!("{}: {e}", path.display())))?;
+        let bytes = std::fs::read(path)
+            .map_err(|e| MetalError::Weights(format!("{}: {e}", path.display())))?;
         let mut delta = Self::from_values(hidden, values)?;
         delta.file_sha256 = qd_runtime::sha256(&bytes);
         Ok(delta)
@@ -335,13 +340,20 @@ impl AnswerDelta {
 pub fn open_answer_delta(dir: &std::path::Path, hidden: usize) -> Result<Option<AnswerDelta>> {
     use qd_runtime::release::MANIFEST_FILE;
     let file = dir.join(qd_export::export::D17_FILE);
-    let manifest: Option<serde_json::Value> = match std::fs::read_to_string(dir.join(MANIFEST_FILE)) {
+    let manifest: Option<serde_json::Value> = match std::fs::read_to_string(dir.join(MANIFEST_FILE))
+    {
         Ok(text) => Some(serde_json::from_str(&text).map_err(|e| {
-            MetalError::Weights(format!("{}/{MANIFEST_FILE} is not JSON ({e})", dir.display()))
+            MetalError::Weights(format!(
+                "{}/{MANIFEST_FILE} is not JSON ({e})",
+                dir.display()
+            ))
         })?),
         Err(_) => None,
     };
-    let block = manifest.as_ref().and_then(|m| m.get("d17")).filter(|b| !b.is_null());
+    let block = manifest
+        .as_ref()
+        .and_then(|m| m.get("d17"))
+        .filter(|b| !b.is_null());
     match (file.is_file(), block) {
         (false, None) => Ok(None),
         (false, Some(_)) => Err(MetalError::Weights(format!(
@@ -356,13 +368,17 @@ pub fn open_answer_delta(dir: &std::path::Path, hidden: usize) -> Result<Option<
         (true, Some(block)) => {
             let manifest = manifest.as_ref().unwrap_or(block);
             let actual = qd_runtime::hex(&qd_runtime::sha256(
-                &std::fs::read(&file).map_err(|e| MetalError::Weights(format!("{}: {e}", file.display())))?,
+                &std::fs::read(&file)
+                    .map_err(|e| MetalError::Weights(format!("{}: {e}", file.display())))?,
             ));
             let recorded_files = manifest
                 .pointer(&format!("/files/{}/sha256", qd_export::export::D17_FILE))
                 .and_then(serde_json::Value::as_str);
             for (what, recorded) in [
-                ("d17.sha256", block.get("sha256").and_then(serde_json::Value::as_str)),
+                (
+                    "d17.sha256",
+                    block.get("sha256").and_then(serde_json::Value::as_str),
+                ),
                 ("files sha256", recorded_files),
             ] {
                 if recorded != Some(actual.as_str()) {
@@ -373,10 +389,14 @@ pub fn open_answer_delta(dir: &std::path::Path, hidden: usize) -> Result<Option<
                     )));
                 }
             }
-            if block.get("hidden_size").and_then(serde_json::Value::as_u64) != u64::try_from(hidden).ok() {
+            if block.get("hidden_size").and_then(serde_json::Value::as_u64)
+                != u64::try_from(hidden).ok()
+            {
                 return Err(MetalError::Weights(format!(
                     "d17.hidden_size is {}, the tower's is {hidden}",
-                    block.get("hidden_size").map_or_else(|| "absent".to_string(), ToString::to_string)
+                    block
+                        .get("hidden_size")
+                        .map_or_else(|| "absent".to_string(), ToString::to_string)
                 )));
             }
             // Which row is which letter is part of the file's meaning: a D17 trained in another
@@ -442,9 +462,13 @@ mod tests {
         let hidden = 3;
         let [c, v, b, a] = l.part_widths();
         // Raw 16-bit tags, not floats: bf16 cannot hold distinct integers this large.
-        let val = |part: usize, row: usize, k: usize| u16::try_from((part << 12) | (row << 2) | k).unwrap();
+        let val = |part: usize, row: usize, k: usize| {
+            u16::try_from((part << 12) | (row << 2) | k).unwrap()
+        };
         let mk = |part: usize, rows: usize| {
-            (0..rows * hidden).map(|i| val(part, i / hidden, i % hidden)).collect::<Vec<u16>>()
+            (0..rows * hidden)
+                .map(|i| val(part, i / hidden, i % hidden))
+                .collect::<Vec<u16>>()
         };
         let packed = pack_gdn_in(&l, hidden, &mk(0, c), &mk(1, v), &mk(2, b), &mk(3, a)).unwrap();
         let w = l.width() as usize;
@@ -453,7 +477,11 @@ mod tests {
         for k in 0..hidden {
             assert_eq!(at(k, 0), val(0, 0, k), "q");
             assert_eq!(at(k, l.key_dim()), val(0, l.key_dim() as usize, k), "k");
-            assert_eq!(at(k, 2 * l.key_dim()), val(0, 2 * l.key_dim() as usize, k), "v");
+            assert_eq!(
+                at(k, 2 * l.key_dim()),
+                val(0, 2 * l.key_dim() as usize, k),
+                "v"
+            );
             assert_eq!(at(k, l.z_off() + 5), val(1, 5, k), "z");
             assert_eq!(at(k, l.b_off()), val(2, 0, k), "b");
             assert_eq!(at(k, l.a_off()), val(3, 0, k), "a");
@@ -466,9 +494,13 @@ mod tests {
         let l = AttnProjLayout::new(2, 1, 4).unwrap();
         let hidden = 2;
         let [qg, kd, vd] = l.part_widths();
-        let val = |part: usize, row: usize, k: usize| u16::try_from((part << 12) | (row << 2) | k).unwrap();
+        let val = |part: usize, row: usize, k: usize| {
+            u16::try_from((part << 12) | (row << 2) | k).unwrap()
+        };
         let mk = |part: usize, rows: usize| {
-            (0..rows * hidden).map(|i| val(part, i / hidden, i % hidden)).collect::<Vec<u16>>()
+            (0..rows * hidden)
+                .map(|i| val(part, i / hidden, i % hidden))
+                .collect::<Vec<u16>>()
         };
         let packed = pack_attn_in(&l, hidden, &mk(0, qg), &mk(1, kd), &mk(2, vd)).unwrap();
         let w = l.width() as usize;

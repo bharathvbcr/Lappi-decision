@@ -1870,7 +1870,11 @@ fn s8_build_three_times(tag: &str, config_name: &str) {
     // run was a debug build sized against a release measurement.
     println!(
         "S8-PROFILE {}",
-        if cfg!(debug_assertions) { "debug" } else { "release" }
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        }
     );
     let dir = scratch(tag);
     let t = vec![write_target(&dir.join("targets"), "stand-in")];

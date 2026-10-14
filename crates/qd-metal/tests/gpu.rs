@@ -32,20 +32,35 @@ fn setup() -> (Model, QwenTokenizer) {
 }
 
 fn max_abs(a: &[f32], b: &[f32]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| f64::from((x - y).abs())).fold(0.0, f64::max)
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| f64::from((x - y).abs()))
+        .fold(0.0, f64::max)
 }
 
 fn whole_logprobs(model: &Model, ids: &[u32], letters: &[u32]) -> Vec<f32> {
     let t = u32::try_from(ids.len()).unwrap();
     let out = model.run(ids, 1, t, None, false, None).expect("whole pass");
     let s = model.score(&out, &[t - 1], letters).expect("score");
-    assert!(s.logits.iter().all(|x| x.is_finite()), "non-finite logits {:?}", s.logits);
+    assert!(
+        s.logits.iter().all(|x| x.is_finite()),
+        "non-finite logits {:?}",
+        s.logits
+    );
     s.logprobs
 }
 
-fn continue_logprobs(model: &Model, state: &PrefixState, cont: &[u32], letters: &[u32], keep: bool) -> (Vec<f32>, Option<PrefixState>) {
+fn continue_logprobs(
+    model: &Model,
+    state: &PrefixState,
+    cont: &[u32],
+    letters: &[u32],
+    keep: bool,
+) -> (Vec<f32>, Option<PrefixState>) {
     let s = u32::try_from(cont.len()).unwrap();
-    let mut out = model.run(cont, 1, s, Some(state), keep, None).expect("continuation");
+    let mut out = model
+        .run(cont, 1, s, Some(state), keep, None)
+        .expect("continuation");
     let sc = model.score(&out, &[s - 1], letters).expect("score");
     (sc.logprobs, out.state.take())
 }
@@ -57,9 +72,16 @@ fn gpu_continuations_read_the_snapshot_and_never_write_it() {
     let letters = tok.letter_ids().to_vec();
     let prefix = tok.encode(PREFIX).unwrap();
     let full = tok.encode(&format!("{PREFIX}{SUFFIX}")).unwrap();
-    assert_eq!(&full[..prefix.len()], &prefix[..], "prefix/suffix token boundary");
+    assert_eq!(
+        &full[..prefix.len()],
+        &prefix[..],
+        "prefix/suffix token boundary"
+    );
     let suffix = &full[prefix.len()..];
-    assert!(suffix.len() as u32 > RECURRENT_MAX_SEQ, "the long suffix must take the chunked path");
+    assert!(
+        suffix.len() as u32 > RECURRENT_MAX_SEQ,
+        "the long suffix must take the chunked path"
+    );
 
     let (_, state) = model.prefill(&prefix).unwrap();
     let d0 = state.digest().unwrap();
@@ -77,8 +99,15 @@ fn gpu_continuations_read_the_snapshot_and_never_write_it() {
         let want = whole_logprobs(&model, &whole_ids, &letters);
         let d = max_abs(&got, &want);
         println!("continuation of {n} tokens vs whole pass: max |d logprob| = {d:.5}");
-        assert!(d <= PATH_LOGPROB_ABS, "{n}-token continuation differs from the whole pass by {d}");
-        assert_eq!(state.digest().unwrap(), d0, "a read-only {n}-token continuation changed the snapshot");
+        assert!(
+            d <= PATH_LOGPROB_ABS,
+            "{n}-token continuation differs from the whole pass by {d}"
+        );
+        assert_eq!(
+            state.digest().unwrap(),
+            d0,
+            "a read-only {n}-token continuation changed the snapshot"
+        );
     }
 
     // A batch of 3 *different* continuations from the one snapshot (prefix K/V, GDN and conv
@@ -89,15 +118,24 @@ fn gpu_continuations_read_the_snapshot_and_never_write_it() {
     let s = u32::try_from(len).unwrap();
     let ids3: Vec<u32> = conts.iter().flat_map(|c| c.iter().copied()).collect();
     let out3 = model.run(&ids3, 3, s, Some(&state), false, None).unwrap();
-    let sc3 = model.score(&out3, &[s - 1, 2 * s - 1, 3 * s - 1], &letters).unwrap();
+    let sc3 = model
+        .score(&out3, &[s - 1, 2 * s - 1, 3 * s - 1], &letters)
+        .unwrap();
     for (r, cont) in conts.iter().enumerate() {
         let (one, _) = continue_logprobs(&model, &state, cont, &letters, false);
         let row = &sc3.logprobs[r * letters.len()..(r + 1) * letters.len()];
         let d = max_abs(row, &one);
         println!("batch row {r} vs its batch-1 continuation: max |d logprob| = {d:.2e}");
-        assert!(d <= 1e-4, "batch row {r} differs from its batch-1 continuation by {d}");
+        assert!(
+            d <= 1e-4,
+            "batch row {r} differs from its batch-1 continuation by {d}"
+        );
     }
-    assert_eq!(state.digest().unwrap(), d0, "a batched read-only continuation changed the snapshot");
+    assert_eq!(
+        state.digest().unwrap(),
+        d0,
+        "a batched read-only continuation changed the snapshot"
+    );
 }
 
 /// Two equal-length read-only suffixes from one snapshot, timed as two batch-1
@@ -113,7 +151,10 @@ fn gpu_two_suffixes_as_one_batch_match_batch_one() {
     let full = tok.encode(&format!("{PREFIX}{SUFFIX}")).unwrap();
     let suffix = &full[prefix.len()..];
     let n = 61.min(suffix.len().saturating_sub(1));
-    assert!(n > RECURRENT_MAX_SEQ as usize, "the timed suffix must take the chunked path");
+    assert!(
+        n > RECURRENT_MAX_SEQ as usize,
+        "the timed suffix must take the chunked path"
+    );
     let a = &suffix[..n];
     let b = &suffix[suffix.len() - n..];
     let (_, state) = model.prefill(&prefix).unwrap();
@@ -151,7 +192,10 @@ fn gpu_two_suffixes_as_one_batch_match_batch_one() {
         let da = max_abs(&ba, &la);
         let db = max_abs(&bb, &lb);
         println!("batch vs batch-1: max |d logprob| {da:.2e} {db:.2e}");
-        assert!(da <= 1e-4 && db <= 1e-4, "batched suffixes differ from batch-1 by {da} {db}");
+        assert!(
+            da <= 1e-4 && db <= 1e-4,
+            "batched suffixes differ from batch-1 by {da} {db}"
+        );
     }
     seq_ms.sort_by(f64::total_cmp);
     bat_ms.sort_by(f64::total_cmp);
@@ -160,7 +204,11 @@ fn gpu_two_suffixes_as_one_batch_match_batch_one() {
         seq_ms[seq_ms.len() / 2],
         bat_ms[bat_ms.len() / 2]
     );
-    assert_eq!(state.digest().unwrap(), d0, "the timed batch wrote the snapshot");
+    assert_eq!(
+        state.digest().unwrap(),
+        d0,
+        "the timed batch wrote the snapshot"
+    );
 }
 
 #[test]
@@ -178,15 +226,30 @@ fn gpu_write_back_moves_only_the_new_state() {
     let (_, extended) = continue_logprobs(&model, &state, a, &letters, true);
     let extended = extended.expect("write-back keeps a state");
     assert_eq!(extended.tokens() as usize, prefix.len() + a.len());
-    assert_ne!(extended.digest().unwrap(), d0, "write-back produced the same state bytes");
-    assert_eq!(state.digest().unwrap(), d0, "write-back modified the state it read from");
+    assert_ne!(
+        extended.digest().unwrap(),
+        d0,
+        "write-back produced the same state bytes"
+    );
+    assert_eq!(
+        state.digest().unwrap(),
+        d0,
+        "write-back modified the state it read from"
+    );
 
     // Continuing the extended state == one pass over prefix + a + b.
     let (got, _) = continue_logprobs(&model, &extended, b, &letters, false);
     let want = whole_logprobs(&model, &full, &letters);
     let d = max_abs(&got, &want);
-    println!("prefix -> write-back {} -> continue {}: max |d logprob| vs whole = {d:.5}", a.len(), b.len());
-    assert!(d <= PATH_LOGPROB_ABS, "chained continuation differs from the whole pass by {d}");
+    println!(
+        "prefix -> write-back {} -> continue {}: max |d logprob| vs whole = {d:.5}",
+        a.len(),
+        b.len()
+    );
+    assert!(
+        d <= PATH_LOGPROB_ABS,
+        "chained continuation differs from the whole pass by {d}"
+    );
 }
 
 #[test]
@@ -211,10 +274,18 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
         rows: 5,
         kind: QueryKind::Letters,
     };
-    let first = backend.decode_slot(&mut snap, &query, DecodeMode::ReadOnly).unwrap();
+    let first = backend
+        .decode_slot(&mut snap, &query, DecodeMode::ReadOnly)
+        .unwrap();
     qd_runtime::backend::validate_logits(&first, &query).unwrap();
-    assert_eq!(snap.state_digest(), before, "read-only decode moved the runtime's state hash");
-    let second = backend.decode_slot(&mut snap, &query, DecodeMode::ReadOnly).unwrap();
+    assert_eq!(
+        snap.state_digest(),
+        before,
+        "read-only decode moved the runtime's state hash"
+    );
+    let second = backend
+        .decode_slot(&mut snap, &query, DecodeMode::ReadOnly)
+        .unwrap();
     // Same inputs, same kernels: equal to within float noise (a read-only decode that had
     // written the state would move these by far more).
     let d = max_abs(&first.values, &second.values);
@@ -222,17 +293,29 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
 
     // The same prefix again is served from the prefill cache: same entry, same state record.
     let again = backend.prefill(PREFIX).unwrap();
-    assert_eq!(again.state, handle.state, "the second prefill of one prefix was not reused");
+    assert_eq!(
+        again.state, handle.state,
+        "the second prefill of one prefix was not reused"
+    );
 
     // Write-back must move the hash, or the read-only check above would pass vacuously.
-    backend.decode_slot(&mut snap, &query, DecodeMode::WriteBack).unwrap();
-    assert_ne!(snap.state_digest(), before, "write-back left the runtime's state hash unchanged");
+    backend
+        .decode_slot(&mut snap, &query, DecodeMode::WriteBack)
+        .unwrap();
+    assert_ne!(
+        snap.state_digest(),
+        before,
+        "write-back left the runtime's state hash unchanged"
+    );
     let rec = StateRecord::parse(snap.state.as_bytes()).unwrap();
     assert!(rec.tokens > handle.token_count as u64);
     // The record also carries `tokens`, which a write-back always grows, so the hash moving above
     // does not by itself show the device state moved; the record's device digest must (audit
     // 2026-10-03: the assertion above alone is satisfied by the token count).
-    assert_ne!(rec.digest, before_rec.digest, "write-back left the device state digest unchanged");
+    assert_ne!(
+        rec.digest, before_rec.digest,
+        "write-back left the device state digest unchanged"
+    );
 
     // A fresh snapshot of the same prefill is untouched by that write-back. Every snapshot is its
     // own entry (`Worker::snapshot` inserts one), so its record, and the runtime's hash of that
@@ -240,7 +323,10 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
     // (2026-10-02) with the device state unchanged. The device state is the record's `digest`.
     let fresh = backend.snapshot(&handle).unwrap();
     let fresh_rec = StateRecord::parse(fresh.state.as_bytes()).unwrap();
-    assert_ne!(fresh_rec.entry, before_rec.entry, "a second snapshot reused the first one's entry");
+    assert_ne!(
+        fresh_rec.entry, before_rec.entry,
+        "a second snapshot reused the first one's entry"
+    );
     assert_eq!(
         (fresh_rec.tokens, fresh_rec.digest),
         (before_rec.tokens, before_rec.digest),
@@ -248,9 +334,16 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
     );
 
     // Pointer heads are refused, typed, never answered with letters.
-    let span = SlotQuery { kind: QueryKind::PointerStart, ..query };
+    let span = SlotQuery {
+        kind: QueryKind::PointerStart,
+        ..query
+    };
     let mut fresh = fresh;
-    assert!(backend.decode_slot(&mut fresh, &span, DecodeMode::ReadOnly).is_err());
+    assert!(
+        backend
+            .decode_slot(&mut fresh, &span, DecodeMode::ReadOnly)
+            .is_err()
+    );
 }
 
 /// The tower the v1 pins below were captured on: Qwen3.5-2B-Base snapshot `b1485b2f`, the one
@@ -279,10 +372,22 @@ const PIN_TESSL_HEAD: &str = "cf65d9d5d3deb97b0847e020a562ac8f15e6d5a9";
 /// BOTH the one-thread digest and the parallel one, equal, in three GPU slots before the one-thread
 /// digest was deleted: qdmgpu1 and qdmm4 (sha2 0.10) and qdm1b (sha2 0.11), 2026-10-03.
 const PINNED_V1: &[(&str, &str)] = &[
-    ("prefill_short", "3ba7b21a3ec8e15a40d6f6e539dcd56007c28a6ec2ee20499ce1ea51719b6f6b"),
-    ("write_back", "85b7dab4bd04ca714af1481b2c89f60dc8a59eea0abb0ae0758f0fc99e36121e"),
-    ("prefill_2000", "408872926bc09797c3473be4c87a9746d46baf82c7f04693aa70f6e83e683749"),
-    ("prefill_8192", "41faece110e132f163652a9b03eea57a0b7b298aeb6d19b6e2db9d639a672b1c"),
+    (
+        "prefill_short",
+        "3ba7b21a3ec8e15a40d6f6e539dcd56007c28a6ec2ee20499ce1ea51719b6f6b",
+    ),
+    (
+        "write_back",
+        "85b7dab4bd04ca714af1481b2c89f60dc8a59eea0abb0ae0758f0fc99e36121e",
+    ),
+    (
+        "prefill_2000",
+        "408872926bc09797c3473be4c87a9746d46baf82c7f04693aa70f6e83e683749",
+    ),
+    (
+        "prefill_8192",
+        "41faece110e132f163652a9b03eea57a0b7b298aeb6d19b6e2db9d639a672b1c",
+    ),
 ];
 
 /// The four pinned states: the short prefill, a write-back extension of it (different K/V
@@ -344,7 +449,13 @@ fn gpu_prefix_state_digest_v1_is_pinned() {
     if got != want {
         let tessl = qd_metal::ledger::Provenance::of(None).map_or_else(
             |e| format!("tessl's tree could not be read: {e}"),
-            |p| format!("tessl is now {} with {} dirty paths", p.tessl.head, p.tessl.dirty.len()),
+            |p| {
+                format!(
+                    "tessl is now {} with {} dirty paths",
+                    p.tessl.head,
+                    p.tessl.dirty.len()
+                )
+            },
         );
         panic!(
             "the v1 prefix-state digests changed:\n  got    {got:?}\n  pinned {want:?}\nBlame the \
@@ -389,9 +500,16 @@ fn gpu_row_counts_past_u32_are_refused_as_input() {
     let started = std::time::Instant::now();
     match model.run(&huge, 1, rows, None, false, None) {
         Err(MetalError::Input(m)) => assert!(m.contains("mlp elements"), "{m}"),
-        other => panic!("{rows} rows x {inter} were not refused as input: {:?}", other.map(|o| o.seq)),
+        other => panic!(
+            "{rows} rows x {inter} were not refused as input: {:?}",
+            other.map(|o| o.seq)
+        ),
     }
-    assert!(started.elapsed() < Duration::from_secs(5), "the refusal took {:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the refusal took {:?}",
+        started.elapsed()
+    );
 }
 
 fn ms_since(t: Instant) -> f64 {

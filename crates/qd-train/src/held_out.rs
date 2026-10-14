@@ -371,7 +371,9 @@ fn top_level_record(json: &[u8]) -> bool {
                     if decode_string(token).is_some_and(|r| r.starts_with(CALLER_RECORD_PREFIX)) {
                         return true;
                     }
-                } else if expect_key && at_target && decode_string(token).as_deref() == Some("record")
+                } else if expect_key
+                    && at_target
+                    && decode_string(token).as_deref() == Some("record")
                 {
                     want_value = true;
                     expect_key = false;
@@ -522,10 +524,11 @@ pub fn assert_no_caller_records(
                 expected: "lines the caller-record guard can split exactly as the readers do"
                     .to_owned(),
                 actual: format!("{label}: line {} holds a bare carriage return", i + 1),
-                detail: "the readers split on a bare '\\r' (text mode) or do not ('\\n' only), so a \
+                detail:
+                    "the readers split on a bare '\\r' (text mode) or do not ('\\n' only), so a \
                          record could sit behind it; refused, not passed as clean (CLAUDE.md \
                          rule 3: a check that could not run is not a check that passed)."
-                    .to_owned(),
+                        .to_owned(),
             });
         }
         if let Some(what) = BreakScan::default().feed(line) {

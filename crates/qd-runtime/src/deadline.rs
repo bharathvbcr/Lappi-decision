@@ -37,7 +37,10 @@ impl DeadlineStream {
 }
 
 fn deadline_passed() -> io::Error {
-    io::Error::new(io::ErrorKind::TimedOut, "the socket exchange ran past its deadline")
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        "the socket exchange ran past its deadline",
+    )
 }
 
 /// macOS reports an expired socket timeout as `EAGAIN` (`WouldBlock`), Linux as `TimedOut`. A

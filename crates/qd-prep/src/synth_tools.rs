@@ -897,9 +897,17 @@ pub fn route_date_accepts(query: &str) -> bool {
     if lower == "next full date" || lower == "full date tomorrow" {
         return true;
     }
-    ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
-        .iter()
-        .any(|d| lower == format!("next {d}") || lower == format!("next {d} date"))
+    [
+        "sunday",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+    ]
+    .iter()
+    .any(|d| lower == format!("next {d}") || lower == format!("next {d} date"))
 }
 
 /// The tool the resolver would run for `query`, as an index into [`ROUTE_OPTIONS`], or an error
@@ -943,7 +951,12 @@ pub fn generate_route(cfg: &Config) -> Result<Generated, String> {
             .collect::<Option<Vec<String>>>()
             .ok_or_else(|| format!("route data: {key} holds a non-string"))?;
         let set: BTreeSet<&String> = xs.iter().collect();
-        if xs.is_empty() || set.len() != xs.len() || xs.iter().any(|x| x.trim().is_empty() || x != &x.to_lowercase()) {
+        if xs.is_empty()
+            || set.len() != xs.len()
+            || xs
+                .iter()
+                .any(|x| x.trim().is_empty() || x != &x.to_lowercase())
+        {
             return Err(format!(
                 "route data: {key} must be non-empty, unique, lowercase names"
             ));
@@ -962,14 +975,25 @@ pub fn generate_route(cfg: &Config) -> Result<Generated, String> {
     for (name, list) in fills {
         let xs = list
             .as_array()
-            .and_then(|a| a.iter().map(|x| x.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>())
+            .and_then(|a| {
+                a.iter()
+                    .map(|x| x.as_str().map(str::to_owned))
+                    .collect::<Option<Vec<_>>>()
+            })
             .ok_or_else(|| format!("route data: fills.{name} is not a list of strings"))?;
         let set: BTreeSet<&String> = xs.iter().collect();
-        if xs.is_empty() || set.len() != xs.len() || xs.iter().any(|x| x.trim() != x || x.is_empty()) {
-            return Err(format!("route data: fills.{name} must be non-empty, unique, trimmed strings"));
+        if xs.is_empty()
+            || set.len() != xs.len()
+            || xs.iter().any(|x| x.trim() != x || x.is_empty())
+        {
+            return Err(format!(
+                "route data: fills.{name} must be non-empty, unique, trimmed strings"
+            ));
         }
         if ["n", "n2", "macro", "snippet", "weekday"].contains(&name.as_str()) {
-            return Err(format!("route data: fills.{name} shadows a built-in placeholder"));
+            return Err(format!(
+                "route data: fills.{name} shadows a built-in placeholder"
+            ));
         }
         pools.insert(name.clone(), xs);
     }
@@ -1027,7 +1051,9 @@ pub fn generate_route(cfg: &Config) -> Result<Generated, String> {
             // The app never sends a query under its routing floor (`shouldAttemptRouting`): refused
             // and counted, not drafted (ruling 2026-10-12 3.1(f)).
             if query.trim().chars().count() < floor_chars
-                || floor_leading.iter().any(|l| query.trim().starts_with(l.as_str()))
+                || floor_leading
+                    .iter()
+                    .any(|l| query.trim().starts_with(l.as_str()))
             {
                 *refused.entry("under_app_floor").or_default() += 1;
                 continue;

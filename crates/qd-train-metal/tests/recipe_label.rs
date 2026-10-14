@@ -11,6 +11,9 @@ fn run_rs_labels_the_recipe_from_the_one_constant() {
         "run.rs must label the recipe with qd_train::ledger::METAL_FULL_FT_OPTIMIZER_RECIPE"
     );
     for line in src.lines().filter(|l| l.contains("optimizer_recipe")) {
-        assert!(!line.contains("\"master\""), "a Metal row labelled master: {line}");
+        assert!(
+            !line.contains("\"master\""),
+            "a Metal row labelled master: {line}"
+        );
     }
 }

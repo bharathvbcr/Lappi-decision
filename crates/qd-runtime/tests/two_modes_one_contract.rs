@@ -15,15 +15,15 @@
 mod common;
 
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use qd_runtime::oneshot::{ask, ask_over_socket, ServedBy};
+use qd_runtime::oneshot::{ServedBy, ask, ask_over_socket};
+use qd_runtime::render::RenderCaps;
+use qd_runtime::runtime::RuntimeConfig;
 use qd_runtime::serve::{ServeOptions, Server};
 use qd_runtime::service::{Service, ServiceConfig};
-use qd_runtime::runtime::RuntimeConfig;
-use qd_runtime::render::RenderCaps;
 
 fn config(with_backend: bool) -> ServiceConfig {
     ServiceConfig {
@@ -58,8 +58,8 @@ fn with_server<R>(tag: &str, cfg: ServiceConfig, body: impl FnOnce(&std::path::P
 /// What a caller sees from each mode, framed exactly as it arrives on the wire.
 fn both_modes(tag: &str, cfg: ServiceConfig, payload: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let socket_reply = with_server(tag, cfg.clone(), |path| {
-        let mut reply = ask_over_socket(path, payload, Duration::from_secs(10))
-            .expect("the socket answers");
+        let mut reply =
+            ask_over_socket(path, payload, Duration::from_secs(10)).expect("the socket answers");
         reply.push(b'\n');
         reply
     });
@@ -79,7 +79,10 @@ fn assert_identical(tag: &str, cfg: ServiceConfig, payload: &[u8], expected_stat
         "the two modes disagreed on {}",
         String::from_utf8_lossy(&payload[..payload.len().min(80)])
     );
-    assert_eq!(common::status_of(&socket[..socket.len() - 1]), expected_status);
+    assert_eq!(
+        common::status_of(&socket[..socket.len() - 1]),
+        expected_status
+    );
     assert_eq!(
         socket.last(),
         Some(&b'\n'),
@@ -141,7 +144,12 @@ fn a_malformed_line_is_byte_identical_in_both_modes() {
 
 #[test]
 fn an_unknown_control_op_is_byte_identical_in_both_modes() {
-    assert_identical("unknown-op", config(true), br#"{"op":"restart"}"#, "refused");
+    assert_identical(
+        "unknown-op",
+        config(true),
+        br#"{"op":"restart"}"#,
+        "refused",
+    );
 }
 
 #[test]
@@ -203,7 +211,9 @@ fn a_line_over_the_payload_cap_is_refused_and_the_connection_closed() {
         // One line, comfortably over the cap, written in chunks so nothing here allocates it twice.
         let chunk = vec![b'x'; 64 * 1024];
         let mut written = 0usize;
-        writer.write_all(br#"{"schema_version":1,"task":""#).expect("writes");
+        writer
+            .write_all(br#"{"schema_version":1,"task":""#)
+            .expect("writes");
         while written < qd_runtime::wire::MAX_PAYLOAD_BYTES + 128 * 1024 {
             writer.write_all(&chunk).expect("writes");
             written += chunk.len();

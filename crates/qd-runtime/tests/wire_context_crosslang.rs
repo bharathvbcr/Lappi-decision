@@ -49,12 +49,12 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use qd_runtime::context::Context;
-use qd_runtime::render::{RenderCaps, ESCAPE_WORST_CASE_GROWTH};
+use qd_runtime::render::{ESCAPE_WORST_CASE_GROWTH, RenderCaps};
 use qd_runtime::schema::{
-    HashExpectation, Route, SlotSpec, SpanValue, MAX_BINS, MAX_OPTIONS, MAX_SLOT_NAME_BYTES,
-    MIN_BINS,
+    HashExpectation, MAX_BINS, MAX_OPTIONS, MAX_SLOT_NAME_BYTES, MIN_BINS, Route, SlotSpec,
+    SpanValue,
 };
-use qd_runtime::wire::{parse_line, Incoming};
+use qd_runtime::wire::{Incoming, parse_line};
 use serde_json::Value;
 
 // -- driving the other lane ----------------------------------------------------------------------
@@ -78,8 +78,7 @@ fn document() -> Option<&'static Value> {
     static DOC: OnceLock<Option<Value>> = OnceLock::new();
     DOC.get_or_init(|| {
         let py = python()?;
-        let script = repo_root()
-            .join("crates/qd-runtime/tests/crosslang_fixtures.py");
+        let script = repo_root().join("crates/qd-runtime/tests/crosslang_fixtures.py");
         assert!(
             script.exists(),
             "the Python half of this test is missing: {}",
@@ -214,7 +213,11 @@ fn every_python_encoded_context_decodes_to_the_bytes_python_meant() {
         seen_non_utf8 |= std::str::from_utf8(request.context.as_bytes()).is_err();
         seen_empty |= request.context.is_empty();
         seen_nul |= request.context.as_bytes().contains(&0u8);
-        seen_separators |= request.context.as_bytes().windows(3).any(|w| w == [0xe2, 0x80, 0xa8])
+        seen_separators |= request
+            .context
+            .as_bytes()
+            .windows(3)
+            .any(|w| w == [0xe2, 0x80, 0xa8])
             || request.context.as_bytes().contains(&0x0b);
     }
 
@@ -322,13 +325,14 @@ fn every_slot_kind_crosses_intact_with_its_payload() {
         );
         for (slot, expected) in request.slots.iter().zip(truth) {
             let kind = text(expected, "kind");
-            *kinds_seen.entry(match kind {
-                "choice" => "choice",
-                "score" => "score",
-                "span" => "span",
-                other => panic!("`{label}`: Python named an unknown slot kind `{other}`"),
-            })
-            .or_default() += 1;
+            *kinds_seen
+                .entry(match kind {
+                    "choice" => "choice",
+                    "score" => "score",
+                    "span" => "span",
+                    other => panic!("`{label}`: Python named an unknown slot kind `{other}`"),
+                })
+                .or_default() += 1;
             assert_eq!(slot.name(), text(expected, "name"), "`{label}`: slot name");
             assert_eq!(
                 slot.kind().as_str(),
@@ -347,11 +351,7 @@ fn every_slot_kind_crosses_intact_with_its_payload() {
                     assert_eq!(options, &want, "`{label}`: option list or its order");
                 }
                 SlotSpec::Score { bins, .. } => {
-                    assert_eq!(
-                        u64::from(*bins),
-                        count(expected, "bins"),
-                        "`{label}`: bins"
-                    );
+                    assert_eq!(u64::from(*bins), count(expected, "bins"), "`{label}`: bins");
                 }
                 SlotSpec::Span { .. } => {
                     assert!(
@@ -418,7 +418,9 @@ fn example_id_and_metadata_are_accepted_and_ignored() {
         .iter()
         .filter(|f| {
             let wire = f.get("wire").expect("wire");
-            wire.get("example_id").and_then(Value::as_str).is_some_and(|s| !s.is_empty())
+            wire.get("example_id")
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty())
                 || wire
                     .get("metadata")
                     .and_then(Value::as_object)
@@ -523,10 +525,16 @@ fn hash_expectation_carries_five_optional_fields_and_refuses_the_rest() {
     });
     let parsed: HashExpectation = serde_json::from_value(all.clone()).expect("all five parse");
     assert!(!parsed.is_empty());
-    assert_eq!(parsed.tokenizer_hash.as_deref(), Some("a".repeat(64).as_str()));
+    assert_eq!(
+        parsed.tokenizer_hash.as_deref(),
+        Some("a".repeat(64).as_str())
+    );
     assert_eq!(parsed.weight_hash.as_deref(), Some("b".repeat(64).as_str()));
     assert_eq!(parsed.head_hash.as_deref(), Some("c".repeat(64).as_str()));
-    assert_eq!(parsed.label_set_hash.as_deref(), Some("d".repeat(64).as_str()));
+    assert_eq!(
+        parsed.label_set_hash.as_deref(),
+        Some("d".repeat(64).as_str())
+    );
     assert_eq!(
         parsed.calibration_hash.as_deref(),
         Some("e".repeat(64).as_str())
@@ -972,7 +980,10 @@ fn the_slot_name_cap_is_one_number_here_and_in_qd_wire_and_qd_data_produces_noth
     // 3. The divergence is theoretical, and this is the assertion that keeps it that way. While
     //    every slot name `qd_data` actually produces is inside the cap, no request either lane can
     //    build is refused by the other. Measured at 8 bytes against a cap of 256 when this landed.
-    let longest = count(&Value::Object(cap.clone()), "longest_slot_name_qd_data_produces") as usize;
+    let longest = count(
+        &Value::Object(cap.clone()),
+        "longest_slot_name_qd_data_produces",
+    ) as usize;
     assert!(
         longest > 0,
         "the probe found no slot names at all, so it is measuring nothing and this test would \
@@ -1079,7 +1090,7 @@ fn the_whitespace_set_is_pinned_as_a_literal_so_a_missing_venv_cannot_retire_the
 fn a_context_of_nothing_but_the_separator_characters_is_refused_like_any_other_blank_one() {
     use qd_runtime::context::Context;
     use qd_runtime::refusal::Refusal;
-    use qd_runtime::render::{render, RenderCaps};
+    use qd_runtime::render::{RenderCaps, render};
 
     for (label, text) in [
         ("U+001C alone", "\u{1c}"),
@@ -1122,8 +1133,8 @@ fn a_context_of_nothing_but_the_separator_characters_is_refused_like_any_other_b
 /// strings rather than trusting that the one function is the right one.
 #[test]
 fn both_lanes_agree_which_strings_are_blank_and_which_strip_to_the_reserved_label() {
-    use qd_runtime::{is_blank, wire_trim};
     use qd_runtime::schema::NOUL_LABEL;
+    use qd_runtime::{is_blank, wire_trim};
 
     let doc = doc_or_skip!();
     let probes = array(doc, "blankness");
@@ -1182,7 +1193,14 @@ fn a_separator_only_option_or_slot_name_is_refused_the_way_the_python_lane_refus
     };
 
     // An option that is nothing but separators is empty on the Python lane.
-    for text in ["\u{1c}", "\u{1d}", "\u{1e}", "\u{1f}", "\u{1c}\u{1d}\u{1e}\u{1f}", " \u{1c}\t"] {
+    for text in [
+        "\u{1c}",
+        "\u{1d}",
+        "\u{1e}",
+        "\u{1f}",
+        "\u{1c}\u{1d}\u{1e}\u{1f}",
+        " \u{1c}\t",
+    ] {
         match envelope(serde_json::json!([{"name":"v","type":"choice","options":[text,"b"]}])) {
             Err(Refusal::EmptyOption { .. }) => {}
             other => panic!(
@@ -1227,8 +1245,10 @@ fn a_separator_only_option_or_slot_name_is_refused_the_way_the_python_lane_refus
 
     // Controls: separators beside real text are ordinary content on both lanes.
     assert!(
-        envelope(serde_json::json!([{"name":"v\u{1c}x","type":"choice","options":["\u{1c}a","noulx"]}]))
-            .is_ok(),
+        envelope(
+            serde_json::json!([{"name":"v\u{1c}x","type":"choice","options":["\u{1c}a","noulx"]}])
+        )
+        .is_ok(),
         "a separator beside real text must still be accepted; the rule is about blankness, not \
          about the character"
     );

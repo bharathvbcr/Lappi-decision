@@ -110,7 +110,8 @@ fn run<P: AsRef<Path>>(config: &Path, pools: &[(&str, P)], out: &Path, threads: 
     let mut cmd = Command::new(BIN);
     cmd.arg("allocate").arg("--config").arg(config);
     for (n, p) in pools {
-        cmd.arg("--pool").arg(format!("{n}={}", p.as_ref().display()));
+        cmd.arg("--pool")
+            .arg(format!("{n}={}", p.as_ref().display()));
     }
     cmd.arg("--out")
         .arg(out)
@@ -184,7 +185,12 @@ fn a_pool_family_missing_from_the_cap_table_is_refused() {
     let mut rows = many("a", "fam.one", "fam.one/x", "train", 3);
     rows.extend(many("b", "fam.two", "fam.two/x", "train", 3));
     let (p, sha) = pool(&d, "p", &rows);
-    let cfg = config(&d, &[("p", &sha, "capped")], json!({"fam.one": 2}), json!({}));
+    let cfg = config(
+        &d,
+        &[("p", &sha, "capped")],
+        json!({"fam.one": 2}),
+        json!({}),
+    );
     let out = d.join("out");
     let err = refused(&run(&cfg, &[("p", &p)], &out, 1), &out);
     assert!(err.contains("fam.two"), "{err}");
@@ -251,7 +257,12 @@ fn a_pool_whose_examples_differ_from_the_pinned_sha256_is_refused() {
         serde_json::from_slice(&std::fs::read(p2.join("manifest.json")).unwrap()).unwrap();
     m["examples_sha256"] = json!("1".repeat(64));
     std::fs::write(p2.join("manifest.json"), serde_json::to_vec(&m).unwrap()).unwrap();
-    let cfg = config(&d, &[("p2", &sha2, "capped")], json!({"fam.one": 2}), json!({}));
+    let cfg = config(
+        &d,
+        &[("p2", &sha2, "capped")],
+        json!({"fam.one": 2}),
+        json!({}),
+    );
     let out = d.join("out2");
     let err = refused(&run(&cfg, &[("p2", &p2)], &out, 1), &out);
     assert!(err.contains("manifest"), "{err}");
@@ -265,7 +276,12 @@ fn a_pool_under_a_held_out_path_is_refused() {
         "p",
         &many("a", "fam.one", "fam.one/x", "train", 3),
     );
-    let cfg = config(&d, &[("p", &sha, "capped")], json!({"fam.one": 2}), json!({}));
+    let cfg = config(
+        &d,
+        &[("p", &sha, "capped")],
+        json!({"fam.one": 2}),
+        json!({}),
+    );
     let out = d.join("out");
     let err = refused(&run(&cfg, &[("p", &p)], &out, 1), &out);
     assert!(err.contains("held-out"), "{err}");
@@ -345,14 +361,24 @@ fn caps_are_per_family_and_drawn_per_stratum_by_largest_remainder() {
     assert_eq!(count("fam.one/b", "train"), 8);
     assert_eq!(count("fam.one/c", "train"), 2);
     assert_eq!(count("fam.one/a", "val"), 4);
-    assert_eq!(count("fam.two/x", "train"), 5, "a cap over availability takes all");
+    assert_eq!(
+        count("fam.two/x", "train"),
+        5,
+        "a cap over availability takes all"
+    );
     let m = manifest(&out);
     assert_eq!(m["allocation"]["state"], "applied");
     assert_eq!(m["rows_by_family_split"]["fam.one"]["train"], 25);
     assert_eq!(m["rows_by_family_split"]["fam.one"]["val"], 4);
     assert_eq!(m["caps_applied"]["fam.one"]["cap"], 25);
-    assert_eq!(m["caps_applied"]["fam.one"]["strata"]["fam.one/b"]["taken"]["train"], 8);
-    assert_eq!(m["caps_applied"]["fam.one"]["strata"]["fam.one/b"]["taken"]["val"], 0);
+    assert_eq!(
+        m["caps_applied"]["fam.one"]["strata"]["fam.one/b"]["taken"]["train"],
+        8
+    );
+    assert_eq!(
+        m["caps_applied"]["fam.one"]["strata"]["fam.one/b"]["taken"]["val"],
+        0
+    );
 }
 
 /// An as-built pool's rows come out byte for byte, every one, splits unchanged, while a capped
@@ -387,10 +413,7 @@ fn an_as_built_pools_rows_pass_through_byte_identical() {
     for l in &want {
         assert!(got.contains(l), "missing {}", String::from_utf8_lossy(l));
     }
-    let as_built = got
-        .iter()
-        .filter(|l| want.contains(l))
-        .count();
+    let as_built = got.iter().filter(|l| want.contains(l)).count();
     assert_eq!(as_built, want.len());
     assert_eq!(got.len(), want.len() + 5);
     let m = manifest(&out);
@@ -429,8 +452,7 @@ fn a_refused_licence_rows_are_dropped_and_counted() {
     assert!(rows.iter().all(|r| r["licence"] != "cc-by-sa-4.0"));
     let m = manifest(&out);
     assert_eq!(
-        m["refusals"]["licence"]["csn.func_match"]["cc-by-sa-4.0"],
-        1,
+        m["refusals"]["licence"]["csn.func_match"]["cc-by-sa-4.0"], 1,
         "{}",
         m["refusals"]
     );
@@ -455,7 +477,13 @@ fn a_stated_zero_family_is_recorded_and_refused_if_a_pool_carries_it() {
     let (q, shq) = pool(
         &d,
         "q",
-        &many("k", "knowledge.multiple_choice", "knowledge.multiple_choice/x", "train", 3),
+        &many(
+            "k",
+            "knowledge.multiple_choice",
+            "knowledge.multiple_choice/x",
+            "train",
+            3,
+        ),
     );
     let cfg = config(
         &d,
@@ -479,7 +507,11 @@ fn the_output_is_byte_identical_across_thread_counts() {
     let (pc, sc) = pool(&d, "pc", &many("c", "old.fam", "old.fam/x", "train", 11));
     let cfg = config(
         &d,
-        &[("pa", &sa, "capped"), ("pb", &sb, "capped"), ("pc", &sc, "as_built")],
+        &[
+            ("pa", &sa, "capped"),
+            ("pb", &sb, "capped"),
+            ("pc", &sc, "as_built"),
+        ],
         json!({"fam.one": 30, "fam.two": 13}),
         json!({}),
     );
@@ -503,7 +535,8 @@ fn the_output_is_byte_identical_across_thread_counts() {
 /// `train_caps` names them, so no pool can enter a mixture uncapped.
 #[test]
 fn the_committed_v6_cap_table_parses_and_every_pool_is_drawn_one_way_or_the_other() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/decisions/v6-allocation.json");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/decisions/v6-allocation.json");
     let bytes = std::fs::read(&path).expect("v6-allocation.json");
     let cfg = qd_prep::allocate::Config::parse(&bytes).expect("the committed config parses");
     assert!(!cfg.pools.is_empty() && !cfg.train_caps.is_empty());
@@ -513,7 +546,10 @@ fn the_committed_v6_cap_table_parses_and_every_pool_is_drawn_one_way_or_the_othe
         "exactly one as-built pool (v5's) is configured"
     );
     for family in cfg.stated_zero.keys() {
-        assert!(!cfg.train_caps.contains_key(family), "{family} is capped and stated zero");
+        assert!(
+            !cfg.train_caps.contains_key(family),
+            "{family} is capped and stated zero"
+        );
     }
 }
 
@@ -532,7 +568,10 @@ fn an_uncapped_family_in_any_one_of_several_pools_is_refused() {
     );
     let out = d.join("out");
     let err = refused(&run(&cfg, &[("a", &a), ("b", &b)], &out, 2), &out);
-    assert!(err.contains("fam.two") && err.contains("train_caps"), "{err}");
+    assert!(
+        err.contains("fam.two") && err.contains("train_caps"),
+        "{err}"
+    );
 }
 
 /// D1 (verify-lane3): a candidate pool (`allocation.state` not applied) configured `as_built`
@@ -541,16 +580,30 @@ fn an_uncapped_family_in_any_one_of_several_pools_is_refused() {
 #[test]
 fn an_as_built_candidate_pool_is_refused_not_stamped_applied() {
     for (tag, extra) in [
-        ("synth", json!({"tool": "qd-prep synth", "allocation": {"state": "not_applied", "detail": "c"}})),
+        (
+            "synth",
+            json!({"tool": "qd-prep synth", "allocation": {"state": "not_applied", "detail": "c"}}),
+        ),
         ("tool-only", json!({"tool": "qd-prep convert"})),
-        ("bad-state", json!({"allocation": {"state": "Applied", "detail": "c"}})),
+        (
+            "bad-state",
+            json!({"allocation": {"state": "Applied", "detail": "c"}}),
+        ),
     ] {
         let d = scratch(tag);
-        let (p, sha) = pool_with(&d, "p", &many("a", "fam.one", "fam.one/x", "train", 3), extra);
+        let (p, sha) = pool_with(
+            &d,
+            "p",
+            &many("a", "fam.one", "fam.one/x", "train", 3),
+            extra,
+        );
         let cfg = config(&d, &[("p", &sha, "as_built")], json!({}), json!({}));
         let out = d.join("out");
         let err = refused(&run(&cfg, &[("p", &p)], &out, 1), &out);
-        assert!(err.contains("as_built") && err.contains("candidate"), "{tag}: {err}");
+        assert!(
+            err.contains("as_built") && err.contains("candidate"),
+            "{tag}: {err}"
+        );
     }
     let d = scratch("as-built-applied");
     let (p, sha) = pool_with(
@@ -569,7 +622,12 @@ fn an_as_built_candidate_pool_is_refused_not_stamped_applied() {
 fn the_applied_manifest_binds_its_rows_and_its_config() {
     let d = scratch("binding");
     let (p, sha) = pool(&d, "p", &many("a", "fam.one", "fam.one/x", "train", 3));
-    let cfg = config(&d, &[("p", &sha, "capped")], json!({"fam.one": 2}), json!({}));
+    let cfg = config(
+        &d,
+        &[("p", &sha, "capped")],
+        json!({"fam.one": 2}),
+        json!({}),
+    );
     let out = d.join("out");
     ok(&run(&cfg, &[("p", &p)], &out, 1));
     let m = manifest(&out);
@@ -577,7 +635,10 @@ fn the_applied_manifest_binds_its_rows_and_its_config() {
     assert_eq!(m["allocation"]["state"], "applied");
     assert_eq!(m["allocation"]["rows_sha256"], m["examples_sha256"]);
     assert_eq!(m["allocation"]["config_sha256"], m["inputs"]["config"]);
-    assert_eq!(m["allocation"]["config_sha256"], sha256_hex(&std::fs::read(&cfg).unwrap()));
+    assert_eq!(
+        m["allocation"]["config_sha256"],
+        sha256_hex(&std::fs::read(&cfg).unwrap())
+    );
 }
 
 /// D4: a JSON object key given twice in the config is refused; the reader of the file would
@@ -586,12 +647,29 @@ fn the_applied_manifest_binds_its_rows_and_its_config() {
 fn a_duplicate_key_in_the_config_is_refused() {
     let d = scratch("dup-keys");
     let (p, sha) = pool(&d, "p", &many("a", "fam.one", "fam.one/x", "train", 3));
-    let good = config(&d, &[("p", &sha, "capped")], json!({"fam.one": 2}), json!({}));
+    let good = config(
+        &d,
+        &[("p", &sha, "capped")],
+        json!({"fam.one": 2}),
+        json!({}),
+    );
     let text = std::fs::read_to_string(&good).unwrap();
     for (tag, bad) in [
-        ("caps", text.replace("\"fam.one\": 2", "\"fam.one\": 2, \"fam.one\": 40")),
-        ("seed", text.replacen("\"seed\": 7,", "\"seed\": 7, \"seed\": 8,", 1)),
-        ("pool", text.replace("\"draw\": \"capped\"", "\"draw\": \"capped\", \"draw\": \"as_built\"")),
+        (
+            "caps",
+            text.replace("\"fam.one\": 2", "\"fam.one\": 2, \"fam.one\": 40"),
+        ),
+        (
+            "seed",
+            text.replacen("\"seed\": 7,", "\"seed\": 7, \"seed\": 8,", 1),
+        ),
+        (
+            "pool",
+            text.replace(
+                "\"draw\": \"capped\"",
+                "\"draw\": \"capped\", \"draw\": \"as_built\"",
+            ),
+        ),
     ] {
         assert_ne!(bad, text, "{tag}: the edit did not apply");
         let cfg = d.join(format!("dup-{tag}.json"));

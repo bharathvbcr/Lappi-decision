@@ -16,7 +16,7 @@ use rand_chacha::ChaCha20Rng;
 use qd_mutate::lang::LangId;
 use qd_mutate::pool::PoolRecord;
 
-use crate::hunk::{self, draw_shape, has_char_in, item_rng, mark_block, order_key, Line};
+use crate::hunk::{self, Line, draw_shape, has_char_in, item_rng, mark_block, order_key};
 
 pub const SOURCE: &str = "scrambled";
 
@@ -73,7 +73,9 @@ pub fn candidates<'a>(
         if !allowed.contains_key(&record.id) {
             continue;
         }
-        let Some(lang) = record.language() else { continue };
+        let Some(lang) = record.language() else {
+            continue;
+        };
         if !LANGUAGES.contains(&lang) {
             continue;
         }
@@ -166,7 +168,10 @@ pub fn render(record: &PoolRecord, seed: u64, invisible: &[(u32, u32)]) -> Resul
             Some(text) => {
                 shufflable += 1;
                 changed += usize::from(text != line.text);
-                body.push(Line { mark: line.mark, text });
+                body.push(Line {
+                    mark: line.mark,
+                    text,
+                });
             }
             None => body.push(line),
         }
@@ -229,18 +234,33 @@ def main(argv):
 
     #[test]
     fn a_window_is_one_hunk_with_its_markers_and_indentation_kept_and_its_order_broken() {
-        let rec = record("c:pkg/config.py", PY, Some(vec![LineSpan { start: 10, end: 12 }]));
+        let rec = record(
+            "c:pkg/config.py",
+            PY,
+            Some(vec![LineSpan { start: 10, end: 12 }]),
+        );
         let mut rendered = 0;
         for seed in 0..30 {
-            let Ok(diff) = render(&rec, seed, &[(0xFEFF, 0xFEFF)]) else { continue };
+            let Ok(diff) = render(&rec, seed, &[(0xFEFF, 0xFEFF)]) else {
+                continue;
+            };
             rendered += 1;
             assert_eq!(diff.matches("@@ -").count(), 1, "{diff}");
             let body: Vec<&str> = diff.lines().skip(1).collect();
-            assert!(body.iter().all(|l| crate::hunk::Mark::from_prefix(
-                l.chars().next().unwrap_or('?')).is_some()), "{body:?}");
+            assert!(
+                body.iter().all(|l| crate::hunk::Mark::from_prefix(
+                    l.chars().next().unwrap_or('?')
+                )
+                .is_some()),
+                "{body:?}"
+            );
             // Every token is the file's own, and the lines no longer run in the file's order.
             let vocab: BTreeSet<&str> = PY.split_whitespace().collect();
-            assert!(body.iter().flat_map(|l| l[1..].split_whitespace()).all(|t| vocab.contains(t)));
+            assert!(
+                body.iter()
+                    .flat_map(|l| l[1..].split_whitespace())
+                    .all(|t| vocab.contains(t))
+            );
             let text: Vec<&str> = body.iter().map(|l| &l[1..]).collect();
             assert!(!PY.contains(&text.join("\n")), "{diff}");
         }
@@ -254,14 +274,21 @@ def main(argv):
         assert_eq!(render(&short, 0, &[]), Err(Skip::TooShort));
         let crlf = record("c:b.py", &PY.replace('\n', "\r\n"), None);
         assert_eq!(render(&crlf, 0, &[]), Err(Skip::CarriageReturn));
-        let bom = record("c:c.py", &PY.replace("import sys", "import\u{FEFF} sys"), None);
+        let bom = record(
+            "c:c.py",
+            &PY.replace("import sys", "import\u{FEFF} sys"),
+            None,
+        );
         let reasons: BTreeSet<_> = (0..30)
             .filter_map(|s| render(&bom, s, &[(0xFEFF, 0xFEFF)]).err())
             .collect::<Vec<_>>()
             .into_iter()
             .map(Skip::as_str)
             .collect();
-        assert!(reasons.contains("invisible_format_character"), "{reasons:?}");
+        assert!(
+            reasons.contains("invisible_format_character"),
+            "{reasons:?}"
+        );
         let flat = record("c:d.py", &"x\n".repeat(30), None);
         assert_eq!(render(&flat, 0, &[]), Err(Skip::TooFewShufflableLines));
     }
@@ -271,9 +298,11 @@ def main(argv):
         let records = vec![
             record("c:pkg/config.py", PY, None),
             serde_json::from_value(serde_json::json!({
-                "id": "c:main.swift", "repo": "o/s", "path": "main.swift", "source": PY})).unwrap(),
+                "id": "c:main.swift", "repo": "o/s", "path": "main.swift", "source": PY}))
+            .unwrap(),
             serde_json::from_value(serde_json::json!({
-                "id": "c:held.py", "repo": "o/h", "path": "held.py", "source": PY})).unwrap(),
+                "id": "c:held.py", "repo": "o/h", "path": "held.py", "source": PY}))
+            .unwrap(),
         ];
         let allowed: BTreeMap<String, String> = ["c:pkg/config.py", "c:main.swift"]
             .iter()

@@ -365,7 +365,10 @@ impl Language for TypeScript {
         walk_tree(tree, |node| {
             if matches!(
                 node.kind(),
-                "identifier" | "property_identifier" | "type_identifier" | "shorthand_property_identifier"
+                "identifier"
+                    | "property_identifier"
+                    | "type_identifier"
+                    | "shorthand_property_identifier"
             ) {
                 out.push(node);
             }
@@ -524,7 +527,9 @@ mod tests {
     use crate::parse::parse_bounded;
 
     fn parse(src: &str) -> tree_sitter::Tree {
-        parse_bounded(&TypeScript.grammar(), src).expect("parses").tree
+        parse_bounded(&TypeScript.grammar(), src)
+            .expect("parses")
+            .tree
     }
 
     #[test]

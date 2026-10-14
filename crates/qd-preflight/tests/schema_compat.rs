@@ -156,7 +156,10 @@ fn not_run_matches_python_byte_for_byte() {
     // Build the same value through the Rust type and compare parsed JSON.
     let rs = serde_json::to_value(qd_preflight_tristate_not_run("no CUDA driver")).unwrap();
     assert_eq!(rs, py, "Rust and Python disagree on the NotRun encoding");
-    assert!(py.get("passed").is_none(), "python NotRun must not carry passed either");
+    assert!(
+        py.get("passed").is_none(),
+        "python NotRun must not carry passed either"
+    );
 }
 
 #[test]
@@ -217,7 +220,9 @@ fn qd_preflight_tristate_not_run(reason: &str) -> serde_json::Value {
 /// asserted here is that an absent interpreter is a *failure*.
 #[test]
 fn a_missing_interpreter_fails_rather_than_skipping() {
-    let absent = vec![PathBuf::from("/nonexistent/qd-preflight/python-that-is-not-here")];
+    let absent = vec![PathBuf::from(
+        "/nonexistent/qd-preflight/python-that-is-not-here",
+    )];
     assert!(
         first_usable(&absent).is_none(),
         "a path that does not exist must not resolve as a usable interpreter"

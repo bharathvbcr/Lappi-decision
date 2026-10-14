@@ -8,16 +8,21 @@
 use std::path::Path;
 
 use qd_runtime::caller_record::{
-    check_store_path, default_store_root, validate_line, RecordError, RecordKind,
-    MAX_RECORD_BYTES, READINGS, STORE_RELATIVE_TO_HOME,
+    MAX_RECORD_BYTES, READINGS, RecordError, RecordKind, STORE_RELATIVE_TO_HOME, check_store_path,
+    default_store_root, validate_line,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn fixture_lines() -> Vec<String> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/caller/valid-records.jsonl");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/caller/valid-records.jsonl");
     let text = std::fs::read_to_string(&path).expect("the caller fixture exists");
     let lines: Vec<String> = text.lines().map(str::to_owned).collect();
-    assert!(lines.len() >= 5, "the fixture carries at least five records, got {}", lines.len());
+    assert!(
+        lines.len() >= 5,
+        "the fixture carries at least five records, got {}",
+        lines.len()
+    );
     lines
 }
 
@@ -43,7 +48,10 @@ fn every_fixture_record_is_valid_and_outcomes_pair_with_decisions() {
         .iter()
         .map(|l| validate_line(l.as_bytes()).unwrap_or_else(|e| panic!("{e}: {l}")))
         .collect();
-    let outcome = summaries.iter().find(|s| s.kind == RecordKind::Outcome).expect("an outcome");
+    let outcome = summaries
+        .iter()
+        .find(|s| s.kind == RecordKind::Outcome)
+        .expect("an outcome");
     assert!(
         summaries
             .iter()
@@ -51,8 +59,18 @@ fn every_fixture_record_is_valid_and_outcomes_pair_with_decisions() {
         "the fixture's outcome pairs with its decision"
     );
     // Every reading but one that needs no fixture is exercised by a real line.
-    for reading in ["request_refused", "not_asked", "model_answered", "unavailable"] {
-        assert!(summaries.iter().any(|s| s.reading.as_deref() == Some(reading)), "{reading}");
+    for reading in [
+        "request_refused",
+        "not_asked",
+        "model_answered",
+        "unavailable",
+    ] {
+        assert!(
+            summaries
+                .iter()
+                .any(|s| s.reading.as_deref() == Some(reading)),
+            "{reading}"
+        );
     }
 }
 
@@ -80,12 +98,24 @@ fn unknown_and_missing_keys_are_refused_at_every_level() {
 
     let mut v = decision();
     v["redaction"]["extra"] = json!(1);
-    assert!(matches!(refused(&v), RecordError::UnknownKey { ref path, .. } if path == "$.redaction"));
+    assert!(
+        matches!(refused(&v), RecordError::UnknownKey { ref path, .. } if path == "$.redaction")
+    );
 
-    for key in ["record_id", "facts", "app_choice", "lappi", "redaction", "created_at"] {
+    for key in [
+        "record_id",
+        "facts",
+        "app_choice",
+        "lappi",
+        "redaction",
+        "created_at",
+    ] {
         let mut v = decision();
         v.as_object_mut().unwrap().remove(key);
-        assert!(matches!(refused(&v), RecordError::MissingKey { .. }), "{key}");
+        assert!(
+            matches!(refused(&v), RecordError::MissingKey { .. }),
+            "{key}"
+        );
     }
 }
 
@@ -119,12 +149,18 @@ fn identifiers_and_timestamps_are_closed_shapes() {
     for app in ["GitPulse", "1app", "", "a b", "x".repeat(33).as_str()] {
         let mut v = decision();
         v["app"] = json!(app);
-        assert!(matches!(refused(&v), RecordError::Invalid { .. }), "{app:?}");
+        assert!(
+            matches!(refused(&v), RecordError::Invalid { .. }),
+            "{app:?}"
+        );
     }
     for point in ["Gitpulse.type", "gitpulse..type", ".x", "x.", "a.1b"] {
         let mut v = decision();
         v["decision_point"] = json!(point);
-        assert!(matches!(refused(&v), RecordError::Invalid { .. }), "{point:?}");
+        assert!(
+            matches!(refused(&v), RecordError::Invalid { .. }),
+            "{point:?}"
+        );
     }
     let bad_times = [
         "2026-10-06 15:04:05Z",
@@ -207,15 +243,24 @@ fn a_secret_shaped_string_anywhere_refuses_the_line() {
     for secret in secrets {
         let mut v = decision();
         v["facts"]["note"] = json!(secret);
-        assert!(matches!(refused(&v), RecordError::SecretLike { .. }), "{secret}");
+        assert!(
+            matches!(refused(&v), RecordError::SecretLike { .. }),
+            "{secret}"
+        );
 
         // In an array element, and as an object key.
         let mut v = decision();
         v["app_choice"]["list"] = json!(["ok", secret]);
-        assert!(matches!(refused(&v), RecordError::SecretLike { .. }), "{secret} in array");
+        assert!(
+            matches!(refused(&v), RecordError::SecretLike { .. }),
+            "{secret} in array"
+        );
         let mut v = decision();
         v["facts"][secret] = json!(1);
-        assert!(matches!(refused(&v), RecordError::SecretLike { .. }), "{secret} as key");
+        assert!(
+            matches!(refused(&v), RecordError::SecretLike { .. }),
+            "{secret} as key"
+        );
     }
     // Not credentials: a prefix inside a word, or one with no body.
     for benign in ["MASKAKIA0123456789ABCD", "ghp_", "the sk- prefix", "AKIA"] {
@@ -227,10 +272,22 @@ fn a_secret_shaped_string_anywhere_refuses_the_line() {
 
 #[test]
 fn bytes_that_are_not_one_json_object_are_refused() {
-    assert!(matches!(validate_line(b"\xff\xfe"), Err(RecordError::NotUtf8)));
-    assert!(matches!(validate_line(b"[1,2]"), Err(RecordError::NotJsonObject(_))));
-    assert!(matches!(validate_line(b""), Err(RecordError::NotJsonObject(_))));
-    assert!(matches!(validate_line(b"{\"a\":1} {\"b\":2}"), Err(RecordError::NotJsonObject(_))));
+    assert!(matches!(
+        validate_line(b"\xff\xfe"),
+        Err(RecordError::NotUtf8)
+    ));
+    assert!(matches!(
+        validate_line(b"[1,2]"),
+        Err(RecordError::NotJsonObject(_))
+    ));
+    assert!(matches!(
+        validate_line(b""),
+        Err(RecordError::NotJsonObject(_))
+    ));
+    assert!(matches!(
+        validate_line(b"{\"a\":1} {\"b\":2}"),
+        Err(RecordError::NotJsonObject(_))
+    ));
     let mut v = decision();
     v["facts"]["pad"] = json!("x".repeat(MAX_RECORD_BYTES));
     assert!(matches!(refused(&v), RecordError::TooLarge { .. }));
@@ -248,13 +305,17 @@ fn the_store_is_under_a_held_out_segment_and_nothing_else_is() {
         "relative/a.jsonl",
     ] {
         assert!(
-            matches!(check_store_path(Path::new(bad)), Err(RecordError::NotHeldOutPath { .. })),
+            matches!(
+                check_store_path(Path::new(bad)),
+                Err(RecordError::NotHeldOutPath { .. })
+            ),
             "{bad}"
         );
     }
     if let Some(root) = default_store_root() {
         assert!(root.ends_with(STORE_RELATIVE_TO_HOME));
-        check_store_path(&root.join("devtype/2026-10-06.jsonl")).expect("the default root is held out");
+        check_store_path(&root.join("devtype/2026-10-06.jsonl"))
+            .expect("the default root is held out");
     }
 }
 
@@ -268,7 +329,13 @@ fn the_secret_screen_is_shared_and_considers_every_occurrence() {
         secret_like_prefix("apiKey: \"AIzaSyA7abcdefghijklmnopqrstuvwxyz012345\""),
         Some("AIza")
     );
-    assert_eq!(secret_like_prefix("TASKAKIA0123456789012345 is an id"), None);
-    assert_eq!(secret_like_prefix("AKIA short, then AKIAABCDEFGHIJKLMNOP"), Some("AKIA"));
+    assert_eq!(
+        secret_like_prefix("TASKAKIA0123456789012345 is an id"),
+        None
+    );
+    assert_eq!(
+        secret_like_prefix("AKIA short, then AKIAABCDEFGHIJKLMNOP"),
+        Some("AKIA")
+    );
     assert_eq!(secret_like_prefix("a plain sentence"), None);
 }

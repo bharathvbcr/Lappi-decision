@@ -612,7 +612,10 @@ impl Worker {
                 state: StateBuffer::from_bytes(rec.to_bytes()),
             });
         }
-        let (ids, offsets) = self.tok.encode_untrusted_with_offsets(prefix).map_err(prefill_failed)?;
+        let (ids, offsets) = self
+            .tok
+            .encode_untrusted_with_offsets(prefix)
+            .map_err(prefill_failed)?;
         if ids.is_empty() {
             return Err(prefill_failed(MetalError::Input(
                 "the prefix encodes to no tokens".into(),
@@ -678,7 +681,10 @@ impl Worker {
             Ok(tokens) => {
                 let rows = tokens
                     .iter()
-                    .map(|&t| u32::try_from(t).map_err(|_| MetalError::Input(format!("token {t} exceeds u32"))))
+                    .map(|&t| {
+                        u32::try_from(t)
+                            .map_err(|_| MetalError::Input(format!("token {t} exceeds u32")))
+                    })
                     .collect::<Result<Vec<u32>>>()?;
                 let hidden = self.model.final_hidden(out, &rows)?;
                 Ok(SpanPrefix::Ready(SpanCandidates { tokens, hidden }))
@@ -834,7 +840,11 @@ impl Worker {
                     // The query is the last token of the suffix: the position the letters read.
                     let query = self.model.final_hidden(&out, &[seq - 1])?;
                     let scores = head.scores(&c.hidden, c.tokens.len(), &query)?;
-                    if kind == QueryKind::PointerStart { scores.start } else { scores.end }
+                    if kind == QueryKind::PointerStart {
+                        scores.start
+                    } else {
+                        scores.end
+                    }
                 }
                 _ => self.model.score(&out, &[seq - 1], &answers)?.logits,
             };

@@ -22,7 +22,7 @@
 //! before this file rejected it.
 
 use qd_runtime::schema::{
-    AnswerEnvelope, Response, SlotAnswer, SlotValue, SpanValue, MAX_SLOT_NAME_BYTES,
+    AnswerEnvelope, MAX_SLOT_NAME_BYTES, Response, SlotAnswer, SlotValue, SpanValue,
 };
 use serde_json::json;
 
@@ -311,7 +311,10 @@ fn the_envelope_degraded_flag_is_mirrored_onto_every_slot() {
     let Response::Ok(envelope) =
         serde_json::from_slice::<Response>(&reply).expect("the reply parses as an answer")
     else {
-        panic!("expected an answer, got {}", String::from_utf8_lossy(&reply));
+        panic!(
+            "expected an answer, got {}",
+            String::from_utf8_lossy(&reply)
+        );
     };
     assert!(
         envelope.degraded,

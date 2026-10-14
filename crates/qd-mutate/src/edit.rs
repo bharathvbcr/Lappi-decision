@@ -254,8 +254,8 @@ mod tests {
 
     #[test]
     fn multiple_edits_report_the_whole_affected_region() {
-        let set = EditSet::new(vec![Edit::replace(0, 1, "X"), Edit::replace(4, 5, "Y")])
-            .expect("valid");
+        let set =
+            EditSet::new(vec![Edit::replace(0, 1, "X"), Edit::replace(4, 5, "Y")]).expect("valid");
         let applied = set.apply("abcde").expect("applies");
         assert_eq!(applied.text, "XbcdY");
         assert_eq!(applied.start, 0);
@@ -293,6 +293,10 @@ mod tests {
         let src = "if a < b { x }\n";
         let start = src.find('<').expect("fixture");
         let (s, e) = snap_to_lines(src, start, start + 1);
-        assert_eq!((s, e), (start, start + 1), "code on both sides: no snapping");
+        assert_eq!(
+            (s, e),
+            (start, start + 1),
+            "code on both sides: no snapping"
+        );
     }
 }

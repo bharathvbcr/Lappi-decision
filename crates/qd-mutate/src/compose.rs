@@ -155,9 +155,7 @@ pub enum ComposeError {
     },
     #[error("invariant: {0}")]
     Invariant(String),
-    #[error(
-        "{split}: composed {made} of {wanted} rows; {detail} (refusals so far: {refusals:?})"
-    )]
+    #[error("{split}: composed {made} of {wanted} rows; {detail} (refusals so far: {refusals:?})")]
     Shortfall {
         split: &'static str,
         made: usize,
@@ -363,12 +361,18 @@ fn name_of(p: &Path) -> Result<String, ComposeError> {
 
 /// Read one corpus directory (`examples.jsonl` + `manifest.json`), checking its digest and count.
 pub fn load_corpus(dir: &Path) -> Result<LoadedCorpus, ComposeError> {
-    let manifest: serde_json::Value = serde_json::from_slice(&read_file(&dir.join("manifest.json"))?)
-        .map_err(|e| ComposeError::Input(format!("{}: manifest: {e}", dir.display())))?;
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&read_file(&dir.join("manifest.json"))?)
+            .map_err(|e| ComposeError::Input(format!("{}: manifest: {e}", dir.display())))?;
     let examples_sha = manifest
         .get("examples_sha256")
         .and_then(|x| x.as_str())
-        .ok_or_else(|| ComposeError::Input(format!("{}: manifest has no examples_sha256", dir.display())))?
+        .ok_or_else(|| {
+            ComposeError::Input(format!(
+                "{}: manifest has no examples_sha256",
+                dir.display()
+            ))
+        })?
         .to_string();
     let bytes = read_file(&dir.join("examples.jsonl"))?;
     let actual = sha256_hex(&bytes);
@@ -386,10 +390,17 @@ pub fn load_corpus(dir: &Path) -> Result<LoadedCorpus, ComposeError> {
             continue;
         }
         rows.push(serde_json::from_str::<CorpusRow>(line).map_err(|e| {
-            ComposeError::Input(format!("{}/examples.jsonl:{}: {e}", dir.display(), lineno + 1))
+            ComposeError::Input(format!(
+                "{}/examples.jsonl:{}: {e}",
+                dir.display(),
+                lineno + 1
+            ))
         })?);
     }
-    if let Some(n) = manifest.get("totals").and_then(|t| t.get("examples")).and_then(|x| x.as_u64())
+    if let Some(n) = manifest
+        .get("totals")
+        .and_then(|t| t.get("examples"))
+        .and_then(|x| x.as_u64())
         && n != rows.len() as u64
     {
         return Err(ComposeError::Input(format!(
@@ -488,13 +499,15 @@ pub fn aux_pool(inputs: &Inputs) -> Result<(String, Vec<&PoolRecord>), ComposeEr
     let mut out = String::new();
     let mut records = Vec::new();
     for record in &inputs.pool {
-        let split = inputs.split_map.split_of(&record.repo).ok_or_else(|| {
-            ComposeError::SplitMissing {
-                what: "pool records",
-                total: 1,
-                first: vec![record.repo.clone()],
-            }
-        })?;
+        let split =
+            inputs
+                .split_map
+                .split_of(&record.repo)
+                .ok_or_else(|| ComposeError::SplitMissing {
+                    what: "pool records",
+                    total: 1,
+                    first: vec![record.repo.clone()],
+                })?;
         if split == Split::Heldout
             || record.language().is_none()
             || mutated.contains(&(record.repo.as_str(), record.path.as_str()))
@@ -833,9 +846,7 @@ pub fn render_pristine(
 
 /// [`render_pristine`] for a single-version record: `(diff, normalized source)` with the whole file
 /// as one added block, or `None` for an empty file.
-fn render_single_version(
-    source: &str,
-) -> Result<Option<(String, String)>, diffspan::DiffRefusal> {
+fn render_single_version(source: &str) -> Result<Option<(String, String)>, diffspan::DiffRefusal> {
     let (source, _) = normalize::normalize(source);
     if source.trim().is_empty() {
         return Ok(None);
@@ -890,7 +901,11 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
 
     // Every repo every input names must be in the map. Collected, then refused together.
     let mut missing: BTreeSet<String> = BTreeSet::new();
-    let aux_rows: &[CorpusRow] = inputs.aux.as_ref().map(|a| a.rows.as_slice()).unwrap_or(&[]);
+    let aux_rows: &[CorpusRow] = inputs
+        .aux
+        .as_ref()
+        .map(|a| a.rows.as_slice())
+        .unwrap_or(&[]);
     for r in inputs.base.rows.iter().chain(aux_rows) {
         if map.split_of(&r.repo).is_none() {
             missing.insert(r.repo.clone());
@@ -913,7 +928,9 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
     let pool_by_id: HashMap<&str, &PoolRecord> =
         inputs.pool.iter().map(|r| (r.id.as_str(), r)).collect();
     if pool_by_id.len() != inputs.pool.len() {
-        return Err(ComposeError::Input("the pool holds a duplicate id".to_string()));
+        return Err(ComposeError::Input(
+            "the pool holds a duplicate id".to_string(),
+        ));
     }
 
     // The auxiliary corpus must have been generated, mutated-only, from exactly `aux_pool`.
@@ -929,7 +946,11 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
                 records.len()
             )));
         }
-        let clean = aux.manifest.get("totals").and_then(|t| t.get("clean")).and_then(|x| x.as_u64());
+        let clean = aux
+            .manifest
+            .get("totals")
+            .and_then(|t| t.get("clean"))
+            .and_then(|x| x.as_u64());
         let renderer = aux
             .manifest
             .get("diff")
@@ -954,10 +975,18 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
     let mut parity_bad: Vec<String> = Vec::new();
     let mut clean_example_of: HashMap<&str, &CorpusRow> = HashMap::new();
     if single {
-        let manifest_clean =
-            inputs.base.manifest.get("totals").and_then(|t| t.get("clean")).and_then(|x| x.as_u64());
-        let stored_clean =
-            inputs.base.rows.iter().filter(|r| r.class == MutationClass::Clean).count();
+        let manifest_clean = inputs
+            .base
+            .manifest
+            .get("totals")
+            .and_then(|t| t.get("clean"))
+            .and_then(|x| x.as_u64());
+        let stored_clean = inputs
+            .base
+            .rows
+            .iter()
+            .filter(|r| r.class == MutationClass::Clean)
+            .count();
         if manifest_clean != Some(0) || stored_clean > 0 {
             return Err(ComposeError::Input(format!(
                 "a single-version base corpus must be generated with --clean-permille 0: a pool \
@@ -967,7 +996,12 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
             )));
         }
     }
-    for r in inputs.base.rows.iter().filter(|r| !single && r.class == MutationClass::Clean) {
+    for r in inputs
+        .base
+        .rows
+        .iter()
+        .filter(|r| !single && r.class == MutationClass::Clean)
+    {
         let record = pool_by_id.get(r.pool_id.as_str()).ok_or_else(|| {
             ComposeError::Input(format!(
                 "clean example {} names pool id {} the pool lacks",
@@ -991,7 +1025,10 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
 
     // Mutated renderings by pool id.
     let mut renderings_of: HashMap<&str, Vec<(&CorpusRow, Source)>> = HashMap::new();
-    for (rows, source) in [(inputs.base.rows.as_slice(), Source::Base), (aux_rows, Source::Aux)] {
+    for (rows, source) in [
+        (inputs.base.rows.as_slice(), Source::Base),
+        (aux_rows, Source::Aux),
+    ] {
         for r in rows.iter().filter(|r| r.class != MutationClass::Clean) {
             if !pool_by_id.contains_key(r.pool_id.as_str()) {
                 return Err(ComposeError::Input(format!(
@@ -1000,20 +1037,31 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
                 )));
             }
             if r.span.is_none() {
-                return Err(ComposeError::Input(format!("mutated example {} carries no span", r.id)));
+                return Err(ComposeError::Input(format!(
+                    "mutated example {} carries no span",
+                    r.id
+                )));
             }
-            renderings_of.entry(r.pool_id.as_str()).or_default().push((r, source));
+            renderings_of
+                .entry(r.pool_id.as_str())
+                .or_default()
+                .push((r, source));
         }
     }
     if aux_rows.iter().any(|r| r.class == MutationClass::Clean) {
-        return Err(ComposeError::Input("the auxiliary corpus holds a clean example".to_string()));
+        return Err(ComposeError::Input(
+            "the auxiliary corpus holds a clean example".to_string(),
+        ));
     }
 
     // Every diff text in every split, for the exact-twin exclusion: every corpus row, and every
     // record's pristine rendering.
     let mut splits_of_diff: HashMap<[u8; 32], BTreeSet<Split>> = HashMap::new();
     for r in inputs.base.rows.iter().chain(aux_rows) {
-        splits_of_diff.entry(digest(&r.diff)).or_default().insert(split_of(&r.repo));
+        splits_of_diff
+            .entry(digest(&r.diff))
+            .or_default()
+            .insert(split_of(&r.repo));
     }
     let mut pristine_of: HashMap<&str, (String, String)> = HashMap::new();
     for record in &inputs.pool {
@@ -1027,14 +1075,21 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
         };
         match rendered {
             Ok(Some((diff, after))) => {
-                splits_of_diff.entry(digest(&diff)).or_default().insert(split_of(&record.repo));
+                splits_of_diff
+                    .entry(digest(&diff))
+                    .or_default()
+                    .insert(split_of(&record.repo));
                 pristine_of.insert(record.id.as_str(), (diff, after));
             }
             Ok(None) => {}
             Err(_) => bump(&mut refusals, "pristine_diff_refused"),
         }
     }
-    let crosses = |text: &str| splits_of_diff.get(&digest(text)).is_some_and(|s| s.len() > 1);
+    let crosses = |text: &str| {
+        splits_of_diff
+            .get(&digest(text))
+            .is_some_and(|s| s.len() > 1)
+    };
 
     let mut units: BTreeMap<Split, Vec<FileUnit>> = BTreeMap::new();
     let mut seen_pristine: HashSet<(Split, [u8; 32])> = HashSet::new();
@@ -1081,7 +1136,10 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
             }
             whole
         } else {
-            candidates.iter().map(|&(r, s)| (std::borrow::Cow::Borrowed(r), s)).collect()
+            candidates
+                .iter()
+                .map(|&(r, s)| (std::borrow::Cow::Borrowed(r), s))
+                .collect()
         };
         if crosses(pristine) || candidates.iter().any(|(r, _)| crosses(&r.diff)) {
             bump(&mut refusals, "file_exact_twin_across_splits");
@@ -1120,7 +1178,9 @@ pub fn prepare_with(inputs: &Inputs, mode: RecordMode) -> Result<Prepared, Compo
             language,
             pristine_est: block_estimate(&record.path, pristine),
             pristine: pristine.clone(),
-            pristine_example_id: clean_example_of.get(record.id.as_str()).map(|r| r.id.clone()),
+            pristine_example_id: clean_example_of
+                .get(record.id.as_str())
+                .map(|r| r.id.clone()),
             after: after.clone(),
             renderings,
         });
@@ -1186,7 +1246,10 @@ impl Options {
     pub fn check(&self) -> Result<(), ComposeError> {
         let bad = |m: String| Err(ComposeError::Input(m));
         if self.id_prefix.len() > 64
-            || self.id_prefix.chars().any(|c| c.is_control() || c.is_whitespace())
+            || self
+                .id_prefix
+                .chars()
+                .any(|c| c.is_control() || c.is_whitespace())
         {
             return bad(format!(
                 "id prefix {:?} is longer than 64 bytes or holds whitespace or a control character",
@@ -1208,7 +1271,9 @@ impl Options {
                 self.min_tokens, self.max_tokens, self.hard_max_tokens
             ));
         }
-        if self.clean_permille > 1000 || self.max_share_permille == 0 || self.max_share_permille > 1000
+        if self.clean_permille > 1000
+            || self.max_share_permille == 0
+            || self.max_share_permille > 1000
         {
             return bad("permille out of range".to_string());
         }
@@ -1470,9 +1535,8 @@ pub struct DiagTrain {
 
 /// Read a composed corpus's rows and manifest, checking its digest.
 pub fn load_composed(dir: &Path) -> Result<DiagTrain, ComposeError> {
-    let manifest: ComposeManifest =
-        serde_json::from_slice(&read_file(&dir.join("manifest.json"))?)
-            .map_err(|e| ComposeError::Input(format!("{}: manifest: {e}", dir.display())))?;
+    let manifest: ComposeManifest = serde_json::from_slice(&read_file(&dir.join("manifest.json"))?)
+        .map_err(|e| ComposeError::Input(format!("{}: manifest: {e}", dir.display())))?;
     let bytes = read_file(&dir.join("examples.jsonl"))?;
     let actual = sha256_hex(&bytes);
     if actual != manifest.examples_sha256 {
@@ -1593,7 +1657,11 @@ impl<'a> FillerPool<'a> {
     }
 
     fn limit(&self) -> u64 {
-        if self.below_floor > 0 { self.soft_max } else { self.hard_max }
+        if self.below_floor > 0 {
+            self.soft_max
+        } else {
+            self.hard_max
+        }
     }
 
     fn record_use(&mut self, unit: usize) {
@@ -1745,10 +1813,20 @@ fn render_row(
                 first_line + FILE_HEADER_LINES - 1 + r.local_span.end,
             );
             needle_at = Some((index as u32, span));
-            (r.row.diff.as_str(), Some(r.row.id.clone()), Some(r.source), r.est)
+            (
+                r.row.diff.as_str(),
+                Some(r.row.id.clone()),
+                Some(r.source),
+                r.est,
+            )
         } else {
             let source = unit.pristine_example_id.as_ref().map(|_| Source::Base);
-            (unit.pristine.as_str(), unit.pristine_example_id.clone(), source, unit.pristine_est)
+            (
+                unit.pristine.as_str(),
+                unit.pristine_example_id.clone(),
+                source,
+                unit.pristine_est,
+            )
         };
         render_file(&mut diff, &unit.path, body);
         line += FILE_HEADER_LINES + count_lines(body);
@@ -1858,7 +1936,11 @@ fn fill_rows(
                 continue;
             }
             let share_cap = u64::from(rendered.est) * u64::from(opts.max_share_permille) / 1000;
-            if rendered.constituents.iter().any(|c| u64::from(c.est_tokens) > share_cap) {
+            if rendered
+                .constituents
+                .iter()
+                .any(|c| u64::from(c.est_tokens) > share_cap)
+            {
                 bump(&mut report.attempts_refused, "constituent_over_share");
                 continue;
             }
@@ -1912,20 +1994,22 @@ fn compose_split(
         ..SplitReport::default()
     };
     for u in units {
-        *report.file_est_histogram.entry(length_bin(u.pristine_est)).or_insert(0) += 1;
+        *report
+            .file_est_histogram
+            .entry(length_bin(u.pristine_est))
+            .or_insert(0) += 1;
     }
     if wanted == 0 {
         return Ok((Vec::new(), report, Vec::new()));
     }
-    let shortfall = |made: usize, detail: String, refusals: &BTreeMap<String, u64>| {
-        ComposeError::Shortfall {
+    let shortfall =
+        |made: usize, detail: String, refusals: &BTreeMap<String, u64>| ComposeError::Shortfall {
             split: split.as_str(),
             made,
             wanted,
             detail,
             refusals: refusals.clone(),
-        }
-    };
+        };
 
     // Plan every row first: class and target, drawn once and held through every attempt.
     let mut plans: Vec<Plan> = (0..wanted)
@@ -1936,7 +2020,11 @@ fn compose_split(
         })
         .map(|(clean, target)| Plan {
             target,
-            needle: if clean { None } else { Some((usize::MAX, usize::MAX)) },
+            needle: if clean {
+                None
+            } else {
+                Some((usize::MAX, usize::MAX))
+            },
         })
         .collect();
     let mutated_rows: Vec<usize> = (0..wanted).filter(|&i| plans[i].needle.is_some()).collect();
@@ -1974,8 +2062,15 @@ fn compose_split(
     // The universe: as many files as mutated rows, each the needle exactly once.
     shuffle(&mut all, &mut rng);
     let needle_files: Vec<usize> = all[..mutated_rows.len()].to_vec();
-    assign_needles(&mut plans, &mutated_rows, &needle_files, units, opts, &mut rng)
-        .map_err(|d| shortfall(0, d, &report.attempts_refused))?;
+    assign_needles(
+        &mut plans,
+        &mutated_rows,
+        &needle_files,
+        units,
+        opts,
+        &mut rng,
+    )
+    .map_err(|d| shortfall(0, d, &report.attempts_refused))?;
     let mut pool = FillerPool::new(units, &needle_files, opts);
     for &u in &needle_files {
         pool.record_use(u);
@@ -1991,7 +2086,16 @@ fn compose_split(
         &mut report,
         |index, plan, rendered, fillers| {
             let id = format!("{}compose:{}:{index:06}", opts.id_prefix, split.as_str());
-            build_row(id, split, units, plan, rendered, fillers, opts, Anchor::Needle)
+            build_row(
+                id,
+                split,
+                units,
+                plan,
+                rendered,
+                fillers,
+                opts,
+                Anchor::Needle,
+            )
         },
     )?;
 
@@ -2009,7 +2113,10 @@ fn compose_split(
             )));
         }
     }
-    let universe: Vec<&str> = needle_files.iter().map(|&u| units[u].pool_id.as_str()).collect();
+    let universe: Vec<&str> = needle_files
+        .iter()
+        .map(|&u| units[u].pool_id.as_str())
+        .collect();
     report.needle_rate = needle_rate_report(&counts, &universe, opts)
         .map_err(|m| ComposeError::Invariant(format!("{}: {m}", split.as_str())))?;
     report.files_used = needle_files.iter().filter(|&&u| pool.uses[u] > 0).count() as u64;
@@ -2098,11 +2205,21 @@ fn compose_diag(
                 .filter(|r| Some(r.row.id.as_str()) != used)
                 .cloned()
                 .collect();
-            (!renderings.is_empty()).then(|| (FileUnit { renderings, ..u.clone() }, uses))
+            (!renderings.is_empty()).then(|| {
+                (
+                    FileUnit {
+                        renderings,
+                        ..u.clone()
+                    },
+                    uses,
+                )
+            })
         })
         .collect();
     let universe: HashSet<usize> = val_universe.iter().copied().collect();
-    let mut unseen: Vec<usize> = (0..val_units.len()).filter(|i| !universe.contains(i)).collect();
+    let mut unseen: Vec<usize> = (0..val_units.len())
+        .filter(|i| !universe.contains(i))
+        .collect();
     let n_seen = opts.diag_rows / 2;
     let n_unseen = opts.diag_rows - n_seen;
     let mut report = DiagReport {
@@ -2188,12 +2305,27 @@ fn compose_diag(
         &mut report.report,
         |index, plan, rendered, chosen| {
             let id = format!("{}compose:diag:{index:06}", opts.id_prefix);
-            let mut row =
-                build_row(id, Split::Val, &units, plan, rendered, chosen, opts, Anchor::Filler)?;
+            let mut row = build_row(
+                id,
+                Split::Val,
+                &units,
+                plan,
+                rendered,
+                chosen,
+                opts,
+                Anchor::Filler,
+            )?;
             let (u, _) = plan.needle.ok_or_else(|| {
                 ComposeError::Invariant(format!("{}: a diag row without a needle", row.id))
             })?;
-            row.diag_half = Some(if halves[index] { "seen_filler" } else { "unseen" }.to_string());
+            row.diag_half = Some(
+                if halves[index] {
+                    "seen_filler"
+                } else {
+                    "unseen"
+                }
+                .to_string(),
+            );
             row.needle_train_appearances = Some(uses_of[u]);
             Ok(row)
         },
@@ -2236,7 +2368,9 @@ pub fn needle_rate_report(
 ) -> Result<NeedleRateReport, String> {
     let members: HashSet<&str> = universe.iter().copied().collect();
     if let Some(stray) = counts.keys().find(|k| !members.contains(*k)) {
-        return Err(format!("{stray} appears in a row but is not in the file universe"));
+        return Err(format!(
+            "{stray} appears in a row but is not in the file universe"
+        ));
     }
     let mut out = NeedleRateReport {
         files: universe.len() as u64,
@@ -2350,8 +2484,9 @@ fn build_row(
             })
         }
         (None, None) => {
-            let anchor = first_filler
-                .ok_or_else(|| ComposeError::Invariant(format!("{id}: a clean row holds no file")))?;
+            let anchor = first_filler.ok_or_else(|| {
+                ComposeError::Invariant(format!("{id}: a clean row holds no file"))
+            })?;
             let unit = &units[anchor];
             let function = &unit.renderings[0].row.function;
             Ok(ComposedRow {
@@ -2387,7 +2522,9 @@ fn build_row(
                 needle_train_appearances: None,
             })
         }
-        _ => Err(ComposeError::Invariant(format!("{id}: the plan and the rendering disagree on the needle"))),
+        _ => Err(ComposeError::Invariant(format!(
+            "{id}: the plan and the rendering disagree on the needle"
+        ))),
     }
 }
 
@@ -2412,10 +2549,16 @@ fn verify_row(row: &ComposedRow, units: &[FileUnit]) -> Result<(), ComposeError>
             || at(c.first_line + 1) != format!("--- a/{}", c.path)
             || at(c.first_line + 2) != format!("+++ b/{}", c.path)
         {
-            return fail(format!("block of {} does not open with its file headers", c.pool_id));
+            return fail(format!(
+                "block of {} does not open with its file headers",
+                c.pool_id
+            ));
         }
         if !at(c.first_line + 3).starts_with("@@ ") {
-            return fail(format!("block of {} does not open with a hunk header", c.pool_id));
+            return fail(format!(
+                "block of {} does not open with a hunk header",
+                c.pool_id
+            ));
         }
         expected_first = c.last_line + 1;
     }
@@ -2426,7 +2569,11 @@ fn verify_row(row: &ComposedRow, units: &[FileUnit]) -> Result<(), ComposeError>
     if paths.len() != row.constituents.len() {
         return fail("two files share a path".to_string());
     }
-    let needles: Vec<&Constituent> = row.constituents.iter().filter(|c| c.role == "needle").collect();
+    let needles: Vec<&Constituent> = row
+        .constituents
+        .iter()
+        .filter(|c| c.role == "needle")
+        .collect();
     match (row.class, row.diff_span, needles.as_slice()) {
         (MutationClass::Clean, None, []) => Ok(()),
         (MutationClass::Clean, _, _) => fail("a clean row carries a span or a needle".to_string()),
@@ -2438,7 +2585,9 @@ fn verify_row(row: &ComposedRow, units: &[FileUnit]) -> Result<(), ComposeError>
             for n in [span.start, span.end] {
                 let l = lines[(n - 1) as usize];
                 if !(l.starts_with('+') || l.starts_with(' ')) {
-                    return fail(format!("span endpoint line {n} is {l:?}, not '+' or context"));
+                    return fail(format!(
+                        "span endpoint line {n} is {l:?}, not '+' or context"
+                    ));
                 }
             }
             // Within one hunk: inside a block's body, only a hunk header begins with '@'.
@@ -2463,7 +2612,10 @@ fn verify_row(row: &ComposedRow, units: &[FileUnit]) -> Result<(), ComposeError>
                     return fail("span text differs from the needle's own span text".to_string());
                 }
             }
-            if row.needle_index.map(|i| row.constituents[i as usize].role.as_str()) != Some("needle")
+            if row
+                .needle_index
+                .map(|i| row.constituents[i as usize].role.as_str())
+                != Some("needle")
             {
                 return fail("needle_index does not name the needle".to_string());
             }
@@ -2475,8 +2627,14 @@ fn verify_row(row: &ComposedRow, units: &[FileUnit]) -> Result<(), ComposeError>
 
 fn note_row(report: &mut SplitReport, row: &ComposedRow) {
     report.rows += 1;
-    *report.by_class.entry(row.class.as_str().to_string()).or_insert(0) += 1;
-    *report.length_est_histogram.entry(length_bin(row.est_tokens)).or_insert(0) += 1;
+    *report
+        .by_class
+        .entry(row.class.as_str().to_string())
+        .or_insert(0) += 1;
+    *report
+        .length_est_histogram
+        .entry(length_bin(row.est_tokens))
+        .or_insert(0) += 1;
     *report.files_per_row.entry(row.n_files).or_insert(0) += 1;
     report.est_tokens_total += u64::from(row.est_tokens);
     for c in &row.constituents {
@@ -2493,14 +2651,20 @@ fn note_row(report: &mut SplitReport, row: &ComposedRow) {
         } else {
             0.0
         };
-        *report.needle_index_depth.entry(depth_bucket(frac).to_string()).or_insert(0) += 1;
+        *report
+            .needle_index_depth
+            .entry(depth_bucket(frac).to_string())
+            .or_insert(0) += 1;
         let total = count_lines(&row.diff);
         let line_frac = if total > 1 {
             f64::from(span.start - 1) / f64::from(total - 1)
         } else {
             0.0
         };
-        *report.needle_line_depth.entry(depth_bucket(line_frac).to_string()).or_insert(0) += 1;
+        *report
+            .needle_line_depth
+            .entry(depth_bucket(line_frac).to_string())
+            .or_insert(0) += 1;
         let lines: Vec<&str> = row.diff.split('\n').collect();
         if (span.start..=span.end).any(|n| lines[(n - 1) as usize].starts_with('-')) {
             report.spans_with_interior_removed_lines += 1;
@@ -2639,7 +2803,10 @@ pub fn census(prepared: &Prepared) -> BTreeMap<String, SplitReport> {
                 .filter(|u| u.renderings.iter().all(|r| r.source == Source::Aux))
                 .count() as u64;
             for u in units {
-                *report.file_est_histogram.entry(length_bin(u.pristine_est)).or_insert(0) += 1;
+                *report
+                    .file_est_histogram
+                    .entry(length_bin(u.pristine_est))
+                    .or_insert(0) += 1;
             }
         }
         out.insert(split.as_str().to_string(), report);

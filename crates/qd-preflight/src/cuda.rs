@@ -30,7 +30,6 @@
 //! | Do the artifact hashes match the build? | this crate |
 //! | Which GDN implementation actually ran? | `verify_fast_path.py` |
 
-
 use std::os::raw::{c_char, c_int};
 
 use crate::tristate::TriState;
@@ -128,7 +127,9 @@ unsafe fn probe_with(lib: &libloading::Library) -> Result<CudaProbe, String> {
         // The library exists but the driver will not initialise: a broken or
         // mismatched driver, or no permission on the device nodes. This is a genuine
         // FAILURE, not an absence -- something is installed and it does not work.
-        return Err(format!("cuInit returned {rc} (driver present but not usable)"));
+        return Err(format!(
+            "cuInit returned {rc} (driver present but not usable)"
+        ));
     }
 
     let mut version: c_int = 0;
@@ -151,7 +152,11 @@ unsafe fn probe_with(lib: &libloading::Library) -> Result<CudaProbe, String> {
         let mut buf = vec![0i8; 256];
         let name = if unsafe { cu_name(buf.as_mut_ptr() as *mut c_char, 256, dev) } == CUDA_SUCCESS
         {
-            let bytes: Vec<u8> = buf.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
+            let bytes: Vec<u8> = buf
+                .iter()
+                .take_while(|c| **c != 0)
+                .map(|c| *c as u8)
+                .collect();
             String::from_utf8_lossy(&bytes).into_owned()
         } else {
             "<name unavailable>".to_string()
@@ -160,8 +165,16 @@ unsafe fn probe_with(lib: &libloading::Library) -> Result<CudaProbe, String> {
         let mut major: c_int = 0;
         let mut minor: c_int = 0;
         unsafe {
-            cu_attr(&mut major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev);
-            cu_attr(&mut minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, dev);
+            cu_attr(
+                &mut major,
+                CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
+                dev,
+            );
+            cu_attr(
+                &mut minor,
+                CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
+                dev,
+            );
         }
 
         let mut bytes: usize = 0;
@@ -175,7 +188,11 @@ unsafe fn probe_with(lib: &libloading::Library) -> Result<CudaProbe, String> {
         });
     }
 
-    Ok(CudaProbe { soname: String::new(), driver_version: version, devices })
+    Ok(CudaProbe {
+        soname: String::new(),
+        driver_version: version,
+        devices,
+    })
 }
 
 /// The preflight check: is there a usable CUDA device?
@@ -198,7 +215,10 @@ pub fn check_cuda() -> (TriState, Option<CudaProbe>) {
             )),
             None,
         ),
-        Err(e) => (TriState::fail(format!("CUDA driver present but unusable: {e}")), None),
+        Err(e) => (
+            TriState::fail(format!("CUDA driver present but unusable: {e}")),
+            None,
+        ),
         Ok(Some(p)) if p.devices.is_empty() => (
             TriState::fail(format!(
                 "CUDA driver {} loaded and initialised but reports ZERO devices",
@@ -214,7 +234,12 @@ pub fn check_cuda() -> (TriState, Option<CudaProbe>) {
                 p.devices.len(),
                 p.devices
                     .iter()
-                    .map(|d| format!("{} (sm_{}, {:.1} GiB)", d.name, d.compute_capability.replace('.', ""), d.total_mem_gib))
+                    .map(|d| format!(
+                        "{} (sm_{}, {:.1} GiB)",
+                        d.name,
+                        d.compute_capability.replace('.', ""),
+                        d.total_mem_gib
+                    ))
                     .collect::<Vec<_>>()
                     .join(", ")
             );

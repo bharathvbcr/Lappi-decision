@@ -22,7 +22,7 @@ use qd_mutate::manifest::PoolReport;
 use qd_mutate::ops::MutationClass;
 use qd_mutate::parse::parse_bounded;
 use qd_mutate::pool::PoolRecord;
-use qd_mutate::span::{total_lines, LineSpan};
+use qd_mutate::span::{LineSpan, total_lines};
 
 /// Run one source through the generator many times over, under one seed.
 ///
@@ -68,7 +68,11 @@ fn pool_report() -> PoolReport {
 fn check_every_example(run: &Run) {
     for example in &run.examples {
         if example.class == MutationClass::Clean {
-            assert!(example.span.is_none(), "{}: clean points at nothing", example.id);
+            assert!(
+                example.span.is_none(),
+                "{}: clean points at nothing",
+                example.id
+            );
             continue;
         }
         let span = example.span.expect("a mutated example carries a span");
@@ -166,7 +170,10 @@ fn crlf_line_endings_are_normalized_and_recorded() {
             !example.normalization.mixed_endings,
             "a uniformly CRLF file is converted, not mixed"
         );
-        assert!(!example.before.contains('\r'), "a CR survived into the example");
+        assert!(
+            !example.before.contains('\r'),
+            "a CR survived into the example"
+        );
         assert!(!example.after.contains('\r'));
     }
 }
@@ -177,7 +184,10 @@ fn a_file_with_mixed_endings_is_flagged_not_merely_converted() {
     let head = RUST_BASE[..RUST_BASE.len() / 2].replace('\n', "\r\n");
     let mixed = format!("{head}{}", &RUST_BASE[RUST_BASE.len() / 2..]);
     let run = run_over(&mixed, "rs", 16);
-    assert!(!run.examples.is_empty(), "a mixed-ending file produced nothing");
+    assert!(
+        !run.examples.is_empty(),
+        "a mixed-ending file produced nothing"
+    );
     for example in &run.examples {
         assert!(
             example.normalization.mixed_endings,
@@ -194,7 +204,11 @@ fn a_bom_is_stripped_and_recorded_and_does_not_shift_the_first_line() {
     let run = run_over(&with_bom, "rs", 16);
     assert!(!run.examples.is_empty(), "a BOM'd file produced nothing");
     for example in &run.examples {
-        assert!(example.normalization.bom, "{}: the BOM was not recorded", example.id);
+        assert!(
+            example.normalization.bom,
+            "{}: the BOM was not recorded",
+            example.id
+        );
         assert!(
             !example.before.starts_with('\u{feff}'),
             "the BOM survived into the example and shifts every byte offset by three"
@@ -226,7 +240,10 @@ pub fn 合計(最初: usize, 最後: usize) -> Result<usize, String> {
 #[test]
 fn multibyte_identifiers_and_emoji_do_not_move_a_line_number() {
     let run = run_over(RUST_MULTIBYTE, "rs", 24);
-    assert!(!run.examples.is_empty(), "a multi-byte file produced nothing");
+    assert!(
+        !run.examples.is_empty(),
+        "a multi-byte file produced nothing"
+    );
     for example in &run.examples {
         // Byte offset != char offset != column; the span is in *lines*, and lines are what must
         // survive. `check_every_example` already cross-checked it; this pins the content too.
@@ -305,10 +322,7 @@ def work(a: int) -> int:
 fn a_python_string_saying_pass_does_not_make_a_working_body_read_as_a_stub() {
     let run = run_over(PYTHON_STRING_TRAP, "py", 32);
     let used = operators_used(&run);
-    assert!(
-        used.iter().any(|o| o.starts_with("stub.")),
-        "got {used:?}"
-    );
+    assert!(used.iter().any(|o| o.starts_with("stub.")), "got {used:?}");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -336,7 +350,11 @@ fn a_body_that_is_already_a_stub_is_refused_by_every_stub_operator() {
         .find(|r| r.language == LangId::Rust)
         .expect("rust report");
     assert!(
-        rust.refusals.get("precondition_unmet").copied().unwrap_or(0) > 0,
+        rust.refusals
+            .get("precondition_unmet")
+            .copied()
+            .unwrap_or(0)
+            > 0,
         "the refusal was not recorded: {:?}",
         rust.refusals
     );
@@ -530,7 +548,10 @@ where
 fn async_generics_where_clauses_and_brace_macros_do_not_confuse_the_body_extent() {
     let run = run_over(RUST_HARD_EXTENTS, "rs", 32);
     assert!(!run.examples.is_empty(), "produced nothing");
-    let body_start = qd_mutate::span::line_of(RUST_HARD_EXTENTS, RUST_HARD_EXTENTS.find("let mapped").expect("fixture"));
+    let body_start = qd_mutate::span::line_of(
+        RUST_HARD_EXTENTS,
+        RUST_HARD_EXTENTS.find("let mapped").expect("fixture"),
+    );
     for example in &run.examples {
         assert_eq!(example.function.symbol, "tricky");
         let source_span = example.source_span.expect("mutated");
@@ -567,7 +588,10 @@ fn an_empty_body_is_skipped_rather_than_emitted_with_an_empty_span() {
             example.function.symbol, "empty",
             "an empty body has nothing to mutate"
         );
-        assert_ne!(example.function.symbol, "sig", "a signature has no body at all");
+        assert_ne!(
+            example.function.symbol, "sig",
+            "a signature has no body at all"
+        );
     }
 }
 
@@ -586,7 +610,10 @@ fn a_single_line_function_gets_a_span_whose_ends_are_equal() {
                 && matches!(e.class, MutationClass::Stub | MutationClass::Logic)
         })
         .collect();
-    assert!(!single.is_empty(), "the single-line function produced nothing");
+    assert!(
+        !single.is_empty(),
+        "the single-line function produced nothing"
+    );
     for example in single {
         let span = example.span.expect("mutated");
         assert_eq!(
@@ -635,7 +662,7 @@ fn run_raw(source: &str, extension: &str) -> Run {
         language: None,
         source: source.to_string(),
         hunks: None,
-            prior_source: None,
+        prior_source: None,
     };
     Generator::new(Options {
         seed: 1,

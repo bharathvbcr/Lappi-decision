@@ -42,7 +42,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
@@ -57,7 +57,11 @@ const NOUL_CLASS: &str = "noul";
 const MAX_PER_SOURCE: usize = 100_000;
 
 #[derive(Parser, Debug)]
-#[command(name = "qd-noul-rows", version, about = "code.defect_class rows whose gold is noul")]
+#[command(
+    name = "qd-noul-rows",
+    version,
+    about = "code.defect_class rows whose gold is noul"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -287,10 +291,21 @@ impl Mix {
     /// v1: every source `n` rows. v2: equal thirds of `n`, prose and scrambled in exact halves.
     fn thirds(n: usize, v2: bool) -> Mix {
         if v2 {
-            Mix { paragraph: n / 2, question: n - n / 2, lines: n / 2, tokens: n - n / 2,
-                  template: n }
+            Mix {
+                paragraph: n / 2,
+                question: n - n / 2,
+                lines: n / 2,
+                tokens: n - n / 2,
+                template: n,
+            }
         } else {
-            Mix { paragraph: n, question: 0, lines: n, tokens: 0, template: n }
+            Mix {
+                paragraph: n,
+                question: 0,
+                lines: n,
+                tokens: 0,
+                template: n,
+            }
         }
     }
 
@@ -307,8 +322,13 @@ impl Mix {
     /// `paragraph=N,question=N,lines=N,tokens=N,template=N`: all five forms, once each, in any
     /// order, each count in `1..=MAX_PER_SOURCE`.
     fn parse(spec: &str) -> Result<Mix> {
-        let forms = [FORM_PARAGRAPH, questions::FORM, corpus::FORM_LINES, corpus::FORM_TOKENS,
-                     FORM_TEMPLATE];
+        let forms = [
+            FORM_PARAGRAPH,
+            questions::FORM,
+            corpus::FORM_LINES,
+            corpus::FORM_TOKENS,
+            FORM_TEMPLATE,
+        ];
         let mut got: BTreeMap<&'static str, usize> = BTreeMap::new();
         for part in spec.split(',') {
             let (name, count) = part
@@ -318,18 +338,25 @@ impl Mix {
             let Some(form) = forms.iter().copied().find(|f| *f == name) else {
                 bail!("--form-counts: {name:?} is not a form; the forms are {forms:?}");
             };
-            let count: usize = count.trim().parse().with_context(|| {
-                format!("--form-counts: {form}={count:?} is not a count")
-            })?;
+            let count: usize = count
+                .trim()
+                .parse()
+                .with_context(|| format!("--form-counts: {form}={count:?} is not a count"))?;
             if count == 0 || count > MAX_PER_SOURCE {
-                bail!("--form-counts: {form} must be at least 1 and at most {MAX_PER_SOURCE}, \
-                       got {count}");
+                bail!(
+                    "--form-counts: {form} must be at least 1 and at most {MAX_PER_SOURCE}, \
+                       got {count}"
+                );
             }
             if got.insert(form, count).is_some() {
                 bail!("--form-counts names {form} twice");
             }
         }
-        let missing: Vec<&str> = forms.iter().copied().filter(|f| !got.contains_key(f)).collect();
+        let missing: Vec<&str> = forms
+            .iter()
+            .copied()
+            .filter(|f| !got.contains_key(f))
+            .collect();
         if !missing.is_empty() {
             bail!("--form-counts must name every form; missing {missing:?}");
         }
@@ -355,7 +382,10 @@ fn file_name(path: &Path) -> Result<String> {
 fn read_pinned(path: &Path, expected_name: &str, expected_sha: &str) -> Result<Vec<u8>> {
     let name = file_name(path)?;
     if name != expected_name {
-        bail!("{} is not the {expected_name} the allowlist was computed from", path.display());
+        bail!(
+            "{} is not the {expected_name} the allowlist was computed from",
+            path.display()
+        );
     }
     let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let sha = sha256_hex(&bytes);
@@ -433,7 +463,10 @@ fn scrambled_from_pool(
             }
         }
         if got < quota {
-            bail!("{}: {got} scrambled rows, {quota} were asked for", lang.as_str());
+            bail!(
+                "{}: {got} scrambled rows, {quota} were asked for",
+                lang.as_str()
+            );
         }
     }
     Ok(scramble_skips)
@@ -452,8 +485,10 @@ fn scrambled_from_corpus(
 ) -> Result<BTreeMap<String, u64>> {
     // The loader re-checks every row's repo against its pool id; a corpus row that disagrees
     // with the pool is a corpus of unknown provenance, so refuse it here rather than write it.
-    let pool_repo: BTreeMap<&str, &str> =
-        records.iter().map(|r| (r.id.as_str(), r.repo.as_str())).collect();
+    let pool_repo: BTreeMap<&str, &str> = records
+        .iter()
+        .map(|r| (r.id.as_str(), r.repo.as_str()))
+        .collect();
     for e in &corpus.examples {
         match pool_repo.get(e.pool_id.as_str()) {
             Some(repo) if *repo == e.repo => {}
@@ -471,7 +506,10 @@ fn scrambled_from_corpus(
     let mut skips: BTreeMap<String, u64> = BTreeMap::new();
     let mut used_repos: BTreeSet<&str> = BTreeSet::new();
     let langs = scramble::LANGUAGES.len();
-    for (form, total) in [(corpus::FORM_LINES, n_lines), (corpus::FORM_TOKENS, n_tokens)] {
+    for (form, total) in [
+        (corpus::FORM_LINES, n_lines),
+        (corpus::FORM_TOKENS, n_tokens),
+    ] {
         for (k, lang) in scramble::LANGUAGES.iter().enumerate() {
             let quota = total / langs + usize::from(k < total % langs);
             let mut got = 0usize;
@@ -503,11 +541,18 @@ fn scrambled_from_corpus(
                         });
                         got += 1;
                     }
-                    Err(skip) => *skips.entry(format!("{form}:{}", skip.as_str())).or_insert(0) += 1,
+                    Err(skip) => {
+                        *skips
+                            .entry(format!("{form}:{}", skip.as_str()))
+                            .or_insert(0) += 1
+                    }
                 }
             }
             if got < quota {
-                bail!("{} {form}: {got} scrambled rows, {quota} were asked for", lang.as_str());
+                bail!(
+                    "{} {form}: {got} scrambled rows, {quota} were asked for",
+                    lang.as_str()
+                );
             }
         }
     }
@@ -563,8 +608,7 @@ fn generate(args: &GenerateArgs) -> Result<()> {
     }
     let corpus = match (&args.corpus, v2) {
         (Some(dir), true) => Some(
-            corpus::read(dir, &allow.pool.files, &allow.pool.sha256)
-                .map_err(anyhow::Error::msg)?,
+            corpus::read(dir, &allow.pool.files, &allow.pool.sha256).map_err(anyhow::Error::msg)?,
         ),
         (None, true) => bail!(
             "--forms v2 needs --corpus: its scrambled rows are made from the corpus's own diffs"
@@ -573,8 +617,7 @@ fn generate(args: &GenerateArgs) -> Result<()> {
     };
     let preregistered = match &args.preregistered {
         Some(path) => {
-            let bytes =
-                fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+            let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
             let value: serde_json::Value = serde_json::from_slice(&bytes)
                 .with_context(|| format!("{} is not JSON", path.display()))?;
             if !value.is_object() {
@@ -597,9 +640,8 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         prose::read_paragraphs(&squad_bytes[..], &allow.squad.titles, ranges)
             .map_err(anyhow::Error::msg)?;
     if v2 {
-        let (groups, read_skips) =
-            questions::read(&squad_bytes[..], &allow.squad.titles, ranges)
-                .map_err(anyhow::Error::msg)?;
+        let (groups, read_skips) = questions::read(&squad_bytes[..], &allow.squad.titles, ranges)
+            .map_err(anyhow::Error::msg)?;
         let (picked, render_skips) =
             questions::select(&groups, mix.question, seed).map_err(anyhow::Error::msg)?;
         for (reason, count) in read_skips.into_iter().chain(render_skips) {
@@ -658,7 +700,12 @@ fn generate(args: &GenerateArgs) -> Result<()> {
     }
     let scramble_skips = match &corpus {
         Some(corpus) => scrambled_from_corpus(
-            &mut rows, corpus, &records, &allow, (mix.lines, mix.tokens), seed,
+            &mut rows,
+            corpus,
+            &records,
+            &allow,
+            (mix.lines, mix.tokens),
+            seed,
         )?,
         None => scrambled_from_pool(&mut rows, &records, &allow, mix.lines, seed)?,
     };
@@ -716,9 +763,15 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         body.push_str(&serde_json::to_string(row)?);
         body.push('\n');
         *totals.by_source.entry(row.noul_source).or_insert(0) += 1;
-        *totals.by_language.entry(row.language.to_string()).or_insert(0) += 1;
+        *totals
+            .by_language
+            .entry(row.language.to_string())
+            .or_insert(0) += 1;
         *totals.by_licence.entry(row.licence.clone()).or_insert(0) += 1;
-        units.entry(row.noul_source).or_default().insert(row.repo.as_str());
+        units
+            .entry(row.noul_source)
+            .or_default()
+            .insert(row.repo.as_str());
         if let Some(form) = row.noul_form {
             *by_form.entry(form).or_insert(0) += 1;
         }
@@ -747,7 +800,10 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         per_source,
         split: allow.split.clone(),
         allowlist_sha256: sha256_hex(&allowlist_bytes),
-        squad: InputFile { file: allow.squad.file.clone(), sha256: allow.squad.sha256.clone() },
+        squad: InputFile {
+            file: allow.squad.file.clone(),
+            sha256: allow.squad.sha256.clone(),
+        },
         pool: PoolMeta {
             path: allow.pool.file.clone(),
             sha256: allow.pool.sha256.clone(),
@@ -757,28 +813,37 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         examples_sha256: examples_sha256.clone(),
         totals,
         licences: BTreeMap::from([
-            (prose::SOURCE, LicenceNote {
-                licence: Some(allow.squad.licence.clone()),
-                basis: "rajpurkar/squad_v2's registered licence (qd_data.sources); \
+            (
+                prose::SOURCE,
+                LicenceNote {
+                    licence: Some(allow.squad.licence.clone()),
+                    basis: "rajpurkar/squad_v2's registered licence (qd_data.sources); \
                         share-alike, carried per row"
-                    .to_string(),
-            }),
-            (scramble::SOURCE, LicenceNote {
-                licence: None,
-                basis: if v2 {
-                    "per row: the corpus row's pool_id -> commitpackft pool -> \
+                        .to_string(),
+                },
+            ),
+            (
+                scramble::SOURCE,
+                LicenceNote {
+                    licence: None,
+                    basis: if v2 {
+                        "per row: the corpus row's pool_id -> commitpackft pool -> \
                      bigcode/commitpackft download (commit, new_file), as the main defect \
                      corpus is joined"
-                } else {
-                    "per row: pool_id -> commitpackft pool -> bigcode/commitpackft download \
+                    } else {
+                        "per row: pool_id -> commitpackft pool -> bigcode/commitpackft download \
                      (commit, new_file), as the main defect corpus is joined"
-                }
-                .to_string(),
-            }),
-            (templates::SOURCE, LicenceNote {
-                licence: Some(allow.templates.licence.clone()),
-                basis: allow.templates.licence_basis.clone(),
-            }),
+                    }
+                    .to_string(),
+                },
+            ),
+            (
+                templates::SOURCE,
+                LicenceNote {
+                    licence: Some(allow.templates.licence.clone()),
+                    basis: allow.templates.licence_basis.clone(),
+                },
+            ),
         ]),
         excluded_by_allowlist: BTreeMap::from([
             (prose::SOURCE, allow.squad.excluded.clone()),

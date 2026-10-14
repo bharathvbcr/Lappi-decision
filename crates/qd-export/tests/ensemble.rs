@@ -248,10 +248,15 @@ fn an_ensemble_manifest_without_the_members_prompt_format_is_refused() {
     });
     let err = Ensemble::open(&w.out()).expect_err("an ensemble that states no prompt format");
     assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
-    assert!(err.detail.contains("expected_identity.prompt_format"), "{err}");
+    assert!(
+        err.detail.contains("expected_identity.prompt_format"),
+        "{err}"
+    );
 
     let (w, _) = written();
-    rewrite_ensemble_manifest(&w.out(), |m| m["expected_identity"]["prompt_format"] = json!(1));
+    rewrite_ensemble_manifest(&w.out(), |m| {
+        m["expected_identity"]["prompt_format"] = json!(1)
+    });
     let err = Ensemble::open(&w.out()).expect_err("an ensemble stating another prompt format");
     assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
     assert!(err.detail.contains("prompt_format 1"), "{err}");

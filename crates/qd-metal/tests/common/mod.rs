@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use qd_export::safetensors::{Dtype, PlannedTensor, Writer};
-use qd_export::{export, ExportRequest};
+use qd_export::{ExportRequest, export};
 use qd_metal::backend::{MetalBackend, MetalConfig};
 use qd_runtime::backend::{DecisionBackend, DecodeMode, Logits, QueryKind, SlotQuery};
 use serde_json::Value;
@@ -20,15 +20,26 @@ pub fn fixtures() -> PathBuf {
 }
 
 pub fn read_json(path: &Path) -> Value {
-    serde_json::from_slice(&std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap()
+    serde_json::from_slice(
+        &std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+    )
+    .unwrap()
 }
 
 pub fn f32s(v: &Value) -> Vec<f32> {
-    v.as_array().unwrap().iter().map(|b| f32::from_bits(u32::try_from(b.as_i64().unwrap() & 0xFFFF_FFFF).unwrap())).collect()
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|b| f32::from_bits(u32::try_from(b.as_i64().unwrap() & 0xFFFF_FFFF).unwrap()))
+        .collect()
 }
 
 pub fn bf16s(v: &Value) -> Vec<u16> {
-    v.as_array().unwrap().iter().map(|b| u16::try_from(b.as_i64().unwrap()).unwrap()).collect()
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|b| u16::try_from(b.as_i64().unwrap()).unwrap())
+        .collect()
 }
 
 pub struct Temp(pub PathBuf);
@@ -36,7 +47,8 @@ impl Temp {
     pub fn new(tag: &str) -> Self {
         static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let p = std::env::temp_dir().join(format!("qd-metal-span-{tag}-{}-{n}", std::process::id()));
+        let p =
+            std::env::temp_dir().join(format!("qd-metal-span-{tag}-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&p).unwrap();
         Self(p)
     }
@@ -54,13 +66,23 @@ pub fn write_f32(path: &Path, tensors: &[(&str, Vec<usize>, Vec<f32>)]) {
     let _absent_is_fine = std::fs::remove_file(path);
     let plan = tensors
         .iter()
-        .map(|(n, shape, _)| PlannedTensor { name: (*n).to_string(), dtype: Dtype::F32, shape: shape.clone() })
+        .map(|(n, shape, _)| PlannedTensor {
+            name: (*n).to_string(),
+            dtype: Dtype::F32,
+            shape: shape.clone(),
+        })
         .collect();
     let mut w = Writer::create(path, plan).unwrap();
     for planned in w.order() {
         let (_, _, values) = tensors.iter().find(|(n, _, _)| *n == planned.name).unwrap();
         w.begin(&planned.name).unwrap();
-        w.write(&values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        w.write(
+            &values
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<u8>>(),
+        )
+        .unwrap();
         w.end().unwrap();
     }
     w.finish().unwrap();
@@ -72,10 +94,16 @@ pub fn tiny_release(tag: &str, edit_source_manifest: impl FnOnce(&mut Value)) ->
     let manifest_path = dir.0.join("source.safetensors.manifest.json");
     let mut manifest = read_json(&tiny.join("source.safetensors.manifest.json"));
     edit_source_manifest(&mut manifest);
-    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
     let out = dir.0.join("release");
     let snapshot = tiny.join("snapshot");
-    let tokenizer_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(snapshot.join("tokenizer.json")).unwrap()));
+    let tokenizer_sha = qd_runtime::hex(&qd_runtime::sha256(
+        &std::fs::read(snapshot.join("tokenizer.json")).unwrap(),
+    ));
     export(&ExportRequest {
         source: tiny.join("source.safetensors"),
         source_manifest: Some(manifest_path),
@@ -122,14 +150,25 @@ impl Reference {
         usize::try_from(self.0[key].as_u64().unwrap()).unwrap()
     }
     pub fn rows(&self, key: &str) -> Vec<u32> {
-        self.0[key].as_array().unwrap().iter().map(|v| u32::try_from(v.as_u64().unwrap()).unwrap()).collect()
+        self.0[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| u32::try_from(v.as_u64().unwrap()).unwrap())
+            .collect()
     }
 }
 
 pub fn rel_diff(got: &[f32], want: &[f32]) -> f64 {
     assert_eq!(got.len(), want.len());
-    let scale = want.iter().fold(0f64, |m, v| m.max(f64::from(v.abs()))).max(1e-6);
-    got.iter().zip(want).fold(0f64, |m, (g, w)| m.max(f64::from((g - w).abs()))) / scale
+    let scale = want
+        .iter()
+        .fold(0f64, |m, v| m.max(f64::from(v.abs())))
+        .max(1e-6);
+    got.iter()
+        .zip(want)
+        .fold(0f64, |m, (g, w)| m.max(f64::from((g - w).abs())))
+        / scale
 }
 
 pub fn start(release: &std::path::Path) -> MetalBackend {
@@ -153,7 +192,12 @@ pub fn decode(
 ) -> Result<Logits, qd_runtime::BackendError> {
     let handle = backend.prefill(refc.str("prefix"))?;
     let mut snapshot = backend.snapshot(&handle)?;
-    let query = SlotQuery { slot_name: "slot", suffix: refc.str(suffix_key), rows, kind };
+    let query = SlotQuery {
+        slot_name: "slot",
+        suffix: refc.str(suffix_key),
+        rows,
+        kind,
+    };
     backend.decode_slot(&mut snapshot, &query, DecodeMode::ReadOnly)
 }
 

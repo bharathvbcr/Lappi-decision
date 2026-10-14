@@ -39,10 +39,18 @@ pub fn snapshot(root: &Path) -> PathBuf {
     let from = Path::new(TESSL_DIR).join("tests/fixtures/qwen35_train");
     let to = root.join("qwen35_train");
     std::fs::create_dir_all(&to).unwrap();
-    let mut config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(from.join("config.json")).unwrap()).unwrap();
-    assert!(config.get("attn_output_gate").is_none(), "tessl's fixture now carries the key; drop this patch");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(from.join("config.json")).unwrap()).unwrap();
+    assert!(
+        config.get("attn_output_gate").is_none(),
+        "tessl's fixture now carries the key; drop this patch"
+    );
     config["attn_output_gate"] = serde_json::Value::Bool(true);
-    std::fs::write(to.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    std::fs::write(
+        to.join("config.json"),
+        serde_json::to_vec_pretty(&config).unwrap(),
+    )
+    .unwrap();
     std::fs::copy(from.join("model.safetensors"), to.join("model.safetensors")).unwrap();
     to
 }
@@ -56,7 +64,8 @@ pub fn head_init() -> PathBuf {
 pub fn head_pin() -> HeadInitPin {
     HeadInitPin {
         sha256: "3c1cdbb7e181386605fa4756f676351a5682a59ddc4fc4dcbfbbffb5689555b0".to_owned(),
-        content_digest: "81bd953e1f27e8e2b703264df663f15f239327c9523d3e85973687009db471d6".to_owned(),
+        content_digest: "81bd953e1f27e8e2b703264df663f15f239327c9523d3e85973687009db471d6"
+            .to_owned(),
     }
 }
 
@@ -68,7 +77,9 @@ pub const BATCH_TOKENS: u64 = 1618;
 /// that is under `/var`, a symbolic link, and ojas-io's state writer refuses symbolic links on
 /// the way to the state directory.
 pub fn scratch(tag: &str) -> PathBuf {
-    let dir = repo().join("target").join(format!("qd-run-v64-{tag}-{}", std::process::id()));
+    let dir = repo()
+        .join("target")
+        .join(format!("qd-run-v64-{tag}-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -81,7 +92,8 @@ pub fn scratch(tag: &str) -> PathBuf {
 pub fn args(root: &Path, steps: u64) -> TrainArgs {
     let fixture = fixture();
     let meta: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(fixture.join("oracle/meta.json")).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(fixture.join("oracle/meta.json")).unwrap())
+            .unwrap();
     TrainArgs {
         snapshot: snapshot(root),
         data_root: fixture.clone(),
@@ -112,7 +124,11 @@ pub fn args(root: &Path, steps: u64) -> TrainArgs {
 /// The ledger's lines, parsed; empty when the file does not exist.
 pub fn rows(ledger: &Path) -> Vec<serde_json::Value> {
     match std::fs::read_to_string(ledger) {
-        Ok(text) => text.lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).unwrap()).collect(),
+        Ok(text) => text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => panic!("{}: {e}", ledger.display()),
     }

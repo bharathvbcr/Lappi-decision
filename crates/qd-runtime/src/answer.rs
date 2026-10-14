@@ -40,19 +40,19 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use crate::backend::{
-    validate_logits, DecisionBackend, DecodeMode, Logits, QueryKind, SlotIsolationCheck, SlotQuery,
-    StateSnapshot,
+    DecisionBackend, DecodeMode, Logits, QueryKind, SlotIsolationCheck, SlotQuery, StateSnapshot,
+    validate_logits,
 };
-use crate::calibration::{calibrate, CalibrationEntry, CalibrationTable};
+use crate::calibration::{CalibrationEntry, CalibrationTable, calibrate};
 use crate::context::Context;
 use crate::refusal::{BackendError, QdError, Refusal};
-use crate::registry::{gemv, HeadRegistry, RegisteredHead};
+use crate::registry::{HeadRegistry, RegisteredHead, gemv};
 use crate::render::{
-    permuted_slot_suffix, render, second_pass_permutation, RenderCaps, RowLabel, SlotRender,
+    RenderCaps, RowLabel, SlotRender, permuted_slot_suffix, render, second_pass_permutation,
 };
 use crate::schema::{
-    AnswerEnvelope, ConformalSet, DecisionRequest, Route, SlotAnswer, SlotKind, SlotSpec, SlotValue,
-    SpanValue, RESERVED_NOUL_ROWS,
+    AnswerEnvelope, ConformalSet, DecisionRequest, RESERVED_NOUL_ROWS, Route, SlotAnswer, SlotKind,
+    SlotSpec, SlotValue, SpanValue,
 };
 
 /// How many rows a `span` slot's pointer head ranges over: one per line start in *this* context,
@@ -167,7 +167,10 @@ struct SlotPlan<'a> {
 }
 
 /// Run the procedure.
-pub fn answer(ctx: &AnswerContext<'_>, request: &DecisionRequest) -> Result<AnswerEnvelope, QdError> {
+pub fn answer(
+    ctx: &AnswerContext<'_>,
+    request: &DecisionRequest,
+) -> Result<AnswerEnvelope, QdError> {
     let prompt = render(request, ctx.caps)?;
     let identity = ctx.backend.identity();
 
@@ -214,9 +217,7 @@ pub fn answer(ctx: &AnswerContext<'_>, request: &DecisionRequest) -> Result<Answ
             }
             .into());
         }
-        let entry = *ctx
-            .calibration
-            .lookup(spec.name(), spec.kind(), rows)?;
+        let entry = *ctx.calibration.lookup(spec.name(), spec.kind(), rows)?;
         plans.push(SlotPlan {
             spec,
             render: slot_render,
@@ -309,12 +310,8 @@ fn answer_generic(
                 rows: plan.rows,
                 kind: QueryKind::Letters,
             };
-            let (pair, check) = readonly_decodes(
-                ctx.backend,
-                snapshot,
-                &[query, second_query],
-                slot_index,
-            )?;
+            let (pair, check) =
+                readonly_decodes(ctx.backend, snapshot, &[query, second_query], slot_index)?;
             let (first, second) = (&pair[0], &pair[1]);
             let cal = calibrate(name, &first.values, &plan.entry)?;
             let noul_row = plan.rows - RESERVED_NOUL_ROWS;
@@ -509,12 +506,13 @@ fn answer_registered(
             ))
         }
         SlotSpec::Score { .. } => {
-            let bin =
-                bin_for_row(plan.render, cal.top).ok_or_else(|| BackendError::LogitShapeMismatch {
+            let bin = bin_for_row(plan.render, cal.top).ok_or_else(|| {
+                BackendError::LogitShapeMismatch {
                     slot: name.to_string(),
                     expected: plan.rows,
                     actual: cal.top,
-                })?;
+                }
+            })?;
             let set: Vec<u32> = cal
                 .set
                 .iter()

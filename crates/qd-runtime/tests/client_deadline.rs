@@ -85,7 +85,8 @@ fn a_reply_written_before_the_agent_closed_is_read_even_if_the_request_write_fai
     // `serve::refuse_connection`'s shape: write `overloaded` at accept, close, never read. Repeat
     // so the race (request written before or after the close) is hit both ways; every round must
     // come back with the reply, never an I/O error.
-    let reply: &'static [u8] = b"{\"status\":\"error\",\"schema_version\":1,\"error\":{\"kind\":\"overloaded\"}}\n";
+    let reply: &'static [u8] =
+        b"{\"status\":\"error\",\"schema_version\":1,\"error\":{\"kind\":\"overloaded\"}}\n";
     for round in 0..50 {
         let path = scratch_socket(&format!("early{round}"));
         let listener = UnixListener::bind(&path).expect("binds");

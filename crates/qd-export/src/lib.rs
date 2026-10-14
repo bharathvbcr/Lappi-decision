@@ -33,5 +33,5 @@ pub mod refusal;
 pub mod safetensors;
 
 pub use ensemble::{EnsembleRequest, EnsembleSummary, export_ensemble};
-pub use export::{export, AllowedExtra, ExportRequest, ExportSummary};
+pub use export::{AllowedExtra, ExportRequest, ExportSummary, export};
 pub use refusal::{Refusal, RefusalKind};

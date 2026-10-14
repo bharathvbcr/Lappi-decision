@@ -5,9 +5,11 @@
 
 mod common;
 
-use common::{bf16s, edit_release_manifest, f32s, fixtures, read_json, tiny_release, write_f32, Temp, HIDDEN};
+use common::{
+    HIDDEN, Temp, bf16s, edit_release_manifest, f32s, fixtures, read_json, tiny_release, write_f32,
+};
 use qd_metal::weights::{self, AnswerDelta};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[test]
 fn d17_rows_equal_pythons_answer_row_delta_and_a_zero_row_is_the_embedding_bit_for_bit() {
@@ -15,13 +17,30 @@ fn d17_rows_equal_pythons_answer_row_delta_and_a_zero_row_is_the_embedding_bit_f
     let hidden = usize::try_from(doc["hidden"].as_u64().unwrap()).unwrap();
     let embed = bf16s(&doc["embed"]);
     let delta = AnswerDelta::from_values(hidden, f32s(&doc["delta"])).unwrap();
-    let letters: Vec<usize> = doc["letters"].as_array().unwrap().iter().map(|v| usize::try_from(v.as_u64().unwrap()).unwrap()).collect();
+    let letters: Vec<usize> = doc["letters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| usize::try_from(v.as_u64().unwrap()).unwrap())
+        .collect();
     let want = f32s(&doc["rows"]);
     for (letter, id) in letters.iter().enumerate() {
         let mut got = vec![0f32; hidden];
-        weights::compose_answer_row(&embed[id * hidden..(id + 1) * hidden], delta.row(letter), &mut got);
-        for (i, (g, w)) in got.iter().zip(&want[letter * hidden..(letter + 1) * hidden]).enumerate() {
-            assert_eq!(g.to_bits(), w.to_bits(), "letter {letter} element {i}: rust {g} vs python {w}");
+        weights::compose_answer_row(
+            &embed[id * hidden..(id + 1) * hidden],
+            delta.row(letter),
+            &mut got,
+        );
+        for (i, (g, w)) in got
+            .iter()
+            .zip(&want[letter * hidden..(letter + 1) * hidden])
+            .enumerate()
+        {
+            assert_eq!(
+                g.to_bits(),
+                w.to_bits(),
+                "letter {letter} element {i}: rust {g} vs python {w}"
+            );
         }
         if letter < 5 {
             // Rows 0..4 of the fixture's D17 are zero: the readout is the embedding, bit for bit
@@ -30,7 +49,11 @@ fn d17_rows_equal_pythons_answer_row_delta_and_a_zero_row_is_the_embedding_bit_f
                 .iter()
                 .map(|b| tessl::tensor::bf16_bits_to_f32(*b).to_bits())
                 .collect();
-            assert_eq!(got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), tied, "zero D17 row {letter}");
+            assert_eq!(
+                got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                tied,
+                "zero D17 row {letter}"
+            );
         }
     }
     // The embedding value the fixture seeds with -0.0 survives a zero delta as -0.0. This is NOT
@@ -57,36 +80,74 @@ fn a_d17_that_is_not_17_rows_f32_finite_and_alone_is_refused() {
     let mut nan = vec![0.0; 17 * h];
     nan[9] = f32::INFINITY;
     write_f32(&p("nan"), &[("delta", vec![17, h], nan)]);
-    assert!(AnswerDelta::load(&p("nan"), h).unwrap_err().to_string().contains("D17[9]"));
-    write_f32(&p("two"), &[("delta", vec![17, h], vec![0.0; 17 * h]), ("other", vec![1], vec![0.0])]);
-    assert!(AnswerDelta::load(&p("two"), h).is_err(), "exactly one tensor");
+    assert!(
+        AnswerDelta::load(&p("nan"), h)
+            .unwrap_err()
+            .to_string()
+            .contains("D17[9]")
+    );
+    write_f32(
+        &p("two"),
+        &[
+            ("delta", vec![17, h], vec![0.0; 17 * h]),
+            ("other", vec![1], vec![0.0]),
+        ],
+    );
+    assert!(
+        AnswerDelta::load(&p("two"), h).is_err(),
+        "exactly one tensor"
+    );
     assert!(AnswerDelta::from_values(h, vec![0.0; 3]).is_err());
 }
-
 
 #[test]
 fn d17_is_loaded_only_when_the_manifest_binds_it() {
     let (_keep, release) = tiny_release("d17", |_| {});
-    let delta = weights::open_answer_delta(&release, HIDDEN).unwrap().expect("the tiny fixture carries D17");
+    let delta = weights::open_answer_delta(&release, HIDDEN)
+        .unwrap()
+        .expect("the tiny fixture carries D17");
     assert_eq!(delta.hidden(), HIDDEN);
     assert_ne!(delta.file_sha256(), [0; 32]);
     let base = Temp::new("d17base");
-    assert!(weights::open_answer_delta(&base.0, HIDDEN).unwrap().is_none(), "no file, no block");
+    assert!(
+        weights::open_answer_delta(&base.0, HIDDEN)
+            .unwrap()
+            .is_none(),
+        "no file, no block"
+    );
 
     let (_keep, dropped) = tiny_release("d17drop", |_| {});
     edit_release_manifest(&dropped, |m| m["d17"] = Value::Null);
-    let err = weights::open_answer_delta(&dropped, HIDDEN).unwrap_err().to_string();
+    let err = weights::open_answer_delta(&dropped, HIDDEN)
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("records no d17 block"), "{err}");
 
     let (_keep, missing) = tiny_release("d17missing", |_| {});
     std::fs::remove_file(missing.join("d17.safetensors")).unwrap();
-    assert!(weights::open_answer_delta(&missing, HIDDEN).unwrap_err().to_string().contains("is missing"));
+    assert!(
+        weights::open_answer_delta(&missing, HIDDEN)
+            .unwrap_err()
+            .to_string()
+            .contains("is missing")
+    );
 
     let (_keep, swapped) = tiny_release("d17swap", |_| {});
-    write_f32(&swapped.join("d17.safetensors"), &[("delta", vec![17, HIDDEN], vec![1.0; 17 * HIDDEN])]);
-    assert!(weights::open_answer_delta(&swapped, HIDDEN).unwrap_err().to_string().contains("not the D17"));
+    write_f32(
+        &swapped.join("d17.safetensors"),
+        &[("delta", vec![17, HIDDEN], vec![1.0; 17 * HIDDEN])],
+    );
+    assert!(
+        weights::open_answer_delta(&swapped, HIDDEN)
+            .unwrap_err()
+            .to_string()
+            .contains("not the D17")
+    );
 
-    assert!(weights::open_answer_delta(&release, HIDDEN + 1).is_err(), "the tower's width");
+    assert!(
+        weights::open_answer_delta(&release, HIDDEN + 1).is_err(),
+        "the tower's width"
+    );
 }
 
 #[test]
@@ -94,15 +155,34 @@ fn d17_names_which_row_is_which_letter_and_a_mismatch_is_refused() {
     // The export records the row order; the loader implements exactly one: A..P, then noul (Z).
     let (_keep, release) = tiny_release("d17rows", |_| {});
     let m = read_json(&release.join("release_manifest.json"));
-    assert_eq!(m["d17"]["row_letters"], "ABCDEFGHIJKLMNOPZ", "the export states the row order");
-    assert!(weights::open_answer_delta(&release, HIDDEN).unwrap().is_some());
-    for bad in [json!("ZABCDEFGHIJKLMNOP"), json!("ABCDEFGHIJKLMNOP"), json!("abcdefghijklmnopz"), Value::Null] {
+    assert_eq!(
+        m["d17"]["row_letters"], "ABCDEFGHIJKLMNOPZ",
+        "the export states the row order"
+    );
+    assert!(
+        weights::open_answer_delta(&release, HIDDEN)
+            .unwrap()
+            .is_some()
+    );
+    for bad in [
+        json!("ZABCDEFGHIJKLMNOP"),
+        json!("ABCDEFGHIJKLMNOP"),
+        json!("abcdefghijklmnopz"),
+        Value::Null,
+    ] {
         edit_release_manifest(&release, |m| m["d17"]["row_letters"] = bad.clone());
-        let err = weights::open_answer_delta(&release, HIDDEN).unwrap_err().to_string();
+        let err = weights::open_answer_delta(&release, HIDDEN)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("row_letters"), "{bad}: {err}");
     }
     edit_release_manifest(&release, |m| {
         m["d17"].as_object_mut().unwrap().remove("row_letters");
     });
-    assert!(weights::open_answer_delta(&release, HIDDEN).unwrap_err().to_string().contains("row_letters"));
+    assert!(
+        weights::open_answer_delta(&release, HIDDEN)
+            .unwrap_err()
+            .to_string()
+            .contains("row_letters")
+    );
 }

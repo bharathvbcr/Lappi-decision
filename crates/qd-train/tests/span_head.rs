@@ -858,7 +858,10 @@ fn the_fixture_set_is_exactly_the_cases_tested() {
     // a tracked binary fixture is sha256-pinned; `crates/qd-runtime/tests/tracked_source_is_text.rs`).
     let mut expected = listed.clone();
     expected.insert(common::pins::SHA256SUMS.to_owned());
-    assert_eq!(on_disk, expected, "fixture root entries vs CASES and SHA256SUMS");
+    assert_eq!(
+        on_disk, expected,
+        "fixture root entries vs CASES and SHA256SUMS"
+    );
     assert_eq!(tested, listed, "parity tests vs CASES");
     // H = 2048 is the real width; a fixture set without it says nothing about it.
     assert!(

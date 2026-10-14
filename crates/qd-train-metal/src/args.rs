@@ -32,8 +32,8 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 use qd_train::ft_data::HeadInitPin;
-use qd_train::recipe::LowerLayers;
 use qd_train::ledger::{check_ledger_path, prompt_format_extra};
+use qd_train::recipe::LowerLayers;
 use qd_train::run_control::WallClockCap;
 use qd_train::trainer::EtaRule;
 
@@ -228,15 +228,19 @@ const TAKES_VALUE: [&str; 26] = [
 
 fn refused_flag(flag: &str) -> Option<String> {
     match flag {
-        "--passes" | "--max-width" | "--option-permutation-seed" | "--replay-shards" => Some(format!(
-            "{flag}: real_ft's source transforms are not ported. F's epoch arm uses none of them \
+        "--passes" | "--max-width" | "--option-permutation-seed" | "--replay-shards" => {
+            Some(format!(
+                "{flag}: real_ft's source transforms are not ported. F's epoch arm uses none of them \
              (plan_all, passes=1, no permutation, no replay), so this trainer runs the reader's \
              batch order as is, and a recipe that needs one is refused rather than run without it"
-        )),
-        "--allow-stale-code" | "--allow-rev-mismatch" | "--allow-not-run-snapshot" => Some(format!(
-            "{flag}: the shard door's escape hatches are not offered; this trainer reads only a \
+            ))
+        }
+        "--allow-stale-code" | "--allow-rev-mismatch" | "--allow-not-run-snapshot" => {
+            Some(format!(
+                "{flag}: the shard door's escape hatches are not offered; this trainer reads only a \
              shard set that passes every check"
-        )),
+            ))
+        }
         _ => None,
     }
 }
@@ -279,13 +283,19 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         }
         seen.push((flag, value));
     }
-    let get = |flag: &str| seen.iter().find(|(f, _)| f == flag).map(|(_, v)| v.as_str());
+    let get = |flag: &str| {
+        seen.iter()
+            .find(|(f, _)| f == flag)
+            .map(|(_, v)| v.as_str())
+    };
     let req = |flag: &str| get(flag).ok_or_else(|| ArgsError::Usage(format!("{flag} is required")));
     let path = |flag: &str| req(flag).map(PathBuf::from);
 
     let lr: f64 = number("--lr", req("--lr")?)?;
     if !(lr.is_finite() && lr > 0.0) {
-        return Err(ArgsError::Usage(format!("--lr {lr} must be positive and finite")));
+        return Err(ArgsError::Usage(format!(
+            "--lr {lr} must be positive and finite"
+        )));
     }
     let steps: u64 = number("--steps", req("--steps")?)?;
     if steps == 0 {
@@ -297,14 +307,20 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
     }
     let span_weight: f64 = number("--span-weight", req("--span-weight")?)?;
     if !(span_weight.is_finite() && span_weight > 0.0) {
-        return Err(ArgsError::Usage(format!("--span-weight {span_weight} must be positive and finite")));
+        return Err(ArgsError::Usage(format!(
+            "--span-weight {span_weight} must be positive and finite"
+        )));
     }
     let cap_s: f64 = number("--cap-s", req("--cap-s")?)?;
     WallClockCap::new(cap_s).map_err(|e| ArgsError::Usage(format!("--cap-s: {e}")))?;
     let operands = match req("--operands")? {
         "exact_f32" => Operands::ExactF32,
         "bf16" => Operands::Bf16,
-        other => return Err(ArgsError::Usage(format!("--operands {other:?}: exact_f32 or bf16"))),
+        other => {
+            return Err(ArgsError::Usage(format!(
+                "--operands {other:?}: exact_f32 or bf16"
+            )));
+        }
     };
     let eta = match (get("--eta-at-step"), get("--eta-margin-s")) {
         (None, None) => None,
@@ -313,17 +329,24 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
                 at_step: number("--eta-at-step", s)?,
                 margin_s: number("--eta-margin-s", m)?,
             };
-            rule.validate(steps, cap_s).map_err(|e| ArgsError::Usage(e.to_string()))?;
+            rule.validate(steps, cap_s)
+                .map_err(|e| ArgsError::Usage(e.to_string()))?;
             Some(rule)
         }
-        _ => return Err(ArgsError::Usage("--eta-at-step and --eta-margin-s come together".into())),
+        _ => {
+            return Err(ArgsError::Usage(
+                "--eta-at-step and --eta-margin-s come together".into(),
+            ));
+        }
     };
     let checkpoint_every = match get("--checkpoint-every") {
         None => None,
         Some(raw) => {
             let n: u64 = number("--checkpoint-every", raw)?;
             if n == 0 {
-                return Err(ArgsError::Usage("--checkpoint-every must be at least 1".into()));
+                return Err(ArgsError::Usage(
+                    "--checkpoint-every must be at least 1".into(),
+                ));
             }
             Some(n)
         }
@@ -370,7 +393,9 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         if v.len() == 64 && v.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
             Ok(v.to_owned())
         } else {
-            Err(ArgsError::Usage(format!("{flag} {v:?} is not 64 lowercase hex characters")))
+            Err(ArgsError::Usage(format!(
+                "{flag} {v:?} is not 64 lowercase hex characters"
+            )))
         }
     };
     let head_init_pin = HeadInitPin {

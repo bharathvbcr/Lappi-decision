@@ -15,7 +15,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use qd_export::{export, AllowedExtra, ExportRequest, RefusalKind};
+use qd_export::{AllowedExtra, ExportRequest, RefusalKind, export};
 
 #[derive(Parser, Debug)]
 #[command(
