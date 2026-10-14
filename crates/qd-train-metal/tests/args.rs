@@ -260,3 +260,19 @@ fn a_resume_under_another_recipe_is_refused() {
     // A checkpoint root with no recipe file at all is not a checkpoint this binary wrote.
     assert!(base_args.check_resume_recipe(&serde_json::Value::Null).is_err());
 }
+
+/// The `--resume` command line itself, as `run()` checks it: `--resume` and `--checkpoint-every`
+/// are not part of the recipe (a resumed command line is the original's recipe), and a changed
+/// flag is refused naming the key that differs.
+#[test]
+fn the_resume_command_line_carries_the_original_recipe_and_names_what_changed() {
+    let original = parse(&with(&["--checkpoint-every", "1"])).unwrap();
+    let saved = original.checkpoint_recipe();
+    let resumed = parse(&with(&["--checkpoint-every", "2", "--resume", "/nonexistent/run/checkpoints/ckpt-00000002"])).unwrap();
+    assert_eq!(resumed.checkpoint_recipe(), saved);
+    assert!(resumed.check_resume_recipe(&saved).is_ok());
+    let mut v = without("--steps");
+    v.extend(["--steps".to_string(), "199".to_string(), "--resume".to_string(), "/nonexistent/ckpt-00000002".to_string()]);
+    let err = parse(&v).unwrap().check_resume_recipe(&saved).unwrap_err();
+    assert!(err.contains("\"steps\"") && !err.contains("\"lr\""), "{err}");
+}

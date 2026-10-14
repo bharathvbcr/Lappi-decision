@@ -1,0 +1,4 @@
+{
+  "reason": "write_shards was called without decode=, so the 1 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
+  "state": "not_run"
+}

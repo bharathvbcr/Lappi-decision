@@ -16,6 +16,8 @@
 
 #![cfg(target_os = "macos")]
 
+mod run_v64;
+
 use std::path::{Path, PathBuf};
 
 use ojas_core::{Budget, Tensor};
@@ -173,11 +175,49 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         eps: 1e-8,
         grad_scale: 1.0,
     };
-    let err = fresh.adamw_step(&hyper, 1, &scaled, &wd).unwrap_err();
-    assert!(matches!(&err, StepError::Unsupported(m) if m.contains("entry 0 asks for 0.1x")), "{err}");
     let err = fresh.adamw_step(&hyper, 2, &ones, &wd).unwrap_err();
     assert!(matches!(&err, StepError::Contract(m) if m.contains("has taken 0")), "{err}");
+    let mut negative = ones.clone();
+    negative[0] = -0.1;
+    let err = fresh.adamw_step(&hyper, 1, &negative, &wd).unwrap_err();
+    assert!(matches!(&err, StepError::Contract(m) if m.contains("entry 0") && m.contains("must be finite and > 0")), "{err}");
     assert_eq!(fresh.step_count(), 0, "a refused step moves nothing");
+
+    // A per-entry lr_scale is supported (f5f0cb2, board-sweep ruling 2h) and APPLIED: entry k
+    // learns at lr * scale[k]. Three providers take the same gradient from the same snapshot:
+    // `fresh` with entry 0 at 0.1x, `uniform` with every entry at 1x, and `slow` with every entry
+    // at 1x under lr * 0.1 (the same f64 product the provider forms). Entry 0 must be `slow`'s bit
+    // for bit and differ from `uniform`'s; every other entry must be `uniform`'s bit for bit.
+    let mut uniform = Qwen35Provider::open(&snap, Operands::ExactF32).unwrap();
+    let mut slow = Qwen35Provider::open(&snap, Operands::ExactF32).unwrap();
+    uniform.accumulate(&job, BankMode::Overwrite, None).unwrap();
+    slow.accumulate(&job, BankMode::Overwrite, None).unwrap();
+    fresh.adamw_step(&hyper, 1, &scaled, &wd).unwrap();
+    uniform.adamw_step(&hyper, 1, &ones, &wd).unwrap();
+    let slow_hyper = qd_train::step::AdamWHyper {
+        lr: hyper.lr * 0.1,
+        ..hyper
+    };
+    slow.adamw_step(&slow_hyper, 1, &ones, &wd).unwrap();
+    assert_eq!((fresh.step_count(), uniform.step_count(), slow.step_count()), (1, 1, 1));
+    let pf = fresh.qwen35().read_table(Which::Parameters).unwrap();
+    let pu = uniform.qwen35().read_table(Which::Parameters).unwrap();
+    let ps = slow.qwen35().read_table(Which::Parameters).unwrap();
+    assert!(pf.len() > 1 && pf.len() == pu.len() && pf.len() == ps.len());
+    for (k, ((f, u), s)) in pf.iter().zip(&pu).zip(&ps).enumerate() {
+        assert_eq!(f.name, u.name);
+        let (f, u, s) = (
+            bits(&f.tensor.to_f32_vec().unwrap()),
+            bits(&u.tensor.to_f32_vec().unwrap()),
+            bits(&s.tensor.to_f32_vec().unwrap()),
+        );
+        if k == 0 {
+            assert_eq!(f, s, "entry 0 must take the step lr * 0.1 would give it");
+            assert_ne!(f, u, "entry 0 must not take the full-lr step");
+        } else {
+            assert_eq!(f, u, "entry {k} is scaled 1.0 and must be untouched by entry 0's scale");
+        }
+    }
 }
 
 /// One row of a tiny batch: real tokens, and either a letter answer or a span row.
@@ -360,9 +400,8 @@ fn gpu_tiny_loop_resumed_from_a_checkpoint_is_the_uninterrupted_run_bit_for_bit(
 // the kill lands inside the run), then SIGKILLs it by its recorded PID, resumes from what the
 // kill left, and compares every byte of the final checkpoint (tower, head, both AdamW moments,
 // per-entry step counts, loss log) with an uninterrupted run's. What these do not cover is
-// `qd-train-metal`'s own ledger row: `run()` needs a shard set at the tiny snapshot's vocabulary
-// (64), and the repository has none (`shards-tiny` is 256), so the rule that the completed run
-// writes one row and the killed one none is not run here (see HANDOFF).
+// `qd-train-metal`'s own ledger row and `--resume` through `run()`: those are the `gpu_run_*`
+// tests at the end of this file, on `shards-tiny-v64` (`tests/run_v64/mod.rs`).
 
 const KILL_CHILD_ENV: &str = "QD_KILL_CHILD_DIR";
 const KILL_SLEEP_ENV: &str = "QD_KILL_CHILD_SLEEP_MS";
@@ -592,4 +631,175 @@ fn gpu_tiny_sigkill_after_a_checkpoint_then_resume_is_the_uninterrupted_run_bit_
 #[ignore = "GPU: opens a Metal runtime and SIGKILLs a child that does; run only in an agreed GPU window"]
 fn gpu_tiny_sigkill_mid_checkpoint_write_leaves_a_staging_dir_that_resume_never_loads() {
     kill_and_resume(KillAt::DuringWrite, "during");
+}
+
+// ---- `run()` itself: the ledger row and `--resume` ----------------------------------------
+//
+// `run()` on tessl's tiny snapshot with `shards-tiny-v64`, the h64 head init and a ledger in a
+// scratch directory. The completed run writes exactly one row; a run SIGKILLed before it
+// completes writes none; and a resume through `run()` with `resume: Some(ckpt)` refuses another
+// recipe and otherwise ends at the uninterrupted run's final checkpoint, byte for byte.
+// What no test here reaches: `write_checkpoint` refusing an existing `.ckpt-N.partial` -- `run()`
+// only writes into a new or empty directory, so the staging name is never there to collide.
+
+use qd_train_metal::run::{run, RunError};
+use run_v64::{args, rows, scratch};
+
+const RUN_CHILD_ENV: &str = "QD_RUN_CHILD_ROOT";
+/// Steps of the killed and the uninterrupted run: well inside the 59-batch epoch, and long enough
+/// that the child is still running when the parent sees checkpoint 2 and kills it.
+const RUN_STEPS: u64 = 24;
+
+/// The child half of the `run()` kill tests: `run()` to completion with a checkpoint every step.
+#[test]
+#[ignore = "GPU: the child half of the run() kill tests; does nothing without its environment"]
+fn gpu_run_kill_child() {
+    let Ok(root) = std::env::var(RUN_CHILD_ENV) else {
+        eprintln!("gpu_run_kill_child: not run: {RUN_CHILD_ENV} is unset (this is the run() kill tests' child)");
+        return;
+    };
+    run(&args(Path::new(&root), RUN_STEPS)).unwrap();
+}
+
+/// The one `ckpt-*` directory a run leaves under `<out>/checkpoints` (each checkpoint removes the
+/// previous one), or the newest when several are there.
+fn newest_checkpoint(root: &Path) -> PathBuf {
+    let dir = root.join("out").join("checkpoints");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.starts_with("ckpt-"))
+        .collect();
+    names.sort();
+    dir.join(names.pop().unwrap_or_else(|| panic!("no checkpoint under {}", dir.display())))
+}
+
+/// Re-execute this binary as the `run()` child over `root`, SIGKILL it by its PID once checkpoint
+/// 2 is in place, and return the names it left under `<root>/out/checkpoints`.
+fn kill_run_child(root: &Path) -> Vec<String> {
+    use std::os::unix::process::ExitStatusExt;
+
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["gpu_run_kill_child", "--exact", "--ignored", "--test-threads=1"])
+        .env(RUN_CHILD_ENV, root)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let ckpts = root.join("out").join("checkpoints");
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("run() child {pid} exited on its own ({status}) before the kill point: the trigger never fired");
+        }
+        if ckpts.join("ckpt-00000002").join("trainer.json").is_file() {
+            child.kill().unwrap();
+            break;
+        }
+        if started.elapsed() > KILL_WAIT {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("run() child {pid}: checkpoint 2 did not appear in {KILL_WAIT:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_micros(200));
+    }
+    let status = child.wait().unwrap();
+    assert_eq!(status.signal(), Some(9), "run() child {pid} must have died of SIGKILL, got {status}");
+    let mut names: Vec<String> = std::fs::read_dir(&ckpts).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    names.sort();
+    eprintln!("run() child {pid} SIGKILLed after {:?}; left {names:?}", started.elapsed());
+    assert!(!names.iter().any(|n| n == &format!("ckpt-{RUN_STEPS:08}")), "the child finished before the kill: {names:?}");
+    names
+}
+
+#[test]
+#[ignore = "GPU: opens a Metal runtime; run only in an agreed GPU window"]
+fn gpu_run_completed_writes_exactly_one_quick_row() {
+    let root = scratch("complete");
+    let a = args(&root, 4);
+    let summary = run(&a).unwrap();
+    assert_eq!(summary.termination, Termination::StepsExhausted);
+    assert_eq!(summary.optimizer_steps, 4);
+    let rows = rows(&a.ledger);
+    assert_eq!(rows.len(), 1, "a completed run writes exactly one row");
+    let row = &rows[0];
+    assert_eq!(row["row_id"].as_str(), Some(summary.row_id.as_str()));
+    assert_eq!(row["quick"], serde_json::Value::Bool(true));
+    assert!(!row["quick_reason"].as_str().unwrap().trim().is_empty());
+    assert_eq!(row["status"].as_str(), Some("completed"));
+    assert_eq!(row["recipe"]["optimizer_recipe"].as_str(), Some("f32"));
+    assert_ne!(row["recipe"]["optimizer_recipe"].as_str(), Some("master"));
+    assert_eq!(row["recipe"]["backbone_vocab"].as_u64(), Some(64));
+    assert_eq!(row["metrics"]["train.vocab_remap"]["value"].as_str(), Some("identity"));
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+#[ignore = "GPU: opens a Metal runtime and SIGKILLs a child that does; run only in an agreed GPU window"]
+fn gpu_run_killed_before_completion_writes_no_row() {
+    let root = scratch("killed");
+    kill_run_child(&root);
+    let ledger = root.join("ledger").join("mac-ojas-w32.jsonl");
+    assert!(rows(&ledger).is_empty(), "a killed run wrote a row");
+    assert!(!ledger.exists(), "a killed run left a ledger file behind");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+#[ignore = "GPU: opens a Metal runtime and SIGKILLs a child that does; run only in an agreed GPU window"]
+fn gpu_run_resume_refuses_another_recipe_and_a_matching_one_ends_at_the_uninterrupted_checkpoint() {
+    // The uninterrupted run, and the killed one it is compared with: same recipe, other `--out`.
+    let full_root = scratch("resume-full");
+    let full = run(&args(&full_root, RUN_STEPS)).unwrap();
+    assert_eq!((full.termination, full.optimizer_steps), (Termination::StepsExhausted, RUN_STEPS));
+    let full_final = newest_checkpoint(&full_root);
+    assert_eq!(full_final.file_name().unwrap().to_str().unwrap(), format!("ckpt-{RUN_STEPS:08}"));
+
+    let killed_root = scratch("resume-killed");
+    kill_run_child(&killed_root);
+    let ckpt = newest_checkpoint(&killed_root);
+    let state = ResumeState::read(&ckpt).unwrap();
+    assert!(state.optimizer_step >= 2 && state.optimizer_step < RUN_STEPS, "resume point {}", state.optimizer_step);
+
+    // A changed recipe is refused against the recipe.json the killed run recorded, and writes no row.
+    for (what, change) in [
+        ("lr", (|a: &mut qd_train_metal::args::TrainArgs| a.lr = 5e-4) as fn(&mut qd_train_metal::args::TrainArgs)),
+        ("steps", |a| a.steps = RUN_STEPS - 1),
+        ("seed", |a| a.seed = 1),
+        ("span_weight", |a| a.span_weight = 2.0),
+    ] {
+        let mut other = args(&scratch(&format!("resume-other-{what}")), RUN_STEPS);
+        other.resume = Some(ckpt.clone());
+        change(&mut other);
+        match run(&other) {
+            Err(RunError::Refused(m)) => assert!(m.contains("another recipe") && m.contains(what), "{what}: {m}"),
+            got => panic!("{what}: expected a refusal, got {got:?}"),
+        }
+        assert!(rows(&other.ledger).is_empty(), "{what}: a refused resume wrote a row");
+    }
+
+    // The matching resume runs to the end of the schedule and lands on the same bytes.
+    let resumed_root = scratch("resume-resumed");
+    let mut a = args(&resumed_root, RUN_STEPS);
+    a.resume = Some(ckpt.clone());
+    let resumed = run(&a).unwrap();
+    assert_eq!((resumed.termination, resumed.optimizer_steps), (Termination::StepsExhausted, RUN_STEPS));
+    let rows = rows(&a.ledger);
+    assert_eq!(rows.len(), 1, "the resumed run writes its one row");
+    assert!(rows[0]["notes"].as_str().unwrap().contains("Resumed from checkpoint"), "{}", rows[0]["notes"]);
+    let resumed_final = newest_checkpoint(&resumed_root);
+    let (want, got) = (files_under(&full_final), files_under(&resumed_final));
+    assert_eq!(want, got, "the two final checkpoints hold different files");
+    for rel in want {
+        assert_eq!(
+            std::fs::read(full_final.join(&rel)).unwrap(),
+            std::fs::read(resumed_final.join(&rel)).unwrap(),
+            "final checkpoint file {} differs between the uninterrupted run and the killed-then-resumed one",
+            rel.display()
+        );
+    }
+    for d in [full_root, killed_root, resumed_root] {
+        std::fs::remove_dir_all(d).unwrap();
+    }
 }

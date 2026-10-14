@@ -1,0 +1,151 @@
+{
+ "floats": [
+  {
+   "canonical": "0.8",
+   "repr": "0.8",
+   "value": 0.8
+  },
+  {
+   "canonical": "0.9",
+   "repr": "0.9",
+   "value": 0.9
+  },
+  {
+   "canonical": "0.05",
+   "repr": "0.05",
+   "value": 0.05
+  },
+  {
+   "canonical": "1.0",
+   "repr": "1.0",
+   "value": 1.0
+  },
+  {
+   "canonical": "1e-05",
+   "repr": "1e-05",
+   "value": 1e-05
+  },
+  {
+   "canonical": "2.5e-05",
+   "repr": "2.5e-05",
+   "value": 2.5e-05
+  },
+  {
+   "canonical": "0.0001",
+   "repr": "0.0001",
+   "value": 0.0001
+  },
+  {
+   "canonical": "1.5e-07",
+   "repr": "1.5e-07",
+   "value": 1.5e-07
+  },
+  {
+   "canonical": "1000000000000000.0",
+   "repr": "1000000000000000.0",
+   "value": 1000000000000000.0
+  },
+  {
+   "canonical": "1e+16",
+   "repr": "1e+16",
+   "value": 1e+16
+  },
+  {
+   "canonical": "1.2345e+16",
+   "repr": "1.2345e+16",
+   "value": 1.2345e+16
+  },
+  {
+   "canonical": "1e+22",
+   "repr": "1e+22",
+   "value": 1e+22
+  },
+  {
+   "canonical": "1e+16",
+   "repr": "1e+16",
+   "value": 1e+16
+  },
+  {
+   "canonical": "0.30000000000000004",
+   "repr": "0.30000000000000004",
+   "value": 0.30000000000000004
+  },
+  {
+   "canonical": "5e-324",
+   "repr": "5e-324",
+   "value": 5e-324
+  },
+  {
+   "canonical": "123456789.123",
+   "repr": "123456789.123",
+   "value": 123456789.123
+  },
+  {
+   "canonical": "-2.5",
+   "repr": "-2.5",
+   "value": -2.5
+  },
+  {
+   "canonical": "-0.0",
+   "repr": "-0.0",
+   "value": -0.0
+  },
+  {
+   "canonical": "1e+100",
+   "repr": "1e+100",
+   "value": 1e+100
+  },
+  {
+   "canonical": "1.7976931348623157e+308",
+   "repr": "1.7976931348623157e+308",
+   "value": 1.7976931348623157e+308
+  }
+ ],
+ "object": {
+  "canonical": "{\"a\":{\"y\":true,\"z\":null},\"b\":[1,2.5,\"\u00e9\"]}",
+  "sorted_default": "{\"a\": {\"y\": true, \"z\": null}, \"b\": [1, 2.5, \"\\u00e9\"]}",
+  "value": {
+   "a": {
+    "y": true,
+    "z": null
+   },
+   "b": [
+    1,
+    2.5,
+    "\u00e9"
+   ]
+  }
+ },
+ "strings": [
+  {
+   "canonical": "\"plain\"",
+   "sorted_default": "\"plain\"",
+   "value": "plain"
+  },
+  {
+   "canonical": "\"\u00e9 \u00fc\"",
+   "sorted_default": "\"\\u00e9 \\u00fc\"",
+   "value": "\u00e9 \u00fc"
+  },
+  {
+   "canonical": "\"tab\\tnl\\nquote\\\"bs\\\\\"",
+   "sorted_default": "\"tab\\tnl\\nquote\\\"bs\\\\\"",
+   "value": "tab\tnl\nquote\"bs\\"
+  },
+  {
+   "canonical": "\"\\u0001\\u001f\u007f\"",
+   "sorted_default": "\"\\u0001\\u001f\\u007f\"",
+   "value": "\u0001\u001f\u007f"
+  },
+  {
+   "canonical": "\"\ud83d\ude00 astral\"",
+   "sorted_default": "\"\\ud83d\\ude00 astral\"",
+   "value": "\ud83d\ude00 astral"
+  },
+  {
+   "canonical": "\"\ufb06\"",
+   "sorted_default": "\"\\ufb06\"",
+   "value": "\ufb06"
+  }
+ ]
+}

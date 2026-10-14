@@ -1,0 +1,53 @@
+{
+ "door/header-split-heldout": {
+  "admitted": false,
+  "error": "ShardContractViolation",
+  "message": "<fixture>/shards/train: this shard set's split is 'heldout'. Rule 3 \u2014 held-out data is never read by a training process. The shards are derived from a manifest the same rule already refused; reading them here would bypass that check by indirection."
+ },
+ "door/heldout-moved": {
+  "admitted": false,
+  "error": "HeldOutViolation",
+  "message": "REFUSED [held_out_path]: expected \"a manifest whose split is one of ['train', 'val']\", got 'heldout' -- <fixture>/door/heldout-moved.json: the manifest declares itself split 'heldout'. Moving or renaming the file does not change what it says it is. CLAUDE.md rule 3."
+ },
+ "door/train-failed": {
+  "admitted": false,
+  "error": "HeldOutViolation",
+  "message": "REFUSED [held_out_path]: expected \"a data snapshot whose pipeline status is 'ran' and passed\", got 'ran, passed=false' -- <fixture>/door/train-failed.json: the snapshot's own pipeline ran and failed -- split gate failed (oracle fixture). Rebuild the snapshot or fix the gate it failed; there is no flag that admits it, and allow_not_run_snapshot does not."
+ },
+ "door/train-not-run": {
+  "admitted": false,
+  "error": "HeldOutViolation",
+  "message": "REFUSED [held_out_path]: expected \"a data snapshot whose pipeline status is 'ran'\", got 'not_run' -- <fixture>/door/train-not-run.json: dedupe hit its bound (oracle fixture). Training on an unverified snapshot and then reporting a clean gate is the exact failure the tri-state exists to prevent. Pass allow_not_run_snapshot=True to proceed deliberately; the reason stays in the ledger row."
+ },
+ "door/train-other-holdout": {
+  "admitted": false,
+  "error": "HeldOutViolation",
+  "message": "REFUSED [held_out_path]: expected \"a shard built with held-out families ['code.language_id', 'qa.answerability']\", got ['code.change_scope', 'code.language_id'] -- <fixture>/door/train-other-holdout.json: the shard records a different holdout than this run configures. Rule 2: an agent may report that a gate failed; it may not shrink a held-out set to make one pass."
+ },
+ "door/train-tampered": {
+  "admitted": false,
+  "error": "ValueError",
+  "message": "<fixture>/door/train-tampered.json: recorded data_snapshot_hash 'd56011df6ad2cb828fbf298ff331e1a410740a984b09403820c6f3e6c75efa69' does not match the hash re-derived from the file's contents ('5d175a70cf61ab76993400ac74374c6641faf61c13cfe5d5e2abff529987bb4e'). The file has been edited, or was written by a different manifest format."
+ },
+ "door/train-with-heldout-family": {
+  "admitted": false,
+  "error": "HeldOutViolation",
+  "message": "REFUSED [held_out_path]: expected \"no entry from a held-out task family ['code.language_id', 'qa.answerability']\", got ['code.language_id'] -- <fixture>/door/train-with-heldout-family.json: a manifest declaring split 'train' carries 1 held-out task family identifier(s). The shard was built with a different holdout than this config names. CLAUDE.md rule 3."
+ },
+ "heldout/heldout": {
+  "admitted": false,
+  "error": "HeldOutViolation",
+  "message": "REFUSED [held_out_path]: expected 'a path outside the held-out root <fixture>/data/heldout', got '<fixture>/data/heldout/heldout.json' -- CLAUDE.md rule 3: held-out data is never read by a training process. Removing this check is a refused change."
+ },
+ "pool/train": {
+  "admitted": true,
+  "data_snapshot_hash": "d56011df6ad2cb828fbf298ff331e1a410740a984b09403820c6f3e6c75efa69"
+ },
+ "pool/val": {
+  "admitted": true,
+  "data_snapshot_hash": "0d7e12ecb96f49cf3a2dbdc5a4409ea80b612bb39767e117be27bd8012fb775f"
+ },
+ "shards/val-report-only": {
+  "admitted": true
+ }
+}

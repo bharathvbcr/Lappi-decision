@@ -1,0 +1,3690 @@
+[
+ {
+  "batch_tokens": 3236,
+  "batches": [
+   {
+    "bucket": 5,
+    "fold_digest": "fe80f691b26bc737751a4d09d111059ff7ee1fa54f133916e6ead998634526ec",
+    "index": 0,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     15,
+     12,
+     2,
+     18,
+     7
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "831d54cb6da77ed130094add2a8898608ce789efe0885266f440d7f00bf64049",
+    "index": 1,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     67,
+     66
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "7dbdc9e88d7a4066d9e68e48ef634aa77676321964b28cccacc79c4b633de718",
+    "index": 2,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     64,
+     60
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "ca36a7d42e19e6d68eeac70b70278b7aff52dd93f8c1ef588c9b7b52270859db",
+    "index": 3,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     62,
+     63
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "05874f9d8ed90e857df1bedb62574d7552d67cb26a5af8a6db72aa8f058682d0",
+    "index": 4,
+    "lengths": [
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     91,
+     89,
+     96
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "fb3c44c1cc3f5c5941108c05861d9eea1616ac89716695bac800138a062a37e8",
+    "index": 5,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     20,
+     21,
+     23,
+     14,
+     17
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "cf307884d4ffbcbfba056d6ae41b392f9d894d9be39e7ad9bf93bb46abc9a57b",
+    "index": 6,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     45,
+     35,
+     30,
+     38,
+     47,
+     46,
+     44,
+     41
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "2c15dd25888a1639f0378518540460380698c621f3628aa4c85468623c030e54",
+    "index": 7,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     77
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "eb5babdf7a497007374b5469301d63b742195f93c9f7e87fe0b6f41775ae8f3b",
+    "index": 8,
+    "lengths": [
+     385,
+     385
+    ],
+    "rows": [
+     34,
+     43
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "2e80e7d209a7edb808868cfd6eae56aabbd0633fbf6cb8a1290fe672be8d2f1e",
+    "index": 9,
+    "lengths": [
+     493
+    ],
+    "rows": [
+     88
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "743efa83d2f40aba768c074f17fd45649d8743af05601fb9f3b7c4c3cc140018",
+    "index": 10,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     19,
+     22,
+     10,
+     11,
+     6
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "d7f785218fcbbba11cc97677a33368a8330056c5d7b2f0ea7bd5a7ea10919e0f",
+    "index": 11,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     5,
+     1,
+     9,
+     16
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "bb233b18948ef153501ea97ddc3d37fe529152dcaad890e1e2847acab3213ca7",
+    "index": 12,
+    "lengths": [
+     1474
+    ],
+    "rows": [
+     48
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "53872c70aff2156b0884f7a2a0dcae83f28a645a6f21ed0245f23997680a8101",
+    "index": 13,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     49,
+     50
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "1930ab059517b17b75f60aeb4890067be6ad97f14af7bcf253504e7b47a5fc35",
+    "index": 14,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     74,
+     75
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "54cccaf05f2ed4054029bfc550979c37fad7271a647eca2eb1afb0eb9cf19309",
+    "index": 15,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     65
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 10,
+    "fold_digest": "a146cab43ce05770c992f59ed552df49f13b3938e6fe8ecc44d3e2db903939ea",
+    "index": 16,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "c453611fe547aa2a2363e74be542d431bd95233d11084008a0f1736b807a87eb",
+    "index": 17,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     8,
+     4,
+     13,
+     0,
+     3
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "88dcfca436862404a277c1f7996bd4351439ceccdda2b8eead6d23561f720c3e",
+    "index": 18,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     79,
+     72
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "dd08f92b4525deaf51115535822b566a3917af4c846b45b55832f974d2e6414d",
+    "index": 19,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     61,
+     56
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "2f86541fc4eab4bd6cfe8f9f4ba8551c6da01ab60b2452219e6869fdc8458ff4",
+    "index": 20,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     55,
+     59
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "f1a24ff89897ad32a58d4ac6e5df00bbe401ce9d7d5e61ec93464a0c5358902f",
+    "index": 21,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     27,
+     37,
+     32,
+     26,
+     40,
+     33,
+     39,
+     25
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "76b6c05844a4316fb65b49b92ceb03b2e4d12ed9ea528e065419c6fb0a2c325d",
+    "index": 22,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     28,
+     29,
+     31,
+     36,
+     24,
+     42
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "483c241c7b134fe49ab6587eb50f8ac779286418ce8e878113e79e96a39eedc2",
+    "index": 23,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     58,
+     57
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "61c9c3543538a28247d1bf2d49fb5482eb890fd6202687158239c93db24341d9",
+    "index": 24,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     51,
+     54
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "8f2a4a78566f3a638aa6f8622c964efc3463accf821a60b97cafd100378cc6b4",
+    "index": 25,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     52,
+     53
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "b727dff5e50e97660e435f90a6c65f6c96c46d474ee0099b38aa392d47a3f950",
+    "index": 26,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     68,
+     71
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "8a78aae54a45e9782930ac7f64ae102114b8d9d7380aae80bed3e9c8e12c33bf",
+    "index": 27,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     80,
+     78
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "d342b16b187825ad1cfb2655288343afd290588c8723c8245b16e039f05a2dc2",
+    "index": 28,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     85,
+     87,
+     82,
+     83,
+     86,
+     84
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "4e9e2d46cb6499a6d34d272e65d5797383da0b8a01e8e9a40e971a0d0b84ee54",
+    "index": 29,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     70,
+     69
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "42af627ee01bc8a9daef11f5402077d6b67e84ceda28e54c34406b6188828208",
+    "index": 30,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     76,
+     73
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "13abe42068ff401b5f12ebf87ec04712526b86506d057cb515f58a7a2b9db7c9",
+    "index": 31,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     95,
+     97,
+     92,
+     93,
+     94,
+     90
+    ],
+    "width": 496
+   }
+  ],
+  "consumed_digest": "541fb17aa7b84f6401b088546b051fe8edec0ea8706fbac1c8882206b5499565",
+  "epoch": 0,
+  "n_batches": 32,
+  "n_folded": 32,
+  "seed": 20260919
+ },
+ {
+  "batch_tokens": 6473,
+  "batches": [
+   {
+    "bucket": 0,
+    "fold_digest": "3eaf66c6e0f9d39f7f22b48ba6b4c7a30e576b12afd9cd6835d87722cbdb8acd",
+    "index": 0,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     47,
+     43,
+     45,
+     30,
+     35,
+     44,
+     38,
+     46,
+     34,
+     41
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "a5827b22f3670aec8ae416450f7e6cc6d5a2abe102c9598e7f4527939d9c2180",
+    "index": 1,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     66,
+     67
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "6ed3065bbe9e411fbf95eb2aa5708a48ce4533a4648dabafef846521eb503c7b",
+    "index": 2,
+    "lengths": [
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     54,
+     48,
+     53
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "78791697559524ad95dfa11a2180bd7e4686ae9b8c2be4fcc688813a3c6d6990",
+    "index": 3,
+    "lengths": [
+     1566,
+     1566,
+     1566,
+     1566
+    ],
+    "rows": [
+     71,
+     69,
+     70,
+     68
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "ee2aab6e1f4606df5397a9cd0db5007c428ed3cfaef47dde6689a28334e30178",
+    "index": 4,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     60,
+     63,
+     64,
+     61
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "aff00d7cca21d3a3768f91c7de335aba03f3d6b519930d7214568dc89649a0a9",
+    "index": 5,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     65
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 10,
+    "fold_digest": "0775382591857fca8c8cab9061598a24815ed885a4b793c5b44a75a3ae4d16ef",
+    "index": 6,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "fa903c49977268c0b5fc6a808c03b71802bb5836b2d439270433af404c07261a",
+    "index": 7,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     72
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "f2532d806427b6d3ce877307031cbb92dc3255f18bca0fe0525aeab760dacc0d",
+    "index": 8,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     80,
+     74,
+     78,
+     73
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "359d8e36734bd77aae076f5abedfbd4c1ca0294e0a14272b20ec4576d7d7f1eb",
+    "index": 9,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     76,
+     79,
+     77,
+     75
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "e67f4fa11a50b7ddc59a5f19462a7be369eb30ddf9c01ee2d6ffeae739f77899",
+    "index": 10,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     91,
+     92,
+     96,
+     90,
+     95,
+     94,
+     93,
+     97,
+     89
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "be8f8b41239bc0c2727309f355c7b1e6c56a4ee1d96348c2d9a072f9b85f3a2c",
+    "index": 11,
+    "lengths": [
+     1474,
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     49,
+     52,
+     51,
+     50
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "9af7708c39ebdbc1982310ea28602626467c9ab6b7ac33b98e6ddd7fdd893e2e",
+    "index": 12,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     20,
+     6,
+     11,
+     21,
+     22,
+     19,
+     10,
+     17,
+     14,
+     23
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "4f95ed661714dcf3ec777af7cac0442152320af201dfbe061f3b9b2533ea2b7e",
+    "index": 13,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     15,
+     16,
+     9,
+     3,
+     1,
+     8,
+     13,
+     4,
+     7,
+     12
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "5bb2b0fe40673f54f3629a78e26ddb401e16c0ae7cee46710e6621c52ad148f8",
+    "index": 14,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     55,
+     56,
+     59,
+     58
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "6a6ded551156033d153b4e9c3ce192492da1dd714082531eee6a5de7c7b5b165",
+    "index": 15,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     57,
+     62
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "73ba20dd9c3b3777235b67bded9dfe95e79e02a6445859fb7afe2b491cdb6929",
+    "index": 16,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     2,
+     0,
+     5,
+     18
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "8960cd3bdf96c9cbc95770f387c5da623f50dff4c3f088b9808988d0ed0c4bb8",
+    "index": 17,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     37,
+     24,
+     32,
+     31,
+     25,
+     29,
+     28,
+     26,
+     27,
+     42,
+     36,
+     33,
+     40,
+     39
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "9d26a25e03566ca051534058f74de69f79f2be30c9a542f2726247253e09b038",
+    "index": 18,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     83,
+     84,
+     82,
+     87,
+     86,
+     88,
+     85
+    ],
+    "width": 493
+   }
+  ],
+  "consumed_digest": "16e7b2aa6bd89256956a0143a50983f9c5a675d6716eb3f52a3ffbb637463685",
+  "epoch": 0,
+  "n_batches": 19,
+  "n_folded": 19,
+  "seed": 20260919
+ },
+ {
+  "batch_tokens": 3236,
+  "batches": [
+   {
+    "bucket": 1,
+    "fold_digest": "913653647d94cd16811cabdd9efd65afc6f85ebd61e41a661deaf43a29dee61c",
+    "index": 0,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     26,
+     37,
+     36,
+     29,
+     24,
+     32,
+     40,
+     33
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "9ced6b16e873afc19279adbf3dad31f2f7115538de27adcdbc20785cc173f6f4",
+    "index": 1,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     94,
+     92,
+     91,
+     95,
+     96,
+     97
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "a20e32779375570fdfff70ba82d52de8c601bd246795f7e6a79e31735a37c027",
+    "index": 2,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     10,
+     6,
+     23,
+     21,
+     14
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "287fca698e7170e4adc15e75e96fc307876f803a8d940394e1173407ddfae641",
+    "index": 3,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     49,
+     52
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "9c9d57ae16e1329e8dc28b14e79b400e80fb04b06b792d20514e30739d863eaf",
+    "index": 4,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     76,
+     79
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "01818663d279f46d177e541897fa9cdf186f98348d5f115ff6217497d509d8ad",
+    "index": 5,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     75,
+     78
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "8cbda891b07a7fa79865179b6320abc71bff95785dc125d5a409043d37d98e01",
+    "index": 6,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     70
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "df4d43451489e45a553e3dea2151a22f77faa9b240a8453108d2a83d4cd64993",
+    "index": 7,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     28,
+     27,
+     39,
+     25,
+     31,
+     42
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "643b0030e7121e6e937e9474e4528ec61fa78bd7de19929d03fed32a648d550d",
+    "index": 8,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     77
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "76659243feb88468cc131ac7cd3e692aa6ba20e6b979e195f1f44b778bdfe2b9",
+    "index": 9,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     83,
+     85,
+     88,
+     84,
+     86,
+     82
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "e64425efc083f42da879e1bcfacd164026ff4d45e42e2ac7035dbbae548a3ed1",
+    "index": 10,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     20,
+     11,
+     19,
+     22,
+     17
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "b6ccedc931bcb317474d083859c3c49c9367a03b02efce534d62ae429217bc60",
+    "index": 11,
+    "lengths": [
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     90,
+     89,
+     93
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "f5d1fac75fe5f05568e2b53ad81383319ba434882741bc48ebd69d04c3aa7a51",
+    "index": 12,
+    "lengths": [
+     385,
+     385
+    ],
+    "rows": [
+     41,
+     47
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "856c484574c5718f1b0e50618b874db3f3bdc50f41c20f32c486492ee5539301",
+    "index": 13,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     80,
+     74
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "3db4c9ec1f87eef0da584176017066b458eb1e969b72bc3c975bc51d0d2b9661",
+    "index": 14,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     59,
+     60
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "e1c042c87dba4c729d6dce0187c78515fdcd69f1ae2fd5e92ef4f564ce7e3e5e",
+    "index": 15,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     68,
+     65
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "0a4d94c97f0ce664b96b802d558ae12caab7d2cbbceeedcaad433ea4d1496cc0",
+    "index": 16,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     50,
+     51
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "b95ea3434c3ab5b1a6f97325e317af8e1c4de2bec490950b416ccec8eef70eb0",
+    "index": 17,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     73,
+     72
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 10,
+    "fold_digest": "482768facef375eefbdc936f4f5515ba11b60902f5484a24864b773715c59513",
+    "index": 18,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "7ca54dc2b20013e7db38c15e5b82131b4e1269df3eaa8abefd19704016674ce2",
+    "index": 19,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     61,
+     64
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "a1fb7aa6f62e5361bf89f2b643af9ad6622871ff7ca1d8dba1488f823ff39014",
+    "index": 20,
+    "lengths": [
+     1474
+    ],
+    "rows": [
+     53
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "110d71625d4d1aa1aacda01128d3cb6f0b6baacde0d0ac258ce8dc9cc2e4a050",
+    "index": 21,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     55,
+     62
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "4de7a727dcad6e58095822acdd2f8548608adf1cfc4e2f34ef67e3ce03d7db0e",
+    "index": 22,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     71,
+     69
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "85fea2d66fc15ecded5090d85ec0f3428f99fb56abfa2e50fc799d73b0146df0",
+    "index": 23,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     57,
+     56
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "4ce56784defddf9cd02542acb12bf6afefd54c7b4c1d1d3a976e1e804ab3402c",
+    "index": 24,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     13,
+     18,
+     0,
+     9
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "df216f147e051b6226bf5c6b4829b4e949a9b023284e42916f96f57cd816b9b8",
+    "index": 25,
+    "lengths": [
+     493
+    ],
+    "rows": [
+     87
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "8b6869a036299c0bc88c5029fb4f6bc23a65c98b0ca7b94f3ba9b421f5dade0a",
+    "index": 26,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     30,
+     34,
+     35,
+     45,
+     44,
+     43,
+     46,
+     38
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "7bb49bd3dd2da9de073587cd7b875bb4973f61ed5d9e288640596539d3105cdc",
+    "index": 27,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     66,
+     67
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "ab2d98596f150c355a2e4d808c7ce6173b524d4af1ee392c2bd88aa6bb1f9f41",
+    "index": 28,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     7,
+     15,
+     4,
+     3,
+     1
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "7f014cdadd3d1ad5d1bab0cb914ac830561bdbc1ed33b4e0063d20455788664f",
+    "index": 29,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     48,
+     54
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "5f0b21df8bf845df922fcb2e8864fe8f5da43e6ba6a0434cc8a2387da933688c",
+    "index": 30,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     63,
+     58
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "2d30327291a33eecd3cc449c7cf915523523ec1011c920c4d7e2385366e7a652",
+    "index": 31,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     8,
+     16,
+     5,
+     12,
+     2
+    ],
+    "width": 590
+   }
+  ],
+  "consumed_digest": "a6f5e9798dffea973f3e412ebabede6ed16226968637ab30b7c65a9142d0bf8d",
+  "epoch": 1,
+  "n_batches": 32,
+  "n_folded": 32,
+  "seed": 20260919
+ },
+ {
+  "batch_tokens": 6473,
+  "batches": [
+   {
+    "bucket": 3,
+    "fold_digest": "f23ec47acb1636da9f83bc4e714b27b5131fc19bd0591344c2bbc74b484ba495",
+    "index": 0,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     90,
+     91,
+     94,
+     89,
+     93,
+     96,
+     97,
+     95,
+     92
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "b9572c033e69d8a4d47209bc37bcf3ca8652527826e23d53d2669ed841f052d6",
+    "index": 1,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     84,
+     85,
+     88,
+     82,
+     86,
+     83,
+     87
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "bc9607f42846985a3a82f0426e311239ebec3e74247a870fc4f09ee65bdbb56d",
+    "index": 2,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     1,
+     18,
+     3,
+     13,
+     16,
+     9,
+     0,
+     7,
+     2,
+     5
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "808d47b622a13adc7be2df45f8bb9f88ab6da761cce5a0e65b5bc914aa458d90",
+    "index": 3,
+    "lengths": [
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     51,
+     52,
+     48
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "831d4bc1a0150e8b7b1c47e79b8d3f86b31d10ac455591ed345306398effadb1",
+    "index": 4,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     60,
+     63,
+     56,
+     59
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "ec6396005373af4e9e587898897c3b7b39591d53405b4470a94c85c2eba3ba0b",
+    "index": 5,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     8,
+     15,
+     4,
+     12
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "f7ff64c80f50386ffcdcb4fac69b92a93a9a685a8f764d9c36029705135896bc",
+    "index": 6,
+    "lengths": [
+     1474,
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     50,
+     54,
+     53,
+     49
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 10,
+    "fold_digest": "0cdfdbe59f2f2502330863eb62b2fb9b0d0f67b9ada08421ccf0bbe59978ac41",
+    "index": 7,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "d6bfccbb3c8b23445d7f4ccc210f1ae2d6cbf6cdc2e85c33171c1b6f0222a3b7",
+    "index": 8,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     57,
+     58,
+     62,
+     64
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "ca1509c31add5dcdf712153570fe05a7e138aad0e053669a022af2bed191d8fd",
+    "index": 9,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     42,
+     28,
+     26,
+     29,
+     31,
+     24,
+     39,
+     32,
+     40,
+     36,
+     25,
+     37,
+     33,
+     27
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "e4f68ac8b629d7183ea1607603e28d742db427eea271270594c27a67338822ad",
+    "index": 10,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     34,
+     41,
+     35,
+     46,
+     38,
+     43,
+     44,
+     45,
+     30,
+     47
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "8c81e6426665595f53a95c8143154749f83c7b0908a0fcd323622e978ad339a5",
+    "index": 11,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     11,
+     19,
+     6,
+     14,
+     21,
+     20,
+     17,
+     23,
+     22,
+     10
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "9a6392559d2c4bf31ad2929288b6ce196513bf7986b302cd2a73ab8ef36c0237",
+    "index": 12,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     75,
+     77,
+     80,
+     72
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "cd5feaf1c665b054d103507e18d8c36df34797e1988ca58ad70525c48f55ff06",
+    "index": 13,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     67,
+     66
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "449c00d84eeed5cf3de469c6dfb4d1262c8f6446fafaa7c95fd6592e90b0407a",
+    "index": 14,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     70
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "19416ca7de810968c3c196328146c5621163402d7aa9149b5c3910f4faf47a6b",
+    "index": 15,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     74,
+     78,
+     79,
+     73
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "c4746a8514bc75e849681028322d269cba7bef690eb01016b5d8c6ff4cd93961",
+    "index": 16,
+    "lengths": [
+     1566,
+     1566,
+     1566,
+     1566
+    ],
+    "rows": [
+     68,
+     69,
+     65,
+     71
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "fefcf5fc1950e883ab57a84613bfe758581302e38cd30000e0ea0d29c2c7fb9a",
+    "index": 17,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     55,
+     61
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "813113b8c970a2880af0a4338d5d8ebee208d1429259ecc2203f8f9f0eddc9e1",
+    "index": 18,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     76
+    ],
+    "width": 1618
+   }
+  ],
+  "consumed_digest": "241849dac9a68065ba7555ad6e5726443895246cbc4c8f035442cec6307e0bb9",
+  "epoch": 1,
+  "n_batches": 19,
+  "n_folded": 19,
+  "seed": 20260919
+ },
+ {
+  "batch_tokens": 3236,
+  "batches": [
+   {
+    "bucket": 4,
+    "fold_digest": "2e53fb59000b09a3779773bb66076f069af928bab77e474fbf4a4a2e50a217b8",
+    "index": 0,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     19,
+     11,
+     14,
+     17,
+     10
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "832a70efa20f183d53faf0774f162b400e83289730c95f4e3333caa31668e671",
+    "index": 1,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     2,
+     8,
+     7,
+     9,
+     18
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "7154621dc757df90cee73d91311e724bc58f2bd9c97cac4e2b07891a1df6a4d3",
+    "index": 2,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     66,
+     67
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "6969642b73a354f65e6b355ec9b361bbbbff6cd465288ffb231476d668bd9caf",
+    "index": 3,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     77
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "73f39c340cb67f0ee48314f8a0e6c2a145a664ef85fc3562bdec5a47ae93256e",
+    "index": 4,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     58,
+     57
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "d718e475d3f2e36ff35a4ac3730e74bb89a518b0ab6ec61c80964281d8665e05",
+    "index": 5,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     70,
+     71
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "db5db44063e46dde65861e74c81c03341b9a732c71bb63c3f17f1759eea129ea",
+    "index": 6,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     28,
+     39,
+     32,
+     25,
+     36,
+     37,
+     24,
+     27
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "72848150f054dcb22a3244d63da8e3bcb0b3b5739fc1510c46d7dd61337e1493",
+    "index": 7,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     74,
+     79
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "07280cca962ce318e36bbe45744583f0fdcb31faf660f0645f01a075c755d31d",
+    "index": 8,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     3,
+     12,
+     15,
+     13
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "2f18ab6169e4d62a5d792e6b0eadf703fdf6a4c4438e9b74397b900f6d9ce031",
+    "index": 9,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     72,
+     76
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "b947be2dfe5b6a113fc21bf3864deb7ca41eb3e859eff962fdc7514677f06c55",
+    "index": 10,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     63,
+     55
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "1d74876301f0d1ed101fb162a6f01afe0bbb72bf32ed14a03750aa181b17d5eb",
+    "index": 11,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     61,
+     64
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "808c5df1978396c46e52c6d7a0ad407a261ec9fef9b84a2a5f3aaf9471803711",
+    "index": 12,
+    "lengths": [
+     493
+    ],
+    "rows": [
+     82
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "7114e1c4da7dec0e5e3db007de42b46fbf8cc590209c386e4420ae2dc7853e01",
+    "index": 13,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     42,
+     26,
+     33,
+     31,
+     40,
+     29
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "65f9cea865d2d9f66ef00fe4079dfcf1550cc1716e04c30e973a26c1ffb856e0",
+    "index": 14,
+    "lengths": [
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     91,
+     93,
+     89
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "cfaa5dc591e81b50f5f1c77e8a3f512dd4c8945b9f848bc5f537692d45bb7898",
+    "index": 15,
+    "lengths": [
+     1474
+    ],
+    "rows": [
+     52
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "155f24608b4a8bf4c8440fe42b2837c939e796b745e9af060519c638a25f6fda",
+    "index": 16,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     48,
+     49
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "c16e18179a4dae4adeb012f014b9e043983de029cacab998274d12c0cd47d4f6",
+    "index": 17,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     90,
+     94,
+     97,
+     95,
+     92,
+     96
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "0623b97331eec5e569ffbd5807ed1dab6824ed028d95e07e2fdd935da96966a5",
+    "index": 18,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     51,
+     53
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "57c4c0b9bc0ef74f7e11ea4b054f665eb6f6834a1e2c0d0a0df4fd3cd846536e",
+    "index": 19,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     38,
+     47,
+     41,
+     44,
+     35,
+     43,
+     30,
+     45
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "c49d307dfcb35b398788bfab101a8045c4c9444474b62c442dad02c0182b54a9",
+    "index": 20,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     0,
+     1,
+     16,
+     5,
+     4
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "0d54fb308ccd60a469e60c7596fab3dba22e8d74f01bc9759902cbbb06f427c0",
+    "index": 21,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     62,
+     59
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 10,
+    "fold_digest": "79b68e0de55bb79d91fb94e808ee2f9033e1aab3942069055db4da60e0c7b3b1",
+    "index": 22,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "7b7843937ab0b2edd27fc99f1d4cc91a2852fbcbba669479a77d47068f6c6c83",
+    "index": 23,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     84,
+     83,
+     88,
+     87,
+     86,
+     85
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "aa0a1f4755064d9c881f5869ae5dbb807f5f2581030dcc2a94c8efd6653f661d",
+    "index": 24,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     56,
+     60
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "ea1bc8d1d3e5d9b1ad435b5ae9af2a3211a2b0ccbac91437d375254bffac80c7",
+    "index": 25,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     50,
+     54
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "6e526252fea55ca7769bda3514244ba3cbfa29ea9d781fa1c9ff1ac89226587b",
+    "index": 26,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     73,
+     78
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "9728afa3504282da61788d7b918840894cae8df2f3d66e63a5965bea73d5fd4a",
+    "index": 27,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     65,
+     68
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "19df96c5eb36a2fb9ecb7686a3654b106c84a9594cc3719d65d3d9cbc2a71bfa",
+    "index": 28,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     69
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "7138980b9915033ee31e678186fdcb7e6d40dfc2e57af56bcbc3845fa6690082",
+    "index": 29,
+    "lengths": [
+     385,
+     385
+    ],
+    "rows": [
+     34,
+     46
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "9fffcd588d12acea0b2ffd331010c8ca23e03711c4d589d2fb18fe745a817ca5",
+    "index": 30,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     75,
+     80
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "846a7af597455b47e3484e05e3b078b5b3939b13dfe0a147d62b82c4ceb08378",
+    "index": 31,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     20,
+     23,
+     22,
+     6,
+     21
+    ],
+    "width": 589
+   }
+  ],
+  "consumed_digest": "8a2f3bc5c8b96501379db4e3baf317504e3797fb43d98d6a267950b49d6185e9",
+  "epoch": 0,
+  "n_batches": 32,
+  "n_folded": 32,
+  "seed": 7
+ },
+ {
+  "batch_tokens": 6473,
+  "batches": [
+   {
+    "bucket": 4,
+    "fold_digest": "70a3c5df09d5303d8eebef7f5e98a2ef06b15eee96ad145ac59aa407d82e0303",
+    "index": 0,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     21,
+     23,
+     14,
+     17,
+     11,
+     20,
+     6,
+     19,
+     10,
+     22
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "9874fa555ad463bee1d8f1da52d37f16cd098c5b1162a6aa05019dd6a63084d7",
+    "index": 1,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     41,
+     47,
+     45,
+     44,
+     35,
+     30,
+     38,
+     43,
+     34,
+     46
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "31af248e7071966b51dbf37f25c627f1f39ffdd4fa18a7db12ec50c4e6130f38",
+    "index": 2,
+    "lengths": [
+     1566,
+     1566,
+     1566,
+     1566
+    ],
+    "rows": [
+     65,
+     68,
+     71,
+     69
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "07d7658aa73ea1c6e88ed10e1f9211270008432d59555e6d89cf29f956c23a23",
+    "index": 3,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     92,
+     96,
+     91,
+     97,
+     95,
+     90,
+     94,
+     93,
+     89
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "2ddf0ede37dff54f2f7497bee94955370c5b6dae647d764a881a7c3f1cd79bb5",
+    "index": 4,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     12,
+     1,
+     2,
+     9
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "c8d6a57e79f4f1e8b29f7639b7e9b02128bdfb7209a3fee2d34621a7b78f24d6",
+    "index": 5,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     70
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "7e8947d26c728bd912c08587f4a657b3c5634913f53fff874b0a9d9539fb8e82",
+    "index": 6,
+    "lengths": [
+     1474,
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     53,
+     51,
+     54,
+     49
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "456423983992aa04a6b3d316015cd2c992b978e27e7064a4a32c9548543efe94",
+    "index": 7,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     78,
+     75,
+     72,
+     79
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "b0b1991f187e24540ed8391cfd44077553bf0fb3ab4b05f97dcfd603a8f0c3e7",
+    "index": 8,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     31,
+     42,
+     28,
+     25,
+     40,
+     27,
+     29,
+     26,
+     39,
+     24,
+     32,
+     37,
+     33,
+     36
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "4008f4bf395ecaed0d546bae4e7a8ca472fe96ec2f9ce5fcf48f6ebcc61d3e7d",
+    "index": 9,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     58,
+     56,
+     57,
+     60
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "4334d0ca51dbf3efdb8b7099afc719fd28e9eb799cc2a19e2a615e7f93d09958",
+    "index": 10,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     73,
+     74,
+     76,
+     77
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 10,
+    "fold_digest": "75cef4becaf891eea1da1474388c94619eb574f085a8bf0b1cf8f26609215acd",
+    "index": 11,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "47f3ac1d170d8f17760ed0e5a53203f3d4269786b3f548764f19d19b094384d2",
+    "index": 12,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     88,
+     85,
+     87,
+     84,
+     83,
+     86,
+     82
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "5aff27faccc6e9c8ee0ace7440187965298b221142ae515bef74ed6a88cdfd2e",
+    "index": 13,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     59,
+     63,
+     62,
+     64
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "70370843eb6c2f98d3b52061435e603609c139e07f80db3628522dc05ddf3e1d",
+    "index": 14,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     7,
+     5,
+     8,
+     16,
+     0,
+     15,
+     4,
+     18,
+     13,
+     3
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "0a9e1e754e3a60301fe370150e256d8e3101a5708086a3ea178729584d8cb7ae",
+    "index": 15,
+    "lengths": [
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     50,
+     52,
+     48
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "b18b9df799c4971a6570fc75feaa1f121f4d9ccbd967db04bef244ce409330ee",
+    "index": 16,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     80
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "02f7865dd49df6381628bc365ec8953af8354a72b67cefe9d18d9e0a91ded774",
+    "index": 17,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     66,
+     67
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "302519c8363625cf1e9f41e5d563588e67262a6b8ae3e047990c66b25a189e57",
+    "index": 18,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     55,
+     61
+    ],
+    "width": 1525
+   }
+  ],
+  "consumed_digest": "81a37145a0a79d5a8f04cddaa4520a44bdedabd5369663b21d7791c2107a3417",
+  "epoch": 0,
+  "n_batches": 19,
+  "n_folded": 19,
+  "seed": 7
+ },
+ {
+  "batch_tokens": 3236,
+  "batches": [
+   {
+    "bucket": 7,
+    "fold_digest": "3da52dce8db7f3d5e89ed6a1faf0f8ad3912662730a2a9f1fe0c211e86ef4323",
+    "index": 0,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     64,
+     57
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "c25bf89b6a1b620dddb5736c47c013cabee7d3d68dd1ce4cf408ff21ae9e0d43",
+    "index": 1,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     49,
+     50
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "57e3ecdedb8fb61bc4f12e31af0947741f8cf807bc2f2ac577497131c1cc7fa8",
+    "index": 2,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     94,
+     96,
+     91,
+     89,
+     90,
+     97
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "83551573204cf97d398ee42a755dd728bf1dd58dbc709270a89bafbd33e78952",
+    "index": 3,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     58,
+     63
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "9ed2538af4bb1c135604757c42dbecc25790c8a9e3547255b08c137f1d549645",
+    "index": 4,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     13,
+     12,
+     0,
+     15,
+     5
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "aff00d7cca21d3a3768f91c7de335aba03f3d6b519930d7214568dc89649a0a9",
+    "index": 5,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     65
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "df0b0ab069351873df2f3945ade10876d6a9de11b7697323670aff55924a6354",
+    "index": 6,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     71,
+     68
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "6bd1b51ee36ff162b17d444c5468996bb6ba61f1a067b65d27a6ce0705f084bf",
+    "index": 7,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     62,
+     61
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "17a16f7457bcfdc7e4ce364846a7f0ae75aee285d1200eca7ce3b7e42aaac546",
+    "index": 8,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     24,
+     28,
+     33,
+     42,
+     36,
+     39
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "3578126f353868a445f6daca94b4c837c18456ba9766194e414191ae165b518b",
+    "index": 9,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     77,
+     74
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "34e2dab1a3942f586b76b5247e60bf5e22e2fee70ce40bd30c41a364c1165007",
+    "index": 10,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     75,
+     78
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 10,
+    "fold_digest": "75cef4becaf891eea1da1474388c94619eb574f085a8bf0b1cf8f26609215acd",
+    "index": 11,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "f64a128a05d39b74f09b24c1a30fc08df21fe3bc86adca8388a9a7ba24ea44ff",
+    "index": 12,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     37,
+     27,
+     25,
+     26,
+     32,
+     29,
+     31,
+     40
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "0ca352b8a46a728ff00dcd83f026cf106909f6fddb2486f769423dc7e8c44b3a",
+    "index": 13,
+    "lengths": [
+     1566,
+     1566
+    ],
+    "rows": [
+     69,
+     70
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "8f970b83467a746986153ab8d5b575f1c9672287f2a7a72a8e8136c0bc717fdb",
+    "index": 14,
+    "lengths": [
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     95,
+     92,
+     93
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "0e5d6c314da2abdf7fd3b3fad95fe375394c52b51912c847f8f7b5cebefbd25c",
+    "index": 15,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     59,
+     56
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "b18b9df799c4971a6570fc75feaa1f121f4d9ccbd967db04bef244ce409330ee",
+    "index": 16,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     80
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "b2dc5038014c877e67fb780cc9e2749b19f80a7293bd3f40cc0c786a4da263ea",
+    "index": 17,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     17,
+     14,
+     10,
+     23,
+     20
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "03c08543e2caf5745a06c061e4d3532daa4a9ad28a780c0cd5fcbb748ddc806d",
+    "index": 18,
+    "lengths": [
+     493
+    ],
+    "rows": [
+     83
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "7925f962a602fabb3877986cac96cb57d157fa6859669dd86ff7340318767db9",
+    "index": 19,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     3,
+     1,
+     7,
+     16,
+     4
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "757043f73c08e7317a9a5f92477c0a617bf9d6ece2bafcb229e822cf801b626a",
+    "index": 20,
+    "lengths": [
+     1474
+    ],
+    "rows": [
+     51
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "205578beeaf69f2f01b5f342fc29abe0c9a513102b109030711310de75452ce1",
+    "index": 21,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     84,
+     87,
+     86,
+     85,
+     82,
+     88
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "4cd7fd3ace759407185687f2c702d67416addbe91ea82f1efc08c1f9cbe70ed9",
+    "index": 22,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     72,
+     76
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "9db9d304b4e4929607a885fa6bccd936fe1957566916a3870e2d04712394087a",
+    "index": 23,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     60,
+     55
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "72168893ab44310dcb7bc4105ea8db32d7eb3d5a05621ffa06d6e2ea441a5fda",
+    "index": 24,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     6,
+     21,
+     22,
+     11,
+     19
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "b84a53fa6f6cef5f730aa8a46710221ce597efb9cb33c44f12967d4c80b34266",
+    "index": 25,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     41,
+     47,
+     43,
+     45,
+     44,
+     38,
+     34,
+     46
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "56babd4d64e34856c8c9e8d9b02dd5f7e43d23b9318486020e7f805a41abfbaf",
+    "index": 26,
+    "lengths": [
+     385,
+     385
+    ],
+    "rows": [
+     35,
+     30
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "b8a14ff2b0ae4435fe53e71e5324f50741900aede0f815ac34b9b909db50fcb2",
+    "index": 27,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     67,
+     66
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "a209f03a9e957d88058098df741aeff7b578dc5baa0ab63977c58f88c883262f",
+    "index": 28,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     54,
+     53
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "470b91dfa937665d136b17a2c7cca39d85b72f389e511e6270768093386f001c",
+    "index": 29,
+    "lengths": [
+     1618,
+     1618
+    ],
+    "rows": [
+     73,
+     79
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "4d892ff5b622369af10bfd3f35825ff30444680a96dbd1b17229ce1664ca8014",
+    "index": 30,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     8,
+     18,
+     2,
+     9
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "922f2b8e1a96cf6e82af137feffb0f3954259c1be24aa7697f6e8cb96eb41138",
+    "index": 31,
+    "lengths": [
+     1474,
+     1474
+    ],
+    "rows": [
+     48,
+     52
+    ],
+    "width": 1474
+   }
+  ],
+  "consumed_digest": "6ab83d12d2a91eee8247feace640eae513cdb934d510c4dbea873565be01b2aa",
+  "epoch": 1,
+  "n_batches": 32,
+  "n_folded": 32,
+  "seed": 7
+ },
+ {
+  "batch_tokens": 6473,
+  "batches": [
+   {
+    "bucket": 10,
+    "fold_digest": "5279dd65ed3721a5190dc7eea629b51bcf1176c834da719a27dbd205a2d9a6d7",
+    "index": 0,
+    "lengths": [
+     1617
+    ],
+    "rows": [
+     81
+    ],
+    "width": 1617
+   },
+   {
+    "bucket": 1,
+    "fold_digest": "e4ac0cab81c74cd20402969f65fc7f0ea1af2674840678635dd3a98534ccac33",
+    "index": 1,
+    "lengths": [
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386,
+     386
+    ],
+    "rows": [
+     32,
+     42,
+     37,
+     31,
+     27,
+     33,
+     39,
+     26,
+     40,
+     28,
+     24,
+     29,
+     25,
+     36
+    ],
+    "width": 386
+   },
+   {
+    "bucket": 4,
+    "fold_digest": "5c4cc982a60982ebf9406de6c9ea634eb354819f645e71aa23547ddb8aa5beaf",
+    "index": 2,
+    "lengths": [
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589,
+     589
+    ],
+    "rows": [
+     21,
+     6,
+     14,
+     23,
+     19,
+     11,
+     20,
+     10,
+     22,
+     17
+    ],
+    "width": 589
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "9bdb4fc6a9670be6bf632be111650f59e3f3b4eda78cea0d72dfdffe5c173e95",
+    "index": 3,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     59,
+     56,
+     60,
+     61
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "05b72e21d79fb414a517953b1c52c837933757f820d7e88cad62215dba2b832b",
+    "index": 4,
+    "lengths": [
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     0,
+     9,
+     4,
+     1,
+     7,
+     12,
+     8,
+     15,
+     2,
+     5
+    ],
+    "width": 590
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "15b4fa790c07fa2f584cc80c4bb492a057b117ed7c10b75e297941332f251ce5",
+    "index": 5,
+    "lengths": [
+     1525,
+     1525
+    ],
+    "rows": [
+     58,
+     57
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "593e551ad4838f478056a438afaffced216b756efb6c018713fc930ca3ab7f01",
+    "index": 6,
+    "lengths": [
+     1618
+    ],
+    "rows": [
+     80
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "1f55c9a71cd6231cf44c9cf427b7b9d25bc6621118db7af4b252937964290e00",
+    "index": 7,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     78,
+     74,
+     73,
+     77
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 11,
+    "fold_digest": "a6590cf6ccf49ea8d251c71f87df1e3fb1611830edea8a201c4bd0ca8e25a71f",
+    "index": 8,
+    "lengths": [
+     1618,
+     1618,
+     1618,
+     1618
+    ],
+    "rows": [
+     72,
+     75,
+     76,
+     79
+    ],
+    "width": 1618
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "b42920668f41efb551b6d4bdb287f906caeca5323dcff6f7eebb3c20d66f4d19",
+    "index": 9,
+    "lengths": [
+     1566,
+     1566,
+     1566,
+     1566
+    ],
+    "rows": [
+     68,
+     71,
+     70,
+     69
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "47d93765982f08d84fc268240497901a7dae03b12e8ef7189396974185d3b2f1",
+    "index": 10,
+    "lengths": [
+     1474,
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     51,
+     54,
+     48,
+     52
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 8,
+    "fold_digest": "491200ae100251a4de1c7f9e5fb8a936fcfc27f77fefc3d4ea43bf358e3fa663",
+    "index": 11,
+    "lengths": [
+     1566
+    ],
+    "rows": [
+     65
+    ],
+    "width": 1566
+   },
+   {
+    "bucket": 2,
+    "fold_digest": "6f5bb54fd87271a19b5be8fc8f07ebfa68d56b908b95be420c83d8b850868761",
+    "index": 12,
+    "lengths": [
+     493,
+     493,
+     493,
+     493,
+     493,
+     493,
+     493
+    ],
+    "rows": [
+     84,
+     86,
+     83,
+     87,
+     85,
+     88,
+     82
+    ],
+    "width": 493
+   },
+   {
+    "bucket": 3,
+    "fold_digest": "bd4bad080497deb94f1af8fdb636141f9016a24aaad941e1999ea72f3e96c3e2",
+    "index": 13,
+    "lengths": [
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496,
+     496
+    ],
+    "rows": [
+     92,
+     90,
+     94,
+     93,
+     91,
+     97,
+     89,
+     96,
+     95
+    ],
+    "width": 496
+   },
+   {
+    "bucket": 0,
+    "fold_digest": "f960c03f9c38adbd4aba14f79c9403a9271ea9fd074c5dc04d138e0694086258",
+    "index": 14,
+    "lengths": [
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385,
+     385
+    ],
+    "rows": [
+     45,
+     41,
+     38,
+     46,
+     34,
+     44,
+     35,
+     30,
+     43,
+     47
+    ],
+    "width": 385
+   },
+   {
+    "bucket": 9,
+    "fold_digest": "0bdda855a0d7335f6f3614ad47881b71cb73144de7484d5a408c10470336a705",
+    "index": 15,
+    "lengths": [
+     1567,
+     1567
+    ],
+    "rows": [
+     67,
+     66
+    ],
+    "width": 1567
+   },
+   {
+    "bucket": 7,
+    "fold_digest": "d11fe19892bff43588de142c97f9fcfe697e3fa92e98331078d48fd20ba56673",
+    "index": 16,
+    "lengths": [
+     1525,
+     1525,
+     1525,
+     1525
+    ],
+    "rows": [
+     55,
+     63,
+     62,
+     64
+    ],
+    "width": 1525
+   },
+   {
+    "bucket": 6,
+    "fold_digest": "17502ca725b130440b5ce22174ef1d32ceb45128d09176c4bf854b1c7cdb783d",
+    "index": 17,
+    "lengths": [
+     1474,
+     1474,
+     1474
+    ],
+    "rows": [
+     53,
+     50,
+     49
+    ],
+    "width": 1474
+   },
+   {
+    "bucket": 5,
+    "fold_digest": "6bc23644a65e776802f1fd07a628e68acddb7a98a742ac196be627b498aa54ef",
+    "index": 18,
+    "lengths": [
+     590,
+     590,
+     590,
+     590
+    ],
+    "rows": [
+     18,
+     13,
+     3,
+     16
+    ],
+    "width": 590
+   }
+  ],
+  "consumed_digest": "db88440f9967b2ff42cd47e41a3f2dcf46d42abd7090db8adca35e3b845abaac",
+  "epoch": 1,
+  "n_batches": 19,
+  "n_folded": 19,
+  "seed": 7
+ }
+]

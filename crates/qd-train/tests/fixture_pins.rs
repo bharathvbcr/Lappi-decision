@@ -17,6 +17,7 @@
 //! | --- | --- | --- |
 //! | `span-head/` | `SHA256SUMS` | `shasum -a 256` (lane L-fixture-pins, 2026-10-02) |
 //! | `shards-tiny/` | `SHA256SUMS` | `shasum -a 256` (lane L-fixture-pins, 2026-10-02) |
+//! | `shards-tiny-v64/` | `SHA256SUMS` | `shasum -a 256`; set by `tools/qd_train_oracle_shards.py --vocab 64` (lane W3-2) |
 //! | `tiny-published/` | `manifest.json` `files` | `tools/qd_train_oracle_tiny.py` |
 //! | `adamw-decay-sensitive/` | `manifest.json` `files` | `tools/qd_train_oracle_adamw.py` |
 //! | `span-head-init-seed0-h64.safetensors` | its `.manifest.json` `file` | `tools/qd_train_oracle_span_head_init.py` |
@@ -42,9 +43,10 @@ fn fixtures() -> PathBuf {
 }
 
 /// The fixture sets under `tests/fixtures`, each with the manifest form it carries.
-const SETS: [(&str, Form); 4] = [
+const SETS: [(&str, Form); 5] = [
     ("span-head", Form::Sha256Sums),
     ("shards-tiny", Form::Sha256Sums),
+    ("shards-tiny-v64", Form::Sha256Sums),
     ("tiny-published", Form::JsonFiles),
     ("adamw-decay-sensitive", Form::JsonFiles),
 ];

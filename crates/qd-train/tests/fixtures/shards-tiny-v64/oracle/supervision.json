@@ -1,0 +1,2568 @@
+[
+ {
+  "batch_tokens": 3236,
+  "batches": [
+   {
+    "index": 0,
+    "letter_positions": [
+     [
+      0,
+      588
+     ],
+     [
+      1,
+      588
+     ],
+     [
+      2,
+      588
+     ],
+     [
+      3,
+      588
+     ],
+     [
+      4,
+      588
+     ]
+    ],
+    "letter_targets": [
+     11,
+     1,
+     15,
+     4,
+     11
+    ],
+    "mask_shape": [
+     5,
+     589
+    ],
+    "n_answers": 5,
+    "n_supervised": 5,
+    "span": null
+   },
+   {
+    "index": 1,
+    "letter_positions": [
+     [
+      0,
+      1565
+     ],
+     [
+      1,
+      1565
+     ]
+    ],
+    "letter_targets": [
+     1,
+     2
+    ],
+    "mask_shape": [
+     2,
+     1566
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 2,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1524
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 3,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1524
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 4,
+    "letter_positions": [],
+    "letter_targets": [],
+    "mask_shape": [
+     3,
+     495
+    ],
+    "n_answers": 3,
+    "n_supervised": 0,
+    "span": {
+     "abstaining": [
+      false,
+      true,
+      false
+     ],
+     "candidate_counts": [
+      5,
+      5,
+      5
+     ],
+     "end": [
+      205,
+      -2,
+      205
+     ],
+     "plan": {
+      "abstaining": [
+       false,
+       true,
+       false
+      ],
+      "candidate_pos": [
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ]
+      ],
+      "candidate_valid": [
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ]
+      ],
+      "gold_end": [
+       3,
+       5,
+       3
+      ],
+      "gold_start": [
+       3,
+       5,
+       3
+      ],
+      "max_rows": 6,
+      "n_candidates": [
+       5,
+       5,
+       5
+      ],
+      "n_spans": 3,
+      "query_index": [
+       494,
+       494,
+       494
+      ],
+      "runtime_rows": [
+       6,
+       6,
+       6
+      ]
+     },
+     "query_index": [
+      494,
+      494,
+      494
+     ],
+     "rows": [
+      0,
+      1,
+      2
+     ],
+     "start": [
+      205,
+      -2,
+      205
+     ]
+    }
+   },
+   {
+    "index": 5,
+    "letter_positions": [
+     [
+      0,
+      587
+     ],
+     [
+      1,
+      587
+     ],
+     [
+      2,
+      587
+     ],
+     [
+      3,
+      587
+     ],
+     [
+      4,
+      587
+     ]
+    ],
+    "letter_targets": [
+     5,
+     26,
+     1,
+     4,
+     8
+    ],
+    "mask_shape": [
+     5,
+     588
+    ],
+    "n_answers": 5,
+    "n_supervised": 5,
+    "span": null
+   },
+   {
+    "index": 6,
+    "letter_positions": [
+     [
+      0,
+      383
+     ],
+     [
+      1,
+      383
+     ],
+     [
+      2,
+      383
+     ],
+     [
+      3,
+      383
+     ],
+     [
+      4,
+      383
+     ],
+     [
+      5,
+      383
+     ],
+     [
+      6,
+      383
+     ],
+     [
+      7,
+      383
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     2
+    ],
+    "mask_shape": [
+     8,
+     384
+    ],
+    "n_answers": 8,
+    "n_supervised": 8,
+    "span": null
+   },
+   {
+    "index": 7,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     1
+    ],
+    "mask_shape": [
+     1,
+     1617
+    ],
+    "n_answers": 1,
+    "n_supervised": 1,
+    "span": null
+   },
+   {
+    "index": 8,
+    "letter_positions": [
+     [
+      0,
+      383
+     ],
+     [
+      1,
+      383
+     ]
+    ],
+    "letter_targets": [
+     1,
+     2
+    ],
+    "mask_shape": [
+     2,
+     384
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 9,
+    "letter_positions": [],
+    "letter_targets": [],
+    "mask_shape": [
+     1,
+     492
+    ],
+    "n_answers": 1,
+    "n_supervised": 0,
+    "span": {
+     "abstaining": [
+      false
+     ],
+     "candidate_counts": [
+      5
+     ],
+     "end": [
+      203
+     ],
+     "plan": {
+      "abstaining": [
+       false
+      ],
+      "candidate_pos": [
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ]
+      ],
+      "candidate_valid": [
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ]
+      ],
+      "gold_end": [
+       3
+      ],
+      "gold_start": [
+       3
+      ],
+      "max_rows": 6,
+      "n_candidates": [
+       5
+      ],
+      "n_spans": 1,
+      "query_index": [
+       491
+      ],
+      "runtime_rows": [
+       6
+      ]
+     },
+     "query_index": [
+      491
+     ],
+     "rows": [
+      0
+     ],
+     "start": [
+      203
+     ]
+    }
+   },
+   {
+    "index": 10,
+    "letter_positions": [
+     [
+      0,
+      587
+     ],
+     [
+      1,
+      587
+     ],
+     [
+      2,
+      587
+     ],
+     [
+      3,
+      587
+     ],
+     [
+      4,
+      587
+     ]
+    ],
+    "letter_targets": [
+     26,
+     8,
+     13,
+     2,
+     6
+    ],
+    "mask_shape": [
+     5,
+     588
+    ],
+    "n_answers": 5,
+    "n_supervised": 5,
+    "span": null
+   },
+   {
+    "index": 11,
+    "letter_positions": [
+     [
+      0,
+      588
+     ],
+     [
+      1,
+      588
+     ],
+     [
+      2,
+      588
+     ],
+     [
+      3,
+      588
+     ]
+    ],
+    "letter_targets": [
+     6,
+     26,
+     10,
+     1
+    ],
+    "mask_shape": [
+     4,
+     589
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 12,
+    "letter_positions": [
+     [
+      0,
+      1472
+     ]
+    ],
+    "letter_targets": [
+     1
+    ],
+    "mask_shape": [
+     1,
+     1473
+    ],
+    "n_answers": 1,
+    "n_supervised": 1,
+    "span": null
+   },
+   {
+    "index": 13,
+    "letter_positions": [
+     [
+      0,
+      1472
+     ],
+     [
+      1,
+      1472
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1473
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 14,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ],
+     [
+      1,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     2,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1617
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 15,
+    "letter_positions": [
+     [
+      0,
+      1564
+     ]
+    ],
+    "letter_targets": [
+     1
+    ],
+    "mask_shape": [
+     1,
+     1565
+    ],
+    "n_answers": 1,
+    "n_supervised": 1,
+    "span": null
+   },
+   {
+    "index": 16,
+    "letter_positions": [
+     [
+      0,
+      1615
+     ]
+    ],
+    "letter_targets": [
+     1
+    ],
+    "mask_shape": [
+     1,
+     1616
+    ],
+    "n_answers": 1,
+    "n_supervised": 1,
+    "span": null
+   },
+   {
+    "index": 17,
+    "letter_positions": [
+     [
+      0,
+      588
+     ],
+     [
+      1,
+      588
+     ],
+     [
+      2,
+      588
+     ],
+     [
+      3,
+      588
+     ],
+     [
+      4,
+      588
+     ]
+    ],
+    "letter_targets": [
+     2,
+     12,
+     12,
+     13,
+     12
+    ],
+    "mask_shape": [
+     5,
+     589
+    ],
+    "n_answers": 5,
+    "n_supervised": 5,
+    "span": null
+   },
+   {
+    "index": 18,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ],
+     [
+      1,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1617
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 19,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1524
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 20,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1524
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 21,
+    "letter_positions": [
+     [
+      0,
+      384
+     ],
+     [
+      1,
+      384
+     ],
+     [
+      2,
+      384
+     ],
+     [
+      3,
+      384
+     ],
+     [
+      4,
+      384
+     ],
+     [
+      5,
+      384
+     ],
+     [
+      6,
+      384
+     ],
+     [
+      7,
+      384
+     ]
+    ],
+    "letter_targets": [
+     2,
+     1,
+     2,
+     2,
+     2,
+     2,
+     2,
+     1
+    ],
+    "mask_shape": [
+     8,
+     385
+    ],
+    "n_answers": 8,
+    "n_supervised": 8,
+    "span": null
+   },
+   {
+    "index": 22,
+    "letter_positions": [
+     [
+      0,
+      384
+     ],
+     [
+      1,
+      384
+     ],
+     [
+      2,
+      384
+     ],
+     [
+      3,
+      384
+     ],
+     [
+      4,
+      384
+     ],
+     [
+      5,
+      384
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1,
+     2,
+     1,
+     1,
+     2
+    ],
+    "mask_shape": [
+     6,
+     385
+    ],
+    "n_answers": 6,
+    "n_supervised": 6,
+    "span": null
+   },
+   {
+    "index": 23,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1524
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 24,
+    "letter_positions": [
+     [
+      0,
+      1472
+     ],
+     [
+      1,
+      1472
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1473
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 25,
+    "letter_positions": [
+     [
+      0,
+      1472
+     ],
+     [
+      1,
+      1472
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1473
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 26,
+    "letter_positions": [
+     [
+      0,
+      1564
+     ],
+     [
+      1,
+      1564
+     ]
+    ],
+    "letter_targets": [
+     2,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1565
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 27,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ],
+     [
+      1,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1617
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 28,
+    "letter_positions": [],
+    "letter_targets": [],
+    "mask_shape": [
+     6,
+     492
+    ],
+    "n_answers": 6,
+    "n_supervised": 0,
+    "span": {
+     "abstaining": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+     ],
+     "candidate_counts": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+     ],
+     "end": [
+      -2,
+      203,
+      203,
+      203,
+      203,
+      203
+     ],
+     "plan": {
+      "abstaining": [
+       true,
+       false,
+       false,
+       false,
+       false,
+       false
+      ],
+      "candidate_pos": [
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ]
+      ],
+      "candidate_valid": [
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ]
+      ],
+      "gold_end": [
+       5,
+       3,
+       3,
+       3,
+       3,
+       3
+      ],
+      "gold_start": [
+       5,
+       3,
+       3,
+       3,
+       3,
+       3
+      ],
+      "max_rows": 6,
+      "n_candidates": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      "n_spans": 6,
+      "query_index": [
+       491,
+       491,
+       491,
+       491,
+       491,
+       491
+      ],
+      "runtime_rows": [
+       6,
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     },
+     "query_index": [
+      491,
+      491,
+      491,
+      491,
+      491,
+      491
+     ],
+     "rows": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "start": [
+      -2,
+      203,
+      203,
+      203,
+      203,
+      203
+     ]
+    }
+   },
+   {
+    "index": 29,
+    "letter_positions": [
+     [
+      0,
+      1564
+     ],
+     [
+      1,
+      1564
+     ]
+    ],
+    "letter_targets": [
+     2,
+     2
+    ],
+    "mask_shape": [
+     2,
+     1565
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 30,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ],
+     [
+      1,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     2,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1617
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 31,
+    "letter_positions": [],
+    "letter_targets": [],
+    "mask_shape": [
+     6,
+     495
+    ],
+    "n_answers": 6,
+    "n_supervised": 0,
+    "span": {
+     "abstaining": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+     ],
+     "candidate_counts": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+     ],
+     "end": [
+      205,
+      205,
+      205,
+      -2,
+      205,
+      205
+     ],
+     "plan": {
+      "abstaining": [
+       false,
+       false,
+       false,
+       true,
+       false,
+       false
+      ],
+      "candidate_pos": [
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ]
+      ],
+      "candidate_valid": [
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ]
+      ],
+      "gold_end": [
+       3,
+       3,
+       3,
+       5,
+       3,
+       3
+      ],
+      "gold_start": [
+       3,
+       3,
+       3,
+       5,
+       3,
+       3
+      ],
+      "max_rows": 6,
+      "n_candidates": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      "n_spans": 6,
+      "query_index": [
+       494,
+       494,
+       494,
+       494,
+       494,
+       494
+      ],
+      "runtime_rows": [
+       6,
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     },
+     "query_index": [
+      494,
+      494,
+      494,
+      494,
+      494,
+      494
+     ],
+     "rows": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "start": [
+      205,
+      205,
+      205,
+      -2,
+      205,
+      205
+     ]
+    }
+   }
+  ],
+  "epoch": 0,
+  "seed": 20260919
+ },
+ {
+  "batch_tokens": 6473,
+  "batches": [
+   {
+    "index": 0,
+    "letter_positions": [
+     [
+      0,
+      383
+     ],
+     [
+      1,
+      383
+     ],
+     [
+      2,
+      383
+     ],
+     [
+      3,
+      383
+     ],
+     [
+      4,
+      383
+     ],
+     [
+      5,
+      383
+     ],
+     [
+      6,
+      383
+     ],
+     [
+      7,
+      383
+     ],
+     [
+      8,
+      383
+     ],
+     [
+      9,
+      383
+     ]
+    ],
+    "letter_targets": [
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     2
+    ],
+    "mask_shape": [
+     10,
+     384
+    ],
+    "n_answers": 10,
+    "n_supervised": 10,
+    "span": null
+   },
+   {
+    "index": 1,
+    "letter_positions": [
+     [
+      0,
+      1565
+     ],
+     [
+      1,
+      1565
+     ]
+    ],
+    "letter_targets": [
+     2,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1566
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 2,
+    "letter_positions": [
+     [
+      0,
+      1472
+     ],
+     [
+      1,
+      1472
+     ],
+     [
+      2,
+      1472
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1,
+     1
+    ],
+    "mask_shape": [
+     3,
+     1473
+    ],
+    "n_answers": 3,
+    "n_supervised": 3,
+    "span": null
+   },
+   {
+    "index": 3,
+    "letter_positions": [
+     [
+      0,
+      1564
+     ],
+     [
+      1,
+      1564
+     ],
+     [
+      2,
+      1564
+     ],
+     [
+      3,
+      1564
+     ]
+    ],
+    "letter_targets": [
+     1,
+     2,
+     2,
+     2
+    ],
+    "mask_shape": [
+     4,
+     1565
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 4,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ],
+     [
+      2,
+      1523
+     ],
+     [
+      3,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "mask_shape": [
+     4,
+     1524
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 5,
+    "letter_positions": [
+     [
+      0,
+      1564
+     ]
+    ],
+    "letter_targets": [
+     1
+    ],
+    "mask_shape": [
+     1,
+     1565
+    ],
+    "n_answers": 1,
+    "n_supervised": 1,
+    "span": null
+   },
+   {
+    "index": 6,
+    "letter_positions": [
+     [
+      0,
+      1615
+     ]
+    ],
+    "letter_targets": [
+     1
+    ],
+    "mask_shape": [
+     1,
+     1616
+    ],
+    "n_answers": 1,
+    "n_supervised": 1,
+    "span": null
+   },
+   {
+    "index": 7,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     1
+    ],
+    "mask_shape": [
+     1,
+     1617
+    ],
+    "n_answers": 1,
+    "n_supervised": 1,
+    "span": null
+   },
+   {
+    "index": 8,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ],
+     [
+      1,
+      1616
+     ],
+     [
+      2,
+      1616
+     ],
+     [
+      3,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     1,
+     2,
+     1,
+     1
+    ],
+    "mask_shape": [
+     4,
+     1617
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 9,
+    "letter_positions": [
+     [
+      0,
+      1616
+     ],
+     [
+      1,
+      1616
+     ],
+     [
+      2,
+      1616
+     ],
+     [
+      3,
+      1616
+     ]
+    ],
+    "letter_targets": [
+     2,
+     1,
+     1,
+     1
+    ],
+    "mask_shape": [
+     4,
+     1617
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 10,
+    "letter_positions": [],
+    "letter_targets": [],
+    "mask_shape": [
+     9,
+     495
+    ],
+    "n_answers": 9,
+    "n_supervised": 0,
+    "span": {
+     "abstaining": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+     ],
+     "candidate_counts": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+     ],
+     "end": [
+      205,
+      205,
+      205,
+      205,
+      205,
+      205,
+      -2,
+      205,
+      -2
+     ],
+     "plan": {
+      "abstaining": [
+       false,
+       false,
+       false,
+       false,
+       false,
+       false,
+       true,
+       false,
+       true
+      ],
+      "candidate_pos": [
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ],
+       [
+        125,
+        159,
+        160,
+        205,
+        264
+       ]
+      ],
+      "candidate_valid": [
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ]
+      ],
+      "gold_end": [
+       3,
+       3,
+       3,
+       3,
+       3,
+       3,
+       5,
+       3,
+       5
+      ],
+      "gold_start": [
+       3,
+       3,
+       3,
+       3,
+       3,
+       3,
+       5,
+       3,
+       5
+      ],
+      "max_rows": 6,
+      "n_candidates": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      "n_spans": 9,
+      "query_index": [
+       494,
+       494,
+       494,
+       494,
+       494,
+       494,
+       494,
+       494,
+       494
+      ],
+      "runtime_rows": [
+       6,
+       6,
+       6,
+       6,
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     },
+     "query_index": [
+      494,
+      494,
+      494,
+      494,
+      494,
+      494,
+      494,
+      494,
+      494
+     ],
+     "rows": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+     ],
+     "start": [
+      205,
+      205,
+      205,
+      205,
+      205,
+      205,
+      -2,
+      205,
+      -2
+     ]
+    }
+   },
+   {
+    "index": 11,
+    "letter_positions": [
+     [
+      0,
+      1472
+     ],
+     [
+      1,
+      1472
+     ],
+     [
+      2,
+      1472
+     ],
+     [
+      3,
+      1472
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "mask_shape": [
+     4,
+     1473
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 12,
+    "letter_positions": [
+     [
+      0,
+      587
+     ],
+     [
+      1,
+      587
+     ],
+     [
+      2,
+      587
+     ],
+     [
+      3,
+      587
+     ],
+     [
+      4,
+      587
+     ],
+     [
+      5,
+      587
+     ],
+     [
+      6,
+      587
+     ],
+     [
+      7,
+      587
+     ],
+     [
+      8,
+      587
+     ],
+     [
+      9,
+      587
+     ]
+    ],
+    "letter_targets": [
+     5,
+     6,
+     2,
+     26,
+     8,
+     26,
+     13,
+     8,
+     4,
+     1
+    ],
+    "mask_shape": [
+     10,
+     588
+    ],
+    "n_answers": 10,
+    "n_supervised": 10,
+    "span": null
+   },
+   {
+    "index": 13,
+    "letter_positions": [
+     [
+      0,
+      588
+     ],
+     [
+      1,
+      588
+     ],
+     [
+      2,
+      588
+     ],
+     [
+      3,
+      588
+     ],
+     [
+      4,
+      588
+     ],
+     [
+      5,
+      588
+     ],
+     [
+      6,
+      588
+     ],
+     [
+      7,
+      588
+     ],
+     [
+      8,
+      588
+     ],
+     [
+      9,
+      588
+     ]
+    ],
+    "letter_targets": [
+     11,
+     1,
+     10,
+     12,
+     26,
+     2,
+     12,
+     12,
+     11,
+     1
+    ],
+    "mask_shape": [
+     10,
+     589
+    ],
+    "n_answers": 10,
+    "n_supervised": 10,
+    "span": null
+   },
+   {
+    "index": 14,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ],
+     [
+      2,
+      1523
+     ],
+     [
+      3,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "mask_shape": [
+     4,
+     1524
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 15,
+    "letter_positions": [
+     [
+      0,
+      1523
+     ],
+     [
+      1,
+      1523
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1
+    ],
+    "mask_shape": [
+     2,
+     1524
+    ],
+    "n_answers": 2,
+    "n_supervised": 2,
+    "span": null
+   },
+   {
+    "index": 16,
+    "letter_positions": [
+     [
+      0,
+      588
+     ],
+     [
+      1,
+      588
+     ],
+     [
+      2,
+      588
+     ],
+     [
+      3,
+      588
+     ]
+    ],
+    "letter_targets": [
+     15,
+     13,
+     6,
+     4
+    ],
+    "mask_shape": [
+     4,
+     589
+    ],
+    "n_answers": 4,
+    "n_supervised": 4,
+    "span": null
+   },
+   {
+    "index": 17,
+    "letter_positions": [
+     [
+      0,
+      384
+     ],
+     [
+      1,
+      384
+     ],
+     [
+      2,
+      384
+     ],
+     [
+      3,
+      384
+     ],
+     [
+      4,
+      384
+     ],
+     [
+      5,
+      384
+     ],
+     [
+      6,
+      384
+     ],
+     [
+      7,
+      384
+     ],
+     [
+      8,
+      384
+     ],
+     [
+      9,
+      384
+     ],
+     [
+      10,
+      384
+     ],
+     [
+      11,
+      384
+     ],
+     [
+      12,
+      384
+     ],
+     [
+      13,
+      384
+     ]
+    ],
+    "letter_targets": [
+     1,
+     1,
+     2,
+     2,
+     1,
+     1,
+     1,
+     2,
+     2,
+     2,
+     1,
+     2,
+     2,
+     2
+    ],
+    "mask_shape": [
+     14,
+     385
+    ],
+    "n_answers": 14,
+    "n_supervised": 14,
+    "span": null
+   },
+   {
+    "index": 18,
+    "letter_positions": [],
+    "letter_targets": [],
+    "mask_shape": [
+     7,
+     492
+    ],
+    "n_answers": 7,
+    "n_supervised": 0,
+    "span": {
+     "abstaining": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+     ],
+     "candidate_counts": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+     ],
+     "end": [
+      203,
+      203,
+      203,
+      203,
+      203,
+      203,
+      -2
+     ],
+     "plan": {
+      "abstaining": [
+       false,
+       false,
+       false,
+       false,
+       false,
+       false,
+       true
+      ],
+      "candidate_pos": [
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ],
+       [
+        125,
+        158,
+        159,
+        203,
+        261
+       ]
+      ],
+      "candidate_valid": [
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ],
+       [
+        true,
+        true,
+        true,
+        true,
+        true
+       ]
+      ],
+      "gold_end": [
+       3,
+       3,
+       3,
+       3,
+       3,
+       3,
+       5
+      ],
+      "gold_start": [
+       3,
+       3,
+       3,
+       3,
+       3,
+       3,
+       5
+      ],
+      "max_rows": 6,
+      "n_candidates": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      "n_spans": 7,
+      "query_index": [
+       491,
+       491,
+       491,
+       491,
+       491,
+       491,
+       491
+      ],
+      "runtime_rows": [
+       6,
+       6,
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     },
+     "query_index": [
+      491,
+      491,
+      491,
+      491,
+      491,
+      491,
+      491
+     ],
+     "rows": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ],
+     "start": [
+      203,
+      203,
+      203,
+      203,
+      203,
+      203,
+      -2
+     ]
+    }
+   }
+  ],
+  "epoch": 0,
+  "seed": 20260919
+ }
+]

@@ -28,6 +28,19 @@ Usage (repository root)::
     PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python tools/qd_train_oracle_shards.py \\
         --out crates/qd-train/tests/fixtures/shards-tiny
 
+A second set, at the tiny Qwen3.5 tower's vocabulary (tessl's `tests/fixtures/qwen35_train`, 64
+ids), is the same recipe over a folding tokenizer (byte `b` is id `b % 64`; the corpus uses more
+than 64 distinct bytes, so no lossless one fits, and there is no `decode`: the span-decode check
+is `NotRun`) and the identity remap over 64 ids, which is the shape `qd-train-metal`'s `run()`
+requires (`remap::require_identity_remap`)::
+
+    PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python tools/qd_train_oracle_shards.py \\
+        --vocab 64 --out crates/qd-train/tests/fixtures/shards-tiny-v64
+
+`--vocab 64` also freezes the `python/qd_data` sources the header's `code_fingerprint` names into
+`<out>/qd_data/`, because `run()` has no `allow_stale_code` and the live package drifts. Without
+`--vocab` the output is what this tool wrote before the option existed.
+
 Refuses to write into a non-empty `--out` unless `--replace` is given. Nothing here trains,
 and nothing here reads real held-out data: every row is synthetic (`small_corpus`).
 """
@@ -115,6 +128,27 @@ def byte_remap() -> RemapTable:
     )
 
 
+class FoldedCodec:
+    """A tokenizer onto `vocab` ids: byte `b` is id `b % vocab`. It is not invertible (the
+    corpus uses more than 64 distinct bytes), so it offers no `decode`. The remap is the
+    identity over `vocab` ids, so every id is the tower's own row."""
+
+    def __init__(self, vocab: int) -> None:
+        self.vocab = vocab
+
+    def tokenize(self, text: str) -> list[int]:
+        return [b % self.vocab for b in text.encode("utf-8")]
+
+    def remap(self) -> RemapTable:
+        identity = np.arange(self.vocab, dtype=np.int32)
+        return RemapTable(
+            old_to_new=identity.copy(),
+            new_to_old=identity,
+            tokenizer_hash=TOKENIZER_HASH,
+            special_ids=(),
+        )
+
+
 #: Absolute paths in Python's messages are rewritten to this token, so the fixture does not
 #: carry the path of the checkout that generated it.
 FIXTURE_TOKEN = "<fixture>"
@@ -142,8 +176,13 @@ def _manifest_with(base: Manifest, **changes: Any) -> Manifest:
     return dataclasses.replace(base, **changes)
 
 
-def build(out: Path) -> dict[str, Any]:
+def build(out: Path, vocab: int | None = None) -> dict[str, Any]:
     config = DataConfig()
+    if vocab is None:
+        tokenize, decode, remap = byte_tokenize, byte_decode, byte_remap
+    else:
+        codec = FoldedCodec(vocab)
+        tokenize, decode, remap = codec.tokenize, None, codec.remap
     mixture = build_mixture(small_corpus(CORPUS_N), config=config)
     report = dedupe(list(mixture.rows), config=config)
     split_report = split(report, config=config)
@@ -160,14 +199,14 @@ def build(out: Path) -> dict[str, Any]:
 
     train_dir = out / "shards" / "train"
     write_shards(
-        paths["train"], rows["train"], out_dir=train_dir, remap=byte_remap(),
-        tokenize=byte_tokenize, token_offsets=byte_offsets, decode=byte_decode,
+        paths["train"], rows["train"], out_dir=train_dir, remap=remap(),
+        tokenize=tokenize, token_offsets=byte_offsets, decode=decode,
         config=config, repo_root=out, corpus_rev=CORPUS_REV,
     )
     report_only_dir = out / "shards" / "val-report-only"
     write_shards(
-        paths["val"], rows["val"], out_dir=report_only_dir, remap=byte_remap(),
-        tokenize=byte_tokenize, token_offsets=byte_offsets, decode=byte_decode,
+        paths["val"], rows["val"], out_dir=report_only_dir, remap=remap(),
+        tokenize=tokenize, token_offsets=byte_offsets, decode=decode,
         config=config, repo_root=out, corpus_rev=CORPUS_REV,
         span_collapse_policy=shards.SPAN_COLLAPSE_REFUSE_GOLD, report_only=True,
     )
@@ -481,6 +520,9 @@ def main() -> None:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--replace", action="store_true",
                         help="delete --out first if it exists (it must be a fixture directory)")
+    parser.add_argument("--vocab", type=int, choices=(64,),
+                        help="write the identity-remap set at this vocabulary, and freeze qd_data "
+                             "beside it; omitted, the 256-byte shards-tiny set")
     parser.add_argument("--v4-out", type=Path,
                         help="print the v4 plan digests tests/v4.rs pins, for this out dir")
     parser.add_argument("--v4-rev", default="881ab304f15ea13529002391dda8520c2ea47af4",
@@ -500,7 +542,12 @@ def main() -> None:
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
-    built = build(out)
+    built = build(out, args.vocab)
+    if args.vocab is not None:
+        frozen = out / "qd_data"
+        frozen.mkdir()
+        for src in sorted((REPO / "python" / "qd_data").glob("*.py")):
+            shutil.copyfile(src, frozen / src.name)
     config: DataConfig = built["config"]
     verdicts = door_fixtures(out, built)
     reader = ShardReader(built["train_dir"], config=config, repo_root=out, expect_rev=CORPUS_REV)
