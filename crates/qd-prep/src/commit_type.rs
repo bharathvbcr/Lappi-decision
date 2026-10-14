@@ -32,7 +32,9 @@
 //! 131,072-byte bound), `context_not_utf8`, `unassigned_code_point`, `repo_cap` and
 //! `exact_duplicate`. `context_not_utf8` departs from the ruling's "invalid UTF-8 is not a drop
 //! rule": a pool row is a JSON string, which cannot hold bytes that are not UTF-8, and lossy
-//! conversion would train a byte string the app never sends. It is the departure, counted.
+//! conversion would train a byte string the app never sends. It is the departure, counted, and
+//! upheld in `AUDIT/board-sweep-2026-10-13/fable-commit-type-utf8-ruling.md` (2026-10-14): a
+//! nonzero count in a pre-registered build reopens it as a pool-format change, never a lossy one.
 //!
 //! **Caps.** At most [`PER_REPO_CAP`] rows per repository, drawn in a seeded order among the rows
 //! that passed every other rule (DevCouncil and scholarlm are 67% of the supply). Val is a seeded
