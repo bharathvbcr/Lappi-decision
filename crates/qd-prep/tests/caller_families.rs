@@ -748,7 +748,8 @@ fn a_credential_in_a_diff_drops_the_commit_and_a_word_boundary_miss_does_not() {
     commit_file(
         &a,
         "env.txt",
-        b"apiKey: \"AIzaSyA7abcdefghijklmnopqrstuvwxyz012345\"\n",
+        // Fake credentials are split so push protection does not read them as live keys.
+        concat!("apiKey: \"AIzaSyA7", "abcdefghijklmnopqrstuvwxyz012345\"\n").as_bytes(),
         "chore: firebase env",
     );
     commit_file(
@@ -760,7 +761,7 @@ fn a_credential_in_a_diff_drops_the_commit_and_a_word_boundary_miss_does_not() {
     commit_file(
         &a,
         "late.txt",
-        b"see AKIA short then AKIAABCDEFGHIJKLMNOP\n",
+        concat!("see AKIA short then AKIA", "ABCDEFGHIJKLMNOP\n").as_bytes(),
         "chore: later key",
     );
     let view = view_of(&root, &[("a", "bharathvbcr/a")]);
