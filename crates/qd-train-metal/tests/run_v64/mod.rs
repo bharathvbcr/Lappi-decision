@@ -109,6 +109,7 @@ pub fn args(root: &Path, steps: u64) -> TrainArgs {
         seed: 0,
         lr: 1e-3,
         steps,
+        epochs: 1,
         batch_tokens: BATCH_TOKENS,
         span_weight: 1.0,
         cap_s: 3600.0,

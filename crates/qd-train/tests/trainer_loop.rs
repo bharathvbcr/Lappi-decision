@@ -26,8 +26,9 @@ use qd_train::step::{
     AdamWHyper, BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider,
 };
 use qd_train::trainer::{
-    CheckpointPolicy, ConsumedBatch, EtaRule, Hooks, MicroLoss, Objective, ResumeState,
-    Termination, TrainConfig, TrainError, TrainResult, parameters_digest, train,
+    CheckpointPolicy, ConsumedBatch, EpochSource, EtaRule, Hooks, MicroLoss, Objective,
+    ResumeState, Termination, TrainConfig, TrainError, TrainResult, parameters_digest, train,
+    train_epochs,
 };
 
 const V: usize = 13;
@@ -95,6 +96,7 @@ fn config(total: u64) -> TrainConfig {
         },
         max_grad_norm: recipe::MAX_GRAD_NORM,
         epoch: 0,
+        epochs: 1,
         seed: 7,
         checkpoint: None,
         eta: None,
@@ -1185,6 +1187,7 @@ fn epoch_data(epoch: u64) -> Vec<Result<ToyBatch, TrainError>> {
 fn epoch_config(epoch: u64, dir: Option<&Path>) -> TrainConfig {
     let mut cfg = config(2 * EPOCH_LEN);
     cfg.epoch = epoch;
+    cfg.epochs = 2;
     cfg.seed = DATA_SEED;
     cfg.checkpoint = dir.map(|d| CheckpointPolicy {
         dir: d.to_path_buf(),
@@ -1533,5 +1536,501 @@ fn a_stepped_provider_with_no_resume_state_is_refused_at_any_epoch() {
             "epoch {epoch}: {err}"
         );
     }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// ---- the multi-epoch driver ----------------------------------------------------------------
+//
+// `train_epochs` is `train` once per epoch with `advance_to_epoch` between, over one schedule
+// that covers every epoch. Each test below compares it with what the same epochs chained by hand
+// give (the single-epoch tests above pin the hand chain itself).
+
+const RUN_EPOCHS: u64 = 3;
+
+fn run_config(epochs: u64, dir: Option<&Path>) -> TrainConfig {
+    let mut cfg = config(epochs.max(1) * EPOCH_LEN);
+    cfg.epochs = epochs;
+    cfg.seed = DATA_SEED;
+    cfg.checkpoint = dir.map(|d| CheckpointPolicy {
+        dir: d.to_path_buf(),
+        every: 4,
+    });
+    cfg
+}
+
+type Source = Result<EpochSource<Vec<Result<ToyBatch, TrainError>>>, TrainError>;
+
+fn epoch_source(epoch: u64) -> Source {
+    Ok(EpochSource {
+        batches: epoch_data(epoch),
+        count: EPOCH_LEN,
+    })
+}
+
+/// `epoch_source`, except that epoch `cut_epoch` has only its first `keep` batches: the process
+/// died there, and what it left is its checkpoints.
+fn killed_in(cut_epoch: u64, keep: usize) -> impl FnMut(u64) -> Source {
+    move |e| {
+        let mut s = epoch_source(e)?;
+        if e == cut_epoch {
+            s.batches.truncate(keep);
+        }
+        Ok(s)
+    }
+}
+
+fn drive_with<F: FnMut(u64) -> Source>(
+    p: &mut ToyProvider,
+    o: &mut Obj,
+    source: F,
+    cfg: &TrainConfig,
+    clock: &dyn Clock,
+    resume: Option<ResumeState>,
+) -> Result<TrainResult, TrainError> {
+    train_epochs(p, o, source, cfg, clock, resume, &mut Hooks::default())
+}
+
+fn drive(
+    p: &mut ToyProvider,
+    o: &mut Obj,
+    cfg: &TrainConfig,
+    resume: Option<ResumeState>,
+) -> Result<TrainResult, TrainError> {
+    drive_with(p, o, epoch_source, cfg, &MonotonicClock::new(), resume)
+}
+
+/// One epoch under `cfg` (its `epochs` is the run's), on a fresh process.
+fn one_epoch(cfg: &TrainConfig, epoch: u64, resume: Option<ResumeState>) -> (TrainResult, String) {
+    let (mut p, mut o) = fresh();
+    let mut c = cfg.clone();
+    c.epoch = epoch;
+    let r = train(
+        &mut p,
+        &mut o,
+        epoch_data(epoch),
+        &c,
+        &MonotonicClock::new(),
+        resume,
+        &mut Hooks::default(),
+    )
+    .unwrap();
+    let digest = parameters_digest(&mut p, o.host_ref()).unwrap();
+    (r, digest)
+}
+
+/// The same run chained by hand: one `train` per epoch, each on a fresh provider that reloads the
+/// epoch-end checkpoint, `advance_to_epoch` between. The last epoch's result and the trained
+/// parameters' digest.
+fn chained_by_hand(epochs: u64, dir: &Path) -> (TrainResult, String) {
+    let cfg = run_config(epochs, Some(dir));
+    let mut resume = None;
+    let mut last = None;
+    for epoch in 0..epochs {
+        let (r, digest) = one_epoch(&cfg, epoch, resume.take());
+        if epoch + 1 < epochs {
+            assert_eq!(r.termination, Termination::DataExhausted);
+            resume = Some(
+                ResumeState::read(r.final_checkpoint.as_ref().unwrap())
+                    .unwrap()
+                    .advance_to_epoch(epoch + 1, EPOCH_LEN)
+                    .unwrap(),
+            );
+        }
+        last = Some((r, digest));
+    }
+    last.unwrap()
+}
+
+#[test]
+fn three_epochs_through_the_driver_are_three_epochs_chained_by_hand_to_the_byte() {
+    let hand = temp_dir("drive-hand");
+    let driven = temp_dir("drive-driven");
+    let (want, want_digest) = chained_by_hand(RUN_EPOCHS, &hand);
+    let (mut p, mut o) = fresh();
+    let got = drive(&mut p, &mut o, &run_config(RUN_EPOCHS, Some(&driven)), None).unwrap();
+
+    assert_eq!(got.termination, Termination::StepsExhausted);
+    assert_eq!(got.optimizer_steps, RUN_EPOCHS * EPOCH_LEN);
+    assert_eq!(got.micro_batches, RUN_EPOCHS * EPOCH_LEN);
+    assert_eq!(p.step_count(), RUN_EPOCHS * EPOCH_LEN);
+    assert_eq!(
+        parameters_digest(&mut p, o.host_ref()).unwrap(),
+        want_digest
+    );
+    assert_eq!(got.steps, want.steps);
+    assert_eq!(got.loss_log, want.loss_log);
+    assert_eq!(got.consumed_digest, want.consumed_digest);
+    assert_eq!(got.consumed_n, RUN_EPOCHS * EPOCH_LEN);
+    let epochs_of_points: Vec<u64> = got.loss_log.points().iter().map(|p| p.epoch).collect();
+    assert_eq!(
+        epochs_of_points,
+        (0..RUN_EPOCHS)
+            .flat_map(|e| std::iter::repeat_n(e, EPOCH_LEN as usize))
+            .collect::<Vec<_>>()
+    );
+    let want_bytes = checkpoint_bytes(want.final_checkpoint.as_ref().unwrap());
+    assert!(!want_bytes.is_empty());
+    assert_eq!(
+        checkpoint_bytes(got.final_checkpoint.as_ref().unwrap()),
+        want_bytes,
+        "the final checkpoints differ byte for byte"
+    );
+    // The checkpoint root holds one resume point: the epoch-end checkpoints the next epoch
+    // superseded are gone (the by-hand chain keeps all of them).
+    let kept = |d: &Path| std::fs::read_dir(d).unwrap().count();
+    assert_eq!(kept(&driven), 1);
+    assert!(kept(&hand) > 1);
+    std::fs::remove_dir_all(&hand).unwrap();
+    std::fs::remove_dir_all(&driven).unwrap();
+}
+
+#[test]
+fn one_epoch_through_the_driver_is_one_call_to_train_and_writes_the_same_checkpoint() {
+    let direct = temp_dir("drive-one-direct");
+    let driven = temp_dir("drive-one-driven");
+    let (want, _) = one_epoch(&run_config(1, Some(&direct)), 0, None);
+    let (mut p, mut o) = fresh();
+    let got = drive(&mut p, &mut o, &run_config(1, Some(&driven)), None).unwrap();
+    assert_eq!(got.steps, want.steps);
+    assert_eq!(
+        checkpoint_bytes(got.final_checkpoint.as_ref().unwrap()),
+        checkpoint_bytes(want.final_checkpoint.as_ref().unwrap())
+    );
+    // A one-epoch checkpoint records no epoch count: its bytes are what they were before epochs.
+    let body = std::fs::read_to_string(got.final_checkpoint.unwrap().join("trainer.json")).unwrap();
+    assert!(!body.contains("\"epochs\""), "{body}");
+    std::fs::remove_dir_all(&direct).unwrap();
+    std::fs::remove_dir_all(&driven).unwrap();
+}
+
+#[test]
+fn the_schedule_spans_every_epoch_and_ends_at_its_floor() {
+    let dir = temp_dir("drive-lr");
+    let (mut p, mut o) = fresh();
+    let cfg = run_config(RUN_EPOCHS, Some(&dir));
+    let r = drive(&mut p, &mut o, &cfg, None).unwrap();
+    let total = RUN_EPOCHS * EPOCH_LEN;
+    assert_eq!(cfg.schedule.total_steps(), total);
+    for s in &r.steps {
+        assert_eq!(s.lr, cfg.schedule.lr_at(s.optimizer_step).unwrap());
+    }
+    // One cosine, not one per epoch: after the warmup the rate only falls, across both epoch
+    // boundaries, and the last step is at the floor rather than back at the peak.
+    let warmup = cfg.schedule.warmup_steps() as usize;
+    assert!(
+        r.steps[warmup..].windows(2).all(|w| w[1].lr <= w[0].lr),
+        "a restarted schedule rises at an epoch boundary"
+    );
+    let (peak, floor) = (cfg.schedule.peak_lr(), cfg.schedule.min_lr());
+    let last = r.steps.last().unwrap().lr;
+    assert!(
+        last - floor < 0.01 * (peak - floor),
+        "the last step's rate {last} is not the floor {floor}"
+    );
+    for e in 1..RUN_EPOCHS {
+        let first_of_epoch = r.steps[(e * EPOCH_LEN) as usize].lr;
+        assert!(
+            first_of_epoch < 0.9 * peak,
+            "epoch {e} restarts at {first_of_epoch}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_cut_inside_epoch_two_resumes_to_the_uninterrupted_bytes() {
+    let whole = temp_dir("drive-whole");
+    let torn = temp_dir("drive-torn");
+    let (mut p, mut o) = fresh();
+    let full = drive(&mut p, &mut o, &run_config(RUN_EPOCHS, Some(&whole)), None).unwrap();
+    let full_digest = parameters_digest(&mut p, o.host_ref()).unwrap();
+
+    // Killed after 3 batches of the third epoch (the source ends); what is left is the
+    // checkpoint of step 15, mid-epoch 2 (epoch numbers count from 0).
+    let cfg = run_config(RUN_EPOCHS, Some(&torn));
+    let (mut p, mut o) = fresh();
+    let killed = drive_with(
+        &mut p,
+        &mut o,
+        killed_in(2, 3),
+        &cfg,
+        &MonotonicClock::new(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(killed.termination, Termination::DataExhausted);
+    assert_eq!(killed.optimizer_steps, 2 * EPOCH_LEN + 3);
+    let mid = ResumeState::read(killed.final_checkpoint.as_ref().unwrap()).unwrap();
+    assert_eq!((mid.epoch, mid.next_index, mid.optimizer_step), (2, 3, 15));
+
+    let (mut p, mut o) = fresh();
+    let resumed = drive(&mut p, &mut o, &cfg, Some(mid)).unwrap();
+    assert_eq!(resumed.termination, Termination::StepsExhausted);
+    assert_eq!(resumed.optimizer_steps, RUN_EPOCHS * EPOCH_LEN);
+    assert_eq!(
+        parameters_digest(&mut p, o.host_ref()).unwrap(),
+        full_digest
+    );
+    assert_eq!(resumed.steps, full.steps);
+    assert_eq!(resumed.loss_log, full.loss_log);
+    assert_eq!(resumed.consumed_digest, full.consumed_digest);
+    assert_eq!(
+        checkpoint_bytes(resumed.final_checkpoint.as_ref().unwrap()),
+        checkpoint_bytes(full.final_checkpoint.as_ref().unwrap()),
+        "the final checkpoints differ byte for byte"
+    );
+    std::fs::remove_dir_all(&whole).unwrap();
+    std::fs::remove_dir_all(&torn).unwrap();
+}
+
+#[test]
+fn a_cut_exactly_at_an_epochs_end_resumes_into_the_next_epoch() {
+    let whole = temp_dir("drive-edge-whole");
+    let cut = temp_dir("drive-edge-cut");
+    let (mut p, mut o) = fresh();
+    let full = drive(&mut p, &mut o, &run_config(RUN_EPOCHS, Some(&whole)), None).unwrap();
+
+    // Epoch 0 of the three-epoch run, to its end and no further.
+    let cfg = run_config(RUN_EPOCHS, Some(&cut));
+    let (at_end, _) = one_epoch(&cfg, 0, None);
+    let state = ResumeState::read(at_end.final_checkpoint.as_ref().unwrap()).unwrap();
+    assert_eq!((state.epoch, state.next_index), (0, EPOCH_LEN));
+    let (mut p, mut o) = fresh();
+    let resumed = drive(&mut p, &mut o, &cfg, Some(state)).unwrap();
+    assert_eq!(resumed.termination, Termination::StepsExhausted);
+    assert_eq!(resumed.steps, full.steps);
+    assert_eq!(resumed.consumed_digest, full.consumed_digest);
+    assert_eq!(
+        checkpoint_bytes(resumed.final_checkpoint.as_ref().unwrap()),
+        checkpoint_bytes(full.final_checkpoint.as_ref().unwrap())
+    );
+    std::fs::remove_dir_all(&whole).unwrap();
+    std::fs::remove_dir_all(&cut).unwrap();
+}
+
+#[test]
+fn zero_epochs_and_the_unsupported_shapes_are_refused_before_anything_trains() {
+    let dir = temp_dir("drive-refuse");
+    let refuses = |cfg: TrainConfig, needle: &str| {
+        let (mut p, mut o) = fresh();
+        let err = drive(&mut p, &mut o, &cfg, None).unwrap_err();
+        assert!(
+            matches!(&err, TrainError::Refused(m) if m.contains(needle)),
+            "wanted {needle:?}, got {err}"
+        );
+        assert_eq!(p.step_count(), 0, "a refused run trained");
+    };
+    refuses(run_config(0, Some(&dir)), "at least one epoch");
+    let mut shifted = run_config(2, Some(&dir));
+    shifted.epoch = 1;
+    refuses(shifted, "owns the epoch");
+    let mut eta = run_config(2, Some(&dir));
+    eta.eta = Some(EtaRule {
+        at_step: 2,
+        margin_s: 1.0,
+    });
+    refuses(eta, "ETA rule");
+    refuses(run_config(2, None), "checkpoint policy");
+    // `train` refuses the same count on its own.
+    let (mut p, mut o) = fresh();
+    let mut bad = run_config(1, None);
+    bad.epochs = 0;
+    assert!(matches!(
+        run(&mut p, &mut o, epoch_data(0), &bad),
+        Err(TrainError::Refused(m)) if m.contains("at least one epoch")
+    ));
+    assert!(!dir.exists());
+}
+
+#[test]
+fn a_schedule_that_ends_before_the_last_epoch_is_refused_not_truncated() {
+    let dir = temp_dir("drive-short");
+    let mut cfg = run_config(RUN_EPOCHS, Some(&dir));
+    cfg.schedule = LrSchedule::real_ft(LR, 2 * EPOCH_LEN).unwrap();
+    let (mut p, mut o) = fresh();
+    let err = drive(&mut p, &mut o, &cfg, None).unwrap_err();
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("must cover every epoch")),
+        "{err}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_checkpoint_of_another_epoch_count_is_refused() {
+    let dir = temp_dir("drive-count");
+    let cfg3 = run_config(RUN_EPOCHS, Some(&dir));
+    // Killed in epoch 1 of a three-epoch run: epoch 0 whole, epoch 1 cut after 2 batches.
+    let (end0, _) = one_epoch(&cfg3, 0, None);
+    let start1 = ResumeState::read(end0.final_checkpoint.as_ref().unwrap())
+        .unwrap()
+        .advance_to_epoch(1, EPOCH_LEN)
+        .unwrap();
+    let (mut p, mut o) = fresh();
+    let mut c1 = cfg3.clone();
+    c1.epoch = 1;
+    let mut cut = epoch_data(1);
+    cut.truncate(2);
+    let killed = train(
+        &mut p,
+        &mut o,
+        cut,
+        &c1,
+        &MonotonicClock::new(),
+        Some(start1),
+        &mut Hooks::default(),
+    )
+    .unwrap();
+    let ckpt = killed.final_checkpoint.clone().unwrap();
+    let state = || ResumeState::read(&ckpt).unwrap();
+    assert_eq!((state().epoch, state().epochs), (1, RUN_EPOCHS));
+
+    // The same schedule, said to be a two- or a four-epoch run: refused.
+    for other in [2, 4] {
+        let mut cfg = cfg3.clone();
+        cfg.epochs = other;
+        let (mut p, mut o) = fresh();
+        let err = drive(&mut p, &mut o, &cfg, Some(state())).unwrap_err();
+        assert!(
+            matches!(&err, TrainError::Refused(m)
+                if m.contains("3 epoch(s)") && m.contains(&format!("has {other}"))),
+            "{err}"
+        );
+        assert_eq!(p.step_count(), 0, "a refused resume trained");
+    }
+    // ... and the count the checkpoint recorded resumes.
+    let (mut p, mut o) = fresh();
+    drive(&mut p, &mut o, &cfg3, Some(state())).unwrap();
+
+    // Bodies no run wrote are refused at read: an `epochs` of 0 or 1 (a one-epoch run records
+    // none), and an epoch past the recorded count.
+    let body = ckpt.join("trainer.json");
+    let original = std::fs::read(&body).unwrap();
+    let edited = |edit: &dyn Fn(&mut serde_json::Value)| {
+        let mut v: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        edit(&mut v);
+        std::fs::write(&body, serde_json::to_vec(&v).unwrap()).unwrap();
+        ResumeState::read(&ckpt)
+    };
+    for bad in [0u64, 1] {
+        let r = edited(&|v| v["epochs"] = serde_json::json!(bad));
+        assert!(
+            matches!(&r, Err(TrainError::Refused(m)) if m.contains("\"epochs\"")),
+            "epochs {bad}: {:?}",
+            r.map(|s| s.epochs)
+        );
+    }
+    let r = edited(&|v| {
+        v["epoch"] = serde_json::json!(2);
+        v["epochs"] = serde_json::json!(2);
+    });
+    assert!(
+        matches!(&r, Err(TrainError::Refused(m)) if m.contains("epoch 2 of a run of 2")),
+        "{:?}",
+        r.map(|s| s.epochs)
+    );
+    std::fs::write(&body, &original).unwrap();
+    // The last epoch has no successor to advance to.
+    let mut last = state();
+    last.epoch = RUN_EPOCHS - 1;
+    last.next_index = EPOCH_LEN;
+    assert!(matches!(
+        last.advance_to_epoch(RUN_EPOCHS, EPOCH_LEN),
+        Err(TrainError::Refused(m)) if m.contains("past its last")
+    ));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_wall_clock_cap_is_the_runs_and_an_epoch_boundary_is_never_an_error() {
+    // Sweep the cap across the run, which puts the expiry inside every epoch and between them.
+    // Whatever the cap, the run either finishes or stops with `WallClockCap` and a checkpoint
+    // that resumes it; it never errors out because the time ran out between two epochs.
+    let (mut stopped, mut finished) = (0, 0);
+    for cap_s in (6..=160).step_by(2) {
+        let dir = temp_dir(&format!("drive-cap-{cap_s}"));
+        let mut cfg = run_config(RUN_EPOCHS, Some(&dir));
+        cfg.cap = WallClockCap::new(f64::from(cap_s)).unwrap();
+        let (mut p, mut o) = fresh();
+        let r = drive_with(
+            &mut p,
+            &mut o,
+            epoch_source,
+            &cfg,
+            &Ticking(Cell::new(0.0)),
+            None,
+        );
+        let r = match r {
+            Ok(r) => r,
+            // Cap spent before the first step is `train`'s own refusal, for a cap this small.
+            Err(e) => panic!("cap {cap_s}: {e}"),
+        };
+        match r.termination {
+            Termination::WallClockCap => {
+                stopped += 1;
+                assert!(r.optimizer_steps < RUN_EPOCHS * EPOCH_LEN, "cap {cap_s}");
+                let state = ResumeState::read(r.final_checkpoint.as_ref().unwrap()).unwrap();
+                assert_eq!(state.optimizer_step, r.optimizer_steps, "cap {cap_s}");
+            }
+            Termination::StepsExhausted => {
+                finished += 1;
+                // The cap is the run's, not each epoch's: a run that finished took the time it
+                // had, give or take the step in flight when the schedule ran out.
+                assert!(
+                    r.wall_clock_s < f64::from(cap_s) + 8.0,
+                    "cap {cap_s}: finished at {} s",
+                    r.wall_clock_s
+                );
+                assert_eq!(r.optimizer_steps, RUN_EPOCHS * EPOCH_LEN, "cap {cap_s}");
+            }
+            other => panic!("cap {cap_s}: {other:?}"),
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    assert!(
+        stopped > 0 && finished > 0,
+        "{stopped} stopped, {finished} finished"
+    );
+}
+
+#[test]
+fn a_call_that_takes_no_step_returns_the_checkpoint_it_resumed_from_rather_than_refusing_its_name()
+{
+    // A run killed after step 4 and resumed in place under a cap that is already spent takes no
+    // step and has nothing to add: its resume point is the checkpoint it was handed. Before, the
+    // end-of-run write met the same name and refused ("already exists"), which also broke a cap
+    // that fired the moment an epoch began.
+    let dir = temp_dir("resume-in-place");
+    let cfg = run_config(1, Some(&dir));
+    let (mut p, mut o) = fresh();
+    let mut cut = epoch_data(0);
+    cut.truncate(4);
+    let killed = train(
+        &mut p,
+        &mut o,
+        cut,
+        &cfg,
+        &MonotonicClock::new(),
+        None,
+        &mut Hooks::default(),
+    )
+    .unwrap();
+    let ckpt = killed.final_checkpoint.clone().unwrap();
+    let mut spent = cfg.clone();
+    spent.cap = WallClockCap::new(0.5).unwrap();
+    let (mut p, mut o) = fresh();
+    let again = train(
+        &mut p,
+        &mut o,
+        epoch_data(0),
+        &spent,
+        &Ticking(Cell::new(0.0)),
+        Some(ResumeState::read(&ckpt).unwrap()),
+        &mut Hooks::default(),
+    )
+    .unwrap();
+    assert_eq!(again.termination, Termination::WallClockCap);
+    assert_eq!(again.optimizer_steps, 4);
+    assert_eq!(again.final_checkpoint.as_deref(), Some(ckpt.as_path()));
     std::fs::remove_dir_all(&dir).unwrap();
 }

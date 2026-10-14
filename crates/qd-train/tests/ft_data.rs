@@ -381,6 +381,7 @@ fn the_loop_trains_on_real_fixture_batches_and_folds_exactly_those() {
         },
         max_grad_norm: recipe::MAX_GRAD_NORM,
         epoch: 0,
+        epochs: 1,
         seed: 20260919,
         checkpoint: None,
         eta: None,

@@ -119,3 +119,21 @@ fn a_resume_from_a_checkpoint_root_without_its_recipe_is_refused() {
     let m = refusal(run(&now));
     assert!(m.contains("another recipe") && m.contains("missing"), "{m}");
 }
+
+#[test]
+fn a_resume_of_another_epoch_count_is_refused_through_run_before_the_gpu() {
+    // The checkpoints were written by a one-epoch run; this command line says two epochs. The
+    // ojas pin is the host's business, not this test's, so it runs unpinned.
+    let earlier = args(&scratch("epochs-earlier"), 4);
+    let (_, ckpt) = checkpoint_root("epochs-one", &earlier.checkpoint_recipe());
+    let mut now = args(&scratch("epochs-now"), 4);
+    now.epochs = 2;
+    now.unpinned_ojas = true;
+    now.resume = Some(ckpt);
+    let m = refusal(run(&now));
+    assert!(
+        m.contains("--resume") && m.contains("another recipe") && m.contains("\"epochs\""),
+        "{m}"
+    );
+    assert!(!now.ledger.exists(), "a refused run writes no row");
+}

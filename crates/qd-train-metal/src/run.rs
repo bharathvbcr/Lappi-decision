@@ -5,16 +5,18 @@
 //! 1. the output directory is new or empty;
 //! 2. the train shard set opens through the held-out door, with no escape hatch, and is the
 //!    `train` split;
-//! 3. the epoch plan (`reader.plan(batch_tokens, --seed, epoch 0)`: `real_ft_run.py
-//!    --batch-order seed`, so two seeds are two orders) has at least `steps` batches;
+//! 3. every epoch's plan (`reader.plan(batch_tokens, --seed, e)` for `e` in `0..--epochs`:
+//!    `real_ft_run.py --batch-order seed`, so two seeds are two orders) has at least `steps`
+//!    batches;
 //! 4. the snapshot's config and weights header pass ojas-qwen35's checks, its directory name
 //!    can be a `backbone_snapshot`, and qd-export's `Layout` reads its config;
 //! 5. the shard set's remap is the identity over the snapshot's vocabulary ([`crate::remap`]);
 //! 6. the span head's initial weights load at the tower's width.
 //!
 //! Then the ft row's id is minted, the provider opens, and qd-train's loop runs the first
-//! `steps` batches with `grad_accum` 1 and `LrSchedule::real_ft(lr, steps)` (`--min-lr` gives
-//! the cosine floor; `--resume` continues from a checkpoint of the same recipe). The trained
+//! `steps` batches of each epoch with `grad_accum` 1 and `LrSchedule::real_ft(lr, steps * epochs)`
+//! (one cosine over the whole run; `--min-lr` gives the floor; `--resume` continues from a
+//! checkpoint of the same recipe, mid-epoch included). The trained
 //! masters are read back once and exported twice: the scored bf16 file and the f32 masters.
 //! Last, one `quick` row goes to the `mac-ojas` ledger. A run that fails at any point writes no
 //! row, so it is rerun rather than remembered.
@@ -43,8 +45,8 @@ use qd_train::schedule::LrSchedule;
 use qd_train::shards::{ShardOpen, ShardReader};
 use qd_train::step::{ParamSpec, StepProvider};
 use qd_train::trainer::{
-    self, CheckpointPolicy, Hooks, HostParams, Progress, ResumeState, Termination, TrainConfig,
-    TrainError,
+    self, CheckpointPolicy, EpochSource, Hooks, HostParams, Progress, ResumeState, Termination,
+    TrainConfig, TrainError,
 };
 use qd_train::tristate::TriState;
 
@@ -92,7 +94,12 @@ fn failed<E: std::fmt::Display>(what: &'static str) -> impl FnOnce(E) -> RunErro
 }
 
 /// The arm's quick reason. Every row this binary writes is quick (rule 8).
-fn quick_reason(steps: u64, epoch_batches: usize, lower_layers: Option<LowerLayers>) -> String {
+fn quick_reason(
+    steps: u64,
+    epochs: u64,
+    epoch_batches: usize,
+    lower_layers: Option<LowerLayers>,
+) -> String {
     let optimizer = match lower_layers {
         None => {
             "single-group optimizer: F's layer-wise split is not applied, so this is not rung (d)"
@@ -104,8 +111,13 @@ fn quick_reason(steps: u64, epoch_batches: usize, lower_layers: Option<LowerLaye
             l.n, l.lr_scale
         ),
     };
+    let passes = if epochs > 1 {
+        format!("{epochs} epochs of ")
+    } else {
+        String::new()
+    };
     format!(
-        "Metal/tessl trainer (ojas-qwen35), 1 seed, {steps} of {epoch_batches} epoch batches, {optimizer}"
+        "Metal/tessl trainer (ojas-qwen35), 1 seed, {passes}{steps} of {epoch_batches} epoch batches, {optimizer}"
     )
 }
 
@@ -153,19 +165,38 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
             header.split
         ));
     }
-    let plans = reader
-        .plan(a.batch_tokens, data_seed, 0)
-        .map_err(failed("the epoch plan"))?;
     let n = usize::try_from(a.steps).map_err(|e| RunError::Refused(format!("--steps: {e}")))?;
-    if plans.len() < n {
-        return refused(format!(
-            "the epoch has {} batches at batch_tokens {}; {} steps of one batch each do not fit",
-            plans.len(),
-            a.batch_tokens,
-            a.steps
-        ));
+    // Every epoch's plan is drawn now, so a short one refuses before the GPU opens, not after
+    // the earlier epochs have trained. Epoch `e`'s order is a function of (--seed, e).
+    let mut epoch_batches = 0usize;
+    let mut width = 0u64;
+    for epoch in 0..a.epochs {
+        let plans = reader
+            .plan(a.batch_tokens, data_seed, epoch)
+            .map_err(failed("the epoch plan"))?;
+        if plans.len() < n {
+            return refused(format!(
+                "epoch {epoch} has {} batches at batch_tokens {}; {} steps of one batch each do \
+                 not fit",
+                plans.len(),
+                a.batch_tokens,
+                a.steps
+            ));
+        }
+        if epoch == 0 {
+            epoch_batches = plans.len();
+        }
+        width = plans[..n]
+            .iter()
+            .map(|p| p.width as u64)
+            .max()
+            .unwrap_or(0)
+            .max(width);
     }
-    let width = plans[..n].iter().map(|p| p.width as u64).max().unwrap_or(0);
+    let total_steps = a
+        .steps
+        .checked_mul(a.epochs)
+        .ok_or_else(|| RunError::Refused(format!("--steps x --epochs {} overflows", a.epochs)))?;
 
     let snapshot = Snapshot::from_dir(&a.snapshot)
         .map_err(|e| RunError::Refused(format!("the snapshot: {e}")))?;
@@ -204,8 +235,8 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         .ok_or_else(|| RunError::Refused(format!("{} has no file name", a.head_init.display())))?
         .to_owned();
     let schedule = match a.min_lr {
-        Some(floor) => LrSchedule::real_ft_with_floor(a.lr, a.steps, floor),
-        None => LrSchedule::real_ft(a.lr, a.steps),
+        Some(floor) => LrSchedule::real_ft_with_floor(a.lr, total_steps, floor),
+        None => LrSchedule::real_ft(a.lr, total_steps),
     }
     .map_err(failed("the schedule"))?;
     let train_cfg = TrainConfig {
@@ -219,6 +250,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         },
         max_grad_norm: recipe::MAX_GRAD_NORM,
         epoch: 0,
+        epochs: a.epochs,
         seed: a.seed,
         checkpoint: a.checkpoint_every.map(|every| CheckpointPolicy {
             dir: a.out.join("checkpoints"),
@@ -274,14 +306,21 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         a.span_weight,
     )
     .map_err(failed("the objective"))?;
-    let batches = reader
-        .batches(a.batch_tokens, data_seed, 0)
-        .map_err(failed("the batches"))?
-        .take(n)
-        .map(|b| {
-            b.map_err(|e| TrainError::Io(e.to_string()))
-                .and_then(RealBatch::new)
-        });
+    // Epoch `e`: the first `steps` batches of the plan drawn at (--seed, e), one per step.
+    let epoch_source = |epoch: u64| {
+        let batches = reader
+            .batches(a.batch_tokens, data_seed, epoch)
+            .map_err(|e| TrainError::Io(format!("the batches of epoch {epoch}: {e}")))?
+            .take(n)
+            .map(|b| {
+                b.map_err(|e| TrainError::Io(e.to_string()))
+                    .and_then(RealBatch::new)
+            });
+        Ok(EpochSource {
+            batches,
+            count: a.steps,
+        })
+    };
     let mut on_progress = |p: &Progress| {
         eprintln!(
             "step {}/{} lr {:e} loss {:.6} norm {:.4} clip {:.4} elapsed {:.1}s",
@@ -298,10 +337,10 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         on_progress: Some(&mut on_progress),
     };
     let clock = MonotonicClock::new();
-    let result = trainer::train(
+    let result = trainer::train_epochs(
         &mut provider,
         &mut objective,
-        batches,
+        epoch_source,
         &train_cfg,
         &clock,
         resume,
@@ -334,7 +373,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         tag: export::EXPORT_TAG.into(),
         device: METAL_DEVICE.into(),
         lr: a.lr,
-        passes: 1,
+        passes: a.epochs,
         batches: a.steps,
         width,
         span_weight: a.span_weight,
@@ -446,7 +485,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         recipe,
         status: Status::Completed,
         quick_reason: pin::mark_quick_reason(
-            quick_reason(a.steps, plans.len(), a.lower_layers),
+            quick_reason(a.steps, a.epochs, epoch_batches, a.lower_layers),
             &pin,
         ),
         code_commit: ledger::git_commit(&a.repo),
@@ -456,14 +495,16 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         wall_clock_source: WallClockSource::Recorder,
         notes: format!(
             "qd-train-metal. Batches: the first {} of reader.batches(batch_tokens={}, seed={data_seed}, \
-             epoch=0), the plan drawn at the run's --seed (batch_order seed), one per optimizer step. \
+             epoch=e) for each of {} epoch(s), the plan drawn at the run's --seed (batch_order seed), \
+             one per optimizer step. \
              Schedule real_ft(lr, {}): warmup max(1, steps/20), min lr {}. Optimizer: AdamW betas \
              (0.9, 0.999), eps 1e-8, weight decay 0.01 on every tower and head entry (tessl applies it \
              as f32(0.01) = 0.00999999977648258, 2.2e-8 relative), clip 1.0 over tower and head \
              together; {}. Exports: {} (scored, bf16 tower) and {} (f32 masters, never scored).",
             a.steps,
             a.batch_tokens,
-            a.steps,
+            a.epochs,
+            total_steps,
             a.min_lr
                 .map_or_else(|| "lr/10".to_owned(), |f| f.to_string()),
             match a.lower_layers {

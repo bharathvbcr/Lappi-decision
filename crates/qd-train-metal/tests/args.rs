@@ -421,3 +421,88 @@ fn the_resume_command_line_carries_the_original_recipe_and_names_what_changed() 
         "{err}"
     );
 }
+
+/// `--epochs`: default 1, at least 1, given once, a number. Refused before anything is read.
+#[test]
+fn epochs_default_to_one_refuse_zero_a_repeat_and_a_non_number() {
+    assert_eq!(parse(&base()).unwrap().epochs, 1);
+    let three = parse(&with(&["--epochs", "3", "--checkpoint-every", "2"])).unwrap();
+    assert_eq!((three.epochs, three.steps), (3, 200));
+    let eq = parse(&with(&["--epochs=2", "--checkpoint-every=2"])).unwrap();
+    assert_eq!(eq.epochs, 2);
+    assert!(usage(&with(&["--epochs", "0"])).contains("--epochs must be at least 1"));
+    assert!(
+        usage(&with(&[
+            "--epochs",
+            "2",
+            "--epochs",
+            "3",
+            "--checkpoint-every",
+            "1"
+        ]))
+        .contains("--epochs is given twice")
+    );
+    assert!(usage(&with(&["--epochs", "two"])).contains("not a valid number"));
+    assert!(usage(&with(&["--epochs", "-1"])).contains("not a valid number"));
+    // --steps x --epochs must fit a u64 before anything multiplies them.
+    let mut v = without("--steps");
+    v.extend(["--steps", "18446744073709551615", "--epochs", "2"].map(String::from));
+    assert!(usage(&v).contains("overflows"));
+}
+
+/// More than one epoch crosses an epoch through its checkpoint, so it needs the periodic
+/// checkpoint flag; the ETA rule projects one process's steps against one cap and is refused.
+#[test]
+fn several_epochs_need_a_checkpoint_and_refuse_the_eta_rule() {
+    let m = refused(&with(&["--epochs", "2"]));
+    assert!(m.contains("--checkpoint-every"), "{m}");
+    let m = refused(&with(&[
+        "--epochs",
+        "2",
+        "--checkpoint-every",
+        "5",
+        "--eta-at-step",
+        "10",
+        "--eta-margin-s",
+        "900",
+    ]));
+    assert!(m.contains("ETA rule") && m.contains("epochs"), "{m}");
+    // One epoch keeps both as they were.
+    parse(&with(&["--eta-at-step", "10", "--eta-margin-s", "900"])).unwrap();
+    assert_eq!(
+        parse(&with(&["--epochs", "1"])).unwrap().checkpoint_every,
+        None
+    );
+}
+
+/// A one-epoch run's recipe.json is exactly what it was before `--epochs` existed (its
+/// checkpoints still resume); a longer run names its count, and a resume of another count is
+/// refused naming it, in every direction.
+#[test]
+fn the_checkpoint_recipe_names_epochs_only_above_one_and_a_resume_must_match_it() {
+    let one = parse(&base()).unwrap();
+    assert!(one.checkpoint_recipe().get("epochs").is_none());
+    let with_epochs = |n: &str| parse(&with(&["--epochs", n, "--checkpoint-every", "1"])).unwrap();
+    let (two, three) = (with_epochs("2"), with_epochs("3"));
+    assert_eq!(two.checkpoint_recipe()["epochs"], 2);
+    for (saved, now, why) in [
+        (&three, &two, "3 -> 2"),
+        (&two, &three, "2 -> 3"),
+        (&one, &three, "1 -> 3 (saved names no count)"),
+        (&three, &one, "3 -> 1 (now names no count)"),
+    ] {
+        let err = now
+            .check_resume_recipe(&saved.checkpoint_recipe())
+            .unwrap_err();
+        assert!(
+            err.contains("\"epochs\"") && !err.contains("\"lr\""),
+            "{why}: {err}"
+        );
+    }
+    assert!(
+        three
+            .check_resume_recipe(&three.checkpoint_recipe())
+            .is_ok()
+    );
+    assert!(one.check_resume_recipe(&one.checkpoint_recipe()).is_ok());
+}

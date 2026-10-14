@@ -3,7 +3,7 @@
 //!
 //! Every value of the recipe is a required flag. The binary has no defaults of its own,
 //! because a default here would be a recipe choice nobody made. The exception is what F's
-//! recipe pins and this trainer cannot change: one pass over the plan in the reader's order,
+//! recipe pins and this trainer cannot change: one `--epochs` count (default 1) of passes over the plan in the reader's order,
 //! `grad_accum` 1, AdamW's betas, eps and weight decay, and the clip at 1.0 (qd-train's
 //! `recipe`).
 //!
@@ -87,9 +87,12 @@ pub struct TrainArgs {
     /// The protocol seed: the row's, the export's name's and the head init's.
     pub seed: u64,
     pub lr: f64,
-    /// Optimizer steps: the first `steps` batches of the epoch plan, one per step, and a
-    /// schedule over exactly that many.
+    /// Optimizer steps **per epoch**: the first `steps` batches of each epoch's plan, one per
+    /// step. The schedule runs over `steps * epochs`, as `real_ft_run.py`'s `batches * passes`.
     pub steps: u64,
+    /// `--epochs`: how many passes (default 1). Epoch `e` is the plan drawn at (`--seed`, `e`);
+    /// the schedule is one cosine over every epoch, not one per epoch.
+    pub epochs: u64,
     pub batch_tokens: u64,
     pub span_weight: f64,
     pub cap_s: f64,
@@ -121,7 +124,7 @@ impl TrainArgs {
     /// `ckpt-*` directories): every setting that shapes the optimizer trajectory, which the
     /// checkpoint itself does not store. Precision is `f32`, the only one the provider opens.
     pub fn checkpoint_recipe(&self) -> Value {
-        serde_json::json!({
+        let mut recipe = serde_json::json!({
             "format": "qd-train-metal-recipe/v1",
             "precision": "f32",
             "operands": self.operands.as_str(),
@@ -133,7 +136,13 @@ impl TrainArgs {
             "batch_tokens": self.batch_tokens,
             "span_weight": self.span_weight,
             "lower_layers": self.lower_layers.map(|l| serde_json::json!({"n": l.n, "lr_scale": l.lr_scale})),
-        })
+        });
+        // Only a run of several epochs names its count, so a one-epoch run's recipe.json is what
+        // it was before `--epochs` existed and its checkpoints still resume.
+        if self.epochs > 1 {
+            recipe["epochs"] = Value::from(self.epochs);
+        }
+        recipe
     }
 
     /// Refuse a resume whose recipe is not the one `saved` (read from the checkpoint root's
@@ -149,6 +158,11 @@ impl TrainArgs {
                 .iter()
                 .filter(|(k, v)| was.get(*k) != Some(*v))
                 .map(|(k, _)| k.as_str())
+                .chain(
+                    was.keys()
+                        .filter(|k| !is.contains_key(*k))
+                        .map(String::as_str),
+                )
                 .collect(),
             _ => vec!["recipe.json is missing or not an object"],
         };
@@ -197,13 +211,14 @@ pub const USAGE: &str = "qd-train-metal \
 --head-init FILE --head-init-sha256 HEX --head-init-content-digest HEX \
 --out DIR --ledger ledger/mac-ojas-*.jsonl --repo DIR \
 --seed N --lr X --steps N --batch-tokens N --span-weight X --cap-s X --operands exact_f32|bf16 \
-[--eta-at-step N --eta-margin-s X] [--checkpoint-every N] [--min-lr X] [--resume CKPT_DIR] \
+[--epochs N] [--eta-at-step N --eta-margin-s X] [--checkpoint-every N] [--min-lr X] [--resume CKPT_DIR] \
 [--lower-layers-n N --lower-layers-lr-scale X] [--unpinned-ojas]";
 
 /// The one flag that takes no value: run although ojas is not at the locked commit.
 pub const UNPINNED_OJAS: &str = "--unpinned-ojas";
 
-const TAKES_VALUE: [&str; 26] = [
+const TAKES_VALUE: [&str; 27] = [
+    "--epochs",
     "--head-init-sha256",
     "--head-init-content-digest",
     "--snapshot",
@@ -318,6 +333,16 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
     if steps == 0 {
         return Err(ArgsError::Usage("--steps must be at least 1".into()));
     }
+    let epochs: u64 = match get("--epochs") {
+        None => 1,
+        Some(raw) => number("--epochs", raw)?,
+    };
+    if epochs == 0 {
+        return Err(ArgsError::Usage("--epochs must be at least 1".into()));
+    }
+    let total_steps = steps.checked_mul(epochs).ok_or_else(|| {
+        ArgsError::Usage(format!("--steps {steps} x --epochs {epochs} overflows"))
+    })?;
     let batch_tokens: u64 = number("--batch-tokens", req("--batch-tokens")?)?;
     if batch_tokens == 0 {
         return Err(ArgsError::Usage("--batch-tokens must be at least 1".into()));
@@ -341,12 +366,19 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
     };
     let eta = match (get("--eta-at-step"), get("--eta-margin-s")) {
         (None, None) => None,
+        (Some(_), Some(_)) if epochs > 1 => {
+            return Err(ArgsError::Refused(
+                "--eta-at-step: the ETA rule projects one process's steps against one cap and is \
+                 not defined across epochs; drop it or run --epochs 1"
+                    .into(),
+            ));
+        }
         (Some(s), Some(m)) => {
             let rule = EtaRule {
                 at_step: number("--eta-at-step", s)?,
                 margin_s: number("--eta-margin-s", m)?,
             };
-            rule.validate(steps, cap_s)
+            rule.validate(total_steps, cap_s)
                 .map_err(|e| ArgsError::Usage(e.to_string()))?;
             Some(rule)
         }
@@ -368,6 +400,13 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
             Some(n)
         }
     };
+    if epochs > 1 && checkpoint_every.is_none() {
+        return Err(ArgsError::Refused(
+            "--epochs above 1 needs --checkpoint-every: the epoch-end checkpoint is how the model \
+             and the optimizer's moments cross into the next epoch"
+                .into(),
+        ));
+    }
     let min_lr = match get("--min-lr") {
         None => None,
         Some(raw) => {
@@ -434,6 +473,7 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         seed: number("--seed", req("--seed")?)?,
         lr,
         steps,
+        epochs,
         batch_tokens,
         span_weight,
         cap_s,

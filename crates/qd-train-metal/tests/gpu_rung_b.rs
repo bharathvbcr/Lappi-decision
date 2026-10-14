@@ -130,6 +130,7 @@ fn run_clipped(
         },
         max_grad_norm,
         epoch: 0,
+        epochs: 1,
         seed: 0,
         checkpoint: None,
         eta: None,

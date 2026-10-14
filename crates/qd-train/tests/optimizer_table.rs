@@ -310,6 +310,7 @@ fn the_loop_hands_adamw_step_exactly_the_validated_table() {
         optimizer: f_recipe(&o),
         max_grad_norm: recipe::MAX_GRAD_NORM,
         epoch: 0,
+        epochs: 1,
         seed: 0,
         checkpoint: None,
         eta: None,

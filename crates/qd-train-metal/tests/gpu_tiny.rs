@@ -384,6 +384,7 @@ fn config(steps: u64, checkpoint: Option<CheckpointPolicy>) -> TrainConfig {
         },
         max_grad_norm: recipe::MAX_GRAD_NORM,
         epoch: 0,
+        epochs: 1,
         seed: 0,
         checkpoint,
         eta: None,
@@ -938,6 +939,25 @@ fn gpu_run_completed_writes_exactly_one_quick_row() {
         row["metrics"]["train.vocab_remap"]["value"].as_str(),
         Some("identity")
     );
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+#[ignore = "GPU: opens a Metal runtime; run only in an agreed GPU window"]
+fn gpu_run_of_two_epochs_trains_both_and_the_row_says_two_passes() {
+    let root = scratch("two-epochs");
+    let mut a = args(&root, 2);
+    a.epochs = 2;
+    let summary = run(&a).unwrap();
+    assert_eq!(summary.termination, Termination::StepsExhausted);
+    assert_eq!(summary.optimizer_steps, 4, "2 steps per epoch, 2 epochs");
+    let rows = rows(&a.ledger);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["recipe"]["passes"].as_u64(), Some(2));
+    assert_eq!(rows[0]["recipe"]["batches"].as_u64(), Some(2));
+    // The checkpoint root's recipe names the count, and the last checkpoint is epoch 1 of 2.
+    let state = ResumeState::read(&newest_checkpoint(&root)).unwrap();
+    assert_eq!((state.epoch, state.epochs, state.optimizer_step), (1, 2, 4));
     std::fs::remove_dir_all(&root).unwrap();
 }
 
