@@ -175,8 +175,10 @@ OWN_POOL_MANIFEST_SHA256S: Final[frozenset[str]] = frozenset(
 #: before any scoring, then an edit here; ``test_the_pinned_own_corpora_are_the_ones_the_
 #: preregistration_pins`` fails when the two disagree.
 OWN_CORPUS_PINS: Final[Mapping[str, str]] = {
-    "own-swift-composed-v1-prefixed":
-        "077aa84299e75bc6efb3d6091f2e2448a466ea06b1ba0c23f1eb938c840ae8bc",
+    "own-swift-composed-v2-prefixed":
+        "d5e9341e7994c274952c1b9ba67775bedf9857b5d8ba023d378e8172e9555e26",
+    "own-swift-corpus-v2":
+        "02cbfdac9d3d359f3d6502779f6ba3829b2d76bd8f1d028c88846c71b909d886",
 }
 
 #: ``MUTATION_CLASSES`` in ``qd_train.mutate_adapter``, which ``test_mutate_adapter.py``
@@ -900,7 +902,6 @@ def _require_pinned_own_corpus(
     sha = str(manifest.get("examples_sha256"))
     if examples_path.stat().st_size == 0 or sha in OWN_CORPUS_PINS.values():
         return
-    name = examples_path.parent.name
     selected = manifest.get("selected_by_plan")
     if not isinstance(selected, Mapping):
         raise DefectCorpusError(
@@ -908,14 +909,18 @@ def _require_pinned_own_corpus(
             f"pre-registration pins (OWN_CORPUS_PINS {sorted(OWN_CORPUS_PINS.values())}): a "
             "self-declared corpus is not provenance; register it by amendment"
         )
-    pin = OWN_CORPUS_PINS.get(name)
-    if pin is None or selected.get("source_examples_sha256") != pin:
+    # The source is found by its pinned sha, not by this directory's name: `materialise` names its
+    # output after the corpus (`own-swift-composed-v2`), the pinned directory is the pre-registered
+    # path's parent (`own-swift-composed-v2-prefixed`).
+    pin = selected.get("source_examples_sha256")
+    names = sorted(k for k, v in OWN_CORPUS_PINS.items() if v == pin)
+    if not names:
         raise DefectCorpusError(
-            f"{examples_path} is a materialised subset of source "
-            f"{selected.get('source_examples_sha256')!r}, which is not the OWN_CORPUS_PINS entry "
-            f"{pin!r} of corpus {name!r}: a self-declared corpus is not provenance; register it "
-            "by amendment"
+            f"{examples_path} is a materialised subset of source {pin!r}, which is not an "
+            f"OWN_CORPUS_PINS entry {sorted(OWN_CORPUS_PINS.values())}: a self-declared corpus is "
+            "not provenance; register it by amendment"
         )
+    name = names[0]
     source = repo_root / "data" / "pool" / name / "examples.jsonl"
     assert_path_not_held_out(source, config=config, repo_root=repo_root)
     try:

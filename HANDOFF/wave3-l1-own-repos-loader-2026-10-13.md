@@ -84,6 +84,25 @@ not a line of the pinned file. Risk: a false refusal of a registered corpus, whi
 Gap recorded: `GAP-OWN-REPOS-DIFF-TIE-JUDGE-TOOLING-2026-10-13` (ListAgents unavailable to the
 judge; collisions facet truncated, 3 worktrees unscanned).
 
+### Round 3, steps 3-4 (done)
+
+- Merged `wave4-l1-own-swift-clean-rows` (4484091; amendment 1a946c1). `gaps.jsonl` conflict
+  resolved as a union (ours 1452 lines, theirs 1452, result 1455; every line of both parents
+  present, all parse). `OWN_CORPUS_PINS` filled from the amended pre-registration: composed v2
+  `d5e9341e...e26` and its structured base `own-swift-corpus-v2` `02cbfdac...886`. The v1 pin is
+  gone because the amendment superseded v1 in the registration (its `superseded_pin` is not a pin).
+  Mirror test green.
+- Real data (corpora copied read-only from W4-1's worktree into this tree's gitignored `data/pool`,
+  sha256 of both `examples.jsonl` checked against the amendment): composed v2 as pinned loads
+  **14,962** rows (13,647 base + 1,315 composed); the materialised form (`.build-b/mat`, kept
+  1,315, dropped 0, byte-identical to the pinned file so admitted by sha) loads **1,315**; a real
+  100-row subset of it (a genuine subset, exercising the line-membership proof) loads **100**.
+- Bug found by step 4 and fixed: `materialise` names its output after the corpus
+  (`own-swift-composed-v2`), but the pinned directory is `own-swift-composed-v2-prefixed`; the
+  subset proof keyed the pin by the materialised directory's name and would have refused every
+  genuine subset. It now finds the pinned source by `source_examples_sha256`. The fixture's
+  materialised directory is renamed to cover it (red before the fix: the subset-admitted test).
+
 ## Evidence (first commit, ab80131)
 
 - Red on 174452f (new test file copied into a detached worktree of 174452f, since removed):

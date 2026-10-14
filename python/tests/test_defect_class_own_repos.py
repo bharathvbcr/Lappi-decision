@@ -815,7 +815,9 @@ def _materialise(
     (planbase / "manifest.json").write_text(json.dumps(
         {**base_manifest, "examples_sha256": empty, "totals": {"examples": 0}}
     ))
-    out = tmp_path / "out" / "own-composed"
+    # `materialise` names its output after the corpus (`own-swift-composed-v2`), which is not the
+    # pinned directory's name (`own-swift-composed-v2-prefixed`): the proof must not depend on it.
+    out = tmp_path / "out" / "own-composed-materialised"
     out.mkdir(parents=True)
     body = b"".join(lines[i] + b"\n" for i in keep)
     (out / "examples.jsonl").write_bytes(body)

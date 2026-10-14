@@ -462,8 +462,31 @@ def plan(
     return report
 
 
+def _loads_as_pinned(corpus_dir: Path, *, name: str, download_root: Path, repo: Path) -> int:
+    """Rows ``load_defect_rows`` returns for the pinned corpus (base + composed), or a Refusal."""
+    from qd_data.defect_class import DefectCorpusError, load_defect_rows
+
+    try:
+        return len(
+            load_defect_rows(
+                corpus_dir, download_root=download_root, config=DataConfig(), repo_root=repo
+            ).rows
+        )
+    except (DefectCorpusError, HeldOutViolation) as exc:
+        raise Refusal(
+            f"corpus {name}: the pinned corpus {corpus_dir} does not load through "
+            f"load_defect_rows, so it is not materialised: {exc}"
+        ) from exc
+
+
 def materialise(
-    *, prereg: Path, repo: Path, plan_dir: Path, out_dir: Path, pool_dir: Path
+    *,
+    prereg: Path,
+    repo: Path,
+    plan_dir: Path,
+    out_dir: Path,
+    pool_dir: Path,
+    download_root: Path | None = None,
 ) -> dict[str, Any]:
     """Write each pinned corpus as the corpus directory ``load_defect_rows`` reads, holding only
     the rows the plan kept, in corpus order.
@@ -478,6 +501,13 @@ def materialise(
     plan holds none of them (they are v5 train rows), so a composed corpus is written over an
     empty ``<corpus>-planbase`` corpus under ``pool_dir`` (where the loader re-anchors a base by
     name), with the original base recorded in ``selected_by_plan``.
+
+    Before anything is staged, each composed corpus is loaded *as pinned* (its real base, then its
+    own rows) through ``load_defect_rows`` with ``download_root`` (default
+    ``<pool_dir>/commitpackft``); a corpus the loader refuses is refused here, quoting the loader.
+    The planbase is the right device for leaving base rows out of a shard, but it must never be the
+    only form of the corpus that loads (2026-10-13: ``own-swift-corpus-v1`` held 247 clean rows
+    with an empty diff, the loader refused its pin, and only the planbase form loaded).
     """
     if out_dir.exists():
         raise Refusal(f"{out_dir} exists; refusing to overwrite it")
@@ -513,6 +543,14 @@ def materialise(
         if not manifest_path.is_file():
             raise Refusal(f"corpus {name}: {manifest_path} is missing")
         manifest = json.loads(manifest_path.read_text())
+        loaded_rows: int | None = None
+        if "base_corpus" in manifest:
+            loaded_rows = _loads_as_pinned(
+                src.parent,
+                name=name,
+                download_root=download_root or pool_dir / "commitpackft",
+                repo=repo,
+            )
         body = bytearray()
         n_rows = n_kept = 0
         for raw in src.read_bytes().split(b"\n"):
@@ -535,6 +573,8 @@ def materialise(
             "source_manifest_sha256": _sha256_file(manifest_path),
             "totals_other_keys": "of the unfiltered corpus; only totals.examples is recomputed",
         }
+        if loaded_rows is not None:
+            block["loaded_rows"] = loaded_rows
         if "base_corpus" in manifest:
             base_name = f"{name}-planbase"
             base_src = pool_dir / Path(str(manifest["base_corpus"]["name"])).name
@@ -712,6 +752,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="where the loader re-anchors a base corpus by name (default: <repo>/data/pool)",
     )
+    m.add_argument(
+        "--download-root",
+        type=Path,
+        default=None,
+        help="the commitpackft download (default: <pool-dir>/commitpackft)",
+    )
     s = sub.add_parser("select")
     s.add_argument("--prereg", type=Path, required=True)
     s.add_argument("--repo", type=Path, default=ROOT)
@@ -747,6 +793,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_dir=args.plan_dir,
                 out_dir=args.out,
                 pool_dir=args.pool_dir or args.repo / "data" / "pool",
+                download_root=args.download_root,
             )
             print(json.dumps(r, sort_keys=True))
             return 0
