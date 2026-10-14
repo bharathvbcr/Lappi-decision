@@ -86,6 +86,9 @@ fn a_resume_under_a_changed_recipe_is_refused_through_run_before_the_gpu() {
     earlier.lr = 5e-4;
     let (_, ckpt) = checkpoint_root("changed", &earlier.checkpoint_recipe());
     let mut now = args(&scratch("now"), 4);
+    // The ojas pin is checked first and depends on where the sibling checkout sits, which is the
+    // host's business (tests/pin.rs and make pin own it); this test is about the resume recipe.
+    now.unpinned_ojas = true;
     now.resume = Some(ckpt.clone());
     let m = refusal(run(&now));
     assert!(
@@ -100,6 +103,9 @@ fn a_resume_whose_recipe_matches_gets_past_the_recipe_check_and_stops_at_the_che
     let now = args(&scratch("same"), 4);
     let (_, ckpt) = checkpoint_root("matching", &now.checkpoint_recipe());
     let mut now = now;
+    // The ojas pin is checked first and depends on where the sibling checkout sits, which is the
+    // host's business (tests/pin.rs and make pin own it); this test is about the resume recipe.
+    now.unpinned_ojas = true;
     now.resume = Some(ckpt);
     let m = refusal(run(&now));
     assert!(
@@ -115,6 +121,9 @@ fn a_resume_from_a_checkpoint_root_without_its_recipe_is_refused() {
     let ckpt = root.join("checkpoints").join("ckpt-00000002");
     std::fs::create_dir_all(&ckpt).unwrap();
     let mut now = args(&scratch("no-recipe-now"), 4);
+    // The ojas pin is checked first and depends on where the sibling checkout sits, which is the
+    // host's business (tests/pin.rs and make pin own it); this test is about the resume recipe.
+    now.unpinned_ojas = true;
     now.resume = Some(ckpt);
     let m = refusal(run(&now));
     assert!(m.contains("another recipe") && m.contains("missing"), "{m}");
