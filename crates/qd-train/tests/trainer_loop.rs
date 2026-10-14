@@ -1479,6 +1479,47 @@ fn advancing_an_epoch_refuses_a_skip_a_step_back_an_unfinished_epoch_and_a_finis
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A checkpoint past epoch 0 exists only through `advance_to_epoch`, which always sets the link;
+/// epoch 0's never has one. Either shape the other way round is a body no run wrote, refused at
+/// read rather than left to surface later as a digest mismatch.
+#[test]
+fn a_checkpoint_whose_epoch_and_epoch_link_disagree_is_refused_at_read() {
+    let dir = temp_dir("epoch-link-shape");
+    let (_, ckpt) = finish_epoch_zero(&dir);
+    let body = ckpt.join("trainer.json");
+    let original = std::fs::read(&body).unwrap();
+    let rewrite = |edit: &dyn Fn(&mut serde_json::Map<String, serde_json::Value>)| {
+        let mut v: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        edit(v.as_object_mut().unwrap());
+        std::fs::write(&body, serde_json::to_vec(&v).unwrap()).unwrap();
+        ResumeState::read(&ckpt)
+    };
+    // The untouched body reads, so the refusals below are the edits'.
+    rewrite(&|_| {}).unwrap();
+    // Epoch 1 with no link: what a v2 body from before multi-epoch would claim.
+    let err = rewrite(&|m| {
+        m.insert("epoch".into(), serde_json::json!(1));
+    })
+    .unwrap_err();
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("epoch_link")),
+        "{err}"
+    );
+    // Epoch 0 with a link.
+    let err = rewrite(&|m| {
+        m.insert(
+            "epoch_link".into(),
+            serde_json::json!({"digest": "0".repeat(64), "n": 6}),
+        );
+    })
+    .unwrap_err();
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("epoch_link")),
+        "{err}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn a_stepped_provider_with_no_resume_state_is_refused_at_any_epoch() {
     let dir = temp_dir("epoch-stepped");
