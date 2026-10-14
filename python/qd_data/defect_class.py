@@ -72,7 +72,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import closing
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -156,6 +156,14 @@ DEFECT_SOURCE_ID: Final[str] = "qd-mutate/commitpackft"
 OWN_REPOS_MANIFEST_FILE: Final[str] = "own-repos-2026-10-06.manifest.json"
 OWN_REPOS_MANIFEST_SHA256: Final[str] = (
     "9fbdd9047a1cc0f1340ab2d6f2fdcae7bbd331dc2879ba67006f716344596854"
+)
+
+#: The pool manifests (``<pool stem>.manifest.json``) the Arm B pre-registration pins, by sha256
+#: (``campaign/v6-arm-b-mining-preregistered.json``, corpus ``own-swift-composed-v1``
+#: ``pool_manifest``). A pool manifest is the pool's own claim, so the loader admits a pool of the
+#: human's own files only when the manifest's bytes are one of these, whatever driver called it.
+OWN_POOL_MANIFEST_SHA256S: Final[frozenset[str]] = frozenset(
+    {"8842700dcd51ebeac9c9d5256925949b763410ec8c60eb830c27f4444adef55d"}
 )
 
 #: ``MUTATION_CLASSES`` in ``qd_train.mutate_adapter``, which ``test_mutate_adapter.py``
@@ -479,36 +487,64 @@ def diff_line_span(diff: bytes, *, start_line: int, end_line: int) -> tuple[int,
     return start, end
 
 
-def _load_licences(download_root: Path) -> dict[str, str]:
-    """``f"{commit}:{new_file}" -> license`` over every file the download manifest pins."""
+def _download_rows(download_root: Path) -> Iterator[tuple[Path, int, dict[str, Any]]]:
+    """``(file, line number, row)`` over every file the download manifest pins, in language
+    order. The manifest must name bigcode/commitpackft and at least one language: a manifest
+    pinning no file would make every join over it vacuously clean, so it refuses."""
     manifest_path = download_root / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("source_id") != "bigcode/commitpackft":
+    if not isinstance(manifest, dict) or manifest.get("source_id") != "bigcode/commitpackft":
+        named = manifest.get("source_id") if isinstance(manifest, dict) else manifest
         raise DefectCorpusError(
-            f"{manifest_path} names source {manifest.get('source_id')!r}, not "
+            f"{manifest_path} names source {named!r}, not "
             "bigcode/commitpackft; its rows are not the licence source this join needs"
         )
-    out: dict[str, str] = {}
-    for lang, meta in sorted(manifest[_DOWNLOAD_LANGUAGES_KEY].items()):
+    languages = manifest.get(_DOWNLOAD_LANGUAGES_KEY)
+    if not isinstance(languages, Mapping) or not languages:
+        raise DefectCorpusError(
+            f"{manifest_path} pins no {_DOWNLOAD_LANGUAGES_KEY!r}: a download manifest that "
+            "names no file proves nothing about the rows it is read for"
+        )
+    for lang, meta in sorted(languages.items()):
         path = download_root / f"{lang}.jsonl"
         assert_no_caller_records(path)
         _check_sha(path, str(meta["sha256"]), recorded_in=manifest_path)
         with closing(jsonl_lines(path)) as fh:
             for lineno, line in enumerate(fh, 1):
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                key = f"{obj['commit']}:{obj['new_file']}"
-                licence = obj.get("license")
-                if not isinstance(licence, str) or not licence.strip():
-                    raise DefectCorpusError(f"{path}:{lineno}: {key} carries no license")
-                seen = out.get(key)
-                if seen is not None and seen != licence:
-                    raise DefectCorpusError(
-                        f"{path}:{lineno}: {key} appears with licences {seen!r} and "
-                        f"{licence!r}; which one governs the row cannot be decided"
-                    )
-                out[key] = licence
+                if line.strip():
+                    yield path, lineno, json.loads(line)
+
+
+def _download_content_digests(download_root: Path) -> frozenset[str]:
+    """The sha256 of every non-empty ``new_contents`` the download holds: the same digest a
+    pool row's source is checked by, so the two can be compared."""
+    empty = hashlib.sha256(b"").hexdigest()
+    out: set[str] = set()
+    for path, lineno, obj in _download_rows(download_root):
+        contents = obj.get("new_contents")
+        if not isinstance(contents, str):
+            raise DefectCorpusError(f"{path}:{lineno}: no new_contents to digest")
+        digest = hashlib.sha256(contents.encode("utf-8")).hexdigest()
+        if digest != empty:
+            out.add(digest)
+    return frozenset(out)
+
+
+def _load_licences(download_root: Path) -> dict[str, str]:
+    """``f"{commit}:{new_file}" -> license`` over every file the download manifest pins."""
+    out: dict[str, str] = {}
+    for path, lineno, obj in _download_rows(download_root):
+        key = f"{obj['commit']}:{obj['new_file']}"
+        licence = obj.get("license")
+        if not isinstance(licence, str) or not licence.strip():
+            raise DefectCorpusError(f"{path}:{lineno}: {key} carries no license")
+        seen = out.get(key)
+        if seen is not None and seen != licence:
+            raise DefectCorpusError(
+                f"{path}:{lineno}: {key} appears with licences {seen!r} and "
+                f"{licence!r}; which one governs the row cannot be decided"
+            )
+        out[key] = licence
     return out
 
 
@@ -544,12 +580,16 @@ def _own_repos_licences(
     The licence is the source's declaration, not a per-row join: the same three checks
     ``_load_own_prose`` makes (the source is admitted by this run, the manifest's licence is the
     source's declared one, and that licence is admitted), then every pool id takes it. The
-    pool's ``files.jsonl`` (repo, path, sha256 per file: the human's strike list) must be the
-    bytes its manifest pinned. That manifest is the pool's own claim, so admission also rests on
-    what the claim cannot forge: the pool's repos must be train repositories of the pinned
-    own-repos manifest, and the pool must equal its files list one to one by content. The
-    commitpackft download gives this corpus no licence; it is read only to prove that no pool id
-    is also in it (one corpus is one source), and a check that cannot run refuses.
+    pool's manifest must be one of the bytes the pre-registration pins
+    (:data:`OWN_POOL_MANIFEST_SHA256S`), checked here and not by the driver, and the pool file
+    the one it records; the pool's ``files.jsonl`` (repo, path, sha256 per file: the human's
+    strike list) must be the bytes that manifest pinned. That manifest is the pool's own claim,
+    so admission also rests on what the claim cannot forge: the pool's repos must be train
+    repositories of the pinned own-repos manifest, every path a plain repo-relative one, and the
+    pool must equal its files list one to one by content. The commitpackft download gives this
+    corpus no licence; it is read only to prove that no pool file is also in it by content (one
+    corpus is one source), and a check that cannot run refuses. Not checked here: each row's
+    sha256 against the blob at its repo's pinned head (needs the checkouts at ``code_root``).
     """
     from qd_train.data_access import assert_path_not_held_out
 
@@ -568,6 +608,20 @@ def _own_repos_licences(
             f"{source.declared_licence!r}"
         )
     admit_licence(licence, config=config.licence, source=OWN_REPOS_SOURCE_ID)
+    # The pool manifest is the pool's own claim: only the bytes the pre-registration pinned are
+    # taken as the human's, and the pool file must be the one that manifest records.
+    manifest_path = pool_path.with_name(f"{pool_path.stem}.manifest.json")
+    manifest_sha = sha256_file(manifest_path)
+    if manifest_sha not in OWN_POOL_MANIFEST_SHA256S:
+        raise DefectCorpusError(
+            f"{manifest_path} hashes to {manifest_sha}, which is not a pool manifest the "
+            f"Arm B pre-registration pins {sorted(OWN_POOL_MANIFEST_SHA256S)}: a self-declared "
+            "manifest is not provenance"
+        )
+    pool_pin = manifest.get("pool")
+    if not isinstance(pool_pin, Mapping) or not isinstance(pool_pin.get("sha256"), str):
+        raise DefectCorpusError(f"{manifest_path} records no sha256 for its pool")
+    _check_sha(pool_path, pool_pin["sha256"], recorded_in=manifest_path)
     files_meta = manifest.get("files")
     if not isinstance(files_meta, Mapping) or "sha256" not in files_meta:
         raise DefectCorpusError(
@@ -616,21 +670,24 @@ def _own_repos_licences(
             f"{files_path}: the files list is not the pool's rows by content; in the pool only "
             f"{only_pool}, in the list only {only_list}, sha256 differs for {differ}"
         )
-    # One corpus is one source: prove no pool id is also a commitpackft row. A check that cannot
-    # run is not a pass, so an absent or unreadable download refuses.
+    # One corpus is one source: prove no pool file is also a commitpackft file. Pool ids
+    # (``own-swift:<repo>:<path>``) and download keys (``<commit>:<new_file>``) are different key
+    # spaces and can never meet, so the comparison is by content: the sha256 of a pool file's
+    # source against the sha256 of every download ``new_contents``. A check that cannot run is
+    # not a pass, so an absent, empty or unreadable download refuses.
     try:
-        in_download = set(_load_licences(download_root))
+        in_download = _download_content_digests(download_root)
     except (OSError, ValueError, KeyError, DefectCorpusError) as e:
         raise DefectCorpusError(
             f"the commitpackft download clash check could not run ({e}); a pool of the human's "
-            "own files is admitted only once no pool id is also a commitpackft row"
+            "own files is admitted only once no pool file is also a commitpackft file"
         ) from e
-    clash = sorted(set(pool) & in_download)
+    clash = sorted(f"{repo}:{path}" for repo, path, sha in records if sha in in_download)
     if clash:
         raise DefectCorpusError(
-            f"{len(clash)} pool id(s) of {pool_path} are also in the commitpackft download, "
-            f"first five {clash[:5]}: one corpus is one source, and a row with two licence "
-            "sources has no licence that governs it"
+            f"{len(clash)} pool file(s) of {pool_path} are also in the commitpackft download by "
+            f"content, first five {clash[:5]}: one corpus is one source, and a file with two "
+            "licence sources has no licence that governs it"
         )
     return dict.fromkeys(pool, licence)
 
@@ -671,14 +728,33 @@ def _own_pool_records(pool_path: Path) -> list[tuple[str, str, str]]:
             if not line.strip():
                 continue
             obj = json.loads(line)
+            source = obj["source"]
+            if not isinstance(source, str):
+                raise DefectCorpusError(f"{pool_path}: a pool record's source is not text")
             out.append(
                 (
                     str(obj["repo"]),
-                    str(obj["path"]),
-                    hashlib.sha256(str(obj["source"]).encode("utf-8")).hexdigest(),
+                    _own_relative_path(obj["path"], where=str(pool_path)),
+                    hashlib.sha256(source.encode("utf-8")).hexdigest(),
                 )
             )
     return out
+
+
+def _own_relative_path(path: object, *, where: str) -> str:
+    """``path`` if it is a plain repo-relative POSIX path, else a refusal.
+
+    A pool row's path is joined to a repository by the strike list and by the pinned-tree walk
+    that produced it, so it must name a file inside that repository: text, not empty, not
+    absolute, no NUL byte, no backslash separator, and no ``..`` segment.
+    """
+    if not isinstance(path, str) or not path:
+        raise DefectCorpusError(f"{where}: unsafe path {path!r}: not a non-empty string")
+    if path.startswith("/") or "\x00" in path or "\\" in path or ".." in path.split("/"):
+        raise DefectCorpusError(
+            f"{where}: unsafe path {path!r}: absolute, NUL, backslash or '..' segment"
+        )
+    return path
 
 
 def _own_files_list(files_path: Path) -> dict[tuple[str, str], str]:
@@ -689,7 +765,8 @@ def _own_files_list(files_path: Path) -> dict[tuple[str, str], str]:
             if not line.strip():
                 continue
             obj = json.loads(line)
-            key = (str(obj["repo"]), str(obj["path"]))
+            rel = _own_relative_path(obj["path"], where=f"{files_path}:{lineno}")
+            key = (str(obj["repo"]), rel)
             if key in out:
                 raise DefectCorpusError(
                     f"{files_path}:{lineno}: {key} appears twice in the files list"
