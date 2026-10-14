@@ -361,6 +361,71 @@ fn route_rows_are_the_apps_request_and_none_is_only_unable_or_direct() {
     }
 }
 
+/// The held-out probe measures a phrasing the pool never trained on. A train template that is a
+/// held-out one plus a word ("next {weekday} date" around held-out "next {weekday}") trains the
+/// held-out phrasing in all but name, so no train template of a class may contain a held-out
+/// template of that class as a whole-word run. The pinned config, split as the builder splits it.
+#[test]
+fn no_train_route_template_contains_a_held_out_one() {
+    let root = repo_root();
+    let (cfg, _) = Config::load(&root.join("data/synth/route-v6-2026-10-12.json")).unwrap();
+    let doc: Value = serde_json::from_slice(
+        &fs::read(root.join("data/synth/devtype-route-phrasings-v6-2026-10-12.json")).unwrap(),
+    )
+    .unwrap();
+    let templates: Vec<(&str, &str, &str)> = doc["templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| {
+            (
+                t["id"].as_str().unwrap(),
+                t["class"].as_str().unwrap(),
+                t["text"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    let generated = synth::generate(&cfg).unwrap();
+    let assembled = synth::assemble(&cfg, &generated.drafts).unwrap();
+    let split = assembled.report["templates"].as_object().unwrap();
+    let ids = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_owned())
+            .collect()
+    };
+    let words = |s: &str| -> Vec<String> { s.split_whitespace().map(str::to_lowercase).collect() };
+    let mut checked = 0usize;
+    for (key, side) in split {
+        let class = key.rsplit('/').next().unwrap();
+        let held = ids(&side["heldout_templates"]);
+        let val = ids(&side["val_templates"]);
+        assert!(!held.is_empty(), "{key} holds nothing out");
+        for h in &held {
+            let (_, _, h_text) = templates.iter().find(|(id, ..)| id == h).unwrap();
+            let h_words = words(h_text);
+            for (id, c, text) in &templates {
+                if *c != class || held.iter().any(|x| x == id) || val.iter().any(|x| x == id) {
+                    continue;
+                }
+                checked += 1;
+                let t_words = words(text);
+                assert!(
+                    !t_words
+                        .windows(h_words.len())
+                        .any(|w| w == h_words.as_slice()),
+                    "{key}: train template {id} {text:?} contains held-out {h} {h_text:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        checked > 0,
+        "no train template was compared; a vacuous pass"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // gitpulse.commit_type, on git repositories built in a temp directory
 

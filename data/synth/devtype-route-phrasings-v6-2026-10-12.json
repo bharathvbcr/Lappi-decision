@@ -984,11 +984,6 @@
    "text": "next {weekday}"
   },
   {
-   "id": "date-12",
-   "class": "resolveDate",
-   "text": "next {weekday} date"
-  },
-  {
    "id": "macro-01",
    "class": "runMacro",
    "text": "run the {macro} macro"
