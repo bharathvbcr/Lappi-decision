@@ -2662,12 +2662,16 @@ def run_suite(
 
     t0 = time.monotonic()
     try:
-        # argv, never a shell: see parse_command for why that is load-bearing.
+        # argv, never a shell: see parse_command for why that is load-bearing. Its own
+        # session, so a timeout can kill the suite's whole process group: `cargo test`'s
+        # binaries are its children, and killing cargo alone left them running with the
+        # output pipe open.
         proc = subprocess.Popen(
             command,
             cwd=str(cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
     except OSError as exc:
         return SuiteOutcome(
@@ -2699,18 +2703,32 @@ def run_suite(
     reader = threading.Thread(target=_drain, name=f"suite-{name}-reader", daemon=True)
     reader.start()
 
+    def _kill_group() -> None:
+        # The group id is the leader's pid (start_new_session). Only processes this call
+        # started are in it; a child that left the group on purpose is not reached.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        # A process that ignores SIGKILL is the kernel's problem, not the
+        # ledger's; the row already says the suite did not finish.
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=30)
+
     timed_out = False
     try:
         proc.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
         timed_out = True
-        proc.kill()
-        # A process that ignores SIGKILL is the kernel's problem, not the
-        # ledger's; the row already says the suite did not finish.
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=30)
+        _kill_group()
+    except BaseException:
+        # Its own session no longer receives the terminal's Ctrl-C, so an interrupt here
+        # must take the suite down with it rather than leave it running unowned.
+        _kill_group()
+        raise
     reader.join(timeout=30)
-    if proc.stdout is not None:
+    # Closing the pipe under a reader still blocked in read() raised ValueError in that
+    # thread. A reader still alive here is a daemon holding a pipe some process outside
+    # the group kept open; it is left to exit with the interpreter.
+    if proc.stdout is not None and not reader.is_alive():
         proc.stdout.close()
 
     duration = time.monotonic() - t0
