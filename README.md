@@ -62,7 +62,9 @@ trained for (849 pairs, local models only), Lappi ties Qwen3.5-2B: domain macro 
 0.522, with an interval on the difference that includes zero. Gemma 4 E4B (8B) is clearly better
 (0.632), and so is decider-2b (0.612), a typed decision model on the same base model: paired, it
 leads Lappi by +0.110 [+0.071, +0.157]. Pairwise response preference is one of decider-2b's trained
-tasks, asked in its own request format; for Lappi it is not. Lappi is near chance outside
+tasks, asked in its own request format; for Lappi it is not. Whether decider-2b's training data
+overlaps these benchmarks is unverified: its card names an unversioned RewardBench
+(`AUDIT/decider-2b-comparison-2026-10-12.md`). Lappi is near chance outside
 RewardBench 2's Ties domain and scores 0.111 on RM-Bench's
 code pairs, where it calls most pairs a tie or prefers the broken program. Those pairs reach it as a
 "which answer is better" question, through `pairwise.helpfulness`, its weakest family. Asked its own
