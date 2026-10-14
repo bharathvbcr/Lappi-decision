@@ -175,11 +175,49 @@ fn gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates() {
         eps: 1e-8,
         grad_scale: 1.0,
     };
-    let err = fresh.adamw_step(&hyper, 1, &scaled, &wd).unwrap_err();
-    assert!(matches!(&err, StepError::Unsupported(m) if m.contains("entry 0 asks for 0.1x")), "{err}");
     let err = fresh.adamw_step(&hyper, 2, &ones, &wd).unwrap_err();
     assert!(matches!(&err, StepError::Contract(m) if m.contains("has taken 0")), "{err}");
+    let mut negative = ones.clone();
+    negative[0] = -0.1;
+    let err = fresh.adamw_step(&hyper, 1, &negative, &wd).unwrap_err();
+    assert!(matches!(&err, StepError::Contract(m) if m.contains("entry 0") && m.contains("must be finite and > 0")), "{err}");
     assert_eq!(fresh.step_count(), 0, "a refused step moves nothing");
+
+    // A per-entry lr_scale is supported (f5f0cb2, board-sweep ruling 2h) and APPLIED: entry k
+    // learns at lr * scale[k]. Three providers take the same gradient from the same snapshot:
+    // `fresh` with entry 0 at 0.1x, `uniform` with every entry at 1x, and `slow` with every entry
+    // at 1x under lr * 0.1 (the same f64 product the provider forms). Entry 0 must be `slow`'s bit
+    // for bit and differ from `uniform`'s; every other entry must be `uniform`'s bit for bit.
+    let mut uniform = Qwen35Provider::open(&snap, Operands::ExactF32).unwrap();
+    let mut slow = Qwen35Provider::open(&snap, Operands::ExactF32).unwrap();
+    uniform.accumulate(&job, BankMode::Overwrite, None).unwrap();
+    slow.accumulate(&job, BankMode::Overwrite, None).unwrap();
+    fresh.adamw_step(&hyper, 1, &scaled, &wd).unwrap();
+    uniform.adamw_step(&hyper, 1, &ones, &wd).unwrap();
+    let slow_hyper = qd_train::step::AdamWHyper {
+        lr: hyper.lr * 0.1,
+        ..hyper
+    };
+    slow.adamw_step(&slow_hyper, 1, &ones, &wd).unwrap();
+    assert_eq!((fresh.step_count(), uniform.step_count(), slow.step_count()), (1, 1, 1));
+    let pf = fresh.qwen35().read_table(Which::Parameters).unwrap();
+    let pu = uniform.qwen35().read_table(Which::Parameters).unwrap();
+    let ps = slow.qwen35().read_table(Which::Parameters).unwrap();
+    assert!(pf.len() > 1 && pf.len() == pu.len() && pf.len() == ps.len());
+    for (k, ((f, u), s)) in pf.iter().zip(&pu).zip(&ps).enumerate() {
+        assert_eq!(f.name, u.name);
+        let (f, u, s) = (
+            bits(&f.tensor.to_f32_vec().unwrap()),
+            bits(&u.tensor.to_f32_vec().unwrap()),
+            bits(&s.tensor.to_f32_vec().unwrap()),
+        );
+        if k == 0 {
+            assert_eq!(f, s, "entry 0 must take the step lr * 0.1 would give it");
+            assert_ne!(f, u, "entry 0 must not take the full-lr step");
+        } else {
+            assert_eq!(f, u, "entry {k} is scaled 1.0 and must be untouched by entry 0's scale");
+        }
+    }
 }
 
 /// One row of a tiny batch: real tokens, and either a letter answer or a span row.
