@@ -83,17 +83,22 @@ def _sha(b: bytes) -> str:
 
 
 def _write_download(
-    download: Path, *, extra_contents: tuple[str, ...] = (), languages: bool = True
+    download: Path, *, extra_contents: tuple[str, ...] = (), extra_old: tuple[str, ...] = (),
+    languages: bool = True,
 ) -> None:
     """A commitpackft download holding one row whose content is not an own-repos pool file,
-    plus one row per ``extra_contents`` text; ``languages=False`` pins no file at all."""
+    plus one row per ``extra_contents`` text (as its ``new_contents``) and per ``extra_old`` text
+    (as its ``old_contents``); ``languages=False`` pins no file at all."""
     download.mkdir(parents=True, exist_ok=True)
     dl = download / "python.jsonl"
     rows = [{"commit": "c" * 40, "new_file": "x.py", "license": "mit",
-             "new_contents": "print(1)\n"}]
+             "new_contents": "print(1)\n", "old_contents": ""}]
     for i, text in enumerate(extra_contents):
         rows.append({"commit": f"{i:040d}", "new_file": f"y{i}.py", "license": "mit",
-                     "new_contents": text})
+                     "new_contents": text, "old_contents": ""})
+    for i, text in enumerate(extra_old):
+        rows.append({"commit": f"{i + 500:040d}", "new_file": f"z{i}.py", "license": "mit",
+                     "new_contents": "print(2)\n", "old_contents": text})
     dl.write_text("".join(json.dumps(r) + "\n" for r in rows))
     (download / "manifest.json").write_text(
         json.dumps({"source_id": "bigcode/commitpackft",
@@ -118,7 +123,7 @@ def _own_world(
     """An own-repos corpus: a flat pool, its manifest and files list, the pinned own-repos
     manifest, a corpus dir, and an unrelated commitpackft download. Returns (corpus dir,
     download root)."""
-    from test_defect_class import AFTER, _example
+    from test_defect_class import BEFORE, _example
 
     pool_dir = root / "data" / "pool"
     corpus = pool_dir / "own-corpus"
@@ -130,8 +135,9 @@ def _own_world(
         ex["pool_id"], ex["id"] = pid, f"{pid}#0"
         ex["diff"] = ex["diff"].replace("return", f"return {i} or")
         examples.append(ex)
-        pool_rows.append({"id": pid, "repo": pool_repo, "path": ex["path"], "source": AFTER})
-        files_rows.append({"repo": pool_repo, "path": ex["path"], "sha256": _sha(AFTER.encode())})
+        # The pool holds the pristine file; qd-mutate's `before` is that file, `after` the mutant.
+        pool_rows.append({"id": pid, "repo": pool_repo, "path": ex["path"], "source": BEFORE})
+        files_rows.append({"repo": pool_repo, "path": ex["path"], "sha256": _sha(BEFORE.encode())})
     _finish_own_world(
         pool_dir, corpus, examples, pool_rows, files_rows, monkeypatch, licence=licence,
         train_slugs=train_slugs, heldout_slugs=heldout_slugs, pin_manifest=pin_manifest,
@@ -359,12 +365,142 @@ def test_an_own_repos_pool_with_a_pool_id_in_the_commitpackft_download_is_refuse
 ) -> None:
     """One corpus is one source: a pool file whose bytes the download also holds would have two
     licences. Compared by content, since pool ids and download keys are different key spaces."""
-    from test_defect_class import AFTER
+    from test_defect_class import BEFORE
 
     corpus, download = _own_world(tmp_path, monkeypatch)
-    _write_download(download, extra_contents=(AFTER,))
+    _write_download(download, extra_contents=(BEFORE,))
     with pytest.raises(DefectCorpusError, match="one corpus is one source"):
         _load(tmp_path, corpus, download)
+
+
+_VARIANTS = {
+    "crlf": lambda t: t.replace("\n", "\r\n"),
+    "lone_cr": lambda t: t.replace("\n", "\r"),
+    "bom": lambda t: "﻿" + t,
+    "no_final_newline": lambda t: t.rstrip("\n"),
+    "extra_final_newlines": lambda t: t + "\n\n\n",
+    "tabs_for_indent": lambda t: t.replace("    ", "\t"),
+    "trailing_blanks": lambda t: t.replace("\n", "  \t\n"),
+}
+
+
+@pytest.mark.parametrize("variant", sorted(_VARIANTS))
+@pytest.mark.parametrize("side", ["new_contents", "old_contents"])
+def test_a_download_copy_that_differs_only_in_whitespace_is_still_a_clash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: str, side: str
+) -> None:
+    """The comparison is by normalised content (BOM, line endings, final newlines and the
+    whitespace on a line), on both sides of a download commit."""
+    from test_defect_class import BEFORE
+
+    corpus, download = _own_world(tmp_path, monkeypatch)
+    text = _VARIANTS[variant](BEFORE)
+    if side == "new_contents":
+        _write_download(download, extra_contents=(text,))
+    else:
+        _write_download(download, extra_old=(text,))
+    with pytest.raises(DefectCorpusError, match="one corpus is one source"):
+        _load(tmp_path, corpus, download)
+
+
+def test_a_download_file_with_different_tokens_is_not_a_clash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_defect_class import BEFORE
+
+    corpus, download = _own_world(tmp_path, monkeypatch)
+    _write_download(download, extra_contents=(BEFORE.replace("x + a", "x * a"),))
+    assert len(_load(tmp_path, corpus, download).rows) == 6
+
+
+def test_an_example_that_does_not_carry_its_pool_records_bytes_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card's goal: the admitted text must be the owner's. Third-party text in the examples,
+    with every manifest re-pinned, was admitted as owner-granted before this check."""
+    corpus, download = _own_world(tmp_path, monkeypatch)
+    evil = "// (c) Third Party GPL\nfunc evil() {}\n"
+
+    def swap(pool_rows: list, files_rows: list, examples: list) -> None:
+        for e in examples:
+            e["before"] = e["after"] = evil
+
+    _rewrite(tmp_path, corpus, swap, monkeypatch)
+    with pytest.raises(DefectCorpusError, match="pool record's source"):
+        _load(tmp_path, corpus, download)
+
+
+@pytest.mark.parametrize("side", ["before", "after"])
+def test_a_clean_example_must_carry_the_pool_bytes_on_both_sides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, side: str
+) -> None:
+    from test_defect_class import BEFORE
+
+    corpus, download = _own_world(tmp_path, monkeypatch)
+
+    def clean_with_foreign_side(pool_rows: list, files_rows: list, examples: list) -> None:
+        e = examples[0]
+        e.update({"class": "clean", "operator": "clean", "span": None, "before": BEFORE,
+                  "after": BEFORE})
+        e[side] = "// (c) Third Party GPL\n"
+
+    _rewrite(tmp_path, corpus, clean_with_foreign_side, monkeypatch)
+    with pytest.raises(DefectCorpusError, match="pool record's source"):
+        _load(tmp_path, corpus, download)
+
+
+def test_an_example_is_tied_to_the_pool_source_as_qd_mutate_normalises_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``normalize.rs``: one leading BOM and CRLF/CR become LF, nothing else. A pool file with
+    CRLF and a BOM is carried by an example holding the normalised text, and only that."""
+    corpus, download = _own_world(tmp_path, monkeypatch)
+    raw = "﻿def f():\r\n    return 1\r\rdef g():\r\n    return 0\r\n"
+    normalised = "def f():\n    return 1\n\ndef g():\n    return 0\n"
+
+    def crlf_pool(pool_rows: list, files_rows: list, examples: list) -> None:
+        pool_rows[0]["source"] = raw
+        files_rows[0]["sha256"] = _sha(raw.encode())
+        examples[0]["before"] = normalised
+
+    _rewrite(tmp_path, corpus, crlf_pool, monkeypatch)
+    assert len(_load(tmp_path, corpus, download).rows) == 6
+
+    def raw_before(pool_rows: list, files_rows: list, examples: list) -> None:
+        examples[0]["before"] = raw
+
+    _rewrite(tmp_path, corpus, raw_before, monkeypatch)
+    with pytest.raises(DefectCorpusError, match="pool record's source"):
+        _load(tmp_path, corpus, download)
+
+
+def test_the_pool_manifest_is_read_once_and_hashed_from_the_bytes_that_were_parsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A manifest swapped between a parse and a re-read must not pass on the strength of the
+    bytes that were hashed: one read feeds both."""
+    _own_world(tmp_path, monkeypatch)
+    pool_path = tmp_path / "data" / "pool" / "own-pool.jsonl"
+    manifest = pool_path.with_name("own-pool.manifest.json")
+    reads: list[str] = []
+    real_bytes, real_text = Path.read_bytes, Path.read_text
+
+    def count_bytes(self: Path) -> bytes:
+        reads.append(self.name)
+        return real_bytes(self)
+
+    def count_text(self: Path, *a: object, **k: object) -> str:
+        reads.append(self.name)
+        return real_text(self, *a, **k)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_bytes", count_bytes)
+    monkeypatch.setattr(Path, "read_text", count_text)
+    found = defect_class._own_repos_pool_manifest(pool_path)
+    assert found is not None
+    parsed, digest = found
+    assert digest == _sha(real_bytes(manifest))
+    assert parsed["source_id"] == "bharathvbcr/own-repositories"
+    assert reads.count(manifest.name) == 1
 
 
 def test_a_download_row_keyed_like_a_pool_id_but_with_other_content_is_not_a_clash(
@@ -397,7 +533,11 @@ def test_a_commitpackft_load_over_an_empty_languages_download_manifest_is_refuse
         _load(tmp_path, corpus, download)
 
 
-UNSAFE_PATHS = ["/etc/passwd", "", "src/../../x.swift", "..", "a\x00b.swift", "src\\a.swift"]
+UNSAFE_PATHS = [
+    "/etc/passwd", "", "src/../../x.swift", "..", "a\x00b.swift", "src\\a.swift",
+    "a//b.swift", "a/b/", "./a.swift", "a/./b.swift", "a/ ../b.swift", "..\t", "a/ /b.swift",
+    "a/b/..\n/c.swift",
+]
 
 
 @pytest.mark.parametrize("bad", UNSAFE_PATHS, ids=repr)
@@ -426,6 +566,19 @@ def test_a_dotted_but_plain_path_is_still_admitted(
 
     def rename(pool_rows: list, files_rows: list, examples: list) -> None:
         pool_rows[0]["path"] = files_rows[0]["path"] = "src/v1..2/a.swift"
+
+    _rewrite(tmp_path, corpus, rename, monkeypatch)
+    assert len(_load(tmp_path, corpus, download).rows) == 6
+
+
+def test_a_lookalike_unicode_segment_is_an_opaque_name_not_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Documented residual: U+FF0E FULLWIDTH FULL STOP is not '.', so it is not refused."""
+    corpus, download = _own_world(tmp_path, monkeypatch)
+
+    def rename(pool_rows: list, files_rows: list, examples: list) -> None:
+        pool_rows[0]["path"] = files_rows[0]["path"] = f"src/{chr(0xFF0E) * 2}/a.swift"
 
     _rewrite(tmp_path, corpus, rename, monkeypatch)
     assert len(_load(tmp_path, corpus, download).rows) == 6

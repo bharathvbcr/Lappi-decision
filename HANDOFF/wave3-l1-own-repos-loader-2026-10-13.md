@@ -26,7 +26,39 @@ Card ft-a59b211c2dff160e5deae98dd5708171 (revision 2). Branch `wave3-l1-own-repo
    `_download_rows`, which also hardens the v5 `_load_licences` path (v5's real manifest has four
    languages, so v5 is unchanged).
 
-## Evidence
+## Rework after the Opus review of ab80131 (second commit)
+
+1. **Example content tied to pool bytes** (HIGH). Repro was: every example's before/after set to
+   third-party text, corpus manifest re-pinned, 6 rows admitted owner-granted. Now
+   `_own_example_content_violation` runs in `load_defect_rows` for each example of an own-repos
+   pool. Shape, from `crates/qd-mutate/src/generate.rs` (the `normalized_prior`/`prior` block,
+   ~lines 278, 331-334, 354, 407-408, `before: prior.to_string()`, `after: source.clone()`) and
+   `normalize.rs::normalize` (strip one BOM; CRLF and lone CR to LF): `before` is the normalised
+   pre-image when the pool carries one, otherwise the normalised pool `source`; an own-repos pool
+   has no `prior_source`, so `before` must equal the normalised `source` for every example, and
+   for `clean` `after` must too. Compared by sha256 of the normalised text. Checked against the
+   real L3 own-swift corpus (11,141 examples): none refused, so the check matches how the corpus
+   was built.
+2. **Clash digest normalised** (MEDIUM). `_clash_digest`: strip BOM, CRLF/CR to LF, collapse the
+   whitespace within and around each line (tabs against spaces, indentation, trailing blanks), drop
+   trailing blank lines; empty results are ignored. Applied to the pool source and to both
+   `new_contents` and `old_contents` of every download row.
+3. **TOCTOU** (LOW). `_own_repos_pool_manifest` reads the bytes once and returns
+   `(parsed, sha256 of those bytes)`; `_own_repos_licences` takes the sha as an argument.
+4. **Path aliasing** (LOW). A segment that is empty, `.`, `..` or only those once whitespace is
+   stripped refuses (`a//b`, trailing `/`, `./a`, `a/./b`, `a/ ../b`, `..\t`, `a/ /b`).
+
+Residuals added: (a) composed rows carry no before/after (their text is the constituents' diff),
+so the content tie covers plain corpora and a composed corpus only through its base corpus, which
+`load_defect_rows` reads through the same door; the composed rows' own diff text is not tied to the
+pool. (b) Unicode lookalikes (U+FF0E and the like) are opaque names and are not refused; pinned by
+a test. (c) The files list and pool file are still re-read after their sha check (same class as
+item 3, not in the review's list). The own-swift `#clean` empty-diff failure (defect_class.py
+`_parse_one`) is untouched; the content check runs before `_parse_one` and neither masks nor
+depends on it (the real base corpus passes the new check and then stops at that failure).
+Security impact: narrows admission only; widens nothing.
+
+## Evidence (first commit, ab80131)
 
 - Red on 174452f (new test file copied into a detached worktree of 174452f, since removed):
   `24 failed, 18 passed, 1 skipped`: every `test_an_unsafe_pool_path_is_refused[*]` (18),
