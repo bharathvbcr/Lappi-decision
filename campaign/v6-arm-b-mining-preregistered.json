@@ -47,6 +47,12 @@
         "path": "data/pool/own-swift-composed-v2-prefixed/examples.jsonl",
         "sha256": "d5e9341e7994c274952c1b9ba67775bedf9857b5d8ba023d378e8172e9555e26",
         "id_prefix": "arm-b-swift-v2:",
+        "base_corpus": {
+          "path": "data/pool/own-swift-corpus-v2/examples.jsonl",
+          "sha256": "02cbfdac9d3d359f3d6502779f6ba3829b2d76bd8f1d028c88846c71b909d886",
+          "rows": 13647,
+          "why": "read by load_defect_rows before the composed rows; pinned so the loader can mirror it"
+        },
         "superseded_pin_v1_prefixed": {
           "name": "own-swift-composed-v1",
           "path": "data/pool/own-swift-composed-v1-prefixed/examples.jsonl",
