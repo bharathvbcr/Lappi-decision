@@ -26,8 +26,8 @@ use qd_train::step::{
     AdamWHyper, BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider,
 };
 use qd_train::trainer::{
-    CheckpointPolicy, EtaRule, Hooks, MicroLoss, Objective, ResumeState, Termination, TrainConfig,
-    TrainError, TrainResult, parameters_digest, train,
+    CheckpointPolicy, ConsumedBatch, EtaRule, Hooks, MicroLoss, Objective, ResumeState,
+    Termination, TrainConfig, TrainError, TrainResult, parameters_digest, train,
 };
 
 const V: usize = 13;
@@ -1141,4 +1141,356 @@ fn a_fresh_run_refuses_a_provider_that_has_already_stepped_and_a_mismatched_lr()
         run(&mut p, &mut o, batches(3, 1), &cfg),
         Err(TrainError::Refused(_))
     ));
+}
+
+// ---- a second epoch -------------------------------------------------------------------------
+//
+// What the two refusals `train` has always made protect, and so what every test below keeps:
+//
+// * "checkpoint is at epoch A but this call was given epoch B": a checkpoint's `next_index` and
+//   consumed digest are positions in ONE epoch's batch order, and that order is a function of
+//   (seed, epoch). Resuming at another epoch would skip and hash the wrong prefix. So `train`
+//   still refuses any epoch mismatch; the only way into the next epoch is
+//   `ResumeState::advance_to_epoch`, which proves the checkpoint consumed the whole epoch
+//   (`next_index == epoch_batches`, a count the caller knows from the plan, the loop cannot
+//   infer: a truncated source ends with `DataExhausted` too) and moves the position to
+//   (epoch + 1, 0).
+// * "a fresh run was handed a provider that has already taken N step(s)": a stepped model
+//   carries moments and an AdamW count that a fresh loop would reset in its log and its
+//   schedule (step 0, t = 1) while the weights and moments did not. Still refused, at any
+//   epoch; a stepped provider is continued only through a `ResumeState`, which reloads it.
+
+const EPOCH_LEN: u64 = 6;
+const DATA_SEED: u64 = 7;
+
+/// One epoch's batches. The order is drawn from (seed, epoch) as `plan_epoch` draws its own
+/// (`default_rng([seed, epoch, ..])`), so two epochs are two orders of the same pool.
+fn epoch_data(epoch: u64) -> Vec<Result<ToyBatch, TrainError>> {
+    let pool: Vec<u64> = (0..EPOCH_LEN).collect();
+    let order = qd_train::np_random::default_rng(&[DATA_SEED, epoch, 0x70]).permutation(&pool);
+    order
+        .iter()
+        .enumerate()
+        .map(|(position, &member)| {
+            let seed = DATA_SEED + 100 * member;
+            Ok(if member % 3 == 1 {
+                letter_only(position as u64, seed)
+            } else {
+                batch(position as u64, seed)
+            })
+        })
+        .collect()
+}
+
+fn epoch_config(epoch: u64, dir: Option<&Path>) -> TrainConfig {
+    let mut cfg = config(2 * EPOCH_LEN);
+    cfg.epoch = epoch;
+    cfg.seed = DATA_SEED;
+    cfg.checkpoint = dir.map(|d| CheckpointPolicy {
+        dir: d.to_path_buf(),
+        every: 4,
+    });
+    cfg
+}
+
+fn train_epoch(
+    p: &mut ToyProvider,
+    o: &mut Obj,
+    epoch: u64,
+    data: Vec<Result<ToyBatch, TrainError>>,
+    dir: Option<&Path>,
+    resume: Option<ResumeState>,
+) -> Result<TrainResult, TrainError> {
+    train(
+        p,
+        o,
+        data,
+        &epoch_config(epoch, dir),
+        &MonotonicClock::new(),
+        resume,
+        &mut Hooks::default(),
+    )
+}
+
+/// Epoch 0 to completion on a fresh model, returning its final checkpoint.
+fn finish_epoch_zero(dir: &Path) -> (TrainResult, PathBuf) {
+    let (mut p, mut o) = fresh();
+    let r = train_epoch(&mut p, &mut o, 0, epoch_data(0), Some(dir), None).unwrap();
+    assert_eq!(r.termination, Termination::DataExhausted);
+    assert_eq!(r.optimizer_steps, EPOCH_LEN);
+    let ckpt = r.final_checkpoint.clone().unwrap();
+    (r, ckpt)
+}
+
+/// Every file of a checkpoint directory, by relative path.
+fn checkpoint_bytes(ckpt: &Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(root: &Path, at: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+        let mut names: Vec<_> = std::fs::read_dir(at)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        names.sort();
+        for path in names {
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                let rel = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                out.push((rel, std::fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(ckpt, ckpt, &mut out);
+    out
+}
+
+#[test]
+fn a_call_for_epoch_one_from_epoch_zeros_checkpoint_is_refused_by_train_itself() {
+    // Characterization of the refusal that stays: `train` never changes epoch on its own.
+    let dir = temp_dir("epoch-direct");
+    let (_, ckpt) = finish_epoch_zero(&dir);
+    let (mut p, mut o) = fresh();
+    let err = train_epoch(
+        &mut p,
+        &mut o,
+        1,
+        epoch_data(1),
+        None,
+        Some(ResumeState::read(&ckpt).unwrap()),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("checkpoint is at epoch 0") && m.contains("advance_to_epoch")),
+        "{err}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_second_epoch_continues_the_run_it_does_not_restart_it() {
+    let dir = temp_dir("epoch-two");
+    let (r0, ckpt) = finish_epoch_zero(&dir);
+    let state = ResumeState::read(&ckpt)
+        .unwrap()
+        .advance_to_epoch(1, EPOCH_LEN)
+        .unwrap();
+    assert_eq!((state.epoch, state.next_index), (1, 0));
+    let (mut p, mut o) = fresh();
+    let r1 = train_epoch(&mut p, &mut o, 1, epoch_data(1), Some(&dir), Some(state)).unwrap();
+    assert_eq!(r1.termination, Termination::StepsExhausted);
+
+    // The global step count is carried: 6 + 6, no restart at 0, the provider's own count agrees.
+    assert_eq!(r1.optimizer_steps, 2 * EPOCH_LEN);
+    assert_eq!(p.step_count(), 2 * EPOCH_LEN);
+    let steps: Vec<u64> = r1.steps.iter().map(|s| s.optimizer_step).collect();
+    assert_eq!(steps, (0..2 * EPOCH_LEN).collect::<Vec<_>>());
+    // The schedule continues at the right step: step s runs at lr_at(s), across the boundary.
+    let schedule = epoch_config(1, None).schedule;
+    for s in &r1.steps {
+        assert_eq!(s.lr, schedule.lr_at(s.optimizer_step).unwrap());
+    }
+    // Epoch 0's records are untouched; the loss log is monotone in step, tags each point with
+    // its epoch, and restarts the batch index (it is a position in the epoch).
+    assert_eq!(&r1.steps[..6], &r0.steps[..]);
+    let points = r1.loss_log.points();
+    assert_eq!(points.len(), 12);
+    assert!(
+        points
+            .windows(2)
+            .all(|w| w[0].optimizer_step < w[1].optimizer_step)
+    );
+    assert!(points[..6].iter().all(|p| p.epoch == 0));
+    assert!(points[6..].iter().all(|p| p.epoch == 1));
+    assert_eq!(
+        points[6..]
+            .iter()
+            .map(|p| p.batch_index)
+            .collect::<Vec<_>>(),
+        (0..EPOCH_LEN).collect::<Vec<_>>()
+    );
+    assert_eq!(&points[..6], r0.loss_log.points());
+    // Moments and the head's per-entry counts rode along: the model is bit-for-bit the one a
+    // single process trains on the same twelve batches (indices continued; the trainer's math
+    // does not depend on the epoch).
+    let continuous = {
+        let (mut p, mut o) = fresh();
+        let mut data = epoch_data(0);
+        for (i, b) in epoch_data(1).into_iter().enumerate() {
+            let mut b = b.unwrap();
+            b.index = EPOCH_LEN + i as u64;
+            data.push(Ok(b));
+        }
+        let r = train_epoch(&mut p, &mut o, 0, data, None, None).unwrap();
+        (r, parameters_digest(&mut p, o.host_ref()).unwrap())
+    };
+    assert_eq!(
+        parameters_digest(&mut p, o.host_ref()).unwrap(),
+        continuous.1
+    );
+    assert_eq!(r1.steps, continuous.0.steps);
+
+    // The consumed-batch digest is chained, not reset: epoch 1 folds onto epoch 0's digest.
+    let mut chained = qd_train::shards::ConsumedPrefix::continuing(&r0.consumed_digest, 6);
+    let mut alone = qd_train::shards::ConsumedPrefix::new();
+    for b in epoch_data(1) {
+        let b = b.unwrap();
+        b.fold_into(&mut chained).unwrap();
+        b.fold_into(&mut alone).unwrap();
+    }
+    assert_eq!(r1.consumed_digest, chained.hexdigest());
+    assert_ne!(r1.consumed_digest, alone.hexdigest(), "a reset digest");
+    assert_ne!(r1.consumed_digest, r0.consumed_digest);
+    assert_eq!(r1.consumed_n, 12);
+    // Epoch 1's order is its own: a function of (seed, epoch).
+    let order = |e: u64| -> Vec<u64> {
+        epoch_data(e)
+            .into_iter()
+            .map(|b| b.unwrap().rows[0].tokens.len() as u64)
+            .collect()
+    };
+    assert_ne!(order(0), order(1), "the two epochs share one order");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_kill_inside_the_second_epoch_resumes_to_the_uninterrupted_two_epoch_bytes() {
+    let whole = temp_dir("epoch-whole");
+    let torn = temp_dir("epoch-torn");
+    let finish = |dir: &Path| -> (TrainResult, String, PathBuf) {
+        let (_, ckpt) = finish_epoch_zero(dir);
+        let state = ResumeState::read(&ckpt)
+            .unwrap()
+            .advance_to_epoch(1, EPOCH_LEN)
+            .unwrap();
+        let (mut p, mut o) = fresh();
+        let r = train_epoch(&mut p, &mut o, 1, epoch_data(1), Some(dir), Some(state)).unwrap();
+        let digest = parameters_digest(&mut p, o.host_ref()).unwrap();
+        let ckpt = r.final_checkpoint.clone().unwrap();
+        (r, digest, ckpt)
+    };
+    let (full, full_digest, full_ckpt) = finish(&whole);
+
+    // The same, killed after 3 batches of epoch 1 (the source ends; the periodic checkpoint at
+    // 4 steps and the end-of-run one at step 9 are what a SIGKILL leaves), then resumed from
+    // the epoch-1 checkpoint on the whole epoch-1 source.
+    let (_, ckpt0) = finish_epoch_zero(&torn);
+    let state = ResumeState::read(&ckpt0)
+        .unwrap()
+        .advance_to_epoch(1, EPOCH_LEN)
+        .unwrap();
+    let mut first_half = epoch_data(1);
+    first_half.truncate(3);
+    let (mut p, mut o) = fresh();
+    let killed = train_epoch(&mut p, &mut o, 1, first_half, Some(&torn), Some(state)).unwrap();
+    assert_eq!(killed.termination, Termination::DataExhausted);
+    assert_eq!(killed.optimizer_steps, EPOCH_LEN + 3);
+    let mid = ResumeState::read(killed.final_checkpoint.as_ref().unwrap()).unwrap();
+    assert_eq!((mid.epoch, mid.next_index, mid.optimizer_step), (1, 3, 9));
+
+    let (mut p, mut o) = fresh();
+    let resumed = train_epoch(&mut p, &mut o, 1, epoch_data(1), Some(&torn), Some(mid)).unwrap();
+    assert_eq!(resumed.optimizer_steps, 2 * EPOCH_LEN);
+    assert_eq!(
+        parameters_digest(&mut p, o.host_ref()).unwrap(),
+        full_digest
+    );
+    assert_eq!(resumed.consumed_digest, full.consumed_digest);
+    assert_eq!(resumed.loss_log, full.loss_log);
+    assert_eq!(resumed.steps, full.steps);
+    let want = checkpoint_bytes(&full_ckpt);
+    let got = checkpoint_bytes(resumed.final_checkpoint.as_ref().unwrap());
+    assert!(!want.is_empty());
+    assert_eq!(got, want, "the final checkpoints differ byte for byte");
+
+    // The resume proves it is the same data: another epoch-1 order is refused, and so is a
+    // chain whose epoch-0 link was edited.
+    let ckpt_mid = killed.final_checkpoint.clone().unwrap();
+    let wrong_order = epoch_data(0);
+    let (mut p, mut o) = fresh();
+    let err = train_epoch(
+        &mut p,
+        &mut o,
+        1,
+        wrong_order,
+        None,
+        Some(ResumeState::read(&ckpt_mid).unwrap()),
+    );
+    assert!(
+        matches!(&err, Err(TrainError::Refused(m)) if m.contains("different batches")),
+        "{err:?}"
+    );
+    let body = ckpt_mid.join("trainer.json");
+    let text = std::fs::read_to_string(&body).unwrap();
+    assert!(text.contains("\"epoch_link\""));
+    let link = ResumeState::read(&ckpt_mid).unwrap();
+    let digest = link.epoch_link.as_ref().unwrap().digest.clone();
+    let forged = "0".repeat(digest.len());
+    std::fs::write(&body, text.replace(&digest, &forged)).unwrap();
+    let (mut p, mut o) = fresh();
+    let err = train_epoch(
+        &mut p,
+        &mut o,
+        1,
+        epoch_data(1),
+        None,
+        Some(ResumeState::read(&ckpt_mid).unwrap()),
+    );
+    assert!(
+        matches!(&err, Err(TrainError::Refused(m)) if m.contains("different batches")),
+        "{err:?}"
+    );
+    std::fs::remove_dir_all(&whole).unwrap();
+    std::fs::remove_dir_all(&torn).unwrap();
+}
+
+#[test]
+fn advancing_an_epoch_refuses_a_skip_a_step_back_an_unfinished_epoch_and_a_finished_schedule() {
+    let dir = temp_dir("epoch-refuse");
+    let (_, ckpt) = finish_epoch_zero(&dir);
+    let at = || ResumeState::read(&ckpt).unwrap();
+    let refused = |r: Result<ResumeState, TrainError>, needle: &str| {
+        assert!(
+            matches!(&r, Err(TrainError::Refused(m)) if m.contains(needle)),
+            "wanted a refusal naming {needle:?}, got {:?}",
+            r.map(|s| (s.epoch, s.next_index))
+        );
+    };
+    // A skipped epoch (0 -> 2), the same epoch again, and going backwards.
+    refused(at().advance_to_epoch(2, EPOCH_LEN), "epoch 1");
+    refused(at().advance_to_epoch(0, EPOCH_LEN), "epoch 1");
+    let one = at().advance_to_epoch(1, EPOCH_LEN).unwrap();
+    refused(one.clone().advance_to_epoch(0, EPOCH_LEN), "epoch 2");
+    // An epoch the checkpoint did not finish: 6 batches consumed of a 7-batch epoch, and a
+    // zero-length epoch.
+    refused(at().advance_to_epoch(1, EPOCH_LEN + 1), "consumed 6 of");
+    refused(at().advance_to_epoch(1, EPOCH_LEN - 1), "consumed 6 of");
+    refused(at().advance_to_epoch(1, 0), "at least one");
+    // The schedule is spent: a state at its last step has no next epoch (epoch 2 of a
+    // two-epoch schedule). `one` is at step 6 of 12; train it to 12, then try.
+    let (mut p, mut o) = fresh();
+    let r = train_epoch(&mut p, &mut o, 1, epoch_data(1), Some(&dir), Some(one)).unwrap();
+    let done = ResumeState::read(r.final_checkpoint.as_ref().unwrap()).unwrap();
+    assert_eq!(done.optimizer_step, 2 * EPOCH_LEN);
+    refused(done.advance_to_epoch(2, EPOCH_LEN), "no steps left");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_stepped_provider_with_no_resume_state_is_refused_at_any_epoch() {
+    let dir = temp_dir("epoch-stepped");
+    let (mut p, mut o) = fresh();
+    train_epoch(&mut p, &mut o, 0, epoch_data(0), Some(&dir), None).unwrap();
+    let (_, mut o2) = fresh();
+    for epoch in [0, 1] {
+        let err = train_epoch(&mut p, &mut o2, epoch, epoch_data(epoch), None, None).unwrap_err();
+        assert!(
+            matches!(&err, TrainError::Refused(m) if m.contains("already taken 6 step(s)")),
+            "epoch {epoch}: {err}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }

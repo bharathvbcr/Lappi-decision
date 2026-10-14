@@ -108,6 +108,9 @@ pub const SPAN_ABSTAIN: i32 = -2;
 pub const MIN_ROW_TOKENS: u64 = 2;
 /// `run_control.ConsumedPrefix.DOMAIN`.
 pub const CONSUMED_PREFIX_DOMAIN: &[u8] = b"qd-consumed-prefix-v1";
+/// Rust-only (Python's trainer has one epoch): the tag between the domain and the earlier
+/// epoch's digest in [`ConsumedPrefix::continuing`].
+const CONSUMED_PREFIX_EPOCH_LINK: &[u8] = b"qd-consumed-prefix-epoch-link-v1";
 /// The fourth entropy word of the batch-interleaving shuffle in `ShardReader._plan`.
 const ORDER_TAG: u64 = 0xB17C;
 /// `artifacts.SPAN_COLLAPSE_POLICIES` plus the empty "written before the field" value.
@@ -2282,6 +2285,21 @@ impl ConsumedPrefix {
         let mut hasher = Sha256::new();
         hasher.update(CONSUMED_PREFIX_DOMAIN);
         Self { hasher, n: 0 }
+    }
+
+    /// A prefix that continues an earlier epoch's: seeded with the domain string, then the
+    /// earlier digest (length-prefixed) and its fold count, so the digest of a second epoch
+    /// commits to everything the first consumed and `n_folded` counts across epochs. Epoch 0
+    /// never calls this, so its digest is `new()`'s and the Python oracle's.
+    pub fn continuing(prior_digest: &str, prior_n: u64) -> Self {
+        let mut prefix = Self::new();
+        prefix.hasher.update(CONSUMED_PREFIX_EPOCH_LINK);
+        prefix
+            .hasher
+            .update((prior_digest.len() as u64).to_be_bytes());
+        prefix.hasher.update(prior_digest.as_bytes());
+        prefix.n = prior_n;
+        prefix
     }
 
     /// `ConsumedPrefix.fold(*parts)`: every part length-prefixed, the count first.
