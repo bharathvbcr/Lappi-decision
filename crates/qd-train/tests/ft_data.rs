@@ -426,7 +426,7 @@ fn the_loop_trains_on_real_fixture_batches_and_folds_exactly_those() {
     // The digest is L-data's fold over exactly the batches trained on, in order.
     let mut want = ConsumedPrefix::new();
     for b in &taken {
-        want.fold_batch(b);
+        b.fold_into(&mut want);
     }
     assert_eq!(r.consumed_digest, want.hexdigest());
     assert_eq!(r.consumed_n, n);

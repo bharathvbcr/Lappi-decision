@@ -395,13 +395,13 @@ fn batch_order_and_consumed_digest_match_python_on_every_config() {
                 "{what} batch {index}: lengths"
             );
             let mut one = ConsumedPrefix::new();
-            one.fold_batch(&batch);
+            batch.fold_into(&mut one);
             assert_eq!(
                 one.hexdigest(),
                 want["fold_digest"].as_str().expect("fd"),
                 "{what} batch {index}: _fold bytes"
             );
-            prefix.fold_batch(&batch);
+            batch.fold_into(&mut prefix);
         }
         assert_eq!(
             prefix.n_folded(),
@@ -418,7 +418,7 @@ fn batch_order_and_consumed_digest_match_python_on_every_config() {
             .collect::<Result<_, _>>()
             .expect("ok");
         let mut again = ConsumedPrefix::new();
-        via_iter.iter().for_each(|b| again.fold_batch(b));
+        via_iter.iter().for_each(|b| b.fold_into(&mut again));
         assert_eq!(
             again.hexdigest(),
             prefix.hexdigest(),

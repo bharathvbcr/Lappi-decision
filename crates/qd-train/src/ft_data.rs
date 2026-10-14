@@ -6,7 +6,7 @@
 //! `plan_span_batch` ([`ft_supervision`], [`plan_span_batch`], pinned to Python by
 //! `tests/parity.rs`); this module only re-shapes their output per row, and
 //! `tests/ft_data.rs` checks the re-shaped rows against the same Python dump. The consumed
-//! digest is L-data's `fold_batch`.
+//! digest is L-data's `Batch::fold_into`.
 //!
 //! **What the letter channel is.** `ft_supervision` sets exactly one letter position per
 //! non-span row (`choice` and `score` alike, at `target_index`), and none on a span row; a row
@@ -168,7 +168,7 @@ impl ConsumedBatch for RealBatch {
     }
 
     fn fold_into(&self, prefix: &mut ConsumedPrefix) -> Result<(), TrainError> {
-        prefix.fold_batch(&self.batch);
+        self.batch.fold_into(prefix);
         Ok(())
     }
 }

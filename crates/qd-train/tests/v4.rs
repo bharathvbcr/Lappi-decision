@@ -201,7 +201,7 @@ fn v4_train_and_val_open_through_the_door_with_the_ledger_rows_counts() {
         if let Some(span) = &sup.span {
             plan_span_batch(span).expect("span plan");
         }
-        prefix.fold_batch(&batch);
+        batch.fold_into(&mut prefix);
     }
     let membership: String = membership
         .finalize()

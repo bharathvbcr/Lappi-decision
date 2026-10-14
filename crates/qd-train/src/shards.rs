@@ -2262,18 +2262,19 @@ pub fn assemble_batch(
 
 // --- the consumed digest ----------------------------------------------------------------------
 
-impl ConsumedPrefix {
+impl Batch {
     /// `trainer._fold`: index, bucket, tokens, lengths and the four supervision channels
-    /// (an absent channel folds as zero bytes).
-    pub fn fold_batch(&mut self, batch: &Batch) {
-        let tokens: Vec<u8> = batch.tokens.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let lengths: Vec<u8> = batch.lengths.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let target: Vec<u8> = batch
+    /// (an absent channel folds as zero bytes). A method on the Lappi `Batch`, not on
+    /// `ConsumedPrefix`, so the prefix type can live in another crate.
+    pub fn fold_into(&self, prefix: &mut ConsumedPrefix) {
+        let tokens: Vec<u8> = self.tokens.iter().flat_map(|t| t.to_le_bytes()).collect();
+        let lengths: Vec<u8> = self.lengths.iter().flat_map(|t| t.to_le_bytes()).collect();
+        let target: Vec<u8> = self
             .target_index
             .iter()
             .flat_map(|t| t.to_le_bytes())
             .collect();
-        let spans: Vec<u8> = batch
+        let spans: Vec<u8> = self
             .span_target
             .as_ref()
             .map(|s| {
@@ -2282,17 +2283,17 @@ impl ConsumedPrefix {
                     .collect()
             })
             .unwrap_or_default();
-        let mask: Vec<u8> = batch
+        let mask: Vec<u8> = self
             .line_starts
             .as_ref()
             .map(|m| m.iter().map(|&b| u8::from(b)).collect())
             .unwrap_or_default();
-        self.fold(&[
-            &batch.index.to_be_bytes(),
-            &(batch.bucket as u64).to_be_bytes(),
+        prefix.fold(&[
+            &self.index.to_be_bytes(),
+            &(self.bucket as u64).to_be_bytes(),
             &tokens,
             &lengths,
-            &batch.slot_kind,
+            &self.slot_kind,
             &target,
             &spans,
             &mask,
