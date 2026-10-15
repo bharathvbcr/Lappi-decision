@@ -162,6 +162,18 @@ fn both_rust_readers_refuse_and_accept_the_same_files_in_the_same_words() {
     );
 }
 
+/// `{}` with an empty data section is a file. The shared list cannot say so: its ok cases
+/// require a non-empty tensor map.
+#[test]
+fn an_empty_archive_is_accepted_by_both_readers() {
+    let case = serde_json::json!({ "header": "{}", "data_len": 0 });
+    let file = build(&case, "empty");
+    let owner = SafeTensorsFile::open(&file.0).expect("an empty data section is a file");
+    assert!(owner.is_empty());
+    let adapter = SafeTensors::open(&file.0).expect("qd-metal accepts the same empty file");
+    assert_eq!(adapter.names().count(), 0);
+}
+
 /// qd-metal's three-dtype admission is its own: a file the owner reads, with a dtype the serving
 /// loader does not load, is refused at open by qd-metal alone, with the loader's own words.
 #[test]

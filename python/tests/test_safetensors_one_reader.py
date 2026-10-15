@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO / "tools"))
 #: header-only reader) answers; the rest need the data section and belong to `tensor_ranges`.
 _HEADER_LEVEL = (
     "outside", "runs past", "too short", "not JSON", "not a JSON object", "recursion limit",
+    "duplicate",
 )
 
 
@@ -149,6 +150,65 @@ def test_the_sidecar_reader_gives_the_shared_verdict_on_every_case(case, tmp_pat
         Checkpoint.read_weights(ck, subtrees=("model",))
     reached_the_lookup = "does not carry it" in str(err.value)
     assert reached_the_lookup == (case["expect"] == "ok"), (case["name"], str(err.value)[:200])
+
+
+def test_an_empty_tensor_map_with_an_empty_data_section_is_accepted(tmp_path):
+    """The shared list's ok cases require a tensor. Upstream accepts `{}` when no data follows."""
+    from qd_train.memory import safetensors_header, tensor_ranges
+
+    path = tmp_path / "empty.safetensors"
+    raw = b"{}"
+    path.write_bytes(struct.pack("<Q", len(raw)) + raw)
+    assert safetensors_header(path) == {}
+    assert tensor_ranges(path) == {}
+
+
+def test_a_non_ascii_path_is_named_in_the_refusal(tmp_path):
+    from qd_train.memory import CheckpointRefused, tensor_ranges
+
+    path = tmp_path / "权重 file.safetensors"
+    raw = b"{}"
+    path.write_bytes(struct.pack("<Q", len(raw)) + raw + b"\x00\x00\x00\x00")
+    with pytest.raises(CheckpointRefused, match="not covered") as err:
+        tensor_ranges(path)
+    assert "权重 file.safetensors" in str(err.value)
+
+
+def test_contiguous_layouts_are_accepted_and_one_extra_byte_is_refused(tmp_path):
+    """Fixed seed. Sizes include 0 so an empty span sits on the cursor."""
+    import random
+
+    from qd_train.memory import CheckpointRefused, tensor_ranges
+
+    rng = random.Random(0xC0FFEE)
+    shapes = {
+        0: ("U8", [0], 0),
+        1: ("U8", [1], 1),
+        2: ("F32", [1], 4),
+        3: ("I64", [1], 8),
+    }
+    for n in range(40):
+        count = rng.randrange(1, 6)
+        at = 0
+        header: dict[str, dict[str, object]] = {}
+        for index in range(count):
+            dtype, shape, span = shapes[rng.randrange(4)]
+            header[f"t{index}"] = {
+                "dtype": dtype,
+                "shape": shape,
+                "data_offsets": [at, at + span],
+            }
+            at += span
+        raw = json.dumps(header, separators=(",", ":")).encode()
+        blob = struct.pack("<Q", len(raw)) + raw + bytes(at)
+        path = tmp_path / f"ok-{n}.safetensors"
+        path.write_bytes(blob)
+        ranges = tensor_ranges(path)
+        assert len(ranges) == count
+        holed = tmp_path / f"hole-{n}.safetensors"
+        holed.write_bytes(blob + b"\x00")
+        with pytest.raises(CheckpointRefused, match="not covered"):
+            tensor_ranges(holed)
 
 
 def test_the_sidecar_reader_keeps_no_100_mb_bound_of_its_own(tmp_path):
