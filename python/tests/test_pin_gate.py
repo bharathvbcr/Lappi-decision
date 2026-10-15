@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 MAKEFILE = REPO / "Makefile"
 LOCK = REPO / "upstream.lock.json"
 TIMEOUT_S = 600
-LOCKED = "bc498c4375c2e4753d784e6e9fc267a8d18b038a"
+LOCKED = "132b46ea63e87868f468c016e02fe99acf2bb164"
 OTHER = "0123456789abcdef0123456789abcdef01234567"
 
 
