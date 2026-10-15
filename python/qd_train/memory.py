@@ -482,12 +482,24 @@ def safetensors_header(path: Path) -> dict[str, Any]:
         _finite(text)
         return int(text)
 
+    def _pairs_without_duplicate_keys(pairs: list[tuple[Any, Any]]) -> dict[str, Any]:
+        # json.loads keeps the last value of a repeated key. A weight file must not.
+        out: dict[str, Any] = {}
+        for key, value in pairs:
+            if not isinstance(key, str):
+                raise ValueError(f"object key {key!r} is not a string")
+            if key in out:
+                raise ValueError(f"duplicate key {key!r}")
+            out[key] = value
+        return out
+
     try:
         header = json.loads(
             raw.decode("utf-8"),
             parse_constant=_no_constant,
             parse_float=_finite,
             parse_int=_finite_int,
+            object_pairs_hook=_pairs_without_duplicate_keys,
         )
         _require_encodable_strings(header)
     except (UnicodeError, ValueError, RecursionError) as exc:
@@ -533,12 +545,14 @@ def _uint(value: Any) -> bool:
 def tensor_ranges(path: Path) -> dict[str, TensorRange]:
     """Every tensor of one safetensors file, checked in full: ``{name: TensorRange}``.
 
-    [`safetensors_header`] bounds and parses the header; this checks what the header claims
-    against the file: a known dtype, an unsigned shape, a two-entry ``data_offsets`` that fits
-    the data section and spans exactly ``prod(shape) * itemsize`` bytes, and no two tensors
-    sharing a byte. The same refusals ``qd_export::SafeTensorsFile::open`` makes, held to the
-    same list (``crates/qd-export/tests/fixtures/safetensors-adversarial.json``). Offsets come
-    back absolute, so a reader seeks straight to ``start``.
+    [`safetensors_header`] bounds and parses the header and refuses a repeated object key.
+    This checks what the header claims against the file: a known dtype, an unsigned shape, a
+    two-entry ``data_offsets`` that fits the data section and spans exactly
+    ``prod(shape) * itemsize`` bytes, no two tensors sharing a byte, and one contiguous
+    coverage of the data section from offset 0 through its end. An empty tensor map covers
+    only an empty data section. The same refusals ``qd_export::SafeTensorsFile::open`` makes,
+    held to the same list (``crates/qd-export/tests/fixtures/safetensors-adversarial.json``).
+    Offsets come back absolute, so a reader seeks straight to ``start``.
     """
     path = Path(path)
     header = safetensors_header(path)
@@ -597,10 +611,38 @@ def tensor_ranges(path: Path) -> dict[str, TensorRange]:
             )
         out[name] = TensorRange(dtype, tuple(shape), data_start + begin, data_start + end)
     ordered = sorted(out.items(), key=lambda kv: (kv[1].start, kv[1].end))
-    for (a, ra), (b, rb) in pairwise(ordered):
-        if rb.start < ra.end:
-            raise CheckpointRefused(f"{path}: tensors {a} and {b} overlap")
+    _require_contiguous_coverage(path, ordered, data_start, file_len, data_len)
     return out
+
+
+def _require_contiguous_coverage(
+    path: Path,
+    ordered: list[tuple[str, TensorRange]],
+    data_start: int,
+    file_len: int,
+    data_len: int,
+) -> None:
+    """The data section is one span from offset 0 through ``file_len``.
+
+    Touching edges are contiguous, including two zero-length tensors at the same cursor.
+    Overlap keeps its own words, so a shared byte is not reported as a gap.
+    """
+    if not ordered:
+        if data_len != 0:
+            raise CheckpointRefused(f"{path}: data section is not covered")
+        return
+    first_name, first = ordered[0]
+    if first.start != data_start:
+        raise CheckpointRefused(
+            f"{path}: tensor {first_name} starts at offset {first.start - data_start}, not 0"
+        )
+    for (left_name, left), (right_name, right) in pairwise(ordered):
+        if right.start < left.end:
+            raise CheckpointRefused(f"{path}: tensors {left_name} and {right_name} overlap")
+        if right.start > left.end:
+            raise CheckpointRefused(f"{path}: gap between tensors {left_name} and {right_name}")
+    if ordered[-1][1].end != file_len:
+        raise CheckpointRefused(f"{path}: data section is not covered")
 
 
 def checkpoint_tensor_index(snapshot: Path) -> dict[str, tuple[Path, tuple[int, ...]]]:
