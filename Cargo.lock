@@ -591,6 +591,7 @@ version = "0.1.0"
 dependencies = [
  "ojas-core",
  "ojas-cpu",
+ "ojas-kernels",
 ]
 
 [[package]]
@@ -610,6 +611,7 @@ name = "ojas-data"
 version = "0.1.0"
 dependencies = [
  "ojas-core",
+ "ojas-kernels",
 ]
 
 [[package]]
@@ -622,6 +624,13 @@ dependencies = [
 
 [[package]]
 name = "ojas-io"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+]
+
+[[package]]
+name = "ojas-kernels"
 version = "0.1.0"
 dependencies = [
  "ojas-core",
