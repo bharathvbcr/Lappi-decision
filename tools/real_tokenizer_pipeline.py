@@ -138,7 +138,12 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
-from qd_train.remap import build_remap, count_corpus_tokens, full_vocab_remap
+from qd_train.remap import (
+    build_remap,
+    count_corpus_tokens,
+    full_vocab_remap,
+    named_special_ids,
+)
 from qd_train.run_control import CostEstimate, WallClockCap
 from qd_train.shards import (
     COVERAGE_NAME,
@@ -3852,7 +3857,11 @@ def run(
     counts = count_corpus_tokens(
         remap_ids, source_vocab_size=len(tok.tok), max_sequences=len(remap_ids) + 1
     )
-    special_ids = tuple(sorted({int(i) for i in tok.tok.all_special_ids}))
+    special_ids = named_special_ids(
+        tok.tok.special_tokens_map,
+        tok.tok.convert_tokens_to_ids,
+        tok.tok.convert_ids_to_tokens,
+    )
     if vocab == VOCAB_FULL:
         remap = full_vocab_remap(
             source_vocab_size=checkpoint_vocab_rows(tokenizer_len=len(tok.tok)),

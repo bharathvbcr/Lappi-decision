@@ -8,6 +8,8 @@ measured.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -176,6 +178,112 @@ def test_duplicate_specials_are_deduped_not_counted_twice():
     )
     assert list(r.new_to_old) == [0, 1, 30]
     assert r.special_ids == (0, 1)
+
+
+# The eight ids the characterization pin recorded. transformers 5.17's Qwen2Tokenizer
+# reports exactly these; 5.18's Qwen3_5Tokenizer adds nine more via all_special_ids.
+_PIN_NAMED_SPECIALS = {
+    "<|endoftext|>": 248044,
+    "<|vision_start|>": 248053,
+    "<|vision_end|>": 248054,
+    "<|image_pad|>": 248056,
+    "<|video_pad|>": 248057,
+    "<|audio_start|>": 248070,
+    "<|audio_end|>": 248071,
+    "<|audio_pad|>": 248076,
+}
+_PIN_EXTRA_ALL_SPECIAL_IDS = (
+    248045, 248046, 248047, 248048, 248049, 248050, 248051, 248052, 248055,
+)
+
+
+def test_named_specials_stay_the_eight_when_all_special_ids_grows():
+    """The remap records the named map, not all_special_ids.
+
+    eos and pad are one string, so they are one id. The nine ids transformers 5.18
+    added are not in the named map and must not appear.
+    """
+    from qd_train.remap import named_special_ids
+
+    named = {
+        "eos_token": "<|endoftext|>",
+        "pad_token": "<|endoftext|>",
+        "audio_bos_token": "<|audio_start|>",
+        "audio_eos_token": "<|audio_end|>",
+        "audio_token": "<|audio_pad|>",
+        "image_token": "<|image_pad|>",
+        "video_token": "<|video_pad|>",
+        "vision_bos_token": "<|vision_start|>",
+        "vision_eos_token": "<|vision_end|>",
+    }
+    by_id = {token_id: token for token, token_id in _PIN_NAMED_SPECIALS.items()}
+    ids = named_special_ids(named, _PIN_NAMED_SPECIALS.__getitem__, by_id.__getitem__)
+    assert ids == tuple(sorted(_PIN_NAMED_SPECIALS.values()))
+    assert not set(ids) & set(_PIN_EXTRA_ALL_SPECIAL_IDS)
+
+
+def test_named_specials_refuse_a_value_that_is_not_one_token():
+    from qd_train.remap import named_special_ids
+
+    def token_to_id(token: str) -> int:
+        return 1
+
+    def id_to_token(token_id: int) -> str:
+        return "<|endoftext|>"
+
+    with pytest.raises(RemapCoverageError, match="mapping"):
+        named_special_ids(["<|endoftext|>"], token_to_id, id_to_token)  # type: ignore[arg-type]
+    with pytest.raises(RemapCoverageError, match="non-empty string"):
+        named_special_ids({"eos_token": ""}, token_to_id, id_to_token)
+    with pytest.raises(RemapCoverageError, match="non-empty string"):
+        named_special_ids({1: "<|endoftext|>"}, token_to_id, id_to_token)  # type: ignore[dict-item]
+    with pytest.raises(RemapCoverageError, match="non-empty string"):
+        named_special_ids({"eos_token": ["<|endoftext|>"]}, token_to_id, id_to_token)
+    with pytest.raises(RemapCoverageError, match="not an integer"):
+        named_special_ids({"eos_token": "<|endoftext|>"}, lambda _token: True, id_to_token)
+    with pytest.raises(RemapCoverageError, match="not an integer"):
+        named_special_ids(
+            {"eos_token": "<|endoftext|>"},
+            lambda _token: 1.5,
+            id_to_token,
+        )
+    with pytest.raises(RemapCoverageError, match="not an integer"):
+        named_special_ids(
+            {"eos_token": "<|endoftext|>"},
+            lambda _token: [1],
+            id_to_token,
+        )
+    with pytest.raises(RemapCoverageError, match="negative"):
+        named_special_ids(
+            {"eos_token": "<|endoftext|>"},
+            lambda _token: -1,
+            id_to_token,
+        )
+    with pytest.raises(RemapCoverageError, match="resolved"):
+        named_special_ids(
+            {"eos_token": "<|endoftext|>"},
+            lambda _token: 0,
+            lambda _token_id: "<unk>",
+        )
+
+
+def test_named_specials_refuse_two_strings_on_one_id():
+    from qd_train.remap import named_special_ids
+
+    with pytest.raises(RemapCoverageError, match="both have id"):
+        named_special_ids(
+            {"eos_token": "<|endoftext|>", "pad_token": "<|audio_pad|>"},
+            lambda _token: 7,
+            lambda token_id: "<|endoftext|>" if token_id == 7 else "",
+        )
+
+
+def test_the_pipeline_asks_for_named_specials_not_all_special_ids():
+    source = (
+        Path(__file__).resolve().parents[2] / "tools" / "real_tokenizer_pipeline.py"
+    ).read_text(encoding="utf-8")
+    assert "all_special_ids" not in source
+    assert "named_special_ids(" in source
 
 
 def test_a_special_that_is_also_used_is_counted_once():
