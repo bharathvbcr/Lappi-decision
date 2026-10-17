@@ -43,6 +43,15 @@
 #   summed MiB) and is refused with exit 64 unless MAC_HEAVY_TEST_HOOK=1 is also set. Every numeric
 #   setting is refused above 9 digits. This script does not export PYTORCH_MPS_HIGH_WATERMARK_RATIO; a torch
 #   job that wants it sets it itself.
+#   A tighter cap binds first and is not this script's: memguard (user LaunchAgent
+#   com.bharath.memguard, source ~/Code/devtools/memguard, verified 2026-10-17 from main.go, policy.go
+#   and the plist) samples ri_phys_footprint of every process the user owns every 2 s and SIGTERMs any
+#   unprotected single process over 32 GiB, SIGKILL 10 s later; under critical memory pressure for 3
+#   consecutive samples it does the same to the largest process of 2 GiB or more. Per process, not per
+#   tree, so a 33 GiB job dies to memguard long before this 52 GiB tree cap. It posts a notification
+#   and writes a JSON "terminate" line to ~/Library/Logs/memguard/memguard.log by its plist, but that
+#   directory does not exist on this Mac (checked 2026-10-17), so the kill leaves no log line here or
+#   there: the job ends with signal 15 and no footprint message from this script.
 # - Busy machine. After taking the lock, it waits while the 1-minute load average exceeds
 #   $MAC_HEAVY_MAX_LOAD (default 12) or the process count exceeds $MAC_HEAVY_MAX_PROCS (default
 #   2500). If that does not clear within the wait budget, it exits 76 and the job never runs.

@@ -14,8 +14,13 @@ Lappi `main` at **30a069d** (local; not on origin, see "Push"). Fetch it from th
 No ledger row: nothing in these steps trains or scores. The evidence is test and gate output on main [V]:
 - `cargo test -p qd-train -p qd-train-metal -p qd-metal` (QD_PYTHON=/Users/bharath/.venvs/ml/bin/python):
   310 passed, 0 failed, 37 ignored. The 37 are the GPU/Metal `--ignored` suites: **not run**.
-- `make fmt`, `make clippy`, `make pin` (pin PASS at ojas bc498c4) exit 0; `cargo doc -p qd-train` with
+- `make fmt`, `make clippy`, `make pin` (~~pin PASS at ojas bc498c4~~) exit 0; `cargo doc -p qd-train` with
   `-D warnings` exits 0.
+  **Correction 2026-10-17 (lane lora2b-audit2-2026-10-17):** the struck text was true on 2026-10-14 and is
+  stale: `upstream.lock.json` was bumped bc498c4 -> 132b46e in 21fb7ad (2026-10-15, owner approved) and
+  132b46e -> 5b67cdd on this lane's branch (owner's "procced with fable's advice", 2026-10-17, ruling
+  section 6 item 1), with `make pin` PASS re-run at 5b67cdd. Between bumps `make pin` printed `pin FAILED`
+  against ojas main, as designed (audit B, `AUDIT/lora-2b-audit2-2026-10-17/B-lappi-side.md` section 4).
 - Moving-set import gate, empty: `rg 'crate::(shards|objective|span_head|ft_data|held_out|ledger|export)'`
   over `crates/qd-train/src/{step,trainer,schedule,recipe,adamw,mock,run_control,pyjson}.rs`.
 
@@ -37,8 +42,14 @@ Lappi-owned. `thiserror` is gone from it; `serde_json` and `sha2` are still used
 - `GAP-LAPPI-PINS-NO-OJAS-SHA-2026-10-13`: resolved with residual. No ledger row names an ojas sha, so the
   baseline is verified only by the GPU rerun (ruling step 8).
 - `GAP-OJAS-ADVICE-MAC-8K-FOOTPRINT-UNMEASURED-2026-10-01`: open until a step with moments is measured.
-- Card ft-3163ce item 4: trainer-level done; `qd-train-metal`'s `run()` still trains one epoch (records
-  `passes: 1` honestly). A multi-epoch CLI is not wired.
+- Card ft-3163ce item 4: trainer-level done; ~~`qd-train-metal`'s `run()` still trains one epoch (records
+  `passes: 1` honestly). A multi-epoch CLI is not wired.~~
+  **Correction 2026-10-17 (lane lora2b-audit2-2026-10-17):** stale the same day it was written. Commit
+  6f88a00 ("qd-train, qd-train-metal: multi-epoch driver and --epochs (card ft-3163ce item 4)") wired it:
+  `--epochs N` and `--resume CKPT_DIR` in `crates/qd-train-metal/src/args.rs` (usage at :214, parsing at
+  :245 and :484), `run.rs:340` calls `trainer::train_epochs`, and `tests/run_door.rs` covers resume under a
+  changed recipe and a different epoch count [V read 2026-10-17]. The pin bump and the `ojas-train` switch
+  (ft-3163ce criterion 8) remain open.
 - **Push:** main is not on origin. GitHub push protection refused it over fake AWS-shaped test fixtures in older
   commits; the owner must allow them with the two unblock links, then `git push origin main` (no force).
 - **Owner questions:** `sha2 = "0.11"` in ojas (unanswered, so the ojas lane hand-rolls SHA-256 per Q4); the
