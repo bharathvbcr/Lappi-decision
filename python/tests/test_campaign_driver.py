@@ -1066,3 +1066,76 @@ def test_a_reader_unit_gets_the_ft_row_id_its_arm_wrote(
     rows = [json.loads(ln) for ln in env["ledger"].read_text().splitlines()]
     lines = env["count"].read_text().splitlines()
     assert lines[1].split() == ["reader", "--x", rows[0]["row_id"]]
+
+
+# --- the declared GPU count is checked against the box (GAP-COSTCTL-NGPUS-IS-TAKEN-ON-TRUST) --
+
+
+def fake_smi(env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    script = env["root"] / "fake-nvidia-smi"
+    script.write_text("#!/bin/sh\n" + body + "\n")
+    script.chmod(0o755)
+    monkeypatch.setattr(cd, "NVIDIA_SMI_CMD", (str(script), "-L"), raising=False)
+
+
+def cuda_box(n_gpus: int) -> dict[str, object]:
+    return {**box(1e5), "device": "cuda", "n_gpus": n_gpus, "usd_per_hour": 3600.0,
+            "usd_per_hour_source": "test", "instance": "lambda-test"}
+
+
+def test_a_box_with_a_different_gpu_count_than_declared_is_refused_before_any_unit(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, uptime: Callable[[float], Path]
+) -> None:
+    no_guard(monkeypatch)
+    fake_smi(env, monkeypatch, "echo 'GPU 0: NVIDIA H100 (UUID: a)'; echo 'GPU 1: NVIDIA H100 (UUID: b)'")
+    path = config(env, [after_phase(env)], **cuda_box(1))
+    with pytest.raises(SystemExit, match=r"box shows 2 GPU\(s\) but the config declares n_gpus=1"):
+        cd.main(["--config", str(path)])
+    assert invocations(env) == [], "a unit ran on a box priced for a different GPU count"
+    assert not (env["state"] / "campaign_state.json").exists()
+
+
+@pytest.mark.parametrize("body", ["exit 3", "echo 'No devices were found'", "echo garbage"])
+def test_a_gpu_count_that_cannot_be_read_refuses_rather_than_matching(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, uptime: Callable[[float], Path],
+    body: str,
+) -> None:
+    no_guard(monkeypatch)
+    fake_smi(env, monkeypatch, body)
+    with pytest.raises(SystemExit, match="GPU"):
+        cd.main(["--config", str(config(env, [after_phase(env)], **cuda_box(1)))])
+    assert invocations(env) == []
+
+
+def test_a_missing_nvidia_smi_refuses(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, uptime: Callable[[float], Path]
+) -> None:
+    no_guard(monkeypatch)
+    monkeypatch.setattr(cd, "NVIDIA_SMI_CMD", (str(env["root"] / "no-such-smi"), "-L"),
+                        raising=False)
+    with pytest.raises(SystemExit, match="could not be counted"):
+        cd.main(["--config", str(config(env, [after_phase(env)], **cuda_box(1)))])
+    assert invocations(env) == []
+
+
+def test_units_see_the_driver_marker_that_launchers_can_require(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    no_guard(monkeypatch)
+    monkeypatch.delenv(cd.DRIVER_ENV, raising=False)
+    seen = env["root"] / "marker"
+    phase = {"name": "p", "cap_hours": 0.5, "units": [
+        {"name": "m", "argv": ["/bin/sh", "-c", f'echo "$CAMPAIGN_DRIVER_RUN" > {seen}'],
+         "expect_rows": 0}]}
+    cd.main(["--config", str(config(env, [phase]))])
+    assert seen.read_text().strip() == "test"
+    monkeypatch.delenv(cd.DRIVER_ENV, raising=False)
+
+
+def test_a_matching_gpu_count_starts_the_campaign(
+    env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, uptime: Callable[[float], Path]
+) -> None:
+    no_guard(monkeypatch)
+    fake_smi(env, monkeypatch, "echo 'GPU 0: NVIDIA GH200 (UUID: a)'")
+    cd.main(["--config", str(config(env, [after_phase(env)], **cuda_box(1)))])
+    assert invocations(env) == ["workhorse"]

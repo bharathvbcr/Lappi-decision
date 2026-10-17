@@ -17,6 +17,8 @@ when the Mac is asleep. Before anything starts it refuses:
 * a config with no ``terminate_command`` -- rule 4's auto-terminate is not optional;
 * a cuda box priced at zero, or with no ``usd_per_hour_source`` saying where today's rate
   was read (the rate is read from the price page at launch, never carried in a template);
+* a cuda config whose ``n_gpus`` is not the number of GPUs ``nvidia-smi -L`` shows on the box
+  (or whose count cannot be read): the estimate and the approval were sized for that count;
 * a projected cost at or above $20 with no ``approved_by`` (rule 4). The projection is the
   campaign cap **plus** the pull grace window below, because the box bills while it waits;
 * a campaign cap above :data:`CAMPAIGN_MAX_HOURS`, or a phase cap above ``MAX_CAP_S``;
@@ -163,6 +165,15 @@ REAP_TIMEOUT_S: Final[float] = 60.0
 #: Where the box's age is read. Module-level so a test can point it at a fake file; the guard
 #: is handed the same path on its argv.
 UPTIME_PATH: Path = Path("/proc/uptime")
+
+#: How the box's GPUs are counted: ``nvidia-smi -L`` prints one ``GPU <n>: ...`` line per GPU.
+#: Module-level so a test can point it at a fake command.
+NVIDIA_SMI_CMD: tuple[str, ...] = ("nvidia-smi", "-L")
+GPU_LINE_RE: Final[re.Pattern[str]] = re.compile(r"^GPU \d+:")
+GPU_COUNT_TIMEOUT_S: Final[float] = 30.0
+
+#: Set to the campaign's name in every unit's environment while the driver runs it.
+DRIVER_ENV: Final[str] = "CAMPAIGN_DRIVER_RUN"
 
 #: Placeholders the driver fills itself at run time; a config may not declare them.
 RESERVED_PLACEHOLDERS: Final[frozenset[str]] = frozenset({"checkpoint_every"})
@@ -1523,8 +1534,56 @@ def wait_for_markers(cfg: Config, req: Requires, *, deadline: float
 # --- the campaign ---------------------------------------------------------------------
 
 
+class GpuCountUnreadable(Exception):
+    """The box's GPUs could not be counted. Never treated as the declared number."""
+
+
+def observe_gpu_count() -> int:
+    """How many GPUs the box this driver runs on has, from ``nvidia-smi -L`` (one ``GPU n:``
+    line each). The driver runs ON the box, so this is the box itself, not a claim about it."""
+    try:
+        proc = subprocess.run(list(NVIDIA_SMI_CMD), capture_output=True, text=True,
+                              timeout=GPU_COUNT_TIMEOUT_S, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise GpuCountUnreadable(f"{' '.join(NVIDIA_SMI_CMD)}: {type(exc).__name__}: {exc}") from exc
+    if proc.returncode != 0:
+        raise GpuCountUnreadable(
+            f"{' '.join(NVIDIA_SMI_CMD)} exited {proc.returncode}: {proc.stderr.strip()[:200]}"
+        )
+    return sum(1 for line in proc.stdout.splitlines() if GPU_LINE_RE.match(line))
+
+
+def check_gpu_count(cfg: Config) -> int | None:
+    """Refuse a cuda config whose declared ``n_gpus`` is not the number of GPUs the box shows.
+
+    ``n_gpus`` prices the campaign (``usd_per_gpu_hour``) and is what the cost estimate and the
+    $20 approval rest on; taken on trust it let a 2-GPU box be priced as one
+    (GAP-COSTCTL-NGPUS-IS-TAKEN-ON-TRUST, GAP-V5-2GPU-BOX-CEILING-NOT-ENFORCED-2026-10-03). A
+    count that cannot be read refuses too: a check that could not run is not a check that passed.
+    Not cuda: nothing is rented, nothing to count (returns ``None``)."""
+    if cfg.device != "cuda":
+        return None
+    try:
+        observed = observe_gpu_count()
+    except GpuCountUnreadable as exc:
+        raise BoxRefused(
+            f"the box's GPUs could not be counted ({exc}); the config declares n_gpus="
+            f"{cfg.n_gpus} and an unverifiable count is not a matching one"
+        ) from exc
+    if observed != cfg.n_gpus:
+        raise BoxRefused(
+            f"the box shows {observed} GPU(s) but the config declares n_gpus={cfg.n_gpus}: the "
+            "cost estimate, the per-GPU rate and the approval were sized for the declared count. "
+            "Fix the config to the box that was actually rented (and re-approve if the cost "
+            "changed)"
+        )
+    return observed
+
+
 def box_preflight(cfg: Config) -> BoxReading | None:
-    """Refuse to start on an unreadable box clock or a box already at its ceiling."""
+    """Refuse to start on a GPU count that is not the declared one, an unreadable box clock or a
+    box already at its ceiling."""
+    check_gpu_count(cfg)
     if cfg.box is None:
         return None
     reading = box_reading(cfg.box)
@@ -1546,6 +1605,9 @@ def run_campaign(cfg: Config, config_path: Path) -> int:
     if bad_pins:
         raise ConfigRefused("pinned input(s) do not match: " + "; ".join(bad_pins))
     start_reading = box_preflight(cfg)
+    # Every unit inherits this: a launcher that runs a paid box outside the driver can refuse
+    # when it is unset (GAP-LAUNCH-SCRIPTS-RUN-A-PAID-BOX-OUTSIDE-THE-DRIVER-2026-10-17).
+    os.environ[DRIVER_ENV] = cfg.name
     now = _now()
     state = load_state(cfg, now)
     state_path = cfg.state_dir / STATE_NAME
