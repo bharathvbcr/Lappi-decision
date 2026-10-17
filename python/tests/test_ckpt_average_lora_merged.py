@@ -28,6 +28,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 import ckpt_average  # noqa: E402
 import torch  # noqa: E402
+from test_ckpt_average_shared_init import shared_init_args  # noqa: E402
 from test_real_ft_score_checkpoint import _schedule  # noqa: E402
 
 STEPS = 1505
@@ -101,7 +102,18 @@ def _merged_oracle(paths: list[Path], scaling: float = ALPHA / R) -> torch.Tenso
 
 def _run(tmp_path: Path, paths: list[Path], *extra: str, source: str = "lora-merged"):
     out = tmp_path / "avg" / "m.safetensors"
-    code = ckpt_average.main([*map(str, paths), "--out", str(out), "--from", source, *extra])
+    # Averaging several seeds' heads needs a proven shared init unless the call picks one head
+    # (--span-head-seed) or averages one run's snapshots; a caller's own --ft-row-ids name the rows.
+    proof: list[str] = []
+    if len(paths) > 1 and not {"--span-head-seed", "--same-seed-trajectory"} & set(extra):
+        ids = None
+        if "--ft-row-ids" in extra:
+            at = extra.index("--ft-row-ids")
+            ids, extra = list(extra[at + 1:]), extra[:at]
+        proof = shared_init_args(tmp_path, paths, ids=ids)
+    code = ckpt_average.main(
+        [*map(str, paths), "--out", str(out), "--from", source, *proof, *extra]
+    )
     assert code == 0
     from safetensors.torch import load_file
 
@@ -126,9 +138,11 @@ def test_the_merged_average_is_the_mean_of_w_plus_scaled_ba_rounded_once(tmp_pat
     assert manifest["tensor_sources"]["tower.norm.weight"] == "tower"
     assert manifest["lora"]["r"] == R and manifest["lora"]["alpha"] == ALPHA
     assert manifest["lora"]["scaling"] == ALPHA / R and manifest["lora"]["adapted_modules"] == 1
-    assert manifest["span_head_source"] == {
+    head = manifest["span_head_source"]  # averaged, with the shared init proven from the ledger
+    assert {k: head[k] for k in ("mode", "seed", "input", "payload_digest")} == {
         "mode": "averaged", "seed": None, "input": None, "payload_digest": None,
     }
+    assert head["init"]["shared"] is True and len(head["init"]["proven_across"]) == 3
 
 
 def test_it_is_not_the_average_of_a_and_b_taken_separately(tmp_path):

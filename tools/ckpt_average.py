@@ -1779,11 +1779,23 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--span-head-shared-init", action="store_true",
+        help=(
+            "average the span heads, which is refused unless every input's head grew from ONE "
+            "shared init (heads from independent inits are near-orthogonal and their mean "
+            "collapses span: GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06). The proof is "
+            "read from the ledger, never from the caller: --ft-ledger and one --ft-row-ids per "
+            "input, every row recording the same shared recipe.span_head_init (R7, by "
+            "content_digest). The alternative is --span-head-seed. Not needed for one input or "
+            "--same-seed-trajectory (one run's snapshots)"
+        ),
+    )
+    parser.add_argument(
         "--ft-ledger", type=Path, default=None,
         help=(
-            "with --span-head-seed: the ledger holding the inputs' ft rows (--ft-row-ids, one per "
-            "input in order). A checkpoint carries no span-head init identity; the row's "
-            "recipe.span_head_init does, and is recorded in span_head_source"
+            "with --span-head-seed or --span-head-shared-init: the ledger holding the inputs' ft "
+            "rows (--ft-row-ids, one per input in order). A checkpoint carries no span-head init "
+            "identity; the row's recipe.span_head_init does, and is recorded in span_head_source"
         ),
     )
     parser.add_argument(
@@ -1797,8 +1809,30 @@ def main(argv: list[str] | None = None) -> int:
     resolved = [p.resolve() for p in args.checkpoints]
     if len(set(resolved)) != len(resolved):
         raise SystemExit("the same checkpoint was named twice; it would be weighted double")
-    if args.span_head_seed is None and (args.v6_run or args.ft_ledger is not None):
-        raise SystemExit("--v6-run and --ft-ledger mean something only with --span-head-seed")
+    if args.span_head_seed is not None and args.span_head_shared_init:
+        raise SystemExit(
+            "--span-head-seed takes one seed's head and --span-head-shared-init averages them: "
+            "choose one"
+        )
+    if args.span_head_seed is None and not args.span_head_shared_init and (
+        args.v6_run or args.ft_ledger is not None
+    ):
+        raise SystemExit(
+            "--v6-run and --ft-ledger mean something only with --span-head-seed or "
+            "--span-head-shared-init"
+        )
+    if args.span_head_shared_init and args.same_seed_trajectory:
+        raise SystemExit(
+            "--span-head-shared-init is for averaging several seeds' heads; "
+            "--same-seed-trajectory is one run's snapshots and needs no proof"
+        )
+    if args.span_head_shared_init and (
+        args.ft_ledger is None or len(args.ft_row_ids) != len(args.checkpoints)
+    ):
+        raise SystemExit(
+            "--span-head-shared-init needs --ft-ledger and one --ft-row-ids per input: the init "
+            "the heads grew from is read from the ft rows, never from the caller"
+        )
     if args.span_head_seed is not None and args.same_seed_trajectory:
         raise SystemExit(
             "--span-head-seed picks one seed's head, and --same-seed-trajectory's inputs are one "
@@ -1840,6 +1874,19 @@ def main(argv: list[str] | None = None) -> int:
             "--base-snapshot and --lambda-not-derived-from-c mean something only with "
             "--norm-preserving"
         )
+    if (
+        args.span_head_seed is None and not args.span_head_shared_init
+        and not args.same_seed_trajectory and len(args.checkpoints) > 1
+    ):
+        raise SystemExit(
+            f"refused: this would average {len(args.checkpoints)} span heads with no proof they "
+            "grew from one shared init; heads from independent inits are near-orthogonal and "
+            "their mean collapses span "
+            "(GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06). Choose --span-head-seed N "
+            "(take one seed's head) or prove the shared init with --span-head-shared-init "
+            "--ft-ledger L --ft-row-ids ... (R7: every input's ft row records the same shared "
+            "span_head_init)"
+        )
     names = [str(p) for p in args.checkpoints]
     norm_block: dict[str, Any] | None = None
     trajectory: dict[str, Any] | None = None
@@ -1859,6 +1906,14 @@ def main(argv: list[str] | None = None) -> int:
                 args.ft_ledger, args.ft_row_ids,
                 [int(Checkpoint.read_body(p)["seed"]) for p in args.checkpoints], head_at,
                 v6_run=args.v6_run,
+            )
+        if args.span_head_shared_init:
+            # Every input's row must record the one shared init (v6_run=True forces R7's check on
+            # all of them); a seed-specific, absent or differing init refuses.
+            init_block = check_span_head_inits(
+                args.ft_ledger, args.ft_row_ids,
+                [int(Checkpoint.read_body(p)["seed"]) for p in args.checkpoints], 0,
+                v6_run=True,
             )
         if args.source == "lora-merged":
             if args.norm_preserving or args.same_seed_trajectory:
@@ -1904,6 +1959,8 @@ def main(argv: list[str] | None = None) -> int:
             sources, master_index = {k: "tower" for k in tensors}, {}
         if head_at is None:
             head_source = span_head_source_block("averaged")
+            if init_block is not None:
+                head_source["init"] = {**init_block, "proven_across": list(args.ft_row_ids)}
         else:
             taken = take_span_head(tensors, sources, args.checkpoints[head_at], names[head_at])
             for key in taken:
