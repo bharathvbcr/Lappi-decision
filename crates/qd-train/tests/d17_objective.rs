@@ -475,28 +475,23 @@ fn the_objective_d17_loss_is_the_mean_17_way_ce_and_its_entry_trails_the_head() 
 #[test]
 fn a_letter_target_that_is_not_an_answer_id_refuses_the_batch() {
     let ids: [u32; D17_ROWS] = std::array::from_fn(|k| (k * 2 + 1) as u32);
-    let mut p = ToyProvider::new(V, H, 1, 3).unwrap();
+    let p = ToyProvider::new(V, H, 1, 3).unwrap();
     let mut b = letter_batch(&ids, &[0, 1]);
     b.rows[1].tokens[3] = 4; // an even id: not an answer row
     b.rows[1].letter = Some(LetterTarget { position: 2, target: 4 });
     let mut o = objective(d17_from_provider(&p, ids));
-    let plan = o.plan(&b).unwrap();
-    let s = &plan.sequences[1];
-    let job = SequenceJob {
-        tokens: &s.tokens,
-        rows: RowTargets { positions: &[], targets: &[], scale: 0.0 },
-        hidden_at: &s.hidden_at,
-    };
-    let mut cb = |pos: &[u32], h: &[f32]| -> Result<Vec<f32>, qd_train::step::StepError> {
-        o.hidden_grad(1, pos, h, H).map_err(|e| qd_train::step::StepError::Contract(e.to_string()))
-    };
-    let err = p.accumulate(&job, BankMode::Overwrite, Some(&mut cb)).unwrap_err();
-    assert!(format!("{err:?}").contains("answer row"), "{err:?}");
-    // and the objective itself says so through TrainError
+    // Refused at plan time, before any sequence runs, naming the row; never skipped.
+    let err = o.plan(&b).unwrap_err();
+    assert!(matches!(&err, TrainError::Refused(m) if m.contains("row 1") && m.contains("answer row")), "{err}");
+    // Without D17 the same batch plans: the full-vocabulary channel has no such restriction.
+    let mut plain = LetterSpanObjective::<ToyBatch, ToySpanHead>::new(ToySpanHead::new(H), 0.5).unwrap();
+    assert!(plain.plan(&b).is_ok());
+    // And a provider that hands the objective the wrong hidden width is refused.
+    let good = letter_batch(&ids, &[0, 1]);
     let mut o2 = objective(d17_from_provider(&p, ids));
-    o2.plan(&b).unwrap();
-    let hidden = vec![0.1f32; H];
-    assert!(matches!(o2.hidden_grad(1, &[2], &hidden, H), Err(TrainError::Refused(_))));
+    o2.plan(&good).unwrap();
+    let wide = vec![0.1f32; H + 1];
+    assert!(matches!(o2.hidden_grad(0, &[2], &wide, H + 1), Err(TrainError::Refused(_))));
 }
 
 // ---- 5. coinciding positions ---------------------------------------------------------------
