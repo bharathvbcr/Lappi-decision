@@ -121,7 +121,26 @@
     },
     "steps": {
       "full_recipe": "1 epoch (v5's 12,176 steps per seed). Registered as the full recipe; no Mac row runs it.",
-      "mac": "a truncated schedule of about 200 to 400 steps inside the approved 3-6 h window; quick."
+      "mac": "STRUCK by amendments[1] on 2026-10-17 and kept only as the original intent: a truncated schedule of about 200 to 400 steps inside the approved 3-6 h window; quick. The binding text is mac_step_definition and mac_steps_rule below.",
+      "mac_step_definition": "One step is one optimizer step over one token-budget batch of 35,403 padded tokens: the planner packs rows of one bucket width so that rows x width <= 35,403 (widths up to 9,638; v5's planner, plan_max_width 9638), and grad_accum 1 means one such batch per step. The provider receives the batch one sequence per launch with the gradients summed in the adapter bank (crates/qd-train/src/trainer.rs:745-780: BankMode::Overwrite for the first sequence of the step, Add for the rest), as torch's per-row backward() would sum them. 'Micro-batch 1' in the memory rows names that per-launch width, not the batch. So the step's device peak is the widest sequence's (the T=9,638 row's) and its wall is about 35,403 tokens at the LoRA rate.",
+      "mac_steps_rule": {
+        "binds": "the approved window, not a step count: N is derived, not chosen",
+        "window": "the approved 3-6 h Mac window (AUDIT/lora-2b-2026-10-09/human-decisions.md, D4+D8); its 6 h upper bound is the figure, of which 80% is usable: 0.8 x 21,600 s = 17,280 s",
+        "tokens_per_step": 35403,
+        "rule": "N = the largest integer N <= 400 such that N x 35,403 / tokens_per_s <= 17,280 s, where tokens_per_s is the measured LoRA rate of the row named in tokens_per_s_row (at the run's bucket mix, or the T=2,048 rate as the conservative figure)",
+        "cap": 400,
+        "floor": "none: a quick run's job is the mechanics and a scored row; if N is small the owner may instead extend the window (owner item, not exercised here)",
+        "warmup_steps": "max(1, N // 20)",
+        "schedule": "linear warmup then cosine over N to min_lr 0 (recipe.schedule unchanged)",
+        "tokens_per_s_row": {
+          "source": "ft-2bbced18 criterion 7's measured LoRA tokens/s row (the tape-lora arm in ojas ojas-qwen35/tests/gpu_memory_rows.rs; rows under ojas bench/results/)",
+          "row_id": null,
+          "tokens_per_s": null,
+          "rate_choice": null
+        },
+        "n": null,
+        "status": "PENDING: n, tokens_per_s_row.row_id, tokens_per_s and rate_choice are null until the row exists. They are written here, before step 0 and before any LoRA-2B result is read, by a further pre-result amendment under amendments_rule, and copied into the reduced-2B ledger row. A reduced-2B row whose step count differs from the n written here, or that names no row id, is not a LoRA-2B-registered row."
+      }
     }
   },
   "init": {
@@ -213,6 +232,19 @@
       "recorded": "2026-10-12, after commit 8ad00b0 and before any LoRA-2B result exists anywhere",
       "what": "added controls.shuffled_label (3 seeds, per the human's 2026-10-08 re-spec) to the pre-registration, which had said only 'plus controls'",
       "why": "a verifier found D6's shuffled-label control count missing from the file; no result had been read, so this is an amendment before any result"
+    },
+    {
+      "n": 1,
+      "recorded": "2026-10-17, after commit ba3e0e1 (the ruling's AUDIT record) and before any LoRA-2B result exists anywhere: no row in ledger/*.jsonl (runs.jsonl included) carries optimizer_recipe 'lora' or family 'lora-2b' (checked this day; see the amendment commit's message)",
+      "what": "(i) recipe.steps.mac_step_definition states in words what one step is (one token-budget batch of 35,403 padded tokens, one bucket width, fed one sequence per launch with gradients summed; micro-batch 1 = the per-launch width); (ii) recipe.steps.mac_steps_rule: the window binds, so the reduced 2B run's step count N is the largest N <= 400 whose N x 35,403 tokens fit 80% of the approved window at the tokens/s of ft-2bbced18 criterion 7's measured LoRA row, warmup max(1, N // 20), cosine over N, no floor; N and the row id are null here and are written in before step 0; (iii) recipe.steps.mac keeps 'about 200 to 400' only as the original intent, struck. No gate, threshold, seed count, held-out set or width changes; the 0.8B smoke (60 steps) is unchanged.",
+      "why": "Fable's final ruling of 2026-10-17 (AUDIT/lora-2b-audit2-2026-10-17/fable-final-ruling.md, section 2): at the measured full-gradient Tape rate (203-281 tok/s, ojas bench/results/2026-10-11-bf16-frozen-base and 2026-10-14-bf16-tied-table) a 35,403-token step is 126-174 s, so 400 steps cannot fit the 6 h window and 200 is marginal; the LoRA rate is unmeasured. The step count of a quick Mac run is a schedule parameter, not a gate (rule 2 not engaged). The owner answered section 6 item 2 'procced with fable's advice' (2026-10-17), adopting Fable's ruled default; recorded in AUDIT/lora-2b-quantised-2026-10-17/owner-decision.md.",
+      "decided_by": "the owner, 2026-10-17 ('procced with fable's advice' on section 6 item 2); content Fable's ruled default (section 2, amendment 1); ft-da2c4ab1's 2026-10-17 criterion text names the same rule",
+      "pending_before_step_0": [
+        "recipe.steps.mac_steps_rule.n",
+        "recipe.steps.mac_steps_rule.tokens_per_s_row.row_id",
+        "recipe.steps.mac_steps_rule.tokens_per_s_row.tokens_per_s",
+        "recipe.steps.mac_steps_rule.tokens_per_s_row.rate_choice"
+      ]
     }
   ],
   "amendments_rule": "An amendment made after any LoRA-2B result has been read is void. A change before that is a commit that says what changed and why, and leaves the original text in the history.",
