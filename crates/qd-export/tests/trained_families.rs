@@ -74,12 +74,28 @@ fn run(fx: &common::Fixture, train_manifest: Option<&Path>) -> Output {
         .arg(common::tokenizer_sha256(&fx.snapshot))
         .arg("--expect-vocab-size")
         .arg(common::VOCAB.to_string())
-        .arg("--calibration")
-        .arg(table(&fx.dir.0))
         .arg("--out")
         .arg(&fx.out);
+    let table_path = table(&fx.dir.0);
+    cmd.arg("--calibration").arg(&table_path);
     if let Some(path) = train_manifest {
         cmd.arg("--train-manifest").arg(path);
+        // The gate needs every family the manifest holds declared and calibrated; what these
+        // tests exercise is the families, so it is given a passing fit for all of them.
+        let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= qd_export::export::MAX_TRAIN_MANIFEST_BYTES);
+        let doc: Value = if small {
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
+        let mut families: Vec<String> = doc["entries"]
+            .as_array()
+            .map(|es| es.iter().filter_map(|e| e["family_id"].as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        families.sort();
+        families.dedup();
+        let (report, shapes) = common::gate_files(&fx.dir.0, &table_path, &families);
+        cmd.arg("--calibration-report").arg(report).arg("--trained-slot-shapes").arg(shapes);
     }
     cmd.output().expect("the binary runs")
 }

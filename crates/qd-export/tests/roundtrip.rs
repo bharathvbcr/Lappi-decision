@@ -58,7 +58,7 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
     let table_path = fx.dir.0.join("table.json");
     std::fs::write(&table_path, serde_json::to_vec_pretty(&table).unwrap()).unwrap();
     let mut req = fx.request();
-    req.calibration = Some(table_path.clone());
+    common::calibrate(&mut req, &fx.dir.0, &table_path);
     let summary = export(&req).expect("the standard fixture exports");
     assert!(
         fx.leftovers().is_empty(),
@@ -321,6 +321,10 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
         tokenizer_sha256: "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927".into(),
         expect_vocab_size: 248_320,
         calibration: None,
+        calibration_report: None,
+        trained_slot_shapes: None,
+        exclude_families: Vec::new(),
+        uncalibrated_reason: Some("unserved round-trip fixture".to_string()),
         train_manifest: common::write_train_manifest(
             &dir.0.join("train.json"),
             &common::TRAINED_FAMILIES,

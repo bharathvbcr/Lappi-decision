@@ -374,6 +374,7 @@ fn the_calibration_table_must_be_one_the_runtime_reads_back_unchanged() {
     std::fs::write(&bad, invalid.to_string()).unwrap();
     let mut req = fx.request();
     req.calibration = Some(bad.clone());
+    req.uncalibrated_reason = None;
     refused(&fx, &req, RefusalKind::Calibration, "temperature");
 
     // A field the runtime does not read: serde would drop it silently.
@@ -398,6 +399,7 @@ fn the_calibration_table_must_be_one_the_runtime_reads_back_unchanged() {
     let mut ints = serde_json::to_value(&table).unwrap();
     ints["span"]["temperature"] = 1.into();
     std::fs::write(&bad, ints.to_string()).unwrap();
+    common::calibrate(&mut req, &fx.dir.0, &bad);
     let summary = export(&req).expect("1 and 1.0 are one temperature");
     assert_eq!(summary.calibration_hash, Some(table.hash()));
 }
