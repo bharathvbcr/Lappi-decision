@@ -5,6 +5,9 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const BIN: &str = env!("CARGO_BIN_EXE_qd-cite");
+// Built from parts: a gap-id-shaped literal in a tracked file is a citation to the repo-wide scanner.
+const REAL: &str = concat!("GAP", "-REAL-ONE-2026-10-18");
+const ABSENT: &str = concat!("GAP", "-NO-SUCH-THING-2026-10-18");
 static N: AtomicU64 = AtomicU64::new(0);
 
 fn root() -> PathBuf {
@@ -14,7 +17,7 @@ fn root() -> PathBuf {
     std::fs::create_dir_all(p.join("AUDIT/sub")).unwrap();
     std::fs::create_dir_all(p.join("evidence")).unwrap();
     std::fs::write(p.join("ledger/a.jsonl"), "{\"row_id\":\"6af73bef-aa56-49b3-8cdb-e0b0b56e9181\"}\n{\"row_id\":\"9a00cfd0-3490-44b3-8cc9-453a875f4965\"}\n").unwrap();
-    std::fs::write(p.join("gaps.jsonl"), "{\"id\":\"GAP-REAL-ONE-2026-10-18\"}\n").unwrap();
+    std::fs::write(p.join("gaps.jsonl"), format!("{{\"id\":\"{REAL}\"}}\n")).unwrap();
     std::fs::write(p.join("evidence/run.log"), "x").unwrap();
     p
 }
@@ -46,7 +49,7 @@ fn each_kind_of_citation_in_the_same_paragraph_passes() {
     let f = doc(
         &r,
         "HANDOFF/y-2026-10-19.md",
-        "The score is 0.857 (14779/17254), row 6af73bef.\n\nPrecision 87.0% per GAP-REAL-ONE-2026-10-18.\n\nECE 0.079 [V: evidence/run.log].\n\n| row | value |\n| --- | --- |\n| a | 0.5 [V: evidence/run.log] |\n",
+        &format!("The score is 0.857 (14779/17254), row 6af73bef.\n\nPrecision 87.0% per {REAL}.\n\nECE 0.079 [V: evidence/run.log].\n\n| row | value |\n| --- | --- |\n| a | 0.5 [V: evidence/run.log] |\n"),
     );
     let (code, out) = run(&r, &[&f]);
     assert_eq!(code, Some(0), "{out}");
@@ -68,11 +71,11 @@ fn an_id_that_resolves_to_nothing_fails_even_beside_a_number() {
     let f = doc(
         &r,
         "AUDIT/sub/w-2026-10-20.md",
-        "Score row 6af73bef gives 0.857 and row deadbeef1 is cited.\n\nSee GAP-NO-SUCH-THING-2026-10-18 and [V: evidence/missing.log].\n",
+        &format!("Score row 6af73bef gives 0.857 and row deadbeef1 is cited.\n\nSee {ABSENT} and [V: evidence/missing.log].\n"),
     );
     let (code, out) = run(&r, &[&f]);
     assert_eq!(code, Some(1), "{out}");
-    assert!(out.contains("GAP-NO-SUCH-THING-2026-10-18 is not in gaps.jsonl"), "{out}");
+    assert!(out.contains(&format!("{ABSENT} is not in gaps.jsonl")), "{out}");
     assert!(out.contains("[V: evidence/missing.log] does not exist"), "{out}");
 }
 

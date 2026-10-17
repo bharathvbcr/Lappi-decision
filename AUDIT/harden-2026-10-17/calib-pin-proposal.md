@@ -6,10 +6,11 @@ security-adjacent. Gap: `GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-L
 
 ## What the code does today [V: crates/qd-runtime/src/runtime.rs]
 
-The gap's literal claim is stale for the product path; the residue is narrower. Read at this
-worktree's base commit (f7cb935), not run:
+The gap's literal claim is stale for the product path; the residue is narrower. Read (not run)
+on f7cb935 and re-read after rebasing onto the live branch 531491e; f75c199 is an ancestor of both
+and the claims below held on both:
 
-- `Runtime::check_hashes` (runtime.rs:305-343) compares `expect.calibration_hash` with
+- `Runtime::check_hashes` (runtime.rs:305) compares `expect.calibration_hash` with
   `self.calibration.hash()`, the table the runtime calibrates with. The 10-01 defect (comparing with
   the backend's *declared* string) was fixed by f75c199 ("G9(c): verify the calibration table's hash
   at load; pin the table that calibrates").
