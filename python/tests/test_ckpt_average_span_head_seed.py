@@ -122,11 +122,19 @@ def test_the_flag_takes_the_head_of_the_input_whose_body_says_that_seed(tmp_path
     assert manifest["tensor_sources"]["span_head.b"] == "span_head_seed"
 
 
-def test_without_the_flag_the_head_is_the_mean_and_the_manifest_says_averaged(tmp_path):
-    manifest, out = _run(tmp_path, _three(tmp_path), "--ft-row-ids", "a", "b", "c")
+def test_with_a_proven_shared_init_the_head_is_the_mean_and_the_manifest_says_averaged(tmp_path):
+    from test_ckpt_average_shared_init import SHARED, shared_init_args
+
+    paths = _three(tmp_path)
+    manifest, out = _run(tmp_path, paths, *shared_init_args(tmp_path, paths))
     assert torch.equal(out["span_head.b"], torch.tensor([37.0, 74.0]))
     assert manifest["span_head_source"] == {
         "mode": "averaged", "seed": None, "input": None, "payload_digest": None,
+        "init": {
+            "ft_row_id": "proof-0000", "sha256": SHARED["sha256"],
+            "content_digest": SHARED["content_digest"], "shared": True,
+            "proven_across": ["proof-0000", "proof-0001", "proof-0002"],
+        },
     }
     weights = tmp_path / "avg" / "a.safetensors"
     assert ckpt_average.read_manifest(weights).span_head_source["mode"] == "averaged"

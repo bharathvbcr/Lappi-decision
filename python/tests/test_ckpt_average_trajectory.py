@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 import ckpt_average  # noqa: E402
 from test_checkpoint_retain import _TRAIN  # noqa: E402
+from test_ckpt_average_shared_init import shared_init_args  # noqa: E402
 from test_real_ft_rungd_flags import _only, _run, corpus  # noqa: E402, F401
 
 from qd_train.run_control import (  # noqa: E402
@@ -85,7 +86,7 @@ def test_without_the_flag_an_average_across_steps_is_refused(tmp_path):
     """Characterization: the seeds-at-one-step rule, unchanged."""
     paths = [_snapshot(tmp_path, s) for s in (2, 4, 6)]
     with pytest.raises(SystemExit, match="an average across two points of training"):
-        _main(*paths, "--out", tmp_path / "avg.safetensors")
+        _main(*paths, "--out", tmp_path / "avg.safetensors", *shared_init_args(tmp_path, paths))
 
 
 def test_one_runs_snapshots_average_with_their_steps_recorded(tmp_path, capsys):

@@ -45,6 +45,8 @@ from test_real_ft_score_checkpoint import (  # noqa: E402
     tiny_master_checkpoints,
 )
 
+from test_ckpt_average_shared_init import shared_init_args  # noqa: E402
+
 from qd_train.backbone import TEXT_PREFIX  # noqa: E402
 
 
@@ -93,7 +95,8 @@ def _np_main(tmp_path: Path, paths: list[Path], base: Path, *extra: str) -> tupl
     out = tmp_path / "avg" / "avgnp.safetensors"
     assert ckpt_average.main([
         *map(str, paths), "--out", str(out), "--from", "masters", "--norm-preserving",
-        "--base-snapshot", str(base), "--ft-row-ids", *(AVG_IDS[s] for s in range(len(paths))),
+        "--base-snapshot", str(base),
+        *shared_init_args(tmp_path, paths, ids=[AVG_IDS[s] for s in range(len(paths))]),
         *extra,
     ]) == 0
     manifest = json.loads(ckpt_average.manifest_path(out).read_text(encoding="utf-8"))
@@ -236,7 +239,7 @@ def test_a_norm_preserving_average_without_its_base_is_refused(tmp_path, case, m
     with pytest.raises(SystemExit, match=match):
         ckpt_average.main([*map(str, paths), "--out", str(tmp_path / "o.safetensors"),
                            "--from", "masters", "--norm-preserving", "--base-snapshot",
-                           str(base)])
+                           str(base), *shared_init_args(tmp_path, paths)])
     assert not (tmp_path / "o.safetensors").exists()
 
 
@@ -356,7 +359,8 @@ def test_a_norm_preserving_average_of_three_tiny_checkpoints_is_scored_end_to_en
     avg = tmp_path / "avg" / "avgnp.safetensors"
     assert ckpt_average.main([
         *map(str, tiny.paths), "--out", str(avg), "--from", "masters", "--norm-preserving",
-        "--base-snapshot", str(tiny.snapshot), "--ft-row-ids", *tiny.ids,
+        "--base-snapshot", str(tiny.snapshot),
+        *shared_init_args(tmp_path, tiny.paths, ids=list(tiny.ids)),
     ]) == 0
     block = json.loads(ckpt_average.manifest_path(avg).read_text())["norm_preserving"]
     assert block["lambda_derived_from_c"] is True and block["lambda"] >= 1.0
