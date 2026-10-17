@@ -17,12 +17,12 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
 use qd_mutate::generate::{DiffShape, Generator, Options};
 use qd_mutate::lang::LangId;
-use qd_mutate::manifest::{sha256_hex, PoolReport};
+use qd_mutate::manifest::{PoolReport, sha256_hex};
 use qd_mutate::pool::{self, PoolRecord};
 
 #[derive(Parser, Debug)]
@@ -120,6 +120,15 @@ struct ComposeArgs {
     /// Write only the supply census (`census.json`): no rows are composed.
     #[arg(long)]
     census: bool,
+    /// The pool holds single-version records (`qd-prep own-swift`): none carries a
+    /// `prior_source`, and each file's own `source` is its pristine rendering, as a whole-file
+    /// block. Refused when any record has a `prior_source`, and with `--aux`.
+    #[arg(long)]
+    single_version_records: bool,
+    /// Prepended to every composed row's id, so two composed corpora never share an id. Empty
+    /// by default, which writes exactly the ids and manifest it always wrote.
+    #[arg(long, default_value = "")]
+    id_prefix: String,
 }
 
 #[derive(clap::Args, Debug)]
@@ -157,6 +166,10 @@ struct GenerateArgs {
     /// into one hunk per cluster of changes. Recorded in the manifest as `diff.renderer`.
     #[arg(long)]
     single_hunk: bool,
+    /// Prepended to every example's id (`pool_id` is untouched), so two corpora generated from
+    /// one pool never share an id. Empty by default, which writes exactly the ids it always wrote.
+    #[arg(long, default_value = "")]
+    id_prefix: String,
 }
 
 #[derive(clap::Args, Debug)]
@@ -193,10 +206,24 @@ fn main() -> Result<()> {
 
 fn compose(args: ComposeArgs) -> Result<()> {
     use qd_mutate::compose;
-    let inputs = compose::load(&args.corpus, &args.pool, &args.split_map, args.aux.as_deref())?;
+    if args.single_version_records && args.aux_pool_out.is_some() {
+        bail!(
+            "--single-version-records does not combine with --aux-pool-out: the auxiliary pool \
+             is built from records that have a prior_source, and a single-version pool has none"
+        );
+    }
+    let inputs = compose::load(
+        &args.corpus,
+        &args.pool,
+        &args.split_map,
+        args.aux.as_deref(),
+    )?;
     if let Some(path) = &args.aux_pool_out {
         if path.exists() {
-            bail!("{} already exists; refusing to overwrite it", path.display());
+            bail!(
+                "{} already exists; refusing to overwrite it",
+                path.display()
+            );
         }
         let (jsonl, records) = compose::aux_pool(&inputs)?;
         write_atomically(path, jsonl.as_bytes())?;
@@ -209,7 +236,12 @@ fn compose(args: ComposeArgs) -> Result<()> {
         return Ok(());
     }
     let out = args.out.context("--out is required to compose")?;
-    let prepared = compose::prepare(&inputs)?;
+    let record_mode = if args.single_version_records {
+        compose::RecordMode::SingleVersion
+    } else {
+        compose::RecordMode::Commit
+    };
+    let prepared = compose::prepare_with(&inputs, record_mode)?;
     drop(inputs);
     if args.census {
         let report = serde_json::json!({
@@ -246,6 +278,7 @@ fn compose(args: ComposeArgs) -> Result<()> {
         soft_max_uses: args.soft_max_uses,
         max_filler_uses: args.max_filler_uses,
         diag_rows: args.diag_rows,
+        id_prefix: args.id_prefix.clone(),
     };
     let diag_train = args
         .diag_train_corpus
@@ -294,6 +327,20 @@ fn generate(args: GenerateArgs) -> Result<()> {
         },
     });
     let mut run = generator.run(&records, report);
+    if args.id_prefix.len() > 64
+        || args
+            .id_prefix
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace())
+    {
+        bail!(
+            "id prefix {:?} is longer than 64 bytes or holds whitespace or a control character",
+            args.id_prefix
+        );
+    }
+    for example in &mut run.examples {
+        example.id.insert_str(0, &args.id_prefix);
+    }
 
     let (jsonl, digest) = run.to_jsonl().context("serialising the examples")?;
     run.manifest.examples_sha256 = digest.clone();

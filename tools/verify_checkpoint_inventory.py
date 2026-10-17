@@ -34,8 +34,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import struct
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
+
+from qd_train.memory import CheckpointRefused, safetensors_header
 
 DEFAULT_SNAPSHOTS = Path(
     "/Users/bharath/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots"
@@ -51,16 +55,6 @@ CLAIMS: dict[str, int] = {
 
 HIDDEN_SIZE = 2048
 VOCAB_SIZE = 248_320
-
-
-def safetensors_header(path: Path) -> dict:
-    """The JSON header of a safetensors file, without reading a byte of tensor data."""
-    with path.open("rb") as fh:
-        raw = fh.read(8)
-        if len(raw) != 8:
-            raise SystemExit(f"{path}: too short to carry a safetensors header")
-        length = struct.unpack("<Q", raw)[0]
-        return json.loads(fh.read(length))
 
 
 def main() -> int:
@@ -92,7 +86,10 @@ def main() -> int:
 
     header: dict = {}
     for p in shards:
-        header.update(safetensors_header(p))
+        try:
+            header.update(safetensors_header(p))
+        except CheckpointRefused as exc:
+            raise SystemExit(f"refused, nothing measured: {exc}") from exc
     header.pop("__metadata__", None)
     names = list(header)
 

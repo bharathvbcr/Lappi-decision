@@ -54,6 +54,7 @@ use crate::np_random::default_rng;
 use crate::npy::NpyArray;
 use crate::npz::StoredZip;
 use crate::pyjson::{self, SORTED_DEFAULT};
+use crate::run_control::ConsumedPrefix;
 use crate::tristate::{Coverage, TriState, parse_tristate};
 
 /// `shards.HEADER_NAME`.
@@ -106,8 +107,6 @@ pub const NO_SPAN: i32 = -1;
 pub const SPAN_ABSTAIN: i32 = -2;
 /// `artifacts._MIN_ROW_TOKENS`.
 pub const MIN_ROW_TOKENS: u64 = 2;
-/// `run_control.ConsumedPrefix.DOMAIN`.
-pub const CONSUMED_PREFIX_DOMAIN: &[u8] = b"qd-consumed-prefix-v1";
 /// The fourth entropy word of the batch-interleaving shuffle in `ShardReader._plan`.
 const ORDER_TAG: u64 = 0xB17C;
 /// `artifacts.SPAN_COLLAPSE_POLICIES` plus the empty "written before the field" value.
@@ -237,7 +236,12 @@ impl ContrastRows {
     fn from_json(raw: &Value) -> Result<Self, String> {
         let obj = raw
             .as_object()
-            .filter(|o| o.len() == 3 && ["count", "sha256", "seed"].iter().all(|k| o.contains_key(*k)))
+            .filter(|o| {
+                o.len() == 3
+                    && ["count", "sha256", "seed"]
+                        .iter()
+                        .all(|k| o.contains_key(*k))
+            })
             .ok_or(format!(
                 "contrast_rows is {raw}; a header states it as {{count, sha256, seed}}"
             ))?;
@@ -258,7 +262,11 @@ impl ContrastRows {
             "contrast_rows.seed {} is not a non-negative int",
             obj["seed"]
         ))?;
-        Ok(Self { count, sha256, seed })
+        Ok(Self {
+            count,
+            sha256,
+            seed,
+        })
     }
 
     /// `ContrastRows.to_json()`.
@@ -2254,50 +2262,19 @@ pub fn assemble_batch(
 
 // --- the consumed digest ----------------------------------------------------------------------
 
-/// `run_control.ConsumedPrefix`: a running sha256 over the batches consumed, in order.
-#[derive(Clone)]
-pub struct ConsumedPrefix {
-    hasher: Sha256,
-    n: u64,
-}
-
-impl Default for ConsumedPrefix {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ConsumedPrefix {
-    /// An empty prefix, seeded with the domain string.
-    pub fn new() -> Self {
-        let mut hasher = Sha256::new();
-        hasher.update(CONSUMED_PREFIX_DOMAIN);
-        Self { hasher, n: 0 }
-    }
-
-    /// `ConsumedPrefix.fold(*parts)`: every part length-prefixed, the count first.
-    pub fn fold(&mut self, parts: &[&[u8]]) {
-        let mut head = vec![0u8];
-        head.extend_from_slice(&(parts.len() as u32).to_be_bytes());
-        self.hasher.update(&head);
-        for p in parts {
-            self.hasher.update((p.len() as u64).to_be_bytes());
-            self.hasher.update(p);
-        }
-        self.n += 1;
-    }
-
+impl Batch {
     /// `trainer._fold`: index, bucket, tokens, lengths and the four supervision channels
-    /// (an absent channel folds as zero bytes).
-    pub fn fold_batch(&mut self, batch: &Batch) {
-        let tokens: Vec<u8> = batch.tokens.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let lengths: Vec<u8> = batch.lengths.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let target: Vec<u8> = batch
+    /// (an absent channel folds as zero bytes). A method on the Lappi `Batch`, not on
+    /// `ConsumedPrefix`, so the prefix type can live in another crate.
+    pub fn fold_into(&self, prefix: &mut ConsumedPrefix) {
+        let tokens: Vec<u8> = self.tokens.iter().flat_map(|t| t.to_le_bytes()).collect();
+        let lengths: Vec<u8> = self.lengths.iter().flat_map(|t| t.to_le_bytes()).collect();
+        let target: Vec<u8> = self
             .target_index
             .iter()
             .flat_map(|t| t.to_le_bytes())
             .collect();
-        let spans: Vec<u8> = batch
+        let spans: Vec<u8> = self
             .span_target
             .as_ref()
             .map(|s| {
@@ -2306,31 +2283,21 @@ impl ConsumedPrefix {
                     .collect()
             })
             .unwrap_or_default();
-        let mask: Vec<u8> = batch
+        let mask: Vec<u8> = self
             .line_starts
             .as_ref()
             .map(|m| m.iter().map(|&b| u8::from(b)).collect())
             .unwrap_or_default();
-        self.fold(&[
-            &batch.index.to_be_bytes(),
-            &(batch.bucket as u64).to_be_bytes(),
+        prefix.fold(&[
+            &self.index.to_be_bytes(),
+            &(self.bucket as u64).to_be_bytes(),
             &tokens,
             &lengths,
-            &batch.slot_kind,
+            &self.slot_kind,
             &target,
             &spans,
             &mask,
         ]);
-    }
-
-    /// Batches folded.
-    pub fn n_folded(&self) -> u64 {
-        self.n
-    }
-
-    /// The digest so far.
-    pub fn hexdigest(&self) -> String {
-        hex(&self.hasher.clone().finalize())
     }
 }
 
@@ -2355,20 +2322,5 @@ mod tests {
         let mut seen: Vec<usize> = plans.iter().flat_map(|p| p.rows.clone()).collect();
         seen.sort_unstable();
         assert_eq!(seen, vec![0, 1, 2, 3], "every sequence once per epoch");
-    }
-
-    #[test]
-    fn an_empty_prefix_has_a_real_digest() {
-        let empty = ConsumedPrefix::new().hexdigest();
-        assert_eq!(empty.len(), 64);
-        let mut one = ConsumedPrefix::new();
-        one.fold(&[b"ab"]);
-        let mut two = ConsumedPrefix::new();
-        two.fold(&[b"a", b"b"]);
-        assert_ne!(
-            one.hexdigest(),
-            two.hexdigest(),
-            "parts are length-prefixed"
-        );
     }
 }

@@ -35,7 +35,7 @@ These rules override default behaviour. They are copied into every lane prompt.
 
 ## Environment facts (verified 2026-09-19, re-verify before relying on them)
 
-- `cargo` / `rustc` 1.98.0, `uv` 0.11.28, `python3` 3.14.7, `git` 2.54.0.
+- `cargo` / `rustc` 1.98.0, `uv` 0.11.28, `python3` 3.14.8 (Homebrew python@3.14; the ml venv runs it), `git` 2.54.0.
 - PyTorch env: `/Users/bharath/.venvs/ml` — torch 2.12.1, **MPS available**.
 - **Containers are podman, not docker.** Docker is not installed; `podman` 6.1.2 is, with an
   `applehv` machine (`podman-machine-default`, 9 CPUs, **12 GiB RAM**, **160 GiB disk** — both
@@ -50,6 +50,15 @@ These rules override default behaviour. They are copied into every lane prompt.
   `tree-sitter-{rust,go,python,typescript}` 0.23, `tree-sitter-swift` 0.7.
 - Harness constraints when shelling out: `cd` is blocked, redirects to `/dev/null` are blocked, and a
   redirect target containing a shell variable is blocked. Use literal absolute paths.
+- **memguard binds before `tools/mac_heavy.sh`'s cap** (verified 2026-10-17 from `~/Code/devtools/memguard`
+  main.go, policy.go and `~/Library/LaunchAgents/com.bharath.memguard.plist`): a user LaunchAgent that
+  samples `ri_phys_footprint` (jetsam's figure; Metal/MPS bytes count) of every process you own every
+  2 s, SIGTERMs any unprotected **single process over 32 GiB** and SIGKILLs it 10 s later, and under
+  critical `kern.memorystatus_vm_pressure_level` for 3 consecutive samples does the same to the largest
+  process of 2 GiB or more. Per process, not per tree, so it fires before mac_heavy's 52 GiB cap on the
+  job tree's summed footprint. It posts a notification and writes a JSON `terminate` line to
+  `~/Library/Logs/memguard/memguard.log` by its plist, but that directory does not exist on this Mac,
+  so a kill leaves no log: the job ends with signal 15 and no mac_heavy footprint message.
 
 ## The ten rules that bind every agent
 

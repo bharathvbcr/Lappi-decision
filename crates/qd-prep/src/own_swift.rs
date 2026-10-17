@@ -47,6 +47,11 @@ use crate::own_repos::{self, split_of};
 use crate::sha256::sha256_hex;
 
 pub const SCHEMA: &str = "qd-own-swift-pool/v1";
+/// The pool's source, as `qd_data.sources.OWN_REPOS_SOURCE_ID` spells it. The Python loader
+/// refuses a manifest whose `source_id` is not that constant, so a drift here fails loudly.
+pub const SOURCE_ID: &str = "bharathvbcr/own-repositories";
+/// The human's grant (`qd_data.sources`: the source's `declared_licence`).
+pub const LICENCE: &str = "owner-granted";
 /// The language this pool holds.
 pub const LANGUAGE: LangId = LangId::Swift;
 /// Largest file emitted, natural-bugs' bound.
@@ -179,7 +184,7 @@ pub fn parse_ls_tree(out: &[u8]) -> Result<Vec<TreeEntry>, String> {
 }
 
 /// The nested repository (as a prefix inside `repo`) that holds `path`, if any.
-fn nested_owner<'a>(all_repos: &'a [String], repo: &str, path: &str) -> Option<&'a str> {
+pub fn nested_owner<'a>(all_repos: &'a [String], repo: &str, path: &str) -> Option<&'a str> {
     all_repos
         .iter()
         .filter_map(|other| {
@@ -217,10 +222,11 @@ impl Reader for GitReader {
     }
 }
 
-/// One repository's records (`(id, line)`) and counts.
+/// One repository's records and counts. A record is `(id, line, file)` where `file` is its
+/// `files.jsonl` line: the file's repo, path and the sha256 of its bytes.
 #[derive(Debug, Default)]
 pub struct RepoOut {
-    pub records: Vec<(String, String)>,
+    pub records: Vec<(String, String, String)>,
     pub tree_blobs: u64,
     pub swift_paths: u64,
     pub refusals: BTreeMap<String, u64>,
@@ -292,7 +298,11 @@ pub fn emit_repo(
             "id": id, "repo": t.slug, "path": e.path, "source": source,
         }))
         .map_err(|e| e.to_string())?;
-        out.records.push((id, line));
+        let file = serde_json::to_string(&json!({
+            "repo": t.slug, "path": e.path, "sha256": sha256_hex(source.as_bytes()),
+        }))
+        .map_err(|e| e.to_string())?;
+        out.records.push((id, line, file));
     }
     Ok(out)
 }
@@ -302,7 +312,7 @@ pub fn build(
     manifest_path: &Path,
     manifest_bytes: &[u8],
     reader: &dyn Reader,
-) -> Result<(Vec<u8>, Value), String> {
+) -> Result<(Vec<u8>, Vec<u8>, Value), String> {
     let doc: Value = serde_json::from_slice(manifest_bytes)
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     let view = read_view(&doc)?;
@@ -310,6 +320,7 @@ pub fn build(
         return Err("the manifest admits no train repository; there is nothing to emit".into());
     }
     let mut jsonl: Vec<u8> = Vec::new();
+    let mut files_jsonl: Vec<u8> = Vec::new();
     let mut per_repo = BTreeMap::new();
     let mut refusals: BTreeMap<String, u64> = BTreeMap::new();
     let (mut records, mut swift_paths, mut tree_blobs) = (0usize, 0u64, 0u64);
@@ -329,7 +340,7 @@ pub fn build(
                 "swift_paths": r.swift_paths, "emitted": r.records.len(), "refusals": r.refusals,
             }),
         );
-        for (id, line) in r.records {
+        for (id, line, file) in r.records {
             if !seen_ids.insert(id.clone()) {
                 return Err(format!("duplicate record id {id}"));
             }
@@ -339,6 +350,8 @@ pub fn build(
             }
             jsonl.extend_from_slice(line.as_bytes());
             jsonl.push(b'\n');
+            files_jsonl.extend_from_slice(file.as_bytes());
+            files_jsonl.push(b'\n');
             if jsonl.len() > MAX_POOL_BYTES {
                 return Err(format!("the pool passes {MAX_POOL_BYTES} bytes; refusing"));
             }
@@ -349,6 +362,12 @@ pub fn build(
         "tool": "qd-prep own-swift",
         "tool_version": env!("CARGO_PKG_VERSION"),
         "ruling": "AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md R3",
+        "source_id": SOURCE_ID,
+        "licence": LICENCE,
+        "files": {
+            "file": "files.jsonl", "sha256": sha256_hex(&files_jsonl), "count": records,
+            "line_shape": "{repo, path, sha256 of the file's bytes}; one line per pool record, in pool order, so the human can strike any file (the 2026-09-28 approval's condition; qd-noul-rows own-prose writes the same)",
+        },
         "own_repos_manifest": {
             "path": manifest_path.display().to_string(),
             "sha256": sha256_hex(manifest_bytes),
@@ -375,7 +394,7 @@ pub fn build(
         ],
         "pool": {"file": "pool.jsonl", "sha256": sha256_hex(&jsonl), "records": records, "bytes": jsonl.len()},
     });
-    Ok((jsonl, manifest))
+    Ok((jsonl, files_jsonl, manifest))
 }
 
 /// `qd-prep own-swift --manifest M --out-dir DIR`: `DIR/{pool.jsonl, manifest.json}`, whole or
@@ -389,11 +408,12 @@ pub fn run(manifest_path: &Path, out_dir: &Path) -> Result<String, String> {
     }
     let manifest_bytes =
         crate::files::read_bounded(manifest_path, MAX_MANIFEST_BYTES, "--manifest")?;
-    let (jsonl, manifest) = build(manifest_path, &manifest_bytes, &GitReader)?;
+    let (jsonl, files_jsonl, manifest) = build(manifest_path, &manifest_bytes, &GitReader)?;
     let mut manifest_out = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
     manifest_out.push(b'\n');
     crate::files::write_new_dir(out_dir, |partial| {
         crate::files::write_synced_new(&partial.join("pool.jsonl"), &jsonl)?;
+        crate::files::write_synced_new(&partial.join("files.jsonl"), &files_jsonl)?;
         crate::files::write_synced_new(&partial.join("manifest.json"), &manifest_out)
     })?;
     Ok(format!(

@@ -17,6 +17,7 @@ figures as a check before it prints the split.
 
 import collections
 import json
+import pathlib
 import sys
 
 UNSERVED = "code.defect_class"
@@ -26,29 +27,31 @@ verdicts_path, rows_path = sys.argv[1], sys.argv[2]
 n = collections.Counter()
 top1 = collections.Counter()
 family_of = {}
-for line in open(verdicts_path, encoding="utf-8"):
-    v = json.loads(line)
-    if v.get("kind") != "choice":
-        continue
-    f = v["family_id"]
-    family_of[v["row_id"]] = f
-    n[f] += 1
-    top1[f] += bool(v.get("correct"))
+with pathlib.Path(verdicts_path).open(encoding="utf-8") as verdicts_file:
+    for line in verdicts_file:
+        v = json.loads(line)
+        if v.get("kind") != "choice":
+            continue
+        f = v["family_id"]
+        family_of[v["row_id"]] = f
+        n[f] += 1
+        top1[f] += bool(v.get("correct"))
 
 scored = collections.Counter()
 answered = collections.Counter()
 answered_ok = collections.Counter()
 unscored = 0
-for line in open(rows_path, encoding="utf-8"):
-    r = json.loads(line)
-    if not r.get("scored"):
-        unscored += 1
-        continue
-    f = family_of[r["row_id"]]
-    scored[f] += 1
-    if not r["abstained_noul_row_or_margin"]:
-        answered[f] += 1
-        answered_ok[f] += bool(r["correct"])
+with pathlib.Path(rows_path).open(encoding="utf-8") as rows_file:
+    for line in rows_file:
+        r = json.loads(line)
+        if not r.get("scored"):
+            unscored += 1
+            continue
+        f = family_of[r["row_id"]]
+        scored[f] += 1
+        if not r["abstained_noul_row_or_margin"]:
+            answered[f] += 1
+            answered_ok[f] += bool(r["correct"])
 
 
 def top1_line(label, keep):

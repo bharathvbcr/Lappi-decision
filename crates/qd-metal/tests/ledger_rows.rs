@@ -17,11 +17,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use qd_metal::decision::{self, Arm, ArmResult, DecisionArgs, DecisionPrompt, ProductPathT, ProductSample, RowTarget, RunContext, RuntimeKind, Sample, TResult};
+use qd_metal::decision::{
+    self, Arm, ArmResult, DecisionArgs, DecisionPrompt, ProductPathT, ProductSample, RowTarget,
+    RunContext, RuntimeKind, Sample, TResult,
+};
 use qd_metal::ledger::{self, Provenance};
 use qd_metal::parity_row::{self, ModelFacts, ParityRun};
 use qd_train::tristate::{Coverage, TriState};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
@@ -99,7 +102,8 @@ fn python() -> PathBuf {
 fn python_out(py: &Path, script: &str, path: &Path) -> Output {
     let mut cmd = python_command(py);
     cmd.arg("-c").arg(script).arg(path);
-    output_bounded(&mut cmd, PYTHON_TIMEOUT).unwrap_or_else(|e| panic!("could not run {}: {e}", py.display()))
+    output_bounded(&mut cmd, PYTHON_TIMEOUT)
+        .unwrap_or_else(|e| panic!("could not run {}: {e}", py.display()))
 }
 
 fn scratch_ledger(tag: &str) -> PathBuf {
@@ -146,6 +150,9 @@ fn sample(total: f64, logits: &[f32]) -> Sample {
             commits: 6,
             cold_allocs: 3,
             sync_wait_us: 1200,
+            sync_waits: 4,
+            host_zeros: 2,
+            host_zero_bytes: 8192,
             residency_flushes: 0,
         },
         logits: logits.to_vec(),
@@ -159,7 +166,11 @@ fn decision_row(provenance: Provenance, split_logits: bool) -> qd_train::ledger:
 }
 
 /// One T (512) always runs; `ts` is what the recipe says should have.
-fn decision_row_for_targets(provenance: Provenance, split_logits: bool, ts: Vec<usize>) -> qd_train::ledger::Row {
+fn decision_row_for_targets(
+    provenance: Provenance,
+    split_logits: bool,
+    ts: Vec<usize>,
+) -> qd_train::ledger::Row {
     let args = DecisionArgs {
         ts,
         k: 4,
@@ -218,11 +229,13 @@ fn parity_object(nan: bool) -> String {
         "snapshot_path_logprob_abs": 0.05,
     });
     let prompts: Vec<Value> = (0..20)
-        .map(|i| json!({"id": format!("p{i}"), "tokens": 300, "prefix_tokens": 280,
+        .map(|i| {
+            json!({"id": format!("p{i}"), "tokens": 300, "prefix_tokens": 280,
             "letter_logprob_maxabs_bf16in": 0.01, "letter_logprob_maxabs_fp32": 0.03,
             "argmax_metal": 2, "argmax_fp32": 2, "ref_margin_fp32": 1.5,
             "snapshot_path_maxabs": if nan && i == 3 { Value::Null } else { json!(0.001) },
-            "layers": []}))
+            "layers": []})
+        })
         .collect();
     json!({"kind": "qd-metal-parity", "device": "Apple M5 Pro", "weight_hash": "c".repeat(64),
         "tokenizer_hash": "fe000e3e", "fixtures_manifest_sha256": "d".repeat(64),
@@ -251,20 +264,34 @@ fn decision_and_parity_rows_are_rows_python_verifies() {
         wall_clock_s: 61.0,
         argv: vec!["--fixtures".into(), "/f".into()],
     };
-    let model = ModelFacts { snapshot_name: "b1485b2fa6dfa1287294f269f5fb618e03d52d7c".into(), vocab: 248_320 };
+    let model = ModelFacts {
+        snapshot_name: "b1485b2fa6dfa1287294f269f5fb618e03d52d7c".into(),
+        vocab: 248_320,
+    };
     let p = parity_row::build_row(&run, &prov, &model).unwrap();
-    assert!(p.metrics["parity.gate"].is_fail(), "a NaN must fail the gate whatever it said");
+    assert!(
+        p.metrics["parity.gate"].is_fail(),
+        "a NaN must fail the gate whatever it said"
+    );
     assert!(p.metrics["parity.non_finite_values"].is_fail());
     assert!(p.metrics["parity.worst_snapshot_path"].is_fail());
     let s2 = ledger::write_row(&path, &p).unwrap();
     assert!(s2.prev_row_hash.is_some());
 
     // The same gate without the NaN passes.
-    let clean = ParityRun { raw_line: Some(parity_object(false)), ..run.clone() };
+    let clean = ParityRun {
+        raw_line: Some(parity_object(false)),
+        ..run.clone()
+    };
     let p2 = parity_row::build_row(&clean, &prov, &model).unwrap();
     assert!(p2.metrics["parity.gate"].is_pass());
     // And a gate that could not run is a failed row with the gate not_run, never a pass.
-    let not_run = ParityRun { raw_line: None, exit_code: 2, stderr: "gate NOT RUN: no fixtures".into(), ..run };
+    let not_run = ParityRun {
+        raw_line: None,
+        exit_code: 2,
+        stderr: "gate NOT RUN: no fixtures".into(),
+        ..run
+    };
     let p3 = parity_row::build_row(&not_run, &prov, &model).unwrap();
     assert!(!p3.metrics["parity.gate"].is_pass() && !p3.metrics["parity.gate"].is_fail());
     assert_eq!(p3.status, qd_train::ledger::Status::Failed);
@@ -279,7 +306,10 @@ fn decision_and_parity_rows_are_rows_python_verifies() {
     assert_eq!(rows[3]["status"], "failed");
     for r in rows {
         assert_eq!(r["quick"], true);
-        assert_eq!(r["code_that_ran"], true, "test_ledger_provenance requires it: {r}");
+        assert_eq!(
+            r["code_that_ran"], true,
+            "test_ledger_provenance requires it: {r}"
+        );
     }
     std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
 }
@@ -301,8 +331,15 @@ fn python_refuses_a_row_edited_after_it_was_written() {
         "import sys\nfrom qd_train.ledger import Ledger\nLedger(sys.argv[1]).verify_chain()\n",
         &path,
     );
-    assert!(!out.status.success(), "Python accepted a row whose protocol no longer hashes to its protocol_hash");
-    assert!(String::from_utf8_lossy(&out.stderr).contains("protocol_hash"), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        !out.status.success(),
+        "Python accepted a row whose protocol no longer hashes to its protocol_hash"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("protocol_hash"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
 }
 
@@ -347,7 +384,11 @@ fn samples_that_differ_by_one_bit_are_recorded_as_not_identical() {
     assert!(t.is_fail(), "{t:?}");
     assert_eq!(coverage(t), Some(Coverage { n: 3, n_total: 6 }), "{t:?}");
     // Fail-first (audit 2026-10-03): until then a row whose arms disagreed still said completed.
-    assert_eq!(d.status, qd_train::ledger::Status::Failed, "a non-identical A/B row read as completed");
+    assert_eq!(
+        d.status,
+        qd_train::ledger::Status::Failed,
+        "a non-identical A/B row read as completed"
+    );
 }
 
 #[test]
@@ -355,7 +396,11 @@ fn a_complete_identical_run_is_the_only_completed_row() {
     let prov = Provenance::of(None).unwrap();
     let d = decision_row(prov, false);
     assert_eq!(d.status, qd_train::ledger::Status::Completed);
-    assert!(d.metrics["t_coverage"].is_pass(), "{:?}", d.metrics["t_coverage"]);
+    assert!(
+        d.metrics["t_coverage"].is_pass(),
+        "{:?}",
+        d.metrics["t_coverage"]
+    );
 }
 
 /// Fail-first (audit 2026-10-03): `bench.rs` stops early when tessl moves, and a row built from
@@ -364,7 +409,11 @@ fn a_complete_identical_run_is_the_only_completed_row() {
 fn a_run_cut_short_is_a_capped_sample_not_a_completed_row() {
     let prov = Provenance::of(None).unwrap();
     let d = decision_row_for_targets(prov, false, vec![512, 2048]);
-    assert_eq!(d.status, qd_train::ledger::Status::Failed, "1 of 2 Ts read as a completed row");
+    assert_eq!(
+        d.status,
+        qd_train::ledger::Status::Failed,
+        "1 of 2 Ts read as a completed row"
+    );
     let c = &d.metrics["t_coverage"];
     assert!(c.is_fail(), "{c:?}");
     assert!(d.notes.contains("Only 1 of 2 Ts ran"), "{}", d.notes);
@@ -374,10 +423,15 @@ fn a_run_cut_short_is_a_capped_sample_not_a_completed_row() {
 fn a_row_never_lands_outside_mac_qd_metal() {
     let prov = Provenance::of(None).unwrap();
     let d = decision_row(prov, false);
-    let dir = std::env::temp_dir().join(format!("qdm-ledger-refuse-{}", std::process::id())).join("ledger");
+    let dir = std::env::temp_dir()
+        .join(format!("qdm-ledger-refuse-{}", std::process::id()))
+        .join("ledger");
     std::fs::create_dir_all(&dir).unwrap();
     for name in ["runs.jsonl", "mac-ojas-x.jsonl", "gh200-x.jsonl"] {
-        assert!(ledger::write_row(&dir.join(name), &d).is_err(), "{name} was written");
+        assert!(
+            ledger::write_row(&dir.join(name), &d).is_err(),
+            "{name} was written"
+        );
         assert!(!dir.join(name).exists());
     }
     std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();

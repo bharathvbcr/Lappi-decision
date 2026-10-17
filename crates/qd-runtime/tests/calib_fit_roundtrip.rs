@@ -349,11 +349,10 @@ fn span_lines_with_their_pointer_distributions_fit_the_span_entry_and_a_span_req
     );
     assert!(entry.temperature != 1.0, "span was not fitted");
     assert!(
-        !report["caveats"]
-            .as_array()
+        !report["caveats"].as_array().unwrap().iter().any(|c| c
+            .as_str()
             .unwrap()
-            .iter()
-            .any(|c| c.as_str().unwrap().contains("GAP-CALIB-SPAN")),
+            .contains("GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS")),
         "a fitted span entry is not caveated as unfitted"
     );
     assert_eq!(span["scored"]["n_scored"], json!(300));

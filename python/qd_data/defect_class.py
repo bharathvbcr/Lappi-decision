@@ -72,11 +72,13 @@ import hashlib
 import json
 import re
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import closing
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
+from .caller_records import assert_no_caller_records, jsonl_lines
 from .config import DataConfig
 from .errors import NOUL, LicenceRefused
 from .licences import admit_licence, normalise_licence
@@ -146,6 +148,38 @@ __all__ = [
 
 DEFECT_FAMILY_ID: Final[str] = "code.defect_class"
 DEFECT_SOURCE_ID: Final[str] = "qd-mutate/commitpackft"
+
+#: The own-repos manifest (``qd-prep own-repos``, 2026-10-06) a pool of the human's own files is
+#: tied to, under ``data/pool`` (a tracked ``*.manifest.json``). Its sha256 is pinned here, in code
+#: and in the Arm B pre-registration, not read from the pool's own self-declared manifest: only
+#: its train repositories may be a pool's repos.
+OWN_REPOS_MANIFEST_FILE: Final[str] = "own-repos-2026-10-06.manifest.json"
+OWN_REPOS_MANIFEST_SHA256: Final[str] = (
+    "9fbdd9047a1cc0f1340ab2d6f2fdcae7bbd331dc2879ba67006f716344596854"
+)
+
+#: The pool manifests (``<pool stem>.manifest.json``) the Arm B pre-registration pins, by sha256
+#: (``campaign/v6-arm-b-mining-preregistered.json``, corpus ``own-swift-composed-v1``
+#: ``pool_manifest``). A pool manifest is the pool's own claim, so the loader admits a pool of the
+#: human's own files only when the manifest's bytes are one of these, whatever driver called it.
+OWN_POOL_MANIFEST_SHA256S: Final[frozenset[str]] = frozenset(
+    {"8842700dcd51ebeac9c9d5256925949b763410ec8c60eb830c27f4444adef55d"}
+)
+
+#: The own-repos corpora the Arm B pre-registration pins, mirrored here, by corpus directory name
+#: (the parent of the pre-registered ``path``) -> the sha256 of its ``examples.jsonl``: every
+#: ``own_repos_train`` corpus and its base corpus (``base_corpus``), never a ``superseded_pin``.
+#: The text a row carries (``DefectRow.diff``) is not tied to the pool by anything the corpus says
+#: of itself, so an own-repos corpus is admitted only if its bytes are ones listed here
+#: (:func:`_require_pinned_own_corpus`). Adding one is an amendment to the pre-registration made
+#: before any scoring, then an edit here; ``test_the_pinned_own_corpora_are_the_ones_the_
+#: preregistration_pins`` fails when the two disagree.
+OWN_CORPUS_PINS: Final[Mapping[str, str]] = {
+    "own-swift-composed-v2-prefixed":
+        "d5e9341e7994c274952c1b9ba67775bedf9857b5d8ba023d378e8172e9555e26",
+    "own-swift-corpus-v2":
+        "02cbfdac9d3d359f3d6502779f6ba3829b2d76bd8f1d028c88846c71b909d886",
+}
 
 #: ``MUTATION_CLASSES`` in ``qd_train.mutate_adapter``, which ``test_mutate_adapter.py``
 #: pins against ``crates/qd-mutate/src/ops.rs``. Restated rather than imported for the
@@ -468,42 +502,463 @@ def diff_line_span(diff: bytes, *, start_line: int, end_line: int) -> tuple[int,
     return start, end
 
 
-def _load_licences(download_root: Path) -> dict[str, str]:
-    """``f"{commit}:{new_file}" -> license`` over every file the download manifest pins."""
+def _download_rows(download_root: Path) -> Iterator[tuple[Path, int, dict[str, Any]]]:
+    """``(file, line number, row)`` over every file the download manifest pins, in language
+    order. The manifest must name bigcode/commitpackft and at least one language: a manifest
+    pinning no file would make every join over it vacuously clean, so it refuses."""
     manifest_path = download_root / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("source_id") != "bigcode/commitpackft":
+    if not isinstance(manifest, dict) or manifest.get("source_id") != "bigcode/commitpackft":
+        named = manifest.get("source_id") if isinstance(manifest, dict) else manifest
         raise DefectCorpusError(
-            f"{manifest_path} names source {manifest.get('source_id')!r}, not "
+            f"{manifest_path} names source {named!r}, not "
             "bigcode/commitpackft; its rows are not the licence source this join needs"
         )
-    out: dict[str, str] = {}
-    for lang, meta in sorted(manifest[_DOWNLOAD_LANGUAGES_KEY].items()):
+    languages = manifest.get(_DOWNLOAD_LANGUAGES_KEY)
+    if not isinstance(languages, Mapping) or not languages:
+        raise DefectCorpusError(
+            f"{manifest_path} pins no {_DOWNLOAD_LANGUAGES_KEY!r}: a download manifest that "
+            "names no file proves nothing about the rows it is read for"
+        )
+    for lang, meta in sorted(languages.items()):
         path = download_root / f"{lang}.jsonl"
+        assert_no_caller_records(path)
         _check_sha(path, str(meta["sha256"]), recorded_in=manifest_path)
-        with path.open(encoding="utf-8") as fh:
+        with closing(jsonl_lines(path)) as fh:
             for lineno, line in enumerate(fh, 1):
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                key = f"{obj['commit']}:{obj['new_file']}"
-                licence = obj.get("license")
-                if not isinstance(licence, str) or not licence.strip():
-                    raise DefectCorpusError(f"{path}:{lineno}: {key} carries no license")
-                seen = out.get(key)
-                if seen is not None and seen != licence:
-                    raise DefectCorpusError(
-                        f"{path}:{lineno}: {key} appears with licences {seen!r} and "
-                        f"{licence!r}; which one governs the row cannot be decided"
-                    )
-                out[key] = licence
+                if line.strip():
+                    yield path, lineno, json.loads(line)
+
+
+def _download_content_digests(download_root: Path) -> frozenset[str]:
+    """:func:`_clash_digest` of every ``new_contents`` and ``old_contents`` the download holds
+    (a pool file may equal either side of a commit), the same digest a pool row's source gets,
+    so the two compare under the same loose equality."""
+    out: set[str] = set()
+    for path, lineno, obj in _download_rows(download_root):
+        for field_name in ("new_contents", "old_contents"):
+            contents = obj.get(field_name)
+            if not isinstance(contents, str):
+                raise DefectCorpusError(f"{path}:{lineno}: no {field_name} to digest")
+            digest = _clash_digest(contents)
+            if digest is not None:
+                out.add(digest)
+    return frozenset(out)
+
+
+def _load_licences(download_root: Path) -> dict[str, str]:
+    """``f"{commit}:{new_file}" -> license`` over every file the download manifest pins."""
+    out: dict[str, str] = {}
+    for path, lineno, obj in _download_rows(download_root):
+        key = f"{obj['commit']}:{obj['new_file']}"
+        licence = obj.get("license")
+        if not isinstance(licence, str) or not licence.strip():
+            raise DefectCorpusError(f"{path}:{lineno}: {key} carries no license")
+        seen = out.get(key)
+        if seen is not None and seen != licence:
+            raise DefectCorpusError(
+                f"{path}:{lineno}: {key} appears with licences {seen!r} and "
+                f"{licence!r}; which one governs the row cannot be decided"
+            )
+        out[key] = licence
     return out
+
+
+def _own_repos_pool_manifest(pool_path: Path) -> tuple[dict[str, Any], str] | None:
+    """The pool's own manifest (``<pool stem>.manifest.json``, beside it, as
+    ``commitpackft-pool-v2.manifest.json`` sits beside its pool) and the sha256 of the very bytes
+    it was parsed from (read once, so the hash and the parse cannot see different files), when it
+    names the human's own repositories as the pool's source; ``None`` for every other pool, whose
+    join is unchanged."""
+    from .sources import OWN_REPOS_SOURCE_ID
+
+    path = pool_path.with_name(f"{pool_path.stem}.manifest.json")
+    if not path.is_file():
+        return None
+    try:
+        raw = path.read_bytes()
+        manifest = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError) as e:
+        raise DefectCorpusError(f"{path}: {e}") from e
+    if not isinstance(manifest, dict) or manifest.get("source_id") != OWN_REPOS_SOURCE_ID:
+        return None
+    return manifest, hashlib.sha256(raw).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class _OwnReposAdmission:
+    """What admitting a pool of the human's own files yields: the licence of each pool id, and
+    the digest of each pool id's pristine text (see :func:`_own_pristine_digest`)."""
+
+    licences: dict[str, str]
+    pristine: dict[str, str]
+
+
+def _own_repos_licences(
+    pool: Mapping[str, str],
+    manifest: Mapping[str, Any],
+    *,
+    manifest_sha256: str,
+    pool_path: Path,
+    download_root: Path,
+    config: DataConfig,
+    repo_root: Path,
+) -> _OwnReposAdmission:
+    """``pool id -> licence`` (and pristine digest) for a pool of the human's own repositories.
+
+    The licence is the source's declaration, not a per-row join: the same three checks
+    ``_load_own_prose`` makes (the source is admitted by this run, the manifest's licence is the
+    source's declared one, and that licence is admitted), then every pool id takes it. The
+    pool's manifest must be one of the bytes the pre-registration pins
+    (:data:`OWN_POOL_MANIFEST_SHA256S`), checked here and not by the driver, and the pool file
+    the one it records; the pool's ``files.jsonl`` (repo, path, sha256 per file: the human's
+    strike list) must be the bytes that manifest pinned. That manifest is the pool's own claim,
+    so admission also rests on what the claim cannot forge: the pool's repos must be train
+    repositories of the pinned own-repos manifest, every path a plain repo-relative one, and the
+    pool must equal its files list one to one by content. The commitpackft download gives this
+    corpus no licence; it is read only to prove that no pool file is also in it by content (one
+    corpus is one source), and a check that cannot run refuses. Not checked here: each row's
+    sha256 against the blob at its repo's pinned head (needs the checkouts at ``code_root``).
+    """
+    from qd_train.data_access import assert_path_not_held_out
+
+    from .sources import OWN_REPOS_SOURCE_ID
+
+    source = source_by_id(OWN_REPOS_SOURCE_ID)
+    refusals = source.admission_refusals(config.licence)
+    if refusals:
+        raise DefectCorpusError(
+            f"{OWN_REPOS_SOURCE_ID} is not admitted by this run: {list(refusals)}"
+        )
+    licence = str(manifest.get("licence", ""))
+    if licence != source.declared_licence:
+        raise DefectCorpusError(
+            f"{pool_path}: its manifest's licence {licence!r} is not the source's "
+            f"{source.declared_licence!r}"
+        )
+    admit_licence(licence, config=config.licence, source=OWN_REPOS_SOURCE_ID)
+    # The pool manifest is the pool's own claim: only the bytes the pre-registration pinned are
+    # taken as the human's, and the pool file must be the one that manifest records.
+    manifest_path = pool_path.with_name(f"{pool_path.stem}.manifest.json")
+    if manifest_sha256 not in OWN_POOL_MANIFEST_SHA256S:
+        raise DefectCorpusError(
+            f"{manifest_path} hashes to {manifest_sha256}, which is not a pool manifest the "
+            f"Arm B pre-registration pins {sorted(OWN_POOL_MANIFEST_SHA256S)}: a self-declared "
+            "manifest is not provenance"
+        )
+    pool_pin = manifest.get("pool")
+    if not isinstance(pool_pin, Mapping) or not isinstance(pool_pin.get("sha256"), str):
+        raise DefectCorpusError(f"{manifest_path} records no sha256 for its pool")
+    _check_sha(pool_path, pool_pin["sha256"], recorded_in=manifest_path)
+    files_meta = manifest.get("files")
+    if not isinstance(files_meta, Mapping) or "sha256" not in files_meta:
+        raise DefectCorpusError(
+            f"{pool_path}: its manifest pins no files list; a pool of the human's own files "
+            "must carry the per-file sha256 list the human strikes from"
+        )
+    files_path = pool_path.with_name(f"{pool_path.stem}.files.jsonl")
+    assert_path_not_held_out(files_path, config=config, repo_root=repo_root)
+    if not files_path.is_file():
+        raise DefectCorpusError(f"{files_path} is missing; its pool manifest pins it")
+    _check_sha(files_path, str(files_meta["sha256"]), recorded_in=pool_path)
+    # Provenance. The pool manifest and its files list are the pool's own claims, so they prove
+    # nothing about whose files these are. The pinned own-repos manifest does: every pool repo
+    # must be one of its train repositories (a held-out one, or a third party's, is refused).
+    train = _own_repos_train_slugs(repo_root, config=config)
+    pinned = manifest.get("own_repos_manifest")
+    if not isinstance(pinned, Mapping) or pinned.get("sha256") != OWN_REPOS_MANIFEST_SHA256:
+        raise DefectCorpusError(
+            f"{pool_path}: its manifest does not name the pinned own-repos manifest "
+            f"{OWN_REPOS_MANIFEST_SHA256}"
+        )
+    records = _own_pool_records(pool_path)
+    foreign = sorted({r.repo for r in records} - train)
+    if foreign:
+        raise DefectCorpusError(
+            f"{pool_path}: repo(s) {foreign[:5]} are not a train repository of the pinned "
+            f"own-repos manifest {OWN_REPOS_MANIFEST_SHA256}; a pool is admitted as the human's "
+            "own files only for repositories that manifest lists as train"
+        )
+    # Content tie. The files list is the human's strike list: it must equal the pool one to one,
+    # by (repo, path) and by the sha256 of the bytes, with no duplicate on either side.
+    listed = _own_files_list(files_path)
+    if len(listed) != len(records) or int(files_meta.get("count", -1)) != len(listed):
+        raise DefectCorpusError(
+            f"{files_path}: the files list holds {len(listed)} row(s), the pool {len(records)} "
+            f"and its manifest records {files_meta.get('count')}"
+        )
+    pooled = {(r.repo, r.path): r.sha256 for r in records}
+    if len(pooled) != len(records):
+        raise DefectCorpusError(f"{pool_path}: a (repo, path) appears twice in the pool")
+    if pooled != listed:
+        only_pool = sorted(set(pooled) - set(listed))[:3]
+        only_list = sorted(set(listed) - set(pooled))[:3]
+        differ = sorted(k for k in set(pooled) & set(listed) if pooled[k] != listed[k])[:3]
+        raise DefectCorpusError(
+            f"{files_path}: the files list is not the pool's rows by content; in the pool only "
+            f"{only_pool}, in the list only {only_list}, sha256 differs for {differ}"
+        )
+    # One corpus is one source: prove no pool file is also a commitpackft file. Pool ids
+    # (``own-swift:<repo>:<path>``) and download keys (``<commit>:<new_file>``) are different key
+    # spaces and can never meet, so the comparison is by content: :func:`_clash_digest` of a pool
+    # file's source against that of every download ``new_contents`` and ``old_contents``. A check
+    # that cannot run is not a pass, so an absent, empty or unreadable download refuses.
+    try:
+        in_download = _download_content_digests(download_root)
+    except (OSError, ValueError, KeyError, DefectCorpusError) as e:
+        raise DefectCorpusError(
+            f"the commitpackft download clash check could not run ({e}); a pool of the human's "
+            "own files is admitted only once no pool file is also a commitpackft file"
+        ) from e
+    clash = sorted(f"{r.repo}:{r.path}" for r in records if r.clash_sha256 in in_download)
+    if clash:
+        raise DefectCorpusError(
+            f"{len(clash)} pool file(s) of {pool_path} are also in the commitpackft download by "
+            f"content, first five {clash[:5]}: one corpus is one source, and a file with two "
+            "licence sources has no licence that governs it"
+        )
+    pristine = {r.id: r.pristine_sha256 for r in records}
+    if set(pristine) != set(pool):
+        raise DefectCorpusError(f"{pool_path}: its pool ids are not the ids its records carry")
+    return _OwnReposAdmission(licences=dict.fromkeys(pool, licence), pristine=pristine)
+
+
+def _own_repos_train_slugs(repo_root: Path, *, config: DataConfig) -> frozenset[str]:
+    """The slugs of the train repositories of the pinned own-repos manifest."""
+    from qd_train.data_access import assert_path_not_held_out
+
+    path = repo_root / "data" / "pool" / OWN_REPOS_MANIFEST_FILE
+    assert_path_not_held_out(path, config=config, repo_root=repo_root)
+    if not path.is_file():
+        raise DefectCorpusError(
+            f"the own-repos manifest {path} is missing: a pool of the human's own files cannot "
+            "be tied to the repositories the human admitted"
+        )
+    raw = path.read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != OWN_REPOS_MANIFEST_SHA256:
+        raise DefectCorpusError(
+            f"the own-repos manifest {path} hashes to {actual}, not the pinned "
+            f"{OWN_REPOS_MANIFEST_SHA256}"
+        )
+    try:
+        admitted = json.loads(raw)["admitted"]
+        train = frozenset(str(a["slug"]) for a in admitted if a.get("split") == "train")
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        raise DefectCorpusError(f"the own-repos manifest {path} has no admitted list: {e}") from e
+    if not train:
+        raise DefectCorpusError(f"the own-repos manifest {path} admits no train repository")
+    return train
+
+
+class _OwnPoolRecord(NamedTuple):
+    id: str
+    repo: str
+    path: str
+    #: sha256 of the source's UTF-8 bytes: what the files list pins.
+    sha256: str
+    #: sha256 of the source as qd-mutate's ``normalize::normalize`` leaves it.
+    pristine_sha256: str
+    #: :func:`_clash_digest` of the source; ``None`` when it normalises to nothing.
+    clash_sha256: str | None
+
+
+def _own_pristine_text(raw: str) -> str:
+    """``crates/qd-mutate/src/normalize.rs::normalize``: strip one leading UTF-8 BOM, then turn
+    every CRLF and every lone CR into LF. Nothing else. qd-mutate runs a pool record's ``source``
+    through it before it mutates, so an example's ``before`` (and, for ``clean``, ``after``) is
+    this text, not the raw bytes."""
+    body = raw[1:] if raw.startswith("﻿") else raw
+    return body.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _clash_digest(text: str) -> str | None:
+    """sha256 of ``text`` under a deliberately loose equality, for the one-corpus-is-one-source
+    check: a BOM, the line-ending style, a final newline or its absence, and the whitespace
+    within and around a line (tabs against spaces, indentation, trailing blanks) do not make two
+    files different. A pool file and a download file that differ only in those are the same file
+    for licence purposes. ``None`` when nothing but whitespace is left, which is every empty
+    file and says nothing about provenance."""
+    lines = [" ".join(line.split()) for line in _own_pristine_text(text).split("\n")]
+    while lines and not lines[-1]:
+        lines.pop()
+    if not lines:
+        return None
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _own_pool_records(pool_path: Path) -> list[_OwnPoolRecord]:
+    """One :class:`_OwnPoolRecord` per pool record, in file order."""
+    out: list[_OwnPoolRecord] = []
+    with closing(jsonl_lines(pool_path)) as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            obj = json.loads(line)
+            source = obj["source"]
+            if not isinstance(source, str):
+                raise DefectCorpusError(f"{pool_path}: a pool record's source is not text")
+            out.append(
+                _OwnPoolRecord(
+                    id=str(obj["id"]),
+                    repo=str(obj["repo"]),
+                    path=_own_relative_path(obj["path"], where=str(pool_path)),
+                    sha256=hashlib.sha256(source.encode("utf-8")).hexdigest(),
+                    pristine_sha256=hashlib.sha256(
+                        _own_pristine_text(source).encode("utf-8")
+                    ).hexdigest(),
+                    clash_sha256=_clash_digest(source),
+                )
+            )
+    return out
+
+
+def _own_relative_path(path: object, *, where: str) -> str:
+    """``path`` if it is a plain repo-relative POSIX path, else a refusal.
+
+    A pool row's path is joined to a repository by the strike list and by the pinned-tree walk
+    that produced it, so it must name a file inside that repository: text, not empty, no NUL
+    byte, no backslash separator, and every ``/``-separated segment a real name. A segment that
+    is empty (``a//b``, a trailing or leading ``/``, so also an absolute path), ``.`` or ``..``
+    refuses, and so does one that is only those once whitespace is stripped (``' ..'``), so no
+    two spellings of one path pass as two. Lookalike Unicode (U+FF0E and the like) is an opaque
+    name here and is not refused.
+    """
+    if not isinstance(path, str) or not path:
+        raise DefectCorpusError(f"{where}: unsafe path {path!r}: not a non-empty string")
+    if "\x00" in path or "\\" in path or any(
+        seg.strip() in ("", ".", "..") for seg in path.split("/")
+    ):
+        raise DefectCorpusError(
+            f"{where}: unsafe path {path!r}: absolute, NUL, backslash, or an empty, '.' or "
+            "'..' segment"
+        )
+    return path
+
+
+def _own_files_list(files_path: Path) -> dict[tuple[str, str], str]:
+    """``(repo, path) -> sha256`` from a pool's ``files.jsonl``; a duplicate refuses."""
+    out: dict[tuple[str, str], str] = {}
+    with closing(jsonl_lines(files_path)) as fh:
+        for lineno, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            obj = json.loads(line)
+            rel = _own_relative_path(obj["path"], where=f"{files_path}:{lineno}")
+            key = (str(obj["repo"]), rel)
+            if key in out:
+                raise DefectCorpusError(
+                    f"{files_path}:{lineno}: {key} appears twice in the files list"
+                )
+            out[key] = str(obj["sha256"])
+    return out
+
+
+def _own_example_content_violation(obj: Mapping[str, Any], *, pristine: str) -> str | None:
+    """Why an example of an own-repos pool does not carry its pool record's bytes, or ``None``.
+
+    Admission as the human's own files is a statement about the text the model reads, so that
+    text must be the pool's. ``crates/qd-mutate/src/generate.rs`` builds an example from one pool
+    record: ``source`` is normalised (BOM, CRLF), the mutated text is ``after``, and ``before``
+    is the normalised pre-image when the pool carries one and otherwise the normalised source
+    (``before: prior.to_string()``, ``prior = normalized_prior.unwrap_or(source)``). An own-repos
+    pool carries no pre-image (``prior_source`` absent, pool manifest ``record_shape``), so
+    ``before`` is the normalised source for every example, and for ``clean`` (``after: source``)
+    ``after`` is too. Both must hash to ``pristine``. A composed row has no ``before``/``after``:
+    its text is its constituents' diff, which this check cannot reach (a residual).
+    """
+    if obj.get("composed") is True:
+        return None
+    sides = ["before", "after"] if obj.get("class") == "clean" else ["before"]
+    for side in sides:
+        text = obj.get(side)
+        if not isinstance(text, str):
+            return f"{obj.get('id')}: no {side} text to tie to its pool record"
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != pristine:
+            return (
+                f"{obj.get('id')}: its {side} text is not its pool record's source: a pool "
+                "of the human's own files is admitted only for rows that carry those bytes"
+            )
+    return None
+
+
+def _require_pinned_own_corpus(
+    examples_path: Path, manifest: Mapping[str, Any], *, repo_root: Path, config: DataConfig
+) -> None:
+    """Refuse an own-repos corpus whose bytes the pre-registration does not pin.
+
+    Called once the corpus's pool is known to be an own-repos pool and after
+    ``manifest["examples_sha256"]`` was checked against ``examples_path``, so the sha judged here
+    is the file's. Admitted: an empty file (zero rows is zero text); a file whose sha is one of
+    :data:`OWN_CORPUS_PINS`; a materialised subset (``qd-arm-b-mine materialise``), whose
+    ``selected_by_plan.source_examples_sha256`` is the pin of the corpus directory it is named
+    after, and in which every non-empty line is, byte for byte, a line of that pinned source (read
+    from ``repo_root/data/pool/<name>/examples.jsonl``, hashed first) and the number of lines is
+    what the manifest says was kept. Anything else, including a source that cannot be read or does
+    not hash to its pin, is refused: a proof that could not run is not a proof.
+    """
+    from qd_train.data_access import assert_path_not_held_out
+
+    sha = str(manifest.get("examples_sha256"))
+    if examples_path.stat().st_size == 0 or sha in OWN_CORPUS_PINS.values():
+        return
+    selected = manifest.get("selected_by_plan")
+    if not isinstance(selected, Mapping):
+        raise DefectCorpusError(
+            f"{examples_path} hashes to {sha}, which is not an own-repos corpus the Arm B "
+            f"pre-registration pins (OWN_CORPUS_PINS {sorted(OWN_CORPUS_PINS.values())}): a "
+            "self-declared corpus is not provenance; register it by amendment"
+        )
+    # The source is found by its pinned sha, not by this directory's name: `materialise` names its
+    # output after the corpus (`own-swift-composed-v2`), the pinned directory is the pre-registered
+    # path's parent (`own-swift-composed-v2-prefixed`).
+    pin = selected.get("source_examples_sha256")
+    names = sorted(k for k, v in OWN_CORPUS_PINS.items() if v == pin)
+    if not names:
+        raise DefectCorpusError(
+            f"{examples_path} is a materialised subset of source {pin!r}, which is not an "
+            f"OWN_CORPUS_PINS entry {sorted(OWN_CORPUS_PINS.values())}: a self-declared corpus is "
+            "not provenance; register it by amendment"
+        )
+    name = names[0]
+    source = repo_root / "data" / "pool" / name / "examples.jsonl"
+    assert_path_not_held_out(source, config=config, repo_root=repo_root)
+    try:
+        assert_no_caller_records(source)
+        source_sha = sha256_file(source)
+        if source_sha != pin:
+            raise DefectCorpusError(f"{source} hashes to {source_sha}, not the pinned {pin}")
+        wanted = {raw for raw in examples_path.read_bytes().split(b"\n") if raw.strip()}
+        found: set[bytes] = set()
+        with source.open("rb") as fh:
+            for raw in fh:
+                raw = raw.removesuffix(b"\n")
+                if raw in wanted:
+                    found.add(raw)
+    except (OSError, ValueError) as e:
+        raise DefectCorpusError(
+            f"{examples_path}: it could not be proved against the pinned corpus {source}: {e}"
+        ) from e
+    if found != wanted:
+        raise DefectCorpusError(
+            f"{examples_path}: {len(wanted - found)} line(s) are not a line of the pinned corpus "
+            f"{name!r} ({pin}): a materialised row must be a registered row, byte for byte"
+        )
+    n_lines = sum(1 for raw in examples_path.read_bytes().split(b"\n") if raw.strip())
+    totals = manifest.get("totals")
+    n_total = totals.get("examples") if isinstance(totals, Mapping) else None
+    if not (n_lines == selected.get("kept") == n_total):
+        raise DefectCorpusError(
+            f"{examples_path} holds {n_lines} line(s), the manifest kept "
+            f"{selected.get('kept')} and totals {n_total}: they must agree"
+        )
 
 
 def _load_pool_ids(pool_path: Path) -> dict[str, str]:
     """``pool id -> repo``. The repo is kept to cross-check the example's own claim."""
+    assert_no_caller_records(pool_path)
     out: dict[str, str] = {}
-    with pool_path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(pool_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -708,6 +1163,7 @@ def load_defect_rows(
     manifest_path = corpus_dir / "manifest.json"
     for p in (examples_path, manifest_path, download_root):
         assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
+    assert_no_caller_records(examples_path)
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     base: DefectLoad | None = None
@@ -734,13 +1190,25 @@ def load_defect_rows(
             f"{pool_path} holds {len(pool)} pool ids, {manifest_path} records "
             f"{pool_meta['records']}"
         )
-    licences = _load_licences(Path(download_root))
+    own_pool = _own_repos_pool_manifest(pool_path)
+    pristine: dict[str, str] | None = None
+    if own_pool is not None:
+        admission = _own_repos_licences(
+            pool, own_pool[0], manifest_sha256=own_pool[1], pool_path=pool_path,
+            download_root=Path(download_root), config=config, repo_root=Path(repo_root),
+        )
+        licences, pristine = admission.licences, admission.pristine
+        _require_pinned_own_corpus(
+            examples_path, manifest, repo_root=Path(repo_root), config=config
+        )
+    else:
+        licences = _load_licences(Path(download_root))
 
     raw: list[tuple[str, dict[str, Any]]] = []
     unresolved_pool: list[str] = []
     unresolved_licence: list[str] = []
     repo_mismatch: list[str] = []
-    with examples_path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(examples_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -763,6 +1231,10 @@ def load_defect_rows(
             if pid not in licences:
                 unresolved_licence.append(f"{lineno}:{pid}")
                 continue
+            if pristine is not None:
+                stale = _own_example_content_violation(obj, pristine=pristine[pid])
+                if stale is not None:
+                    raise DefectCorpusError(f"{examples_path}:{lineno}: {stale}")
             raw.append((str(obj.get("id")), obj))
     for what, bad in (
         ("pool_id that is not a pool id", unresolved_pool),
@@ -826,6 +1298,7 @@ def load_defect_rows(
         noul = _load_noul_corpus(
             Path(noul_dir), config=config, repo_root=Path(repo_root), licences=licences,
             pools={str(pool_meta["sha256"]): pool},
+            own_pool_path=pool_path if own_pool is not None else None,
         )
         rows.extend(noul.rows)
     ids = Counter(r.example_id for r in rows)
@@ -982,13 +1455,18 @@ def _load_noul(
     repo_root: Path,
     licences: Mapping[str, str],
     pools: dict[str, dict[str, str]],
+    own_pool_path: Path | None = None,
 ) -> NoulLoad:
+    """``own_pool_path`` is the own-repos pool the caller admitted, when ``licences`` derive from
+    it (``load_defect_rows`` knows; the noul manifest's own claim about its pool is never used to
+    decide it). Then the corpus must name that very pool and be one the pre-registration pins."""
     from qd_train.data_access import assert_path_not_held_out
 
     examples_path = noul_dir / "examples.jsonl"
     manifest_path = noul_dir / "manifest.json"
     for p in (examples_path, manifest_path):
         assert_path_not_held_out(p, config=config, repo_root=repo_root)
+    assert_no_caller_records(examples_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for key in ("examples_sha256", "pool", "split", "totals"):
         if key not in manifest:
@@ -1013,6 +1491,16 @@ def _load_noul(
     if pool is None:
         _check_sha(pool_path, pool_sha, recorded_in=manifest_path)
         pool = _load_pool_ids(pool_path)
+    if own_pool_path is not None and pool_path != own_pool_path:
+        raise DefectCorpusError(
+            f"{manifest_path} names pool {pool_path}, not the own-repos pool {own_pool_path} "
+            "this run's licences derive from: its rows would be licensed by a pool they were "
+            "not drawn from"
+        )
+    if own_pool_path is not None or _own_repos_pool_manifest(pool_path) is not None:
+        # A noul row over an own pool is trained text claimed as the human's (it is licensed from
+        # the pool), so the corpus must be one the pre-registration pins, as any own corpus.
+        _require_pinned_own_corpus(examples_path, manifest, repo_root=repo_root, config=config)
     if len(pool) != int(pool_meta["records"]):
         raise DefectCorpusError(
             f"{pool_path} holds {len(pool)} pool ids, {manifest_path} records "
@@ -1022,7 +1510,7 @@ def _load_noul(
     rows: list[DefectRow] = []
     bad: Counter[str] = Counter()
     first_bad: list[str] = []
-    with examples_path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(examples_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -1119,8 +1607,9 @@ def own_prose_ascii_ratio(text: str) -> float:
 
 
 def _json_lines(path: Path, *, config: DataConfig, limit: int) -> list[dict[str, Any]]:
+    assert_no_caller_records(path)
     out: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -1384,6 +1873,7 @@ def _load_g6(part_dir: Path, *, config: DataConfig, repo_root: Path) -> NoulLoad
     examples_path = part_dir / "examples.jsonl"
     for p in (manifest_path, examples_path):
         assert_path_not_held_out(p, config=config, repo_root=repo_root)
+    assert_no_caller_records(examples_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema") != G6_SCHEMA:
         raise DefectCorpusError(
@@ -1476,6 +1966,7 @@ def _load_composite(
     repo_root: Path,
     licences: Mapping[str, str],
     pools: dict[str, dict[str, str]],
+    own_pool_path: Path | None = None,
 ) -> NoulLoad:
     """A :data:`NOUL_COMPOSITE_SCHEMA` corpus: each part, a sibling directory of ``noul_dir``,
     is checked against the manifest's and data file's sha256 the composite pins, loaded by its
@@ -1505,7 +1996,8 @@ def _load_composite(
             load = _load_g6(part_dir, config=config, repo_root=repo_root)
         else:
             load = _load_noul(
-                part_dir, config=config, repo_root=repo_root, licences=licences, pools=pools
+                part_dir, config=config, repo_root=repo_root, licences=licences, pools=pools,
+                own_pool_path=own_pool_path,
             )
         if len(load.rows) != int(part["rows"]):
             raise DefectCorpusError(
@@ -1534,6 +2026,7 @@ def _load_noul_corpus(
     repo_root: Path,
     licences: Mapping[str, str],
     pools: dict[str, dict[str, str]],
+    own_pool_path: Path | None = None,
 ) -> NoulLoad:
     """A ``qd-noul-rows`` corpus, or a composite of them (v5's defect-noul-v3c)."""
     from qd_train.data_access import assert_path_not_held_out
@@ -1549,8 +2042,12 @@ def _load_noul_corpus(
             repo_root=repo_root,
             licences=licences,
             pools=pools,
+            own_pool_path=own_pool_path,
         )
-    return _load_noul(noul_dir, config=config, repo_root=repo_root, licences=licences, pools=pools)
+    return _load_noul(
+        noul_dir, config=config, repo_root=repo_root, licences=licences, pools=pools,
+        own_pool_path=own_pool_path,
+    )
 
 
 def noul_contrast_spec(noul_dir: Path) -> ContrastSpec | None:
@@ -1632,9 +2129,10 @@ def noul_allowlist(
 
     for p in (squad, pool, download_root):
         assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
+    assert_no_caller_records(squad)
 
     titles: set[str] = set()
-    with Path(squad).open(encoding="utf-8") as fh:
+    with closing(jsonl_lines(Path(squad))) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -1754,6 +2252,7 @@ def noul_v5_allowlist(
     for lang in G6_LANGUAGES:
         path = Path(g6_root) / lang / "data.jsonl"
         assert_path_not_held_out(path, config=config, repo_root=Path(repo_root))
+        assert_no_caller_records(path)
         sha = sha256_file(path)
         if sha != g6_pins[lang]:
             raise DefectCorpusError(
@@ -1763,7 +2262,7 @@ def noul_v5_allowlist(
         before: Counter[str] = Counter()
         excluded: Counter[str] = Counter()
         admitted: list[list[Any]] = []
-        with path.open(encoding="utf-8") as fh:
+        with closing(jsonl_lines(path)) as fh:
             for lineno, line in enumerate(fh, 1):
                 if not line.strip():
                     continue

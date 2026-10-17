@@ -423,8 +423,16 @@ fn run_bounded(
         let _ = h.join();
     }
 
-    let stdout_bytes = rx_out.try_recv().ok().and_then(Result::ok).unwrap_or_default();
-    let stderr_bytes = rx_err.try_recv().ok().and_then(Result::ok).unwrap_or_default();
+    let stdout_bytes = rx_out
+        .try_recv()
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
+    let stderr_bytes = rx_err
+        .try_recv()
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
 
     let status = status?;
     if !status.success() {
@@ -443,7 +451,7 @@ fn run_bounded(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{for_id, LangId};
+    use crate::lang::{LangId, for_id};
 
     #[test]
     fn a_missing_program_resolves_to_not_found_not_to_a_panic() {
@@ -491,8 +499,8 @@ mod tests {
 
     #[test]
     fn stdin_reaches_the_child_and_stdout_comes_back() {
-        let out = run_bounded("/bin/cat", &[], b"hello\n", Duration::from_secs(5))
-            .expect("cat runs");
+        let out =
+            run_bounded("/bin/cat", &[], b"hello\n", Duration::from_secs(5)).expect("cat runs");
         assert_eq!(out.stdout, "hello\n");
     }
 
@@ -551,12 +559,14 @@ mod tests {
                  {other:?}"
             ),
         }
-        assert!(!Availability::Unusable {
-            program: "false".to_string(),
-            path: "/usr/bin/false".to_string(),
-            detail: "exit 1".to_string(),
-        }
-        .is_usable());
+        assert!(
+            !Availability::Unusable {
+                program: "false".to_string(),
+                path: "/usr/bin/false".to_string(),
+                detail: "exit 1".to_string(),
+            }
+            .is_usable()
+        );
     }
 
     #[test]
@@ -632,7 +642,10 @@ mod tests {
         // operator set would shrink for no reason.
         let spec = Formatter {
             program: "/bin/sh",
-            args: &["-c", "cat; echo 'note: using cached config; 3 files scanned' 1>&2"],
+            args: &[
+                "-c",
+                "cat; echo 'note: using cached config; 3 files scanned' 1>&2",
+            ],
             via_xcrun: false,
         };
         match resolve_spec(&spec, "x = 1\n") {

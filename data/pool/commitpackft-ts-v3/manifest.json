@@ -1,0 +1,335 @@
+{
+  "tool_version": "0.1.0",
+  "seed": 0,
+  "seed_derivation": "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || record.id))",
+  "pool": {
+    "path": "data/pool/commitpackft-pool-v2.jsonl",
+    "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2",
+    "records": 61193,
+    "by_language": {
+      "go": 4502,
+      "python": 48722,
+      "rust": 2694,
+      "typescript": 5145,
+      "unrecognised": 130
+    }
+  },
+  "examples_sha256": "96b048cfeae79062d8429703565ca81bddb95a5ecef4f03e21071493d8df5b07",
+  "totals": {
+    "examples": 2161,
+    "mutated": 1691,
+    "clean": 470,
+    "silent_stubs": 350,
+    "span_disagreements": 2,
+    "outside_hunk": 2511,
+    "examples_without_hunk_constraint": 0,
+    "mutation_did_not_parse": 1
+  },
+  "diff": {
+    "renderer": "multi_hunk",
+    "context": 3,
+    "hunks_per_diff": {
+      "1": 1638,
+      "2": 434,
+      "3": 76,
+      "4": 11,
+      "5": 2
+    },
+    "hunks_per_diff_by_class": {
+      "clean": {
+        "1": 356,
+        "2": 98,
+        "3": 15,
+        "4": 1
+      },
+      "cosmetic": {
+        "1": 115,
+        "2": 30,
+        "3": 6
+      },
+      "logic": {
+        "1": 185,
+        "2": 75,
+        "3": 13
+      },
+      "stub": {
+        "1": 982,
+        "2": 231,
+        "3": 42,
+        "4": 10,
+        "5": 2
+      }
+    },
+    "mutated_without_prior": 0,
+    "clean_without_prior": 0
+  },
+  "languages": [
+    {
+      "language": "rust",
+      "formatter": {
+        "state": "found",
+        "program": "rustfmt",
+        "path": "/Users/bharath/.cargo/bin/rustfmt"
+      },
+      "restricted_operators": {},
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "go",
+      "formatter": {
+        "state": "found",
+        "program": "gofmt",
+        "path": "/opt/homebrew/bin/gofmt"
+      },
+      "restricted_operators": {
+        "cosmetic.wrap_line": "go terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "python",
+      "formatter": {
+        "state": "unusable",
+        "program": "black",
+        "path": "/Users/bharath/.local/bin/black",
+        "detail": "ran on the smoke input, exited zero and formatted it correctly, but announced that its own equivalence check did not run: Warning: Python 3.14 cannot parse code formatted for Python 3.15. To fix this: run Black with Python 3.15, set --target-version to py314, or use --fast to skip the safety check. Black's safety check verifies equivalence by parsing the AST, which fails when the running Python is older than the target version.. `cosmetic` claims a formatter verified the rewrite preserves behaviour, and this one says it did not verify anything, so it is not a formatter this run can make that claim with"
+      },
+      "restricted_operators": {
+        "cosmetic.reformat": "no usable formatter for python on this machine (unusable)",
+        "cosmetic.reorder_imports": "Python imports execute in order; a circular-import workaround depends on it",
+        "cosmetic.wrap_line": "python terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "typescript",
+      "formatter": {
+        "state": "not_found",
+        "program": "prettier",
+        "detail": "not on PATH"
+      },
+      "restricted_operators": {
+        "cosmetic.reformat": "no usable formatter for typescript on this machine (not_found)",
+        "cosmetic.reorder_imports": "an ES module is evaluated when it is imported, in source order; a check confined to one file cannot rule out an interaction between two module bodies",
+        "cosmetic.wrap_line": "typescript terminates statements at line ends"
+      },
+      "files_seen": 5145,
+      "files_refused": 2831,
+      "bodies_seen": 5837,
+      "bodies_nested": 141,
+      "examples": 2161,
+      "operators": {
+        "cosmetic.edit_comment": {
+          "sites_found": 3317,
+          "emitted": 28,
+          "refused": {
+            "outside_hunk": 71
+          },
+          "declined": {
+            "over_candidate_cap": 23
+          }
+        },
+        "cosmetic.reformat": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "no_formatter": 4654
+          },
+          "declined": {}
+        },
+        "cosmetic.rename_local": {
+          "sites_found": 13612,
+          "emitted": 123,
+          "refused": {
+            "needle_split_across_hunks": 7,
+            "outside_hunk": 98
+          },
+          "declined": {
+            "over_candidate_cap": 74
+          }
+        },
+        "cosmetic.reorder_imports": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "cosmetic_not_preserving": 2799
+          },
+          "declined": {}
+        },
+        "cosmetic.wrap_line": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "cosmetic_not_preserving": 4654
+          },
+          "declined": {}
+        },
+        "logic.change_constant": {
+          "sites_found": 4380,
+          "emitted": 107,
+          "refused": {
+            "outside_hunk": 208
+          },
+          "declined": {
+            "over_candidate_cap": 11
+          }
+        },
+        "logic.drop_await_or_lock": {
+          "sites_found": 410,
+          "emitted": 29,
+          "refused": {
+            "outside_hunk": 45
+          },
+          "declined": {}
+        },
+        "logic.drop_else": {
+          "sites_found": 314,
+          "emitted": 17,
+          "refused": {
+            "outside_hunk": 37
+          },
+          "declined": {}
+        },
+        "logic.negate_condition": {
+          "sites_found": 1147,
+          "emitted": 98,
+          "refused": {
+            "outside_hunk": 172
+          },
+          "declined": {}
+        },
+        "logic.off_by_one": {
+          "sites_found": 324,
+          "emitted": 5,
+          "refused": {
+            "outside_hunk": 17
+          },
+          "declined": {}
+        },
+        "logic.swallow_error": {
+          "sites_found": 7,
+          "emitted": 1,
+          "refused": {
+            "outside_hunk": 1
+          },
+          "declined": {}
+        },
+        "logic.swap_args": {
+          "sites_found": 59,
+          "emitted": 3,
+          "refused": {
+            "outside_hunk": 11
+          },
+          "declined": {}
+        },
+        "logic.widen_comparison": {
+          "sites_found": 263,
+          "emitted": 13,
+          "refused": {
+            "outside_hunk": 20
+          },
+          "declined": {}
+        },
+        "stub.default_return": {
+          "sites_found": 1132,
+          "emitted": 192,
+          "refused": {
+            "outside_hunk": 236,
+            "precondition_unmet": 3515
+          },
+          "declined": {}
+        },
+        "stub.early_return": {
+          "sites_found": 1133,
+          "emitted": 140,
+          "refused": {
+            "needle_not_in_diff": 6,
+            "outside_hunk": 315,
+            "precondition_unmet": 3521,
+            "span_disagreement": 2
+          },
+          "declined": {}
+        },
+        "stub.hardcoded": {
+          "sites_found": 416,
+          "emitted": 18,
+          "refused": {
+            "outside_hunk": 23,
+            "precondition_unmet": 4452
+          },
+          "declined": {}
+        },
+        "stub.panic": {
+          "sites_found": 8436,
+          "emitted": 917,
+          "refused": {
+            "mutation_did_not_parse": 1,
+            "outside_hunk": 1257,
+            "precondition_unmet": 436
+          },
+          "declined": {}
+        }
+      },
+      "refusals": {
+        "cosmetic_not_preserving": 7453,
+        "mutation_did_not_parse": 1,
+        "needle_not_in_diff": 6,
+        "needle_split_across_hunks": 7,
+        "no_formatter": 4654,
+        "no_function_body": 1913,
+        "outside_hunk": 2511,
+        "parse_errors": 918,
+        "precondition_unmet": 11924,
+        "span_disagreement": 2
+      }
+    },
+    {
+      "language": "swift",
+      "formatter": {
+        "state": "found",
+        "program": "swift-format",
+        "path": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-format"
+      },
+      "restricted_operators": {
+        "cosmetic.wrap_line": "swift terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    }
+  ],
+  "refusals": {
+    "cosmetic_not_preserving": 7453,
+    "mutation_did_not_parse": 1,
+    "needle_not_in_diff": 6,
+    "needle_split_across_hunks": 7,
+    "no_formatter": 4654,
+    "no_function_body": 1913,
+    "outside_hunk": 2511,
+    "parse_errors": 918,
+    "precondition_unmet": 11924,
+    "span_disagreement": 2
+  }
+}

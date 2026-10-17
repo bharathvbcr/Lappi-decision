@@ -500,7 +500,25 @@ _V6_DECISION_SOURCES: Final[tuple[Source, ...]] = (
             ("lappi/synth-email", "crates/qd-prep/src/synth_email.rs"),
             ("lappi/synth-jarvis", "crates/qd-prep/src/synth_jarvis.rs"),
             ("lappi/synth-tools", "crates/qd-prep/src/synth_tools.rs"),
+            # devtype.route, by rule from DevType's own date grammar (ruling 2i, 2026-10-12).
+            ("lappi/synth-route", "crates/qd-prep/src/synth_tools.rs"),
         )
+    ),
+    Source(
+        source_id="lappi/own-commits",
+        host="local",
+        declared_licence="owner-granted",
+        reachability=Reachability.LOADABLE,
+        per_row_licence_field=False,
+        evidence=(
+            "the human's own repositories' commit history (own-repo commit data admitted "
+            "2026-09-28, docs/train-plan-2026-09-28.md), read by `qd-prep commit-type` from the "
+            "train repositories of a `qd-prep own-repos` manifest at their pinned heads; the "
+            "context is each commit's unified diff, the gold its conventional-commit prefix. "
+            "GitPulse is the held-out eval of the family and is refused as a producer. No "
+            "caller record is read"
+        ),
+        pinned_splits=_DECISION_POOL_SPLITS,
     ),
 )
 
@@ -797,6 +815,13 @@ DECISION_FAMILIES: Final[tuple[tuple[str, str, str], ...]] = (
      "What does the policy require before this step runs?"),
     ("apps.tool_select", "lappi/synth-tools",
      "What should the assistant do next, as the question above asks?"),
+    # The two caller families (docs/caller-contract.md section 4): the description IS the
+    # request's question, byte for byte what the app sends, and the rows' context is the app's
+    # context with nothing in front (qd_prep::decisions::BARE_CONTEXT_FAMILIES).
+    ("gitpulse.commit_type", "lappi/own-commits",
+     "Which conventional commit type describes this staged change?"),
+    ("devtype.route", "lappi/synth-route",
+     "Which DevType tool should answer this palette query?"),
 )
 
 #: The decision families deduplicated by exact content alone and kept out of the MinHash

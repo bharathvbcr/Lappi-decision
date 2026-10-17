@@ -591,6 +591,7 @@ version = "0.1.0"
 dependencies = [
  "ojas-core",
  "ojas-cpu",
+ "ojas-kernels",
 ]
 
 [[package]]
@@ -610,6 +611,8 @@ name = "ojas-data"
 version = "0.1.0"
 dependencies = [
  "ojas-core",
+ "ojas-io",
+ "ojas-kernels",
 ]
 
 [[package]]
@@ -622,6 +625,13 @@ dependencies = [
 
 [[package]]
 name = "ojas-io"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+]
+
+[[package]]
+name = "ojas-kernels"
 version = "0.1.0"
 dependencies = [
  "ojas-core",
@@ -749,6 +759,7 @@ name = "qd-metal"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "qd-export",
  "qd-runtime",
  "qd-train",
  "serde_json",
@@ -763,6 +774,7 @@ dependencies = [
  "anyhow",
  "clap",
  "qd-lang",
+ "qd-prep",
  "rand",
  "rand_chacha",
  "serde",
@@ -795,6 +807,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "qd-lang",
+ "qd-runtime",
  "serde_json",
 ]
 
@@ -829,6 +842,7 @@ dependencies = [
  "ojas-core",
  "ojas-qwen35",
  "qd-export",
+ "qd-preflight",
  "qd-train",
  "serde_json",
 ]

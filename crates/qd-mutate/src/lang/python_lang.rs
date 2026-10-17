@@ -181,8 +181,8 @@ impl Language for Python {
                 return;
             }
             let only = stmts[0];
-            let is_bare_raise = only.kind() == "raise_statement"
-                && text(only, body.src).trim() == "raise";
+            let is_bare_raise =
+                only.kind() == "raise_statement" && text(only, body.src).trim() == "raise";
             if !is_bare_raise {
                 return;
             }
@@ -454,7 +454,10 @@ mod tests {
     #[test]
     fn an_unannotated_return_type_is_unknown_not_none() {
         assert_eq!(Python.default_return(None), None);
-        assert_eq!(Python.default_return(Some("int")).as_deref(), Some("return 0"));
+        assert_eq!(
+            Python.default_return(Some("int")).as_deref(),
+            Some("return 0")
+        );
         assert_eq!(
             Python.default_return(Some("List[int]")).as_deref(),
             Some("return []")

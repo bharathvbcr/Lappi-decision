@@ -1,0 +1,12 @@
+{
+  "name": "stress-s8-email-second-run",
+  "recorded": "2026-10-12, before the run. Card ft-b5110a5c0ed. Written down first: the label, the profile, the size, the bounds and the criterion.",
+  "label": "second run of S8 (email). The first run is 2026-10-06 23:30:45Z-2026-10-07 00:29:21Z on 25e6f2b (build/queue-2026-10-06/status-stress.tsv): s8 failed by its own CLI_LIMIT, in a debug build, not by a byte difference; U4 never ran for email. This run is not a retry that replaces it: both rows stand, and this one is labelled second_run.",
+  "profile": "release (cargo test --release -p qd-prep --test stress_v6). The runner records the profile in its header and accepts an S8 step only if the test's own S8-PROFILE line says release.",
+  "size": "the shipped size: data/synth/email-v6-2026-10-06.json as committed (rows_per_template, templates and bounds unchanged), at --threads 1, 8, 8. The release build measured 38 s for one such build on 2026-10-07.",
+  "bounds": "unchanged (CLAUDE.md rule 2): stress_v6.rs CLI_LIMIT 1800 s per qd-prep run. The runner adds a step bound of 5700 s (3 x 1800 + 300), which is new and is not a criterion. A run past either is `timed_out`, never `failed` and never `passed`.",
+  "criterion": "U4 (AUDIT/data-stress-suite-2026-10-06.md): examples.jsonl and manifest.json byte-identical across --threads 1, 8 and 8. Reported tri-state: passed (all three builds complete and identical), failed (a byte differs), undetermined (timed_out or not_run). Jarvis and tools are re-run in the same command so U4 is stated over the three kinds.",
+  "s8_decisions": "stays not_run: no fixture holds the decisions pool's pinned upstream sources.",
+  "tree": "a detached worktree at the sha the runner is given, HEAD checked inside the lock; the shared checkout is never read.",
+  "command": "bash tools/stress_runner.sh launch --sha <sha> --profile release --label s8-email-second-run --only stress-build,s8-email,s8-jarvis,s8-tools"
+}

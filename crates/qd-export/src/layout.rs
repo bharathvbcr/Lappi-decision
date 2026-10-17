@@ -33,6 +33,15 @@ pub const TEXT_PREFIX: &str = "model.language_model.";
 pub const TOWER_PREFIX: &str = "tower.";
 /// The averaged checkpoint's prefix for the span pointer head.
 pub const SPAN_PREFIX: &str = "span_head.";
+/// The averaged checkpoint's prefix for the 17-row readout delta (`qd_train.lora.AnswerRowDelta`,
+/// `tools/ckpt_average.py`'s `d17` tree).
+pub const D17_PREFIX: &str = "d17.";
+/// The one tensor in the D17 tree, and in the release's `d17.safetensors`
+/// (`AnswerRowDelta.delta`).
+pub const D17_TENSOR: &str = "delta";
+/// The readout's rows: 16 option letters and the reserved noul row, as
+/// `qd_runtime::render::OPTION_LETTERS` plus `NOUL_LETTER` (AUDIT/lora-2b-2026-10-09, D2).
+pub const D17_ROWS: usize = 17;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayerKind {
@@ -69,7 +78,8 @@ fn positive(tc: &Value, key: &str) -> Result<usize> {
         .ok_or_else(|| config_err(format!("text_config.{key} is missing")))?
         .as_u64()
         .ok_or_else(|| config_err(format!("text_config.{key} is not a non-negative integer")))?;
-    let v = usize::try_from(v).map_err(|_| config_err(format!("text_config.{key} = {v} overflows usize")))?;
+    let v = usize::try_from(v)
+        .map_err(|_| config_err(format!("text_config.{key} = {v} overflows usize")))?;
     if v == 0 {
         return Err(config_err(format!("text_config.{key} is zero")));
     }
@@ -86,14 +96,16 @@ fn require_bool(v: Option<&Value>, key: &str, want: bool, why: &str) -> Result<(
 }
 
 fn mul(a: usize, b: usize, what: &str) -> Result<usize> {
-    a.checked_mul(b).ok_or_else(|| config_err(format!("{what} overflows usize")))
+    a.checked_mul(b)
+        .ok_or_else(|| config_err(format!("{what} overflows usize")))
 }
 
 impl Layout {
     /// Parse and validate. The top level may be the conditional-generation config (with a
     /// `text_config`) or a text config itself, as qd-metal accepts (`config.rs:94-102`).
     pub fn from_config_json(text: &str) -> Result<Self> {
-        let root: Value = serde_json::from_str(text).map_err(|e| config_err(format!("config.json is not JSON: {e}")))?;
+        let root: Value = serde_json::from_str(text)
+            .map_err(|e| config_err(format!("config.json is not JSON: {e}")))?;
         let tc = root.get("text_config").unwrap_or(&root);
         if !tc.is_object() {
             return Err(config_err("text_config is not an object"));
@@ -126,19 +138,27 @@ impl Layout {
             .collect::<Result<Vec<_>>>()?;
 
         require_bool(
-            root.get("tie_word_embeddings").or_else(|| tc.get("tie_word_embeddings")),
+            root.get("tie_word_embeddings")
+                .or_else(|| tc.get("tie_word_embeddings")),
             "tie_word_embeddings",
             true,
             "the head is embed_tokens; there is no lm_head tensor to write",
         )?;
-        require_bool(tc.get("attention_bias"), "text_config.attention_bias", false, "no bias tensors")?;
+        require_bool(
+            tc.get("attention_bias"),
+            "text_config.attention_bias",
+            false,
+            "no bias tensors",
+        )?;
         require_bool(
             tc.get("attn_output_gate"),
             "text_config.attn_output_gate",
             true,
             "q_proj carries the output gate, 2 x num_attention_heads x head_dim rows",
         )?;
-        let mlp_only = tc.get("mlp_only_layers").map(|v| v.as_array().map(Vec::len));
+        let mlp_only = tc
+            .get("mlp_only_layers")
+            .map(|v| v.as_array().map(Vec::len));
         match mlp_only {
             None | Some(Some(0)) => {}
             Some(other) => {
@@ -231,7 +251,10 @@ impl Layout {
                     let q = mul(self.q_heads, self.head_dim, "attention width")?;
                     let kv = mul(self.kv_heads, self.head_dim, "attention kv width")?;
                     let m = format!("{p}self_attn.");
-                    out.insert(format!("{m}q_proj.weight"), vec![mul(2, q, "q_proj rows")?, h]);
+                    out.insert(
+                        format!("{m}q_proj.weight"),
+                        vec![mul(2, q, "q_proj rows")?, h],
+                    );
                     out.insert(format!("{m}k_proj.weight"), vec![kv, h]);
                     out.insert(format!("{m}v_proj.weight"), vec![kv, h]);
                     out.insert(format!("{m}o_proj.weight"), vec![h, q]);
@@ -254,6 +277,12 @@ impl Layout {
             ("end_proj.weight".to_string(), vec![h, h]),
             ("start_proj.weight".to_string(), vec![h, h]),
         ])
+    }
+
+    /// The D17 tensor: `[17, H]`, as `AnswerRowDelta.delta` is. Served as
+    /// `embed[answer ids] + D17` (`qd-metal`'s `Model::set_answer_delta`).
+    pub fn d17_tensors(&self) -> BTreeMap<String, Vec<usize>> {
+        BTreeMap::from([(D17_TENSOR.to_string(), vec![D17_ROWS, self.hidden])])
     }
 }
 
@@ -286,12 +315,16 @@ pub(crate) mod tests {
         assert_eq!(t["layers.3.self_attn.k_proj.weight"], [512, 2048]);
         assert_eq!(t["layers.3.self_attn.o_proj.weight"], [2048, 2048]);
         assert_eq!(l.span_head_tensors()["start_proj.weight"], [2048, 2048]);
+        assert_eq!(l.d17_tensors()["delta"], [17, 2048]);
     }
 
     #[test]
     fn refuses_configs_whose_layout_the_loader_does_not_read() {
         let cases: Vec<(String, &str)> = vec![
-            (with(|v| v["tie_word_embeddings"] = false.into()), "tie_word_embeddings"),
+            (
+                with(|v| v["tie_word_embeddings"] = false.into()),
+                "tie_word_embeddings",
+            ),
             (
                 with(|v| {
                     v.as_object_mut().unwrap().remove("tie_word_embeddings");
@@ -299,15 +332,36 @@ pub(crate) mod tests {
                 }),
                 "tie_word_embeddings",
             ),
-            (with(|v| v["text_config"]["attention_bias"] = true.into()), "attention_bias"),
-            (with(|v| v["text_config"]["attn_output_gate"] = false.into()), "attn_output_gate"),
-            (with(|v| v["text_config"]["mlp_only_layers"] = serde_json::json!([3])), "mlp_only_layers"),
-            (with(|v| v["text_config"]["num_hidden_layers"] = 23.into()), "layer_types has 24"),
-            (with(|v| v["text_config"]["layer_types"][0] = "sliding".into()), "layer_types[0]"),
-            (with(|v| v["text_config"]["hidden_size"] = 0.into()), "hidden_size is zero"),
+            (
+                with(|v| v["text_config"]["attention_bias"] = true.into()),
+                "attention_bias",
+            ),
+            (
+                with(|v| v["text_config"]["attn_output_gate"] = false.into()),
+                "attn_output_gate",
+            ),
+            (
+                with(|v| v["text_config"]["mlp_only_layers"] = serde_json::json!([3])),
+                "mlp_only_layers",
+            ),
+            (
+                with(|v| v["text_config"]["num_hidden_layers"] = 23.into()),
+                "layer_types has 24",
+            ),
+            (
+                with(|v| v["text_config"]["layer_types"][0] = "sliding".into()),
+                "layer_types[0]",
+            ),
+            (
+                with(|v| v["text_config"]["hidden_size"] = 0.into()),
+                "hidden_size is zero",
+            ),
             (
                 with(|v| {
-                    v["text_config"].as_object_mut().unwrap().remove("vocab_size");
+                    v["text_config"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("vocab_size");
                 }),
                 "vocab_size is missing",
             ),
@@ -317,7 +371,10 @@ pub(crate) mod tests {
         for (json, needle) in cases {
             let err = Layout::from_config_json(&json).unwrap_err();
             assert_eq!(err.kind, RefusalKind::Config);
-            assert!(err.detail.contains(needle), "expected {needle:?} in {err:?}");
+            assert!(
+                err.detail.contains(needle),
+                "expected {needle:?} in {err:?}"
+            );
         }
     }
 }

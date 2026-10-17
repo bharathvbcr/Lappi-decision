@@ -23,6 +23,23 @@
 //! a snapshot whose own pipeline status is `not_run` or `ran, passed=false` is refused the way
 //! `open_training_data` refuses it.
 //!
+//! 5. **The content guard** ([`assert_no_caller_records`]). Layers 1-4 are by path or by what a
+//!    manifest says, so a copy of a caller-record file placed anywhere passes them (the store's
+//!    `heldout` segment is the whole path mechanism). This layer reads bytes: any line whose
+//!    parsed `"record"` starts with `lappi.caller_record` refuses the whole file, whatever it is
+//!    called and wherever it lives. It is bounded ([`GuardLimits`]) and fails closed: bytes it
+//!    cannot scan (gzip, zstd, UTF-16) or could not finish scanning are refused as
+//!    [`HeldOutLayer::GuardIncomplete`], never passed as clean. It narrows admission only.
+//!
+//!    **What calls it.** In this crate only [`open_training_manifest`], on the manifest bytes it
+//!    reads (a shard set's `manifest.json` is never a row file, so that call is a backstop, not
+//!    the data path). This crate reads token shards, not JSONL: pool and source rows reach shards
+//!    through Python, where the same rule is `python/qd_data/caller_records.py`, called at every
+//!    row-file open on that path, and through `qd-prep`, where it is
+//!    `crates/qd-prep/src/heldout.rs`. The three implementations run one oracle,
+//!    `fixtures/caller/guard-cases.json`. A Rust reader of JSONL rows added here must call
+//!    [`assert_jsonl_file_not_caller_records`].
+//!
 //! The refusal is [`HeldOutViolation`]: a typed error that names its layer, never a value a
 //! caller could mistake for an empty dataset.
 
@@ -87,6 +104,12 @@ pub enum HeldOutLayer {
     /// Rule 3 at the shard boundary: the shard header declares `split: "heldout"` or a split
     /// that is not trainable.
     ShardSplit,
+    /// Layer 5: a line of the file is a `lappi.caller_record` (an app's record of what it saw
+    /// and chose, which is never training data).
+    CallerRecord,
+    /// Layer 5: the content guard could not scan the whole file within its budget. A check
+    /// that could not finish is a refusal, not a pass.
+    GuardIncomplete,
 }
 
 /// A held-out refusal. Raised, never returned as data.
@@ -259,6 +282,351 @@ impl Default for DataConfig {
             seed: DEFAULT_SEED,
         }
     }
+}
+
+// --- layer 5: the content guard --------------------------------------------------------------
+
+/// The `"record"` value every caller-record line carries (`qd_runtime::caller_record::RECORD`,
+/// `docs/caller-contract.md`). The guard matches the prefix, so a later version is refused too.
+pub const CALLER_RECORD_PREFIX: &str = "lappi.caller_record";
+/// A line longer than this is skipped unparsed. The contract writes no record over 64 KiB, so
+/// an over-long line is not one; 1 MiB leaves a wide margin.
+pub const MAX_GUARD_LINE_BYTES: usize = 1 << 20;
+
+/// The content guard's budget: bytes per line parsed, and bytes per file scanned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GuardLimits {
+    /// A longer line is not parsed (see [`MAX_GUARD_LINE_BYTES`]).
+    pub line_bytes: usize,
+    /// A file longer than this is refused as unscanned ([`HeldOutLayer::GuardIncomplete`]).
+    pub total_bytes: u64,
+}
+
+impl Default for GuardLimits {
+    fn default() -> Self {
+        Self {
+            line_bytes: MAX_GUARD_LINE_BYTES,
+            total_bytes: MAX_MANIFEST_BYTES,
+        }
+    }
+}
+
+/// The end (exclusive) of the JSON string token that starts at `bytes[start] == b'"'`. The text
+/// is valid JSON, so an unescaped quote ends the token.
+fn string_token_end(bytes: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// The JSON string token `token` (quotes included) as text.
+fn decode_string(token: &[u8]) -> Option<String> {
+    serde_json::from_slice::<String>(token).ok()
+}
+
+/// Whether `json`, which is valid JSON, has a TOP-LEVEL `"record"` key (any copy of a
+/// duplicated key) holding a string that starts with the prefix: in a top-level object, or in an
+/// object that is a direct element of a top-level array. Nothing nested deeper is read, and a
+/// string value that quotes the format is never a key. A parse into a map would keep only the
+/// last copy of a duplicated key, hence the token walk.
+fn top_level_record(json: &[u8]) -> bool {
+    let mut stack: Vec<u8> = Vec::new();
+    let mut expect_key = false;
+    let mut want_value = false;
+    let mut i = 0;
+    while i < json.len() {
+        let c = json[i];
+        if matches!(c, b' ' | b'\t' | b'\r' | b'\n') {
+            i += 1;
+            continue;
+        }
+        let is_colon = c == b':';
+        let mut end = i + 1;
+        match c {
+            b'{' => {
+                stack.push(b'{');
+                expect_key = true;
+            }
+            b'[' => {
+                stack.push(b'[');
+                expect_key = false;
+            }
+            b'}' | b']' => {
+                stack.pop();
+                expect_key = false;
+            }
+            b',' => expect_key = stack.last() == Some(&b'{'),
+            b':' => expect_key = false,
+            b'"' => {
+                end = string_token_end(json, i);
+                let token = &json[i..end];
+                let at_target = matches!(stack.as_slice(), [b'{'] | [b'[', b'{']);
+                if want_value {
+                    if decode_string(token).is_some_and(|r| r.starts_with(CALLER_RECORD_PREFIX)) {
+                        return true;
+                    }
+                } else if expect_key
+                    && at_target
+                    && decode_string(token).as_deref() == Some("record")
+                {
+                    want_value = true;
+                    expect_key = false;
+                    i = end;
+                    continue;
+                }
+                expect_key = false;
+            }
+            _ => {
+                // A number or literal: scan to its end.
+                while end < json.len()
+                    && !matches!(json[end], b',' | b'}' | b']' | b' ' | b'\t' | b'\r' | b'\n')
+                {
+                    end += 1;
+                }
+                expect_key = false;
+            }
+        }
+        if want_value && !is_colon {
+            want_value = false;
+        }
+        i = end;
+    }
+    false
+}
+
+/// A line that does not parse (a BOM, damage, invalid UTF-8) is a record only when it starts,
+/// in column 0 after an optional UTF-8 BOM, with `{` or `[` and carries the key and the prefix
+/// side by side: `"record"`, optional JSON whitespace, `:`, optional whitespace, `"lappi.caller_record`.
+/// A line that merely contains both strings (source code, prose) is not one.
+fn damaged_record_line(line: &[u8]) -> bool {
+    const BOM: &[u8] = &[0xef, 0xbb, 0xbf];
+    let head = line.strip_prefix(BOM).unwrap_or(line);
+    if !matches!(head.first(), Some(b'{' | b'[')) {
+        return false;
+    }
+    let ws = |b: &u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
+    let key = b"\"record\"";
+    let prefix = CALLER_RECORD_PREFIX.as_bytes();
+    line.windows(key.len()).enumerate().any(|(i, w)| {
+        if w != key {
+            return false;
+        }
+        let rest = &line[i + key.len()..];
+        let rest = &rest[rest.iter().take_while(|b| ws(b)).count()..];
+        let Some(rest) = rest.strip_prefix(b":") else {
+            return false;
+        };
+        let rest = &rest[rest.iter().take_while(|b| ws(b)).count()..];
+        rest.strip_prefix(b"\"")
+            .is_some_and(|r| r.starts_with(prefix))
+    })
+}
+
+/// One line (terminator already removed) is a caller record when it is JSONL whose top-level
+/// `"record"` key (any copy of a duplicated key) starts with the prefix, or a JSON array holding
+/// such an object; a line that parses and is not that is clean, however much text it quotes. A
+/// line that does not parse is read by [`damaged_record_line`]. The budget is on the content, so
+/// a record of exactly `line_bytes` is read.
+fn is_caller_record_line(line: &[u8], line_bytes: usize) -> bool {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    if line.len() > line_bytes {
+        return false;
+    }
+    match serde_json::from_slice::<serde_json::Value>(line) {
+        Ok(_) => top_level_record(line),
+        Err(_) => damaged_record_line(line),
+    }
+}
+
+/// Finds a `str.splitlines()` separator the guard does not split on, in one line (a mirror of
+/// `qd-prep`'s `heldout::BreakScan`, which this crate cannot depend on). A raw control
+/// character (`\x0b`, `\x0c`, `\x1c`..`\x1e`) is refused anywhere: it is not legal inside a JSON
+/// string either. U+0085, U+2028 and U+2029 are refused outside a string only: inside a string
+/// value they are legal JSON and legitimate data, and the readers split on `\n` alone. A
+/// backslash escapes the byte after it, in or out of a string.
+#[derive(Default)]
+struct BreakScan {
+    in_string: bool,
+    escaped: bool,
+    tail: [u8; 2],
+    seen: usize,
+}
+
+impl BreakScan {
+    /// The separator `chunk` holds that the guard must refuse, if any.
+    fn feed(&mut self, chunk: &[u8]) -> Option<&'static str> {
+        for &b in chunk {
+            if matches!(b, 0x0b | 0x0c | 0x1c..=0x1e) {
+                return Some("a raw control character (U+000B, U+000C or U+001C..U+001E)");
+            }
+            if !self.in_string {
+                let [p2, p1] = self.tail;
+                if b == 0x85 && self.seen >= 1 && p1 == 0xC2 {
+                    return Some("U+0085");
+                }
+                if matches!(b, 0xA8 | 0xA9) && self.seen >= 2 && p2 == 0xE2 && p1 == 0x80 {
+                    return Some(if b == 0xA8 { "U+2028" } else { "U+2029" });
+                }
+            }
+            if self.escaped {
+                self.escaped = false;
+            } else if b == b'\\' {
+                self.escaped = true;
+            } else if b == b'"' {
+                self.in_string = !self.in_string;
+            }
+            self.tail = [self.tail[1], b];
+            self.seen = self.seen.saturating_add(1);
+        }
+        None
+    }
+}
+
+/// Layer 5 on bytes already read: refuse the whole file if any line is a caller record, or if
+/// the file is longer than `limits.total_bytes` and the scanned prefix held none.
+pub fn assert_no_caller_records(
+    bytes: &[u8],
+    label: &str,
+    limits: GuardLimits,
+) -> Result<(), HeldOutViolation> {
+    if let Some(name) = unscannable_magic(bytes) {
+        return Err(HeldOutViolation {
+            layer: HeldOutLayer::GuardIncomplete,
+            expected: "bytes the caller-record guard can read as lines of text".to_owned(),
+            actual: format!("{label}: {name} bytes"),
+            detail: "bytes that cannot be scanned for caller records are refused, not passed as \
+                     clean (CLAUDE.md rule 3)."
+                .to_owned(),
+        });
+    }
+    let scanned_len =
+        usize::try_from(limits.total_bytes).map_or(bytes.len(), |n| n.min(bytes.len()));
+    let scanned = &bytes[..scanned_len];
+    let last = scanned.iter().filter(|b| **b == b'\n').count();
+    for (i, line) in scanned.split(|b| *b == b'\n').enumerate() {
+        // The line without its CRLF's '\r' (a '\r' on the last line has no '\n' after it, so it
+        // is a bare one); any other '\r' is a separator the text-mode readers honour and this
+        // scan does not, so a record could sit behind it.
+        let content = if i == last {
+            line
+        } else {
+            line.strip_suffix(b"\r").unwrap_or(line)
+        };
+        if content.contains(&b'\r') {
+            return Err(HeldOutViolation {
+                layer: HeldOutLayer::GuardIncomplete,
+                expected: "lines the caller-record guard can split exactly as the readers do"
+                    .to_owned(),
+                actual: format!("{label}: line {} holds a bare carriage return", i + 1),
+                detail:
+                    "the readers split on a bare '\\r' (text mode) or do not ('\\n' only), so a \
+                         record could sit behind it; refused, not passed as clean (CLAUDE.md \
+                         rule 3: a check that could not run is not a check that passed)."
+                        .to_owned(),
+            });
+        }
+        if let Some(what) = BreakScan::default().feed(line) {
+            return Err(HeldOutViolation {
+                layer: HeldOutLayer::GuardIncomplete,
+                expected: "lines the caller-record guard can split exactly as the readers do"
+                    .to_owned(),
+                actual: format!("{label}: line {} holds {what}", i + 1),
+                detail: "str.splitlines() splits on it and the guard does not, so a reader that \
+                         did could read a record behind it; refused, not passed as clean \
+                         (CLAUDE.md rule 3: a check that could not run is not a check that \
+                         passed)."
+                    .to_owned(),
+            });
+        }
+        if is_caller_record_line(line, limits.line_bytes) {
+            return Err(HeldOutViolation {
+                layer: HeldOutLayer::CallerRecord,
+                expected: "no line whose \"record\" starts with lappi.caller_record".to_owned(),
+                actual: format!("{label}: line {} is a caller record", i + 1),
+                detail: "caller records are never training data wherever the file lives \
+                         (CLAUDE.md rule 3; docs/caller-contract.md). The whole file is \
+                         refused. Removing this check is a refused change."
+                    .to_owned(),
+            });
+        }
+    }
+    if scanned_len < bytes.len() {
+        return Err(guard_incomplete(label, limits));
+    }
+    Ok(())
+}
+
+/// Compressed or UTF-16 bytes hide a record from a line scan.
+fn unscannable_magic(bytes: &[u8]) -> Option<&'static str> {
+    const MAGIC: [(&[u8], &str); 4] = [
+        (&[0x1f, 0x8b], "gzip"),
+        (&[0x28, 0xb5, 0x2f, 0xfd], "zstd"),
+        (&[0xff, 0xfe], "UTF-16 (little-endian BOM)"),
+        (&[0xfe, 0xff], "UTF-16 (big-endian BOM)"),
+    ];
+    MAGIC
+        .iter()
+        .find(|(m, _)| bytes.starts_with(m))
+        .map(|(_, name)| *name)
+}
+
+fn guard_incomplete(label: &str, limits: GuardLimits) -> HeldOutViolation {
+    HeldOutViolation {
+        layer: HeldOutLayer::GuardIncomplete,
+        expected: format!(
+            "a file the caller-record guard can scan within {} bytes",
+            limits.total_bytes
+        ),
+        actual: format!("{label}: longer than the budget"),
+        detail: "a file the content guard could not finish scanning is refused, not passed as \
+                 clean (CLAUDE.md: a check that could not run is not a check that passed)."
+            .to_owned(),
+    }
+}
+
+/// Layer 5 for a file on disk: read through `files` (bounded by `limits.total_bytes`) and scan.
+pub fn assert_jsonl_file_not_caller_records(
+    path: &Path,
+    files: &dyn ShardFiles,
+    limits: GuardLimits,
+) -> Result<(), DoorError> {
+    let label = path.display().to_string();
+    // Decide by stat, never by open: opening a FIFO for reading blocks with no writer. A path
+    // that is missing or a directory has no bytes and is left to the read, which names it.
+    if let Ok(meta) = std::fs::metadata(path)
+        && !meta.is_dir()
+        && !meta.is_file()
+    {
+        return Err(HeldOutViolation {
+            layer: HeldOutLayer::GuardIncomplete,
+            expected: "a regular file the caller-record guard can scan".to_owned(),
+            actual: format!("{label}: not a regular file"),
+            detail: "a FIFO, device or socket has no stable bytes to scan, so it is refused, \
+                     not passed as clean (CLAUDE.md rule 3: a check that could not run is not \
+                     a check that passed)."
+                .to_owned(),
+        }
+        .into());
+    }
+    let bytes = match files.read(path, limits.total_bytes) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+            return Err(guard_incomplete(&label, limits).into());
+        }
+        Err(source) => {
+            return Err(DoorError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    assert_no_caller_records(&bytes, &label, limits).map_err(DoorError::from)
 }
 
 // --- layers 1 and 2: the path -----------------------------------------------------------------
@@ -739,6 +1107,7 @@ pub fn open_training_manifest(
             path: path.to_path_buf(),
             source,
         })?;
+    assert_no_caller_records(&bytes, &path.display().to_string(), GuardLimits::default())?;
     let raw: RawManifest = serde_json::from_slice(&bytes).map_err(|e| DoorError::Manifest {
         path: path.to_path_buf(),
         detail: format!("not a manifest this door can read: {e}"),

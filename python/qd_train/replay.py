@@ -40,7 +40,7 @@ import json
 import math
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
@@ -581,13 +581,3 @@ class PriorKLReplay:
         self.inner.load_state({k: v for k, v in state.items() if k != "replay"})
         self.micro_batches = int(replay["micro_batches"])
         self.replayed = int(replay["replayed"])
-
-
-def replay_texts_from_prompts(prompts: Iterable[tuple[str, str]]) -> dict[str, str]:
-    """``{id: prompt_content(prompt)}`` for ``(id, prompt)`` pairs; duplicate ids refused."""
-    out: dict[str, str] = {}
-    for key, prompt in prompts:
-        if key in out:
-            raise ReplayRefusal(f"duplicate row id {key!r}")
-        out[key] = prompt_content(prompt)
-    return out

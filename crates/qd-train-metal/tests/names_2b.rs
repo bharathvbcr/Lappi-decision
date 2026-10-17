@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ojas_qwen35::{tower_tensors, Qwen35TextConfig};
+use ojas_qwen35::{Qwen35TextConfig, tower_tensors};
 use serde_json::Value;
 
 fn fixtures() -> PathBuf {
@@ -18,10 +18,16 @@ fn fixtures() -> PathBuf {
 
 #[test]
 fn ojas_qwen35s_2b_name_map_is_the_table_tests_names() {
-    let table: Value = serde_json::from_str(&std::fs::read_to_string(fixtures().join("optimizer-table-2b.json")).unwrap()).unwrap();
+    let table: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixtures().join("optimizer-table-2b.json")).unwrap(),
+    )
+    .unwrap();
     let config = fixtures().join(table["config"]["file"].as_str().unwrap());
     let cfg = Qwen35TextConfig::from_file(&config).unwrap();
-    let ours: Vec<(String, Vec<usize>)> = tower_tensors(&cfg).into_iter().map(|t| (t.name, t.shape)).collect();
+    let ours: Vec<(String, Vec<usize>)> = tower_tensors(&cfg)
+        .into_iter()
+        .map(|t| (t.name, t.shape))
+        .collect();
     let theirs: Vec<(String, Vec<usize>)> = table["tower_names"]
         .as_array()
         .unwrap()
@@ -30,7 +36,11 @@ fn ojas_qwen35s_2b_name_map_is_the_table_tests_names() {
         .map(|(n, s)| {
             (
                 n.as_str().unwrap().to_owned(),
-                s.as_array().unwrap().iter().map(|d| d.as_u64().unwrap() as usize).collect(),
+                s.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|d| d.as_u64().unwrap() as usize)
+                    .collect(),
             )
         })
         .collect();
@@ -39,7 +49,14 @@ fn ojas_qwen35s_2b_name_map_is_the_table_tests_names() {
     // number by the provider's own order.
     let ours_by_name: BTreeMap<String, Vec<usize>> = ours.iter().cloned().collect();
     let theirs_by_name: BTreeMap<String, Vec<usize>> = theirs.iter().cloned().collect();
-    assert_eq!((ours.len(), ours_by_name.len()), (320, 320), "320 distinct entries");
+    assert_eq!(
+        (ours.len(), ours_by_name.len()),
+        (320, 320),
+        "320 distinct entries"
+    );
     assert_eq!(theirs_by_name.len(), 320);
-    assert_eq!(ours_by_name, theirs_by_name, "ojas-qwen35's 2B entries are not the names and shapes the table was validated on");
+    assert_eq!(
+        ours_by_name, theirs_by_name,
+        "ojas-qwen35's 2B entries are not the names and shapes the table was validated on"
+    );
 }

@@ -23,6 +23,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+# real_ft_run raises SystemExit (not ImportError) when torch is missing, which aborts the whole
+# pytest session at collection: the torch-free `make pytest` ran nothing at all from 2026-10-02
+# (GAP-L-V5DATA-NEEDLE-HANDOFF-BREAKS-VENV-COLLECTION-2026-10-02). The module is skipped there,
+# as every other module that needs torch is; `make torch-pytest` runs it.
+pytest.importorskip("torch", reason="torch is an optional 'mac' extra, not in .venv")
+
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 

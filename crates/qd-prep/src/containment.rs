@@ -947,12 +947,16 @@ impl Request<'_> {
                  2026-10-03), is listed in pairs.tsv but neither excludes its source row nor \
                  counts as a remaining hit",
             );
-            let mut by_family: BTreeMap<&str, ScopeTally<'_>> =
-                self.same_family_not_enforced
-                    .iter()
-                    .map(|f| (f.as_str(), (0, HashSet::new(), HashSet::new())))
-                    .collect();
-            for p in found.pairs.iter().filter(|p| self.scans[p.scan].enforced && scoped(p)) {
+            let mut by_family: BTreeMap<&str, ScopeTally<'_>> = self
+                .same_family_not_enforced
+                .iter()
+                .map(|f| (f.as_str(), (0, HashSet::new(), HashSet::new())))
+                .collect();
+            for p in found
+                .pairs
+                .iter()
+                .filter(|p| self.scans[p.scan].enforced && scoped(p))
+            {
                 let source = self.scans[p.scan].source;
                 let row = &self.sets[source][p.source_row];
                 if let Some(e) = by_family.get_mut(row.family) {
@@ -1328,10 +1332,19 @@ mod tests {
         assert_eq!(w.exclusions, b"id-p2\nid-x1\n");
         let att = String::from_utf8(w.attestation).expect("utf8");
         assert!(att.contains("\"clean\": true"), "{att}");
-        assert!(att.contains("\"remaining_hits\": {\n    \"val\": 0\n  }"), "{att}");
-        assert!(att.contains("\"pairs_same_family_not_enforced\": 1"), "{att}");
+        assert!(
+            att.contains("\"remaining_hits\": {\n    \"val\": 0\n  }"),
+            "{att}"
+        );
+        assert!(
+            att.contains("\"pairs_same_family_not_enforced\": 1"),
+            "{att}"
+        );
         assert!(att.contains("\"same_family_not_enforced\": {"), "{att}");
-        assert!(att.contains("\"source_identity_keys_not_excluded\": 1"), "{att}");
+        assert!(
+            att.contains("\"source_identity_keys_not_excluded\": 1"),
+            "{att}"
+        );
         assert!(att.contains("neither excludes its source row"), "{att}");
     }
 
@@ -1348,11 +1361,26 @@ mod tests {
     fn a_malformed_scope_is_refused() {
         for (corpus, why) in [
             ("{\"decisions_pool_same_family_not_enforced\": []}", "empty"),
-            ("{\"decisions_pool_same_family_not_enforced\": \"fam.p\"}", "not a list"),
-            ("{\"decisions_pool_same_family_not_enforced\": [\"b\", \"a\"]}", "byte-sorted"),
-            ("{\"decisions_pool_same_family_not_enforced\": [\"a\", \"a\"]}", "byte-sorted"),
-            ("{\"decisions_pool_same_family_not_enforced\": [\"\"]}", "empty"),
-            ("{\"decisions_pool_same_family_not_enforced\": [1]}", "non-string"),
+            (
+                "{\"decisions_pool_same_family_not_enforced\": \"fam.p\"}",
+                "not a list",
+            ),
+            (
+                "{\"decisions_pool_same_family_not_enforced\": [\"b\", \"a\"]}",
+                "byte-sorted",
+            ),
+            (
+                "{\"decisions_pool_same_family_not_enforced\": [\"a\", \"a\"]}",
+                "byte-sorted",
+            ),
+            (
+                "{\"decisions_pool_same_family_not_enforced\": [\"\"]}",
+                "empty",
+            ),
+            (
+                "{\"decisions_pool_same_family_not_enforced\": [1]}",
+                "non-string",
+            ),
         ] {
             let buf = request_for(corpus, &["train", "val"], &[(0, 1, true)], &[], &[]);
             let err = parse(&buf).unwrap_err();

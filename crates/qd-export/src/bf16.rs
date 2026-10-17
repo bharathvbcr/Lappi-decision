@@ -106,7 +106,12 @@ pub struct BadValue {
 /// Convert little-endian `src` elements to little-endian bf16, appending to `out`.
 /// `first_index` is the tensor element index of `src[0]`, for the error. `src` holds whole
 /// elements: the export reads tensors in chunks that are a multiple of every element size.
-pub fn to_bf16(kind: FloatSource, src: &[u8], first_index: u64, out: &mut Vec<u8>) -> Result<(), BadValue> {
+pub fn to_bf16(
+    kind: FloatSource,
+    src: &[u8],
+    first_index: u64,
+    out: &mut Vec<u8>,
+) -> Result<(), BadValue> {
     match kind {
         FloatSource::F32 => {
             for (index, c) in (first_index..).zip(src.as_chunks::<4>().0) {
@@ -126,7 +131,10 @@ pub fn to_bf16(kind: FloatSource, src: &[u8], first_index: u64, out: &mut Vec<u8
             for (index, c) in (first_index..).zip(src.as_chunks::<2>().0) {
                 let b = u16::from_le_bytes(*c);
                 if !bf16_is_finite(b) {
-                    return Err(BadValue { index, value: bf16_bits_to_f32(b) });
+                    return Err(BadValue {
+                        index,
+                        value: bf16_bits_to_f32(b),
+                    });
                 }
             }
             out.extend_from_slice(src);
@@ -207,19 +215,39 @@ mod tests {
         assert_eq!(err.index, 102);
         assert!(err.value.is_nan());
 
-        let bf: Vec<u8> = [0x3F80u16, 0x7F80].iter().flat_map(|b| b.to_le_bytes()).collect();
-        assert_eq!(to_bf16(FloatSource::Bf16, &bf, 0, &mut Vec::new()).unwrap_err().index, 1);
-        let ok: Vec<u8> = [0x3F80u16, 0xC000].iter().flat_map(|b| b.to_le_bytes()).collect();
+        let bf: Vec<u8> = [0x3F80u16, 0x7F80]
+            .iter()
+            .flat_map(|b| b.to_le_bytes())
+            .collect();
+        assert_eq!(
+            to_bf16(FloatSource::Bf16, &bf, 0, &mut Vec::new())
+                .unwrap_err()
+                .index,
+            1
+        );
+        let ok: Vec<u8> = [0x3F80u16, 0xC000]
+            .iter()
+            .flat_map(|b| b.to_le_bytes())
+            .collect();
         let mut out = Vec::new();
         to_bf16(FloatSource::Bf16, &ok, 0, &mut out).unwrap();
         assert_eq!(out, ok, "a bf16 source is copied bit for bit");
 
         // f16 0x3555 = 0.33325195 = f32 0x3EAA_A000; the dropped 0xA000 is above halfway, so it
         // rounds up to 0x3EAB.
-        let half: Vec<u8> = [0x3C00u16, 0x3555].iter().flat_map(|b| b.to_le_bytes()).collect();
+        let half: Vec<u8> = [0x3C00u16, 0x3555]
+            .iter()
+            .flat_map(|b| b.to_le_bytes())
+            .collect();
         let mut out = Vec::new();
         to_bf16(FloatSource::F16, &half, 0, &mut out).unwrap();
-        assert_eq!(out, [0x3F80u16, 0x3EAB].iter().flat_map(|b| b.to_le_bytes()).collect::<Vec<u8>>());
+        assert_eq!(
+            out,
+            [0x3F80u16, 0x3EAB]
+                .iter()
+                .flat_map(|b| b.to_le_bytes())
+                .collect::<Vec<u8>>()
+        );
 
         assert_eq!(check_finite_f32(&src, 0).unwrap_err().index, 2);
     }

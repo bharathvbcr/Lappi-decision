@@ -1,0 +1,505 @@
+{
+ "about": "One oracle for the caller-record content guard. Python (qd_data.caller_records), qd-train (held_out.rs layer 5) and qd-prep (heldout.rs) each run every case here and must agree on the three verdicts: record, clean, unscannable. Cases carry `text` (utf-8), `hex`, or `gen`. gen: record_padded_to N builds one record line whose content is exactly N bytes; filler_line N one non-record line of N content bytes; repeat/times a repeated chunk; first/then prepend/append a string; eol the line terminator. Defaults: line_bytes 1048576, total_bytes 8589934592.",
+ "cases": [
+  {
+   "name": "record in the middle",
+   "text": "{\"a\":1}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n{\"b\":2}\n",
+   "expect": "record"
+  },
+  {
+   "name": "record with no trailing newline",
+   "text": "{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}",
+   "expect": "record"
+  },
+  {
+   "name": "later version prefix",
+   "text": "{\"record\":\"lappi.caller_record.v2\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "crlf line ends",
+   "text": "{\"a\":1}\r\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\r\n",
+   "expect": "record"
+  },
+  {
+   "name": "json-escaped key and value",
+   "text": "{\"rec\\u006frd\":\"lappi.caller_re\\u0063ord\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "garbage first line then a record",
+   "text": "not json at all\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "comment first line then a record",
+   "text": "# a comment\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "json string first line then a record",
+   "text": "\"just a string\"\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "json array holding a record",
+   "text": "[{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}]\n",
+   "expect": "record"
+  },
+  {
+   "name": "damaged record line",
+   "text": "{\"record\":\"lappi.caller_record\",\"kind\":\n",
+   "expect": "record"
+  },
+  {
+   "name": "utf-8 bom then a record",
+   "text": "\ufeff{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "duplicated record key",
+   "text": "{\"record\":\"lappi.caller_record\",\"record\":\"x\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "leading whitespace",
+   "text": "   {\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "empty file",
+   "text": "",
+   "expect": "clean"
+  },
+  {
+   "name": "blank lines",
+   "text": "\n\n  \n",
+   "expect": "clean"
+  },
+  {
+   "name": "another record name",
+   "text": "{\"record\":\"decisions.json\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record not a string",
+   "text": "{\"record\":7}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "prefix only in another key",
+   "text": "{\"text\":\"lappi.caller_record\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "prefix in an array of strings",
+   "text": "[\"lappi.caller_record\"]\n",
+   "expect": "clean"
+  },
+  {
+   "name": "garbage only",
+   "text": "not json at all\n{\"a\":1}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "invalid utf-8 only",
+   "hex": "ffff0a7b2261223a317d0a",
+   "expect": "clean"
+  },
+  {
+   "name": "gzip magic",
+   "hex": "1f8b0800000000000003",
+   "expect": "unscannable"
+  },
+  {
+   "name": "zstd magic",
+   "hex": "28b52ffd0000",
+   "expect": "unscannable"
+  },
+  {
+   "name": "utf-16le bom",
+   "hex": "fffe7b002200",
+   "expect": "unscannable"
+  },
+  {
+   "name": "utf-16be bom",
+   "hex": "feff007b0022",
+   "expect": "unscannable"
+  },
+  {
+   "name": "record line of exactly the bound",
+   "gen": {
+    "record_padded_to": 100,
+    "eol": "\n"
+   },
+   "line_bytes": 100,
+   "expect": "record"
+  },
+  {
+   "name": "record line of exactly the bound with crlf",
+   "gen": {
+    "record_padded_to": 100,
+    "eol": "\r\n"
+   },
+   "line_bytes": 100,
+   "expect": "record"
+  },
+  {
+   "name": "record line one byte over the bound is skipped (accepted limit)",
+   "gen": {
+    "record_padded_to": 101,
+    "eol": "\n"
+   },
+   "line_bytes": 100,
+   "expect": "clean"
+  },
+  {
+   "name": "over-long non-record line only",
+   "gen": {
+    "filler_line": 300,
+    "eol": "\n"
+   },
+   "line_bytes": 100,
+   "expect": "clean"
+  },
+  {
+   "name": "over-long line then a record",
+   "gen": {
+    "filler_line": 300,
+    "eol": "\n",
+    "then": "{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n"
+   },
+   "line_bytes": 100,
+   "expect": "record"
+  },
+  {
+   "name": "over the byte budget with no record in the prefix",
+   "gen": {
+    "repeat": "{\"a\":1}\n",
+    "times": 100
+   },
+   "line_bytes": 100,
+   "total_bytes": 256,
+   "expect": "unscannable"
+  },
+  {
+   "name": "a record inside the prefix wins over the budget",
+   "gen": {
+    "repeat": "{\"a\":1}\n",
+    "times": 100,
+    "first": "{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n"
+   },
+   "line_bytes": 1000,
+   "total_bytes": 256,
+   "expect": "record"
+  },
+  {
+   "name": "quotes the format in a string value",
+   "text": "{\"text\": \"a line like {\\\"record\\\":\\\"lappi.caller_record\\\",\\\"record_version\\\":1,\\\"kind\\\":\\\"decision\\\"} is a record, key \\\"record\\\" and lappi.caller_record\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "source code mentioning it",
+   "text": "const P: &str = \"lappi.caller_record\"; // \"record\"\nlet rec = r#\"{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\"#;\n    {\"record\": \"lappi.caller_record\", \"id\": \"a\"},\n",
+   "expect": "clean"
+  },
+  {
+   "name": "nested record key",
+   "text": "{\"meta\":{\"record\":\"lappi.caller_record\"}}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "array whose element only quotes the format",
+   "text": "[{\"text\": \"\\\"record\\\": \\\"lappi.caller_record\\\"\"}]\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record key after other keys",
+   "text": "{\"id\":\"a\",\"record\":\"lappi.caller_record\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "damaged record line with spaced key",
+   "text": "{\"id\":\"a\",\"record\" : \"lappi.caller_record\",\n",
+   "expect": "record"
+  },
+  {
+   "name": "bare cr separates rows",
+   "text": "{\"a\":1}\r{\"b\":2}\r{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "bare cr at end of file",
+   "text": "{\"a\":1}\r",
+   "expect": "unscannable"
+  },
+  {
+   "name": "bare cr inside an over-long line",
+   "text": "{\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\r{\"b\":2}\n",
+   "line_bytes": 100,
+   "expect": "unscannable"
+  },
+  {
+   "name": "crlf on every line is not a bare cr",
+   "text": "{\"a\":1}\r\n{\"b\":2}\r\n",
+   "expect": "clean"
+  },
+  {
+   "name": "another record name with the prefix quoted in a string value",
+   "text": "{\"record\":\"decisions.json\",\"note\":\"mentions lappi.caller_record in prose\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "duplicated record key with the prefix first",
+   "text": "{\"record\":\"lappi.caller_record\",\"record\":\"x\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "record inside an array nested in an array",
+   "text": "[[{\"record\":\"lappi.caller_record\"}]]\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record inside an array under another key",
+   "text": "{\"rows\":[{\"record\":\"lappi.caller_record\"}]}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "record key holding an object that holds the record",
+   "text": "{\"record\":{\"record\":\"lappi.caller_record\"}}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "vertical tab separates rows",
+   "text": "{\"a\":1}\u000b{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "vertical tab inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u000by\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "form feed separates rows",
+   "text": "{\"a\":1}\f{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "form feed inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\fy\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "file separator separates rows",
+   "text": "{\"a\":1}\u001c{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "file separator inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u001cy\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "group separator separates rows",
+   "text": "{\"a\":1}\u001d{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "group separator inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u001dy\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "record separator separates rows",
+   "text": "{\"a\":1}\u001e{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "record separator inside a string value (a raw control character is not legal JSON, so refused)",
+   "text": "{\"a\":\"x\u001ey\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 separates rows",
+   "text": "{\"a\":1}\u0085{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 separates rows at end of file",
+   "text": "{\"a\":1}\u0085",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 inside a string value is data",
+   "text": "{\"a\":\"x\u0085y\"}\n{\"b\":2}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "next line U+0085 inside a string after an escaped quote is data",
+   "text": "{\"a\":\"q\\\"\u0085x\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "next line U+0085 after a string closed by an escaped backslash separates rows",
+   "text": "{\"a\":\"\\\\\"}\u0085{\"b\":2}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "next line U+0085 inside a string, then a record on the next line",
+   "text": "{\"a\":\"x\u0085y\"}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "next line U+0085 escaped as \\u is data",
+   "text": "{\"a\":\"x\\u0085y\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "next line U+0085 over-long line, inside a string",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u0085yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "next line U+0085 over-long line, outside a string, straddling the read boundary",
+   "text": "{\"b\":2}                                                                                             \u0085{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "next line U+0085 over-long line, outside a string after a string closed in an earlier read",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\u0085{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "next line U+0085 over-long line, inside a string after an escaped quote at the read boundary",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"xxxxxxxxxxxxxxxxxxxx\u0085x\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 separates rows",
+   "text": "{\"a\":1}\u2028{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "line separator U+2028 separates rows at end of file",
+   "text": "{\"a\":1}\u2028",
+   "expect": "unscannable"
+  },
+  {
+   "name": "line separator U+2028 inside a string value is data",
+   "text": "{\"a\":\"x\u2028y\"}\n{\"b\":2}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "line separator U+2028 inside a string after an escaped quote is data",
+   "text": "{\"a\":\"q\\\"\u2028x\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "line separator U+2028 after a string closed by an escaped backslash separates rows",
+   "text": "{\"a\":\"\\\\\"}\u2028{\"b\":2}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "line separator U+2028 inside a string, then a record on the next line",
+   "text": "{\"a\":\"x\u2028y\"}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "line separator U+2028 escaped as \\u is data",
+   "text": "{\"a\":\"x\\u2028y\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "line separator U+2028 over-long line, inside a string",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2028yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 over-long line, outside a string, straddling the read boundary",
+   "text": "{\"b\":2}                                                                                             \u2028{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 over-long line, outside a string after a string closed in an earlier read",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\u2028{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "line separator U+2028 over-long line, inside a string after an escaped quote at the read boundary",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"xxxxxxxxxxxxxxxxxxxx\u2028x\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 separates rows",
+   "text": "{\"a\":1}\u2029{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "paragraph separator U+2029 separates rows at end of file",
+   "text": "{\"a\":1}\u2029",
+   "expect": "unscannable"
+  },
+  {
+   "name": "paragraph separator U+2029 inside a string value is data",
+   "text": "{\"a\":\"x\u2029y\"}\n{\"b\":2}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "paragraph separator U+2029 inside a string after an escaped quote is data",
+   "text": "{\"a\":\"q\\\"\u2029x\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "paragraph separator U+2029 after a string closed by an escaped backslash separates rows",
+   "text": "{\"a\":\"\\\\\"}\u2029{\"b\":2}\n",
+   "expect": "unscannable"
+  },
+  {
+   "name": "paragraph separator U+2029 inside a string, then a record on the next line",
+   "text": "{\"a\":\"x\u2029y\"}\n{\"record\":\"lappi.caller_record\",\"record_version\":1,\"kind\":\"decision\"}\n",
+   "expect": "record"
+  },
+  {
+   "name": "paragraph separator U+2029 escaped as \\u is data",
+   "text": "{\"a\":\"x\\u2029y\"}\n",
+   "expect": "clean"
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, inside a string",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2029yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, outside a string, straddling the read boundary",
+   "text": "{\"b\":2}                                                                                             \u2029{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, outside a string after a string closed in an earlier read",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}\u2029{\"c\":3}\n",
+   "expect": "unscannable",
+   "line_bytes": 100
+  },
+  {
+   "name": "paragraph separator U+2029 over-long line, inside a string after an escaped quote at the read boundary",
+   "text": "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"xxxxxxxxxxxxxxxxxxxx\u2029x\"}\n",
+   "expect": "clean",
+   "line_bytes": 100
+  },
+  {
+   "name": "other non-ASCII whitespace is not a separator",
+   "text": "{\"a\":1}\u2005{\"b\":2}\n\u00c5\n",
+   "expect": "clean"
+  }
+ ]
+}

@@ -103,18 +103,33 @@ pub enum RecordError {
     NotUtf8,
     #[error("the line is not a JSON object: {0}")]
     NotJsonObject(String),
-    #[error("{path}: unknown key {key:?}; a version-{RECORD_VERSION} record has exactly {expected}")]
-    UnknownKey { path: String, key: String, expected: String },
+    #[error(
+        "{path}: unknown key {key:?}; a version-{RECORD_VERSION} record has exactly {expected}"
+    )]
+    UnknownKey {
+        path: String,
+        key: String,
+        expected: String,
+    },
     #[error("{path}: missing key {key:?}")]
     MissingKey { path: String, key: String },
     #[error("{path}: expected {expected}, got {got}")]
-    Invalid { path: String, expected: String, got: String },
+    Invalid {
+        path: String,
+        expected: String,
+        got: String,
+    },
     #[error("{path}: {why}")]
     Inconsistent { path: String, why: String },
-    #[error("{path}: a string carries a {prefix:?}-prefixed credential shape; the line is refused whole")]
+    #[error(
+        "{path}: a string carries a {prefix:?}-prefixed credential shape; the line is refused whole"
+    )]
     SecretLike { path: String, prefix: String },
     #[error("{path}: a caller record must be stored under a held-out path segment ({markers:?})")]
-    NotHeldOutPath { path: String, markers: [&'static str; 3] },
+    NotHeldOutPath {
+        path: String,
+        markers: [&'static str; 3],
+    },
 }
 
 /// `$HOME/` + [`STORE_RELATIVE_TO_HOME`], or `None` when `$HOME` is unset (never a relative
@@ -149,7 +164,10 @@ pub fn check_store_path(path: &Path) -> Result<(), RecordError> {
 /// Validate one line (without its trailing newline).
 pub fn validate_line(line: &[u8]) -> Result<RecordSummary, RecordError> {
     if line.len() > MAX_RECORD_BYTES {
-        return Err(RecordError::TooLarge { got: line.len(), cap: MAX_RECORD_BYTES });
+        return Err(RecordError::TooLarge {
+            got: line.len(),
+            cap: MAX_RECORD_BYTES,
+        });
     }
     let text = std::str::from_utf8(line).map_err(|_| RecordError::NotUtf8)?;
     let value: Value =
@@ -166,13 +184,32 @@ pub fn validate_line(line: &[u8]) -> Result<RecordSummary, RecordError> {
     };
     let expected: &[&str] = match kind {
         RecordKind::Decision => &[
-            "record", "record_version", "kind", "record_id", "app", "app_version",
-            "decision_point", "created_at", "admission", "facts", "app_choice", "lappi",
+            "record",
+            "record_version",
+            "kind",
+            "record_id",
+            "app",
+            "app_version",
+            "decision_point",
+            "created_at",
+            "admission",
+            "facts",
+            "app_choice",
+            "lappi",
             "redaction",
         ],
         RecordKind::Outcome => &[
-            "record", "record_version", "kind", "record_id", "app", "app_version",
-            "decision_point", "created_at", "admission", "observed", "redaction",
+            "record",
+            "record_version",
+            "kind",
+            "record_id",
+            "app",
+            "app_version",
+            "decision_point",
+            "created_at",
+            "admission",
+            "observed",
+            "redaction",
         ],
     };
     exact_keys(&obj, "$", expected)?;
@@ -192,12 +229,24 @@ pub fn validate_line(line: &[u8]) -> Result<RecordSummary, RecordError> {
         }
     }
     let record_id = req_str(&obj, "$", "record_id")?;
-    if record_id.len() != 32 || !record_id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
-        return Err(invalid("$.record_id", "32 lowercase hex characters", record_id));
+    if record_id.len() != 32
+        || !record_id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err(invalid(
+            "$.record_id",
+            "32 lowercase hex characters",
+            record_id,
+        ));
     }
     let app = req_str(&obj, "$", "app")?;
     if !is_ident(app, 32, false) {
-        return Err(invalid("$.app", "a lowercase identifier [a-z][a-z0-9-]{0,31}", app));
+        return Err(invalid(
+            "$.app",
+            "a lowercase identifier [a-z][a-z0-9-]{0,31}",
+            app,
+        ));
     }
     let app_version = req_str(&obj, "$", "app_version")?;
     if app_version.is_empty() || app_version.len() > 64 {
@@ -261,7 +310,11 @@ fn check_redaction(obj: &Map<String, Value>) -> Result<(), RecordError> {
     exact_keys(red, "$.redaction", &["policy", "fields_redacted"])?;
     let policy = req_str(red, "$.redaction", "policy")?;
     if policy.is_empty() || policy.len() > 64 {
-        return Err(invalid("$.redaction.policy", "the redactor's name, 1-64 characters", policy));
+        return Err(invalid(
+            "$.redaction.policy",
+            "the redactor's name, 1-64 characters",
+            policy,
+        ));
     }
     if red.get("fields_redacted").and_then(Value::as_u64).is_none() {
         return Err(invalid(
@@ -275,14 +328,30 @@ fn check_redaction(obj: &Map<String, Value>) -> Result<(), RecordError> {
 
 fn check_lappi(lappi: &Map<String, Value>) -> Result<String, RecordError> {
     let p = "$.lappi";
-    exact_keys(lappi, p, &["asked", "task", "reading", "kind", "backend", "slots", "latency_ms"])?;
+    exact_keys(
+        lappi,
+        p,
+        &[
+            "asked",
+            "task",
+            "reading",
+            "kind",
+            "backend",
+            "slots",
+            "latency_ms",
+        ],
+    )?;
     let asked = lappi
         .get("asked")
         .and_then(Value::as_bool)
         .ok_or_else(|| invalid("$.lappi.asked", "a boolean", &lappi["asked"].to_string()))?;
     let reading = req_str(lappi, p, "reading")?;
     if !READINGS.contains(&reading) {
-        return Err(invalid("$.lappi.reading", &format!("one of {READINGS:?}"), reading));
+        return Err(invalid(
+            "$.lappi.reading",
+            &format!("one of {READINGS:?}"),
+            reading,
+        ));
     }
     let task = opt_str(lappi, p, "task")?;
     let kind = opt_str(lappi, p, "kind")?;
@@ -290,19 +359,34 @@ fn check_lappi(lappi: &Map<String, Value>) -> Result<String, RecordError> {
     let slots = match &lappi["slots"] {
         Value::Null => None,
         Value::Object(m) => Some(m),
-        other => return Err(invalid("$.lappi.slots", "an object or null", kind_of(other))),
+        other => {
+            return Err(invalid(
+                "$.lappi.slots",
+                "an object or null",
+                kind_of(other),
+            ));
+        }
     };
     match &lappi["latency_ms"] {
         Value::Null => {}
         v if v.as_u64().is_some() => {}
         other => {
-            return Err(invalid("$.lappi.latency_ms", "a non-negative integer or null", &other.to_string()));
+            return Err(invalid(
+                "$.lappi.latency_ms",
+                "a non-negative integer or null",
+                &other.to_string(),
+            ));
         }
     }
 
-    let inconsistent = |why: &str| RecordError::Inconsistent { path: p.into(), why: why.into() };
+    let inconsistent = |why: &str| RecordError::Inconsistent {
+        path: p.into(),
+        why: why.into(),
+    };
     if asked != (reading != "not_asked") {
-        return Err(inconsistent("asked is false exactly when reading is \"not_asked\""));
+        return Err(inconsistent(
+            "asked is false exactly when reading is \"not_asked\"",
+        ));
     }
     if asked && task.is_none() {
         return Err(inconsistent("a request that was sent names its task"));
@@ -310,7 +394,9 @@ fn check_lappi(lappi: &Map<String, Value>) -> Result<String, RecordError> {
     match reading {
         "model_answered" | "model_abstained" => {
             if slots.is_none() || backend.is_none() {
-                return Err(inconsistent("an answer carries its slots and the backend that gave them"));
+                return Err(inconsistent(
+                    "an answer carries its slots and the backend that gave them",
+                ));
             }
             if kind.is_some() {
                 return Err(inconsistent("an answer has no refusal or error kind"));
@@ -318,7 +404,9 @@ fn check_lappi(lappi: &Map<String, Value>) -> Result<String, RecordError> {
         }
         "request_refused" | "backend_failed" | "unavailable" => {
             if kind.is_none() {
-                return Err(inconsistent("a refusal, backend error or unavailability names its kind"));
+                return Err(inconsistent(
+                    "a refusal, backend error or unavailability names its kind",
+                ));
             }
             if slots.is_some() {
                 return Err(inconsistent("only an answer carries slots"));
@@ -326,31 +414,52 @@ fn check_lappi(lappi: &Map<String, Value>) -> Result<String, RecordError> {
         }
         _ => {
             if kind.is_some() || slots.is_some() || backend.is_some() {
-                return Err(inconsistent("a decision Lappi was not asked carries no reply fields"));
+                return Err(inconsistent(
+                    "a decision Lappi was not asked carries no reply fields",
+                ));
             }
         }
     }
     Ok(reading.to_string())
 }
 
+/// The first credential-shaped prefix in `s`: one of [`SECRET_PREFIXES`] at a word boundary (a
+/// prefix inside a word, `TASKAKIA`, is not a credential's start) followed by at least twelve
+/// token characters (a PEM header needs none). Every occurrence is considered, so a benign
+/// first hit does not hide a real later one. The one screen: `qd-prep commit-type` screens commit
+/// diffs with this function rather than carrying a second pattern set.
+pub fn secret_like_prefix(s: &str) -> Option<&'static str> {
+    for prefix in SECRET_PREFIXES {
+        for (at, _) in s.match_indices(prefix) {
+            let boundary = at == 0
+                || !s[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_alphanumeric());
+            let body = &s[at + prefix.len()..];
+            let long_enough = prefix.starts_with("-----")
+                || body
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                    .count()
+                    >= 12;
+            if boundary && long_enough {
+                return Some(prefix);
+            }
+        }
+    }
+    None
+}
+
 fn screen_secrets(value: &Value, path: &str) -> Result<(), RecordError> {
     match value {
-        Value::String(s) => {
-            for prefix in SECRET_PREFIXES {
-                if let Some(at) = s.find(prefix) {
-                    // A prefix inside a word (`TASKAKIA`) is not a credential's start.
-                    let boundary = at == 0
-                        || !s[..at].chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric());
-                    let body = &s[at + prefix.len()..];
-                    let long_enough = prefix.starts_with("-----")
-                        || body.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').count() >= 12;
-                    if boundary && long_enough {
-                        return Err(RecordError::SecretLike { path: path.into(), prefix: prefix.into() });
-                    }
-                }
-            }
-            Ok(())
-        }
+        Value::String(s) => match secret_like_prefix(s) {
+            Some(prefix) => Err(RecordError::SecretLike {
+                path: path.into(),
+                prefix: prefix.into(),
+            }),
+            None => Ok(()),
+        },
         Value::Array(items) => {
             for (i, item) in items.iter().enumerate() {
                 screen_secrets(item, &format!("{path}[{i}]"))?;
@@ -372,7 +481,11 @@ fn is_ident(s: &str, max: usize, dotted: bool) -> bool {
     if s.is_empty() || s.len() > max {
         return false;
     }
-    let parts: Vec<&str> = if dotted { s.split('.').collect() } else { vec![s] };
+    let parts: Vec<&str> = if dotted {
+        s.split('.').collect()
+    } else {
+        vec![s]
+    };
     parts.iter().all(|part| {
         let mut chars = part.chars();
         matches!(chars.next(), Some('a'..='z'))
@@ -402,7 +515,9 @@ fn is_utc_timestamp(s: &str) -> bool {
     }
     let frac = &b[19..b.len() - 1];
     let frac_ok = frac.is_empty()
-        || (frac[0] == b'.' && (2..=10).contains(&frac.len()) && frac[1..].iter().all(u8::is_ascii_digit));
+        || (frac[0] == b'.'
+            && (2..=10).contains(&frac.len())
+            && frac[1..].iter().all(u8::is_ascii_digit));
     let num = |r: std::ops::Range<usize>| s[r].parse::<u32>().unwrap_or(u32::MAX);
     frac_ok
         && (1..=12).contains(&num(5..7))
@@ -424,7 +539,10 @@ fn exact_keys(obj: &Map<String, Value>, path: &str, expected: &[&str]) -> Result
     }
     for key in expected {
         if !obj.contains_key(*key) {
-            return Err(RecordError::MissingKey { path: path.into(), key: (*key).into() });
+            return Err(RecordError::MissingKey {
+                path: path.into(),
+                key: (*key).into(),
+            });
         }
     }
     Ok(())
@@ -433,12 +551,23 @@ fn exact_keys(obj: &Map<String, Value>, path: &str, expected: &[&str]) -> Result
 fn req_str<'a>(obj: &'a Map<String, Value>, path: &str, key: &str) -> Result<&'a str, RecordError> {
     match obj.get(key) {
         Some(Value::String(s)) => Ok(s),
-        Some(other) => Err(invalid(&format!("{path}.{key}"), "a string", kind_of(other))),
-        None => Err(RecordError::MissingKey { path: path.into(), key: key.into() }),
+        Some(other) => Err(invalid(
+            &format!("{path}.{key}"),
+            "a string",
+            kind_of(other),
+        )),
+        None => Err(RecordError::MissingKey {
+            path: path.into(),
+            key: key.into(),
+        }),
     }
 }
 
-fn opt_str<'a>(obj: &'a Map<String, Value>, path: &str, key: &str) -> Result<Option<&'a str>, RecordError> {
+fn opt_str<'a>(
+    obj: &'a Map<String, Value>,
+    path: &str,
+    key: &str,
+) -> Result<Option<&'a str>, RecordError> {
     match obj.get(key) {
         Some(Value::Null) => Ok(None),
         Some(Value::String(s)) if !s.is_empty() && s.len() <= 256 => Ok(Some(s)),
@@ -447,7 +576,10 @@ fn opt_str<'a>(obj: &'a Map<String, Value>, path: &str, key: &str) -> Result<Opt
             "a 1-256 character string or null",
             &other.to_string(),
         )),
-        None => Err(RecordError::MissingKey { path: path.into(), key: key.into() }),
+        None => Err(RecordError::MissingKey {
+            path: path.into(),
+            key: key.into(),
+        }),
     }
 }
 
@@ -458,13 +590,24 @@ fn req_object<'a>(
 ) -> Result<&'a Map<String, Value>, RecordError> {
     match obj.get(key) {
         Some(Value::Object(m)) => Ok(m),
-        Some(other) => Err(invalid(&format!("{path}.{key}"), "an object", kind_of(other))),
-        None => Err(RecordError::MissingKey { path: path.into(), key: key.into() }),
+        Some(other) => Err(invalid(
+            &format!("{path}.{key}"),
+            "an object",
+            kind_of(other),
+        )),
+        None => Err(RecordError::MissingKey {
+            path: path.into(),
+            key: key.into(),
+        }),
     }
 }
 
 fn invalid(path: &str, expected: &str, got: &str) -> RecordError {
-    RecordError::Invalid { path: path.into(), expected: expected.into(), got: got.into() }
+    RecordError::Invalid {
+        path: path.into(),
+        expected: expected.into(),
+        got: got.into(),
+    }
 }
 
 fn kind_of(v: &Value) -> &'static str {

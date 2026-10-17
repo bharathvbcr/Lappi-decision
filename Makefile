@@ -50,7 +50,7 @@
 #         make help
 
 REPO      := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-VENV      := $(REPO)/.venv
+VENV      ?= $(REPO)/.venv
 PY        := $(VENV)/bin/python
 RUFF      := $(VENV)/bin/ruff
 LEDGER    := $(REPO)/ledger/runs.jsonl
@@ -129,6 +129,22 @@ LINT_CMD = if [ ! -x "$(RUFF)" ]; then printf 'NotRun: lint - ruff is not instal
 # that cannot fail.
 CLIPPY_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: clippy - cargo is not on PATH, so no Rust was examined.\n'; exit $(NOT_RUN); fi; if ! cargo clippy --version > /dev/null 2>&1; then printf 'NotRun: clippy - cargo is present but the clippy component is not installed.\n  Install it:  rustup component add clippy\n'; exit $(NOT_RUN); fi; cargo clippy --manifest-path "$(REPO)/Cargo.toml" --all-targets -- -D warnings
 
+# One `cargo fmt --check -p` per workspace member, never `--all`: --all follows path
+# dependencies into the ojas and tessl checkouts, which this repo does not format (rule 6).
+# test_fmt_gate.py asserts this list equals Cargo.toml's members, so it cannot drift.
+FMT_MEMBERS = qd-export qd-lang qd-metal qd-mutate qd-preflight qd-prep qd-runtime qd-train qd-train-metal
+FMT_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: fmt - cargo is not on PATH, so no Rust was examined.\n'; exit $(NOT_RUN); fi; if ! cargo fmt --version > /dev/null 2>&1; then printf 'NotRun: fmt - cargo is present but the rustfmt component is not installed.\n  Install it:  rustup component add rustfmt\n'; exit $(NOT_RUN); fi; rc=0; $(foreach m,$(FMT_MEMBERS),cargo fmt --manifest-path "$(REPO)/Cargo.toml" --check -p $(m) || rc=1;) exit $$rc
+
+# The sibling pin: does the ojas checkout sit at the commit `upstream.lock.json` names? The
+# check is `qd-pin` (crates/qd-preflight/src/pin.rs), which reads the sibling's .git with plain
+# file reads and exits 0 match / 1 mismatch (both shas printed) / 3 sibling or lock unreadable.
+# `../ojas` from the root is the same directory qd-train-metal's `../../../ojas` path dependency
+# reaches, including from a worktree under .claude/worktrees/ (where `ojas` is a local symlink).
+# Override OJAS_DIR to point it elsewhere (test_pin_gate.py points it at an empty directory).
+OJAS_DIR  ?= $(REPO)/../ojas
+PIN_LOCK  ?= $(REPO)/upstream.lock.json
+PIN_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: pin - cargo is not on PATH, so the sibling commit was not compared.\n'; exit $(NOT_RUN); fi; cargo run --quiet --manifest-path "$(REPO)/Cargo.toml" -p qd-preflight --bin qd-pin -- --lock "$(PIN_LOCK)" --sibling "$(OJAS_DIR)" --key ojas
+
 CARGO_TEST_RUN = cargo test --manifest-path $(REPO)/Cargo.toml --workspace
 CARGO_TEST_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: cargo-test - cargo is not on PATH, so no Rust test was executed.\n'; exit $(NOT_RUN); fi; $(CARGO_TEST_RUN)
 
@@ -180,7 +196,7 @@ LEDGER_RECORD_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-record - no
 
 LEDGER_VERIFY_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-verify - no interpreter at %s; the chain was not checked.\n' "$(PY)"; exit $(NOT_RUN); fi; if [ ! -f "$(LEDGER)" ]; then printf 'NotRun: ledger-verify - no ledger at %s; there is no chain to check.\n  An absent ledger is not a verified one.\n' "$(LEDGER)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger verify --ledger "$(LEDGER)"
 
-.PHONY: all gates help lint clippy cargo-test pytest torch-pytest ledger-record ledger-verify
+.PHONY: all gates help lint clippy fmt pin cargo-test pytest torch-pytest ledger-record ledger-verify
 
 all: gates
 
@@ -192,6 +208,8 @@ help:
 	@echo '  gates          every gate below, with a summary; the default'
 	@echo '  lint           ruff over the whole repo, full configured rule set'
 	@echo '  clippy         cargo clippy --all-targets, warnings denied'
+	@echo '  fmt            cargo fmt --check, each workspace member (never --all)'
+	@echo '  pin            ojas checkout is at the commit upstream.lock.json pins (exit 0/1/3)'
 	@echo '  cargo-test     cargo test --workspace'
 	@echo '  pytest         pytest with counts (torch-free venv)'
 	@echo '  torch-pytest   the same suite where torch exists; +89 model-path tests'
@@ -203,6 +221,12 @@ lint:
 
 clippy:
 	@$(CLIPPY_CMD)
+
+pin:
+	@$(PIN_CMD)
+
+fmt:
+	@$(FMT_CMD)
 
 cargo-test:
 	@$(CARGO_TEST_CMD)
@@ -228,11 +252,13 @@ ledger-verify:
 # --------------------------------------------------------------------------------
 gates:
 	@tally=`mktemp`; fail=0; notrun=0; \
-	for t in lint clippy ledger-record ledger-verify; do \
+	for t in lint clippy fmt pin ledger-record ledger-verify; do \
 	  printf '\n======== %s ========\n' "$$t"; \
 	  case "$$t" in \
 	    lint)          ( $(LINT_CMD) );          rc=$$? ;; \
 	    clippy)        ( $(CLIPPY_CMD) );        rc=$$? ;; \
+	    fmt)           ( $(FMT_CMD) );           rc=$$? ;; \
+	    pin)           ( $(PIN_CMD) );           rc=$$? ;; \
 	    ledger-record) ( $(LEDGER_RECORD_CMD) ); rc=$$? ;; \
 	    ledger-verify) ( $(LEDGER_VERIFY_CMD) ); rc=$$? ;; \
 	  esac; \

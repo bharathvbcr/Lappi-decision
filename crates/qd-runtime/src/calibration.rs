@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::refusal::{BackendError, Refusal};
-use crate::schema::{SlotKind, MAX_BINS, MAX_OPTIONS, MIN_BINS, MIN_OPTIONS, RESERVED_NOUL_ROWS};
+use crate::schema::{MAX_BINS, MAX_OPTIONS, MIN_BINS, MIN_OPTIONS, RESERVED_NOUL_ROWS, SlotKind};
 
 /// One fitted entry.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -44,8 +44,7 @@ impl CalibrationEntry {
         if !(self.temperature.is_finite() && self.temperature > 0.0) {
             return Err(format!("{key}: temperature must be finite and > 0"));
         }
-        if !(self.conformal_quantile.is_finite()
-            && (0.0..=1.0).contains(&self.conformal_quantile))
+        if !(self.conformal_quantile.is_finite() && (0.0..=1.0).contains(&self.conformal_quantile))
         {
             return Err(format!("{key}: conformal_quantile must be in [0, 1]"));
         }

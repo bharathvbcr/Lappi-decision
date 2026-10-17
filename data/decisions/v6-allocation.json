@@ -5,7 +5,7 @@
   "val_floor_per_family": 100,
   "val_cap_total": 10000,
   "basis": "Fable's v6 data-design ruling R1 and R2 (AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md). v5's pool passes through as built (its 15 families, rows, splits and bytes unchanged). Each v6 family is capped by the R2 table over every capped pool; within a family the cap is shared over its strata by largest remainder on train availability and drawn in seeded order (decisions::select). Val follows the v5 rule: 1,000 per family, floor 100, and a total of 10,000 over the v6 families (v5's val rows pass untouched). csn.func_match's cc-by-sa-4.0 rows are refused (R2, R6). knowledge.multiple_choice comes through no pool: its train count of 0 is stated here for the pipeline to assert under --v6-data-rules (R2).",
-  "notes": "DRY-RUN PINS (2026-10-08, lane A): synth-jarvis-v1, synth-tools-v1 and synth-email-v1 are pinned at the pools built 2026-10-06, which predate the planted-copy positive control: none of the seven v6 pools pinned here carries decontamination.positive_control in its manifest (read 2026-10-08). The jarvis and tools pools are to be rebuilt from committed code before the real allocation, and these pins replaced then; the real allocation run is the lead's.",
+  "notes": "SYNTH PINS (re-pinned 2026-10-13, lane L2, ruling 2f(i)): synth-email-v1, synth-jarvis-v1 and synth-tools-v1 were rebuilt from committed code (main 94b9d0d, `qd-prep synth` with each config's pinned --target set), each twice with identical examples.jsonl and manifest.json bytes. The rebuilt examples_sha256 equals the 2026-10-06 builds' (the generator is deterministic and unchanged in output), so the pin values are unchanged; what the rebuild adds is decontamination.positive_control in each manifest (state passed), which the 2026-10-06 manifests lacked (read 2026-10-08). The convert-* pins are as before. The real allocation run is the lead's. CALLER FAMILIES (2026-10-12, card ft-2d0a5e4b27e): gitpulse.commit_type and devtype.route are registered (card ft-2d0a5e4b27e) at R5's 1,500 train rows each (R5: 'about 1,500 train rows are expected' / '1,500 train and 150 val rows'). No existing cap value changed. Neither family has a pool pin yet: their pools are built by `qd-prep commit-type` and `qd-prep synth` (kind route), pinned here only when the lead runs the real allocation, and under R5's deadline rule (and ruling 2f(ii)) no `applied` pool is written until their rows exist and Arm B has rows or reads no_data.",
   "pools": {
     "pool-v5-decisions-v4": {
       "examples_sha256": "f3942c1475c695099064d792429e348d0172640db8b961c7874a608b7ee8bb79",
@@ -35,17 +35,17 @@
     "synth-email-v1": {
       "examples_sha256": "05bb22f8fa04e14dc9b03023c2e37cddcef131054c2a9980beb798739285ea8f",
       "draw": "capped",
-      "note": "~/qd-campaign/v6-data-2026-10-06/pool/synth-email-v1; dry-run pin"
+      "note": "rebuilt 2026-10-13 from main 94b9d0d, with positive_control: build/l2/pool/email-a of worktree agent-af8ecae57515c1f99 (not copied to ~/qd-campaign: the write gate refused it)"
     },
     "synth-jarvis-v1": {
       "examples_sha256": "d457b908ffe2bcaac694c1eff0be555e904e84789902ff5815f9e8906d5aa841",
       "draw": "capped",
-      "note": "~/qd-campaign/v6-data-2026-10-06/pool/synth-jarvis-v1; dry-run pin, to be rebuilt"
+      "note": "rebuilt 2026-10-13 from main 94b9d0d, with positive_control: build/l2/pool/jarvis-a of worktree agent-af8ecae57515c1f99 (not copied to ~/qd-campaign: the write gate refused it)"
     },
     "synth-tools-v1": {
       "examples_sha256": "c662f734f4598fdbcc52655e4ac8f09682185b8bf5b5ca14ba0bb2a8bf8e5128",
       "draw": "capped",
-      "note": "~/qd-campaign/v6-data-2026-10-06/pool/synth-tools-v1; dry-run pin, to be rebuilt"
+      "note": "rebuilt 2026-10-13 from main 94b9d0d, with positive_control: build/l2/pool/tools-a of worktree agent-af8ecae57515c1f99 (not copied to ~/qd-campaign: the write gate refused it)"
     }
   },
   "train_caps": {
@@ -58,7 +58,9 @@
     "email.category": 5343,
     "jarvis.target": 2400,
     "jarvis.field_fill": 3200,
-    "jarvis.step_risk": 1000
+    "jarvis.step_risk": 1000,
+    "gitpulse.commit_type": 1500,
+    "devtype.route": 1500
   },
   "refused_licences": {
     "csn.func_match": ["cc-by-sa-4.0"]

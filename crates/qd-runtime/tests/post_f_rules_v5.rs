@@ -900,20 +900,34 @@ fn the_arms_seeds_are_the_envelopes_not_seeds_v5s() {
     let p = bound(&s);
     let doc: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
     assert!(
-        doc["seeds"]["v5"].as_str().unwrap().starts_with("0, 1, 2, 3, 4;"),
+        doc["seeds"]["v5"]
+            .as_str()
+            .unwrap()
+            .starts_with("0, 1, 2, 3, 4;"),
         "the premise moved: seeds.v5 is {}",
         doc["seeds"]["v5"]
     );
     room(&s, &p, &q, &ledger, &ids).said("room");
     let envelope = |to: &'static str| {
         prereg(&s, |p| {
-            retext(p, &["arm_noul_weight", "envelope"], "v5 seeds 0, 1 and 2 only", to)
+            retext(
+                p,
+                &["arm_noul_weight", "envelope"],
+                "v5 seeds 0, 1 and 2 only",
+                to,
+            )
         })
     };
     room(&s, &envelope("v5 seeds 0, 1 and 7 only"), &q, &ledger, &ids)
         .refused_with("seed 7 is not one of seeds.v5's");
-    room(&s, &envelope("v5 seeds 0 and 1 and 2 only"), &q, &ledger, &ids)
-        .refused_with("is not a seed list as the pre-registration writes one");
+    room(
+        &s,
+        &envelope("v5 seeds 0 and 1 and 2 only"),
+        &q,
+        &ledger,
+        &ids,
+    )
+    .refused_with("is not a seed list as the pre-registration writes one");
     room(&s, &envelope("v5 seeds 2, 1 and 0 only"), &q, &ledger, &ids)
         .refused_with("are not ascending and distinct");
 }

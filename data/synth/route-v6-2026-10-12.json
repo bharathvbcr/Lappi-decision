@@ -1,0 +1,31 @@
+{
+  "schema": "qd-synth-config/v1",
+  "kind": "route",
+  "seed": 20261008,
+  "rows_per_template": 30,
+  "val_templates_per_class": 1,
+  "heldout_templates_per_class": 1,
+  "injection_rate": 0.0,
+  "ngram_n": 8,
+  "containment_threshold": 0.5,
+  "target_sha256": {
+    "route-heldout": "f39fb3c41f80c6a7697c671e64916c566f70654df63efa7d303dba43ee67c23f"
+  },
+  "probe": {
+    "n_min": 3,
+    "n_max": 5,
+    "dim": 65536,
+    "max_iter": 500,
+    "tol": 0.0001,
+    "lr": 0.05,
+    "l2_grid": [0.0001, 0.001, 0.01, 0.1],
+    "max_val_accuracy": 0.95,
+    "report_only": {
+      "devtype.route": {"ruling": "AUDIT/board-sweep-2026-10-12/fable-leak-probe-devtype-route-ruling.md"}
+    }
+  },
+  "route": {
+    "phrasings": "devtype-route-phrasings-v6-2026-10-12.json",
+    "phrasings_sha256": "131bd0e6c00859033d6a7d57d41ddf6b2d5cf1ddb27443aa8f8f582d553088bf"
+  }
+}

@@ -54,6 +54,7 @@ pub const LICENCE: &str = "synthetic-by-rule";
 pub const EMAIL_SOURCE: &str = "lappi/synth-email";
 pub const JARVIS_SOURCE: &str = "lappi/synth-jarvis";
 pub const TOOLS_SOURCE: &str = "lappi/synth-tools";
+pub const ROUTE_SOURCE: &str = "lappi/synth-route";
 /// `qd_data.decisions.MAX_POOL_ROWS`: a pool past it is refused at load, so it is refused here.
 pub const MAX_ROWS: usize = 400_000;
 pub const MAX_ROWS_PER_TEMPLATE: usize = 10_000;
@@ -69,6 +70,8 @@ pub enum Kind {
     Email,
     Jarvis,
     Tools,
+    /// DevType's palette route (`devtype.route`), by rule.
+    Route,
 }
 
 impl Kind {
@@ -77,8 +80,9 @@ impl Kind {
             "email" => Ok(Self::Email),
             "jarvis" => Ok(Self::Jarvis),
             "tools" => Ok(Self::Tools),
+            "route" => Ok(Self::Route),
             other => Err(format!(
-                "config: kind {other:?} is not \"email\", \"jarvis\" or \"tools\""
+                "config: kind {other:?} is not \"email\", \"jarvis\", \"tools\" or \"route\""
             )),
         }
     }
@@ -88,6 +92,7 @@ impl Kind {
             Self::Email => "email",
             Self::Jarvis => "jarvis",
             Self::Tools => "tools",
+            Self::Route => "route",
         }
     }
 
@@ -96,6 +101,7 @@ impl Kind {
             Self::Email => EMAIL_SOURCE,
             Self::Jarvis => JARVIS_SOURCE,
             Self::Tools => TOOLS_SOURCE,
+            Self::Route => ROUTE_SOURCE,
         }
     }
 }
@@ -112,6 +118,10 @@ pub struct Probe {
     pub lr: f64,
     pub l2_grid: Vec<f64>,
     pub max_val_accuracy: f64,
+    /// Families whose probe is report-only by a ruling: family -> the ruling's repo path, as the
+    /// config recorded it before the build (`probe.report_only.<family>.ruling`). Honoured only
+    /// together with a matching [`LEAK_PROBE_REPORT_ONLY`] entry in code.
+    pub report_only: BTreeMap<String, String>,
 }
 
 /// `data/synth/<name>.json`.
@@ -135,6 +145,8 @@ pub struct Config {
     pub probe: Probe,
     /// Present iff `kind` is `tools`: the tool-selection generator's inputs and bounds.
     pub tools: Option<crate::synth_tools::ToolsConfig>,
+    /// Present iff `kind` is `route`: the palette-route generator's pinned data file.
+    pub route: Option<crate::synth_tools::RouteConfig>,
 }
 
 impl Config {
@@ -148,6 +160,10 @@ impl Config {
             let dir = path.parent().unwrap_or(Path::new("."));
             t.catalog = dir.join(&t.catalog);
             t.phrasings = dir.join(&t.phrasings);
+        }
+        if let Some(r) = cfg.route.as_mut() {
+            let dir = path.parent().unwrap_or(Path::new("."));
+            r.phrasings = dir.join(&r.phrasings);
         }
         Ok((cfg, bytes))
     }
@@ -199,6 +215,26 @@ impl Config {
             lr: get_f64(p, "lr", "probe")?,
             l2_grid,
             max_val_accuracy: get_f64(p, "max_val_accuracy", "probe")?,
+            report_only: match p.get("report_only") {
+                None => BTreeMap::new(),
+                Some(m) => m
+                    .as_object()
+                    .ok_or("config: probe.report_only is not an object")?
+                    .iter()
+                    .map(|(family, v)| {
+                        match v
+                            .get("ruling")
+                            .and_then(Value::as_str)
+                            .filter(|r| !r.is_empty())
+                        {
+                            Some(r) => Ok((family.clone(), r.to_owned())),
+                            None => Err(format!(
+                                "config: probe.report_only.{family}.ruling is not a non-empty path"
+                            )),
+                        }
+                    })
+                    .collect::<Result<_, String>>()?,
+            },
         };
         NGramSpec::new(probe.n_min, probe.n_max, probe.dim)?;
         if probe.tol < 0.0 || probe.lr <= 0.0 {
@@ -253,6 +289,12 @@ impl Config {
             (_, Some(_)) => return Err("config: a \"tools\" object is only for kind tools".into()),
             (_, None) => None,
         };
+        let route = match (kind, v.get("route")) {
+            (Kind::Route, Some(r)) => Some(crate::synth_tools::RouteConfig::parse(r)?),
+            (Kind::Route, None) => return Err("config: kind route needs a \"route\" object".into()),
+            (_, Some(_)) => return Err("config: a \"route\" object is only for kind route".into()),
+            (_, None) => None,
+        };
         Ok(Config {
             kind,
             seed: get_u64(&v, "seed", "config")?,
@@ -268,6 +310,7 @@ impl Config {
             target_sha256: str_map(&v, "target_sha256")?,
             probe,
             tools,
+            route,
         })
     }
 }
@@ -478,7 +521,12 @@ pub fn assemble_heldout(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, Str
 
 /// Families whose module states `noul` as a zero. A `noul` gold there is a generator defect:
 /// refused and counted as `noul_on_a_family_stating_zero`, never admitted.
-const NOUL_STATED_ZERO: [&str; 1] = [crate::synth_tools::FAMILY];
+const NOUL_STATED_ZERO: [&str; 2] = [crate::synth_tools::FAMILY, crate::synth_tools::ROUTE_FAMILY];
+
+/// Families whose option order is the caller's, in the contract (section 4): the app sends the
+/// same list in the same order every time, so a row with the options shuffled is a prompt the app
+/// never sends. Every other family is shuffled per row (the PriDe lever).
+const CALLER_ORDER_FAMILIES: [&str; 1] = [crate::synth_tools::ROUTE_FAMILY];
 
 /// Both sides go through one dedupe in one order (held-out first, then val, then train), so a
 /// pool row that duplicates a held-out row is the one dropped, and counted.
@@ -533,8 +581,12 @@ fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assem
             *refused.entry("noul_on_a_family_stating_zero").or_default() += 1;
             continue;
         }
-        let perm = Scope::new(cfg.seed, &digest)
-            .shuffle("options", &(0..d.options.len()).collect::<Vec<_>>());
+        let identity: Vec<usize> = (0..d.options.len()).collect();
+        let perm = if CALLER_ORDER_FAMILIES.contains(&d.family_id) {
+            identity
+        } else {
+            Scope::new(cfg.seed, &digest).shuffle("options", &identity)
+        };
         let options: Vec<String> = perm.iter().map(|&i| d.options[i].clone()).collect();
         let gold = match d.gold {
             Gold::Option(g) => Gold::Option(
@@ -577,6 +629,70 @@ fn assemble_sides(cfg: &Config, drafts: &[Draft], heldout: bool) -> Result<Assem
         "context_bytes_by_class": length_stats(&kept_drafts),
     });
     Ok(Assembled { candidates, report })
+}
+
+/// Families whose leak probe is report-only, each by a ruling that names the family (Fable
+/// 2026-10-12, `AUDIT/board-sweep-2026-10-12/fable-leak-probe-devtype-route-ruling.md`):
+/// `(family, ruling path, date, why)`. Only a *surface-rule family* qualifies: its gold is, by a
+/// ruling, computed from the context bytes alone by a committed mirror of the caller's own
+/// resolver, which the generator runs on every row and refuses on disagreement
+/// (`synth_tools::route_gold`). "The label is a deterministic function of the generator's inputs"
+/// does not qualify; every synthetic family satisfies it. `email.*` and `jarvis.*` stay gated.
+/// Adding a family here is a ruling, not a card, and its config must carry
+/// `probe.report_only.<family>.ruling` with the same path, recorded before the build: one key
+/// without the other refuses the build. `passed: null` is "measured, not a pass" and no reader may
+/// treat it as one.
+const LEAK_PROBE_REPORT_ONLY: [(&str, &str, &str, &str); 1] = [(
+    crate::synth_tools::ROUTE_FAMILY,
+    "AUDIT/board-sweep-2026-10-12/fable-leak-probe-devtype-route-ruling.md",
+    "2026-10-12",
+    "the gold is the tool DevType's deterministic resolver would run on the query, computed by \
+     synth_tools::route_gold from the query bytes alone; the label-bearing surface is shared \
+     across templates by that rule, so a template-disjoint split cannot hide it",
+)];
+
+/// The criterion a report-only entry is granted under (recorded in the manifest).
+const REPORT_ONLY_CRITERION: &str = "surface-rule gold";
+
+/// The two keys of a report-only family, or the refusal naming the one that is missing. Run for
+/// every family in the code list and every key in the config, whether or not the probe ran.
+fn check_report_only(cfg: &Config) -> Result<(), String> {
+    check_report_only_in(cfg, &Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+}
+
+/// `check_report_only` against an explicit repo root, where the ruling files are looked up.
+fn check_report_only_in(cfg: &Config, repo: &Path) -> Result<(), String> {
+    for (family, ruling, _, _) in LEAK_PROBE_REPORT_ONLY {
+        if cfg.kind.name() == "route" || cfg.probe.report_only.contains_key(family) {
+            match cfg.probe.report_only.get(family) {
+                None => {
+                    return Err(format!(
+                        "{family} is report-only in code ({ruling}) but the config has no \
+                         probe.report_only.{family}.ruling: both keys or neither"
+                    ));
+                }
+                Some(r) if r != ruling => {
+                    return Err(format!(
+                        "probe.report_only.{family}.ruling is {r:?}, not the ruling the code names \
+                         ({ruling})"
+                    ));
+                }
+                Some(_) if !repo.join(ruling).is_file() => {
+                    return Err(format!("the ruling {ruling} for {family} does not exist"));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    for family in cfg.probe.report_only.keys() {
+        if !LEAK_PROBE_REPORT_ONLY.iter().any(|(f, ..)| f == family) {
+            return Err(format!(
+                "config names probe.report_only.{family}, which no ruling in code grants: \
+                 {family} stays gated"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The leak probe for one fixed-option family: a linear control on char n-grams of the
@@ -735,6 +851,7 @@ pub fn generate(cfg: &Config) -> Result<Generated, String> {
         Kind::Email => Ok(plain(crate::synth_email::drafts(cfg)?)),
         Kind::Jarvis => Ok(plain(crate::synth_jarvis::drafts(cfg)?)),
         Kind::Tools => crate::synth_tools::generate(cfg),
+        Kind::Route => crate::synth_tools::generate_route(cfg),
     }
 }
 
@@ -760,6 +877,7 @@ pub fn build(
     )?;
     let clean = &scanned.clean;
 
+    check_report_only(cfg)?;
     let fixed: BTreeMap<&str, bool> = drafts
         .iter()
         .map(|d| (d.family_id, d.fixed_options))
@@ -773,7 +891,19 @@ pub fn build(
             .filter(|c| c.family_id == *family)
             .collect();
         let probe = if *is_fixed {
-            leak_probe(cfg, family, &rows, threads)?
+            let mut p = leak_probe(cfg, family, &rows, threads)?;
+            if let Some((_, ruling, date, why)) =
+                LEAK_PROBE_REPORT_ONLY.iter().find(|(f, ..)| f == family)
+                && p.get("state") == Some(&json!("ran"))
+            {
+                // Measured and recorded, not a gate: `passed` is null, never true. The two keys
+                // were checked above (`check_report_only`).
+                p["passed"] = Value::Null;
+                p["report_only"] = json!({
+                    "ruling": ruling, "date": date, "criterion": REPORT_ONLY_CRITERION, "why": why,
+                });
+            }
+            p
         } else {
             json!({"state": "not_run", "reason": "options differ per row (enumerated elements), so \
                    a class-label probe has no fixed class set; the per-option control \
@@ -974,8 +1104,10 @@ pub(crate) mod tests {
                 lr: 0.05,
                 l2_grid: vec![1e-4, 1e-3],
                 max_val_accuracy: 0.95,
+                report_only: BTreeMap::new(),
             },
             tools: None,
+            route: None,
         }
     }
 
@@ -1387,6 +1519,91 @@ pub(crate) mod tests {
 
     /// The break-it-first pair's first half: a pool whose context names its label reads
     /// ~1.0 on held-out templates, so the probe does detect a planted leak.
+    /// The build-level refusal (it had no test): a family that no ruling lists, with a probe over
+    /// the bound, refuses the build.
+    #[test]
+    fn an_unlisted_family_over_the_bound_refuses_the_build() {
+        let mut c = cfg(Kind::Email);
+        c.probe.max_val_accuracy = 0.001;
+        let g = generate(&c).unwrap();
+        let target: TargetSet = (
+            "stand-in".to_owned(),
+            vec![("t0".to_owned(), "lighthouse keepers counting migrating cranes over a frozen northern estuary at dawn".to_owned())],
+        );
+        let e = match build(
+            &c,
+            "sha",
+            &g.drafts,
+            &[target],
+            BTreeMap::new(),
+            &Value::Null,
+            1,
+        ) {
+            Err(e) => e,
+            Ok(_) => panic!("a probe over its bound built"),
+        };
+        assert!(e.contains("leak probe over its bound"), "{e}");
+    }
+
+    #[test]
+    fn report_only_needs_the_code_entry_the_config_key_and_the_ruling_file() {
+        let mut c = cfg(Kind::Route);
+        // Neither key: the route family is listed in code, the config lacks its key.
+        assert!(
+            check_report_only(&c)
+                .unwrap_err()
+                .contains("both keys or neither")
+        );
+        let (_, ruling, _, _) = LEAK_PROBE_REPORT_ONLY[0];
+        c.probe.report_only.insert(
+            crate::synth_tools::ROUTE_FAMILY.to_owned(),
+            ruling.to_owned(),
+        );
+        check_report_only(&c).unwrap();
+        // The config key names another path.
+        c.probe.report_only.insert(
+            crate::synth_tools::ROUTE_FAMILY.to_owned(),
+            "AUDIT/x.md".to_owned(),
+        );
+        assert!(
+            check_report_only(&c)
+                .unwrap_err()
+                .contains("not the ruling the code names")
+        );
+        // A config key for a family no ruling grants.
+        let mut e = cfg(Kind::Email);
+        e.probe
+            .report_only
+            .insert("email.category".to_owned(), ruling.to_owned());
+        assert!(check_report_only(&e).unwrap_err().contains("stays gated"));
+    }
+
+    /// Fable 2026-10-12 3.1: a report-only entry stands only while its ruling file exists. The
+    /// check takes the repo root, so a tmp tree without the file proves the refusal.
+    #[test]
+    fn a_missing_ruling_file_refuses_report_only() {
+        let (_, ruling, _, _) = LEAK_PROBE_REPORT_ONLY[0];
+        let mut c = cfg(Kind::Route);
+        c.probe.report_only.insert(
+            crate::synth_tools::ROUTE_FAMILY.to_owned(),
+            ruling.to_owned(),
+        );
+        let tmp = std::env::temp_dir().join(format!("qd-ruling-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let err = check_report_only_in(&c, &tmp).unwrap_err();
+        assert!(err.contains("does not exist"), "{err}");
+        // A directory at the ruling path is not the file.
+        std::fs::create_dir_all(tmp.join(ruling)).unwrap();
+        assert!(
+            check_report_only_in(&c, &tmp)
+                .unwrap_err()
+                .contains("does not exist")
+        );
+        std::fs::remove_dir_all(&tmp).unwrap();
+        // The real repo root has the file.
+        check_report_only(&c).unwrap();
+    }
+
     #[test]
     fn the_probe_reads_a_planted_label_leak() {
         let classes = ["alpha", "beta", "gamma"];

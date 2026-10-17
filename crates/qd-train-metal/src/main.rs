@@ -45,6 +45,8 @@ fn main() -> ExitCode {
         eprintln!("qd-train-metal: {e}");
         return ExitCode::from(2);
     }
-    eprintln!("qd-train-metal: refused: the step runs on tessl's Metal kernels, which build only on macOS");
+    eprintln!(
+        "qd-train-metal: refused: the step runs on tessl's Metal kernels, which build only on macOS"
+    );
     ExitCode::from(1)
 }

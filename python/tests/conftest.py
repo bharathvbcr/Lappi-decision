@@ -30,6 +30,8 @@ QD_GATE_REPORT_BIN_ENV = "QD_GATE_REPORT_BIN"
 #: the two agree.
 QD_PREP_BIN_ENV = "QD_PREP_BIN"
 QD_NOUL_ROWS_BIN_ENV = "QD_NOUL_ROWS_BIN"
+#: The ``qd`` runtime binary, for ``test_wire_golden_corpus.py``'s live probe.
+QD_BIN_ENV = "QD_BIN"
 
 
 def cargo_binary(
@@ -116,3 +118,9 @@ def qd_prep(qd_prep_bin: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def noul_rows_bin() -> Path:
     """``qd-noul-rows`` (debug)."""
     return cargo_binary(QD_NOUL_ROWS_BIN_ENV, "qd-mutate", "qd-noul-rows", release=False)
+
+
+@pytest.fixture(scope="session")
+def qd_bin() -> Path:
+    """``qd`` (debug), the runtime binary the wire module's live probe drives."""
+    return cargo_binary(QD_BIN_ENV, "qd-runtime", "qd", release=False)

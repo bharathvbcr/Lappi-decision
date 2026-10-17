@@ -923,6 +923,89 @@ def test_a_timeout_is_not_run_rather_than_a_failure(tmp_path: Path):
     assert "timed out" in out.result.reason
 
 
+def test_a_timeout_kills_the_suites_children_and_the_reader_ends_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """`cargo test` is a parent whose test binaries hold the output pipe.
+
+    Killing only the parent left the binaries running as orphans with the pipe open, so the
+    reader thread outlived its 30 s join and then raised ValueError when the pipe was closed
+    under it (seen at the 1800 s cap during the 2026-10-14 branch consolidation). The whole
+    process group goes, the pipe reaches EOF, and the reader thread raises nothing.
+    """
+    import threading
+
+    from qd_train.ledger import run_suite
+
+    pid_file = tmp_path / "grandchild.pid"
+    script = (
+        "import subprocess, sys, time\n"
+        "g = subprocess.Popen(['sleep', '20'])\n"
+        f"open({str(pid_file)!r}, 'w').write(str(g.pid))\n"
+        "print('started', flush=True)\n"
+        "time.sleep(20)\n"
+    )
+    thread_errors: list[BaseException | None] = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: thread_errors.append(args.exc_value))
+
+    t0 = time.monotonic()
+    out = run_suite("forking_sleeper", (sys.executable, "-c", script), cwd=tmp_path, timeout_s=2.0)
+    elapsed = time.monotonic() - t0
+
+    assert isinstance(out.result, NotRun)
+    assert "timed out" in out.result.reason
+    assert "started" in out.output_tail
+    assert thread_errors == [], thread_errors
+    assert elapsed < 15, f"the reader waited on an orphan's pipe for {elapsed:.1f}s"
+    grandchild = int(pid_file.read_text())
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            os.kill(grandchild, 0)
+        except ProcessLookupError:
+            break
+        # A zombie still answers kill(0); reap-or-wait until init collects it.
+        if time.monotonic() > deadline:
+            pytest.fail(f"grandchild {grandchild} outlived the timed-out suite")
+        time.sleep(0.1)
+
+
+def test_an_interrupt_during_a_suite_takes_its_process_group_down(tmp_path: Path):
+    """The suite runs in its own session, so the terminal's Ctrl-C no longer reaches it.
+
+    The interrupt lands in the recorder as KeyboardInterrupt; run_suite must kill the group
+    before re-raising, or the suite keeps running with nobody left to record it.
+    """
+    import signal
+    import threading
+
+    from qd_train.ledger import run_suite
+
+    pid_file = tmp_path / "child.pid"
+    script = (
+        "import os, time\n"
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+        "time.sleep(20)\n"
+    )
+    timer = threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGINT))
+    timer.start()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            run_suite("interrupted", (sys.executable, "-c", script), cwd=tmp_path, timeout_s=20.0)
+    finally:
+        timer.cancel()
+    child = int(pid_file.read_text())
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        if time.monotonic() > deadline:
+            pytest.fail(f"suite process {child} outlived the interrupt")
+        time.sleep(0.1)
+
+
 def test_a_green_command_with_no_parsable_summary_is_not_recorded_as_a_pass(tmp_path: Path):
     """Exit 0 with no counts is the shape of a suite that collected nothing.
 

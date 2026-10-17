@@ -12,8 +12,7 @@
 //!         o = gdn_chunk_forward | gdn_recurrent (qkv, gates(proj), GDN state)
 //!         y = gated_rms_norm(o, z(proj), w) -> bf16;  resid += y @ W_out
 //!   attn: proj = xb @ W_in
-//!         prefill:       attn_qk_norm_rope -> q, K/V cache;
-//!                        o = attn_prefill_by_length (attn_prefill at every length)
+//!         prefill:       attn_qk_norm_rope -> q, K/V cache;   o = flash_attn_rows
 //!         continuation:  attn_qk_norm_rope_suffix -> q, suffix K/V;
 //!                        o = attn_prefix_rows(q, shared prefix K/V, suffix K/V)
 //!         y = o * sigmoid(gate) -> bf16;  resid += y @ W_o
@@ -21,6 +20,15 @@
 //!   resid += cast_bf16(silu(xb @ W_gate) * (xb @ W_up)) @ W_down
 //! logits = score_answer_rows(resid[slot rows], final norm (w_offset 1), embed[answer ids])
 //! ```
+//!
+//! # The 17-row readout, and the span head's hidden state
+//!
+//! With a D17 ([`Model::set_answer_delta`], from a release's `d17.safetensors`) the last line reads
+//! `embed[answer ids] + D17`: the rows are composed on the host in f32 (a letter's embedding row
+//! widened from bf16, plus its D17 row) and scored from an f32 head by the same kernel
+//! (`qwen35_score_rows` is generic over the head's dtype and widens bf16 exactly), so a D17 of zero
+//! reproduces today's scores bit for bit (`tests/gpu_span.rs`). [`Model::final_hidden`] is the
+//! tower's `last_hidden_state` rows for the span head (`crate::span`).
 //!
 //! # State, and what "read-only" means here
 //!
@@ -49,12 +57,12 @@ use tessl::qwen35::{
     LmHead, OutCols, StateIn,
 };
 use tessl::tensor::gpu_copy;
-use tessl::{gemm, gemm_epilogue, nn, DType, Epilogue, GemmBackend, GpuBuffer, GpuRuntime, Tensor};
+use tessl::{DType, Epilogue, GemmBackend, GpuBuffer, GpuRuntime, Tensor, gemm, gemm_epilogue, nn};
 
 use crate::config::ModelConfig;
 use crate::error::{GpuContext, MetalError, Result};
 use crate::safetensors::SafeTensors;
-use crate::weights::{self, HostLayer, HostMixer, TensorDigest, TEXT_PREFIX};
+use crate::weights::{self, AnswerDelta, HostLayer, HostMixer, TEXT_PREFIX, TensorDigest};
 
 const BACKEND: GemmBackend = GemmBackend::TensorOps;
 
@@ -85,10 +93,18 @@ pub fn prefix_state_nbytes(cfg: &ModelConfig, tokens: u32) -> Result<usize> {
     let elems = cfg
         .n_gdn()
         .checked_mul(conv + recurrent)
-        .zip(cfg.n_attention().checked_mul(2 * per_pos).and_then(|n| n.checked_mul(tokens as usize)))
+        .zip(
+            cfg.n_attention()
+                .checked_mul(2 * per_pos)
+                .and_then(|n| n.checked_mul(tokens as usize)),
+        )
         .and_then(|(fixed, kv)| fixed.checked_add(kv))
         .and_then(|n| n.checked_mul(4))
-        .ok_or_else(|| MetalError::Input(format!("a {tokens}-token prefix state overflows usize bytes")))?;
+        .ok_or_else(|| {
+            MetalError::Input(format!(
+                "a {tokens}-token prefix state overflows usize bytes"
+            ))
+        })?;
     Ok(elems)
 }
 
@@ -115,7 +131,10 @@ thread_local! {
 
 /// The v1 record over per-buffer SHA-256s: the domain tag, the token count, then for each buffer
 /// in [`PrefixState`]'s fixed order its tag, its byte length and its SHA-256, all hashed once.
-fn digest_v1<'a>(tokens: u32, parts: impl IntoIterator<Item = (&'a str, usize, [u8; 32])>) -> [u8; 32] {
+fn digest_v1<'a>(
+    tokens: u32,
+    parts: impl IntoIterator<Item = (&'a str, usize, [u8; 32])>,
+) -> [u8; 32] {
     let mut acc = Vec::with_capacity(DIGEST_V1_TAG.len() + 4 + 48 * (8 + 8 + 32));
     acc.extend_from_slice(DIGEST_V1_TAG);
     acc.extend_from_slice(&tokens.to_le_bytes());
@@ -228,7 +247,10 @@ impl PrefixState {
             qd_runtime::sha256_slices_parallel(&slices, qd_runtime::SHA256_PARALLEL_MAX_WORKERS);
         Ok(digest_v1(
             self.tokens,
-            spans.iter().zip(hashes).map(|((tag, r), h)| (*tag, r.len(), h)),
+            spans
+                .iter()
+                .zip(hashes)
+                .map(|((tag, r), h)| (*tag, r.len(), h)),
         ))
     }
 }
@@ -262,10 +284,24 @@ pub struct Model {
     attn: AttnProjLayout,
     layers: Vec<Layer>,
     final_norm: GpuBuffer,
+    /// The checkpoint's final-norm weight `w` (the kernel applies `1 + w`), for the span head's
+    /// host-side hidden state.
+    final_norm_host: Vec<f32>,
     /// `[vocab, hidden]` bf16: the embedding and, tied, the LM head.
     embed: Tensor,
     weight_hash: String,
     embed_digest: [u8; 32],
+    /// D17 and the 17 letter ids it is indexed by, when the release carries one.
+    readout: Option<Readout>,
+    /// The composed `[n, hidden]` f32 head for the last answer set scored, so a request's repeated
+    /// decodes do not recompose and re-upload it.
+    composed: RefCell<Option<(Vec<u32>, GpuBuffer)>>,
+}
+
+/// `embed[answer ids] + D17`: D17's rows are the 17 letters' in `letter_ids` order.
+struct Readout {
+    delta: AnswerDelta,
+    letter_ids: [u32; 17],
 }
 
 fn upload_f32(rt: &Arc<GpuRuntime>, data: &[f32], what: &str) -> Result<GpuBuffer> {
@@ -286,7 +322,13 @@ fn upload_u32(rt: &Arc<GpuRuntime>, data: &[u32], what: &str) -> Result<GpuBuffe
     Ok(b)
 }
 
-fn upload_bf16(rt: &Arc<GpuRuntime>, rows: usize, cols: usize, bits: &[u16], what: &str) -> Result<Tensor> {
+fn upload_bf16(
+    rt: &Arc<GpuRuntime>,
+    rows: usize,
+    cols: usize,
+    bits: &[u16],
+    what: &str,
+) -> Result<Tensor> {
     if bits.len() != rows * cols {
         return Err(MetalError::Weights(format!(
             "{what}: {} elements for [{rows}, {cols}]",
@@ -345,11 +387,22 @@ fn prefix_attention(
     dims: nn::AttnDims,
 ) -> Result<()> {
     if dims.tq == 1 {
-        qwen35::attn_prefix_decode(rt, q, prefix, suffix_k, suffix_v, suffix_len, q_pos, o, dims, false)
-            .gpu("attn_prefix_decode")
+        // tessl (b295441) made the split-KV partial-pass scratch caller-owned. One query per row
+        // means a one-token suffix, so the key capacity is the prefix plus that one token (a
+        // larger suffix buffer is refused by tessl's own scratch check, not run). Allocated per
+        // call, as tessl did internally before it took the argument.
+        let scratch =
+            nn::DecodeScratch::new(rt, dims.batch, dims.heads, prefix.len as usize + 1, 256)
+                .gpu("attn_prefix_decode scratch")?;
+        qwen35::attn_prefix_decode(
+            rt, q, prefix, suffix_k, suffix_v, suffix_len, q_pos, o, &scratch, dims, false,
+        )
+        .gpu("attn_prefix_decode")
     } else {
-        qwen35::attn_prefix_rows(rt, q, prefix, suffix_k, suffix_v, suffix_len, q_pos, o, dims, false)
-            .gpu("attn_prefix_rows")
+        qwen35::attn_prefix_rows(
+            rt, q, prefix, suffix_k, suffix_v, suffix_len, q_pos, o, dims, false,
+        )
+        .gpu("attn_prefix_rows")
     }
 }
 
@@ -370,8 +423,14 @@ fn concat_kv(
         }
         let from = Tensor::from_buffer(rt, src.clone(), &[n * per_pos], DType::F32, 0)
             .gpu("write-back kv source")?;
-        let to = Tensor::from_buffer(rt, out.clone(), &[n * per_pos], DType::F32, off * per_pos * 4)
-            .gpu("write-back kv destination")?;
+        let to = Tensor::from_buffer(
+            rt,
+            out.clone(),
+            &[n * per_pos],
+            DType::F32,
+            off * per_pos * 4,
+        )
+        .gpu("write-back kv destination")?;
         gpu_copy(&from, &to).gpu("write-back kv copy")?;
     }
     Ok(out)
@@ -391,7 +450,7 @@ struct Acts {
     a_q: GpuBuffer,
     a_o: GpuBuffer,
     a_y: Tensor,
-    /// `[seq]`: the live K/V length. A prefill has no prefix, so it is `attn_prefill`'s `tkv`;
+    /// `[seq]`: the live K/V length. A prefill has no prefix, so it is `flash_attn_rows`' `tkv`;
     /// a continuation's is its suffix length, as `attn_prefix_rows` takes it.
     kv_len: GpuBuffer,
     q_pos: GpuBuffer,
@@ -428,7 +487,16 @@ impl Model {
 
         let norm_name = format!("{TEXT_PREFIX}norm.weight");
         let final_norm_host = {
-            let info = st.expect(&norm_name, &[h], &[crate::safetensors::Dtype::Bf16, crate::safetensors::Dtype::F32])?.clone();
+            let info = st
+                .expect(
+                    &norm_name,
+                    &[h],
+                    &[
+                        crate::safetensors::Dtype::Bf16,
+                        crate::safetensors::Dtype::F32,
+                    ],
+                )?
+                .clone();
             let mut bytes = vec![0u8; info.nbytes()];
             st.read_into(&norm_name, &mut bytes)?;
             digests.push((norm_name, qd_runtime::sha256(&bytes)));
@@ -454,7 +522,9 @@ impl Model {
                     .into_iter()
                     .map(|hd| {
                         hd.join().unwrap_or_else(|_| {
-                            Err(MetalError::Weights("a layer-preparation thread panicked".into()))
+                            Err(MetalError::Weights(
+                                "a layer-preparation thread panicked".into(),
+                            ))
                         })
                     })
                     .collect()
@@ -474,8 +544,20 @@ impl Model {
                     } => {
                         let m = Mixer::Gdn {
                             w: GdnWeights {
-                                w_in: upload_bf16(rt, h, gdn.width() as usize, w_in, &tag("gdn w_in"))?,
-                                w_out: upload_bf16(rt, gdn.value_dim() as usize, h, w_out, &tag("gdn w_out"))?,
+                                w_in: upload_bf16(
+                                    rt,
+                                    h,
+                                    gdn.width() as usize,
+                                    w_in,
+                                    &tag("gdn w_in"),
+                                )?,
+                                w_out: upload_bf16(
+                                    rt,
+                                    gdn.value_dim() as usize,
+                                    h,
+                                    w_out,
+                                    &tag("gdn w_out"),
+                                )?,
                                 conv_w: upload_f32(rt, conv_w, &tag("conv"))?,
                                 a_log: upload_f32(rt, a_log, &tag("A_log"))?,
                                 dt_bias: upload_f32(rt, dt_bias, &tag("dt_bias"))?,
@@ -494,8 +576,20 @@ impl Model {
                     } => {
                         let m = Mixer::Attn {
                             w: AttnWeights {
-                                w_in: upload_bf16(rt, h, attn.width() as usize, w_in, &tag("attn w_in"))?,
-                                w_out: upload_bf16(rt, (cfg.q_heads * cfg.head_dim) as usize, h, w_out, &tag("attn w_out"))?,
+                                w_in: upload_bf16(
+                                    rt,
+                                    h,
+                                    attn.width() as usize,
+                                    w_in,
+                                    &tag("attn w_in"),
+                                )?,
+                                w_out: upload_bf16(
+                                    rt,
+                                    (cfg.q_heads * cfg.head_dim) as usize,
+                                    h,
+                                    w_out,
+                                    &tag("attn w_out"),
+                                )?,
                                 q_norm: upload_f32(rt, q_norm, &tag("q_norm"))?,
                                 k_norm: upload_f32(rt, k_norm, &tag("k_norm"))?,
                             },
@@ -524,10 +618,95 @@ impl Model {
             attn,
             layers,
             final_norm,
+            final_norm_host,
             embed,
             weight_hash,
             embed_digest,
+            readout: None,
+            composed: RefCell::new(None),
         })
+    }
+
+    /// Serve the answer rows as `embed[answer ids] + D17`. `letter_ids` are the 17 answer letters'
+    /// token ids, `A`..`P` then noul, in D17's row order; a later [`Model::score`] over any other
+    /// id is refused (D17 has no row for it).
+    pub fn set_answer_delta(&mut self, delta: AnswerDelta, letter_ids: [u32; 17]) -> Result<()> {
+        if delta.hidden() != self.cfg.hidden {
+            return Err(MetalError::Weights(format!(
+                "D17 is {} wide, the tower is {}",
+                delta.hidden(),
+                self.cfg.hidden
+            )));
+        }
+        if let Some(bad) = letter_ids.iter().find(|&&id| id as usize >= self.cfg.vocab) {
+            return Err(MetalError::Input(format!(
+                "letter id {bad} is outside the vocabulary"
+            )));
+        }
+        self.readout = Some(Readout { delta, letter_ids });
+        *self.composed.borrow_mut() = None;
+        Ok(())
+    }
+
+    /// Whether the answer rows carry a D17.
+    pub fn has_answer_delta(&self) -> bool {
+        self.readout.is_some()
+    }
+
+    /// SHA-256 of the D17 file the answer rows carry, if any.
+    pub fn answer_delta_digest(&self) -> Option<[u8; 32]> {
+        self.readout.as_ref().map(|r| r.delta.file_sha256())
+    }
+
+    /// The tower's `last_hidden_state` at `rows` of `out`, row-major `[rows.len(), hidden]` f32: the
+    /// residual stream after the last layer, through the final norm, rounded to bf16 (what a bf16
+    /// tower emits and what the span head was trained on). Waits for the GPU.
+    pub fn final_hidden(&self, out: &RunOutput, rows: &[u32]) -> Result<Vec<f32>> {
+        let h = self.cfg.hidden;
+        let total = out.batch.checked_mul(out.seq).ok_or_else(|| {
+            MetalError::Input(format!("{} x {} rows overflow u32", out.batch, out.seq))
+        })?;
+        if let Some(bad) = rows.iter().find(|&&r| r >= total) {
+            return Err(MetalError::Input(format!(
+                "hidden row {bad} is outside the {total} rows run"
+            )));
+        }
+        let resid = out
+            .resid
+            .buffer
+            .try_contents_f32()
+            .gpu("map the residual stream")?;
+        let mut hidden = Vec::with_capacity(rows.len() * h);
+        for &r in rows {
+            let at = r as usize * h;
+            hidden.extend(crate::span::final_hidden_row(
+                &resid[at..at + h],
+                &self.final_norm_host,
+                self.cfg.rms_eps,
+            ));
+        }
+        Ok(hidden)
+    }
+
+    /// The pre-norm residual rows, for the convention test only: what a head that read the stream
+    /// before the final norm would have been fed.
+    pub fn residual_rows(&self, out: &RunOutput, rows: &[u32]) -> Result<Vec<f32>> {
+        let h = self.cfg.hidden;
+        let total = out.batch.checked_mul(out.seq).unwrap_or(0);
+        if let Some(bad) = rows.iter().find(|&&r| r >= total) {
+            return Err(MetalError::Input(format!(
+                "residual row {bad} is outside the {total} rows run"
+            )));
+        }
+        let resid = out
+            .resid
+            .buffer
+            .try_contents_f32()
+            .gpu("map the residual stream")?;
+        Ok(rows
+            .iter()
+            .flat_map(|&r| resid[r as usize * h..(r as usize + 1) * h].to_vec())
+            .collect())
     }
 
     pub fn config(&self) -> &ModelConfig {
@@ -579,15 +758,19 @@ impl Model {
         let qd = (self.cfg.q_heads * self.cfg.head_dim) as usize;
         let vd = self.gdn.value_dim() as usize;
         // Every position of prefix + continuation must fit the kernels' u32 indexing.
-        prefix
-            .checked_add(seq)
-            .ok_or_else(|| MetalError::Input("prefix + continuation exceeds u32 positions".into()))?;
+        prefix.checked_add(seq).ok_or_else(|| {
+            MetalError::Input("prefix + continuation exceeds u32 positions".into())
+        })?;
         // The MLP's element count is passed to the kernels as u32; refuse it here, before any
         // allocation or dispatch, rather than in the layer loop after earlier layers are encoded.
         // Saturating: a product past usize is past u32 too, and `to_u32` names it.
         to_u32(rows.saturating_mul(inter), "mlp elements")?;
-        let g_proj = rt.alloc_tensor_f32(&[rows, self.gdn.width() as usize]).gpu("gdn proj")?;
-        let a_proj = rt.alloc_tensor_f32(&[rows, self.attn.width() as usize]).gpu("attn proj")?;
+        let g_proj = rt
+            .alloc_tensor_f32(&[rows, self.gdn.width() as usize])
+            .gpu("gdn proj")?;
+        let a_proj = rt
+            .alloc_tensor_f32(&[rows, self.attn.width() as usize])
+            .gpu("attn proj")?;
         let resid = rt.alloc_tensor_f32(&[rows, h]).gpu("resid")?;
         for t in [&g_proj, &a_proj, &resid] {
             if t.byte_offset() != 0 {
@@ -645,7 +828,9 @@ impl Model {
         let rt = &self.rt;
         let cfg = &self.cfg;
         if batch == 0 || seq == 0 {
-            return Err(MetalError::Input(format!("batch {batch} x seq {seq} is empty")));
+            return Err(MetalError::Input(format!(
+                "batch {batch} x seq {seq} is empty"
+            )));
         }
         let rows = (batch as usize)
             .checked_mul(seq as usize)
@@ -657,7 +842,10 @@ impl Model {
             )));
         }
         if let Some(bad) = ids.iter().find(|&&id| id as usize >= cfg.vocab) {
-            return Err(MetalError::Input(format!("token id {bad} is outside the {}-row vocabulary", cfg.vocab)));
+            return Err(MetalError::Input(format!(
+                "token id {bad} is outside the {}-row vocabulary",
+                cfg.vocab
+            )));
         }
         if keep_state && batch != 1 {
             return Err(MetalError::Input("keep_state is for batch 1".into()));
@@ -665,7 +853,9 @@ impl Model {
         if let Some(s) = start
             && (s.conv.len() != cfg.n_gdn() || s.k.len() != cfg.n_attention())
         {
-            return Err(MetalError::State("prefix state does not match this model's layers".into()));
+            return Err(MetalError::State(
+                "prefix state does not match this model's layers".into(),
+            ));
         }
         let prefix = start.map_or(0, |s| s.tokens);
         let recurrent = start.is_some() && seq <= RECURRENT_MAX_SEQ;
@@ -687,18 +877,31 @@ impl Model {
         let mut state_v = Vec::new();
 
         for (li, layer) in self.layers.iter().enumerate() {
-            nn::rms_norm_bf16(rt, &a.resid.buffer, &layer.in_norm, &a.xb.buffer, rows_u, hidden_u, eps)
-                .gpu("input norm")?;
+            nn::rms_norm_bf16(
+                rt,
+                &a.resid.buffer,
+                &layer.in_norm,
+                &a.xb.buffer,
+                rows_u,
+                hidden_u,
+                eps,
+            )
+            .gpu("input norm")?;
             match &layer.mixer {
                 Mixer::Gdn { w, slot } => {
                     let proj = &a.g_proj.buffer;
-                    qwen35::fused_projection(&a.xb, &w.w_in, &a.g_proj, BACKEND).gpu("gdn in-proj")?;
+                    qwen35::fused_projection(&a.xb, &w.w_in, &a.g_proj, BACKEND)
+                        .gpu("gdn in-proj")?;
                     let conv_in = match start {
                         Some(s) => StateIn::Snapshot(&s.conv[*slot]),
                         None => StateIn::Zero,
                     };
                     let conv_out = if keep_state {
-                        Some(state_f32(rt, batch as usize * conv_dim as usize * (kw as usize - 1), "conv state")?)
+                        Some(state_f32(
+                            rt,
+                            batch as usize * conv_dim as usize * (kw as usize - 1),
+                            "conv state",
+                        )?)
                     } else {
                         None
                     };
@@ -721,7 +924,11 @@ impl Model {
                         None => StateIn::Zero,
                     };
                     let gdn_out = if keep_state {
-                        Some(state_f32(rt, batch as usize * dims.state_elems_per_row(), "gdn state")?)
+                        Some(state_f32(
+                            rt,
+                            batch as usize * dims.state_elems_per_row(),
+                            "gdn state",
+                        )?)
                     } else {
                         None
                     };
@@ -769,7 +976,8 @@ impl Model {
                         eps,
                     )
                     .gpu("gated_rms_norm")?;
-                    qwen35::project_residual(&a.g_y, &w.w_out, &a.resid, BACKEND).gpu("gdn out-proj")?;
+                    qwen35::project_residual(&a.g_y, &w.w_out, &a.resid, BACKEND)
+                        .gpu("gdn out-proj")?;
                     if let (Some(c), Some(g)) = (conv_out, gdn_out) {
                         state_conv.push(c);
                         state_gdn.push(g);
@@ -777,7 +985,8 @@ impl Model {
                 }
                 Mixer::Attn { w, slot } => {
                     let pc = Cols::dense(&a.a_proj.buffer, self.attn.width());
-                    qwen35::fused_projection(&a.xb, &w.w_in, &a.a_proj, BACKEND).gpu("attn in-proj")?;
+                    qwen35::fused_projection(&a.xb, &w.w_in, &a.a_proj, BACKEND)
+                        .gpu("attn in-proj")?;
                     let shape = AttnShape {
                         batch,
                         seq,
@@ -797,7 +1006,11 @@ impl Model {
                     // This pass's own K/V, [batch, seq, kv_heads, head_dim]: the whole cache for
                     // a prefill, each row's suffix cache for a continuation.
                     let own = batch as usize * seq as usize * per_pos;
-                    let alloc = if keep_state && start.is_none() { state_f32 } else { scratch_f32 };
+                    let alloc = if keep_state && start.is_none() {
+                        state_f32
+                    } else {
+                        scratch_f32
+                    };
                     let (kc, vc) = (alloc(rt, own, "k cache")?, alloc(rt, own, "v cache")?);
                     let targets = AttnTargets {
                         q_out: &a.a_q,
@@ -807,22 +1020,44 @@ impl Model {
                     match start {
                         None => {
                             qwen35::attn_qk_norm_rope(
-                                rt, &shape, pc, &w.q_norm, &w.k_norm, &targets, 0, cfg.rope_theta, eps,
+                                rt,
+                                &shape,
+                                pc,
+                                &w.q_norm,
+                                &w.k_norm,
+                                &targets,
+                                0,
+                                cfg.rope_theta,
+                                eps,
                             )
                             .gpu("attn_qk_norm_rope")?;
-                            // `qwen35::prefill_attn_kernel` is `attn_prefill` at every
-                            // length. Same buffers, causal mask and f32 accumulate.
-                            // Head dim is the h256 kernel (`config` refuses any other).
-                            qwen35::attn_prefill_by_length(
-                                rt, &a.a_q, &kc, &vc, &a.a_o, &a.kv_len, &a.q_pos, &a.kv_pos, dims,
+                            nn::flash_attn_rows(
+                                rt,
+                                &a.a_q,
+                                &kc,
+                                &vc,
+                                &a.a_o,
+                                &a.kv_len,
+                                &a.q_pos,
+                                &a.kv_pos,
+                                dims,
+                                cfg.head_dim,
                                 false,
                             )
-                            .gpu("attn_prefill_by_length")?;
+                            .gpu("flash_attn_rows")?;
                         }
                         Some(s) => {
                             qwen35::attn_qk_norm_rope_suffix(
-                                rt, &shape, pc, &w.q_norm, &w.k_norm, &targets, prefix, 0,
-                                cfg.rope_theta, eps,
+                                rt,
+                                &shape,
+                                pc,
+                                &w.q_norm,
+                                &w.k_norm,
+                                &targets,
+                                prefix,
+                                0,
+                                cfg.rope_theta,
+                                eps,
                             )
                             .gpu("attn_qk_norm_rope_suffix")?;
                             prefix_attention(
@@ -855,13 +1090,28 @@ impl Model {
                         cfg.head_dim,
                     )
                     .gpu("attn_output_gate")?;
-                    gemm_epilogue(&a.a_y, &w.w_out, &a.resid, BACKEND, residual_add()).gpu("attn o-proj")?;
+                    gemm_epilogue(&a.a_y, &w.w_out, &a.resid, BACKEND, residual_add())
+                        .gpu("attn o-proj")?;
                     if keep_state {
                         let (k, v) = match start {
                             None => (kc, vc),
                             Some(s) => (
-                                concat_kv(rt, &s.k[*slot], prefix as usize, &kc, seq as usize, per_pos)?,
-                                concat_kv(rt, &s.v[*slot], prefix as usize, &vc, seq as usize, per_pos)?,
+                                concat_kv(
+                                    rt,
+                                    &s.k[*slot],
+                                    prefix as usize,
+                                    &kc,
+                                    seq as usize,
+                                    per_pos,
+                                )?,
+                                concat_kv(
+                                    rt,
+                                    &s.v[*slot],
+                                    prefix as usize,
+                                    &vc,
+                                    seq as usize,
+                                    per_pos,
+                                )?,
                             ),
                         };
                         state_k.push(k);
@@ -870,14 +1120,24 @@ impl Model {
                 }
             }
             // MLP
-            nn::rms_norm_bf16(rt, &a.resid.buffer, &layer.post_norm, &a.xb.buffer, rows_u, hidden_u, eps)
-                .gpu("post norm")?;
+            nn::rms_norm_bf16(
+                rt,
+                &a.resid.buffer,
+                &layer.post_norm,
+                &a.xb.buffer,
+                rows_u,
+                hidden_u,
+                eps,
+            )
+            .gpu("post norm")?;
             gemm(&a.xb, &layer.w_gate, &a.m_gate, BACKEND).gpu("mlp gate")?;
             gemm(&a.xb, &layer.w_up, &a.m_up, BACKEND).gpu("mlp up")?;
             let n_mid = to_u32(rows * cfg.intermediate, "mlp elements")?;
-            nn::mlp_silu(rt, &a.m_gate.buffer, &a.m_up.buffer, &a.m_mid.buffer, n_mid).gpu("mlp_silu")?;
+            nn::mlp_silu(rt, &a.m_gate.buffer, &a.m_up.buffer, &a.m_mid.buffer, n_mid)
+                .gpu("mlp_silu")?;
             cast_f32_to_bf16_into(&a.m_mid, &a.m_midb).gpu("mlp cast")?;
-            gemm_epilogue(&a.m_midb, &layer.w_down, &a.resid, BACKEND, residual_add()).gpu("mlp down")?;
+            gemm_epilogue(&a.m_midb, &layer.w_down, &a.resid, BACKEND, residual_add())
+                .gpu("mlp down")?;
 
             if let Some(f) = observe.as_deref_mut() {
                 rt.synchronize().gpu("observe sync")?;
@@ -915,18 +1175,42 @@ impl Model {
             MetalError::Input(format!("{} x {} rows overflow u32", out.batch, out.seq))
         })?;
         if slot_rows.is_empty() || answers.is_empty() {
-            return Err(MetalError::Input("scoring needs at least one slot row and one answer".into()));
+            return Err(MetalError::Input(
+                "scoring needs at least one slot row and one answer".into(),
+            ));
         }
         if let Some(bad) = slot_rows.iter().find(|&&r| r >= rows) {
-            return Err(MetalError::Input(format!("slot row {bad} is outside the {rows} rows run")));
+            return Err(MetalError::Input(format!(
+                "slot row {bad} is outside the {rows} rows run"
+            )));
         }
         if let Some(bad) = answers.iter().find(|&&id| id as usize >= self.cfg.vocab) {
-            return Err(MetalError::Input(format!("answer id {bad} is outside the vocabulary")));
+            return Err(MetalError::Input(format!(
+                "answer id {bad} is outside the vocabulary"
+            )));
         }
         let n_slots = to_u32(slot_rows.len(), "slots")?;
         let n_answers = to_u32(answers.len(), "answers")?;
         let slots = upload_u32(rt, slot_rows, "slots")?;
-        let ans = upload_u32(rt, answers, "answers")?;
+        // The tied embedding scored by id, or, with a D17, the composed `[n, hidden]` f32 rows
+        // scored by position.
+        let (head, head_dtype, head_vocab, ans) = match &self.readout {
+            None => (
+                self.embed.buffer.clone(),
+                DType::BF16,
+                to_u32(self.cfg.vocab, "vocab")?,
+                upload_u32(rt, answers, "answers")?,
+            ),
+            Some(readout) => {
+                let identity: Vec<u32> = (0..n_answers).collect();
+                (
+                    self.composed_head(readout, answers)?,
+                    DType::F32,
+                    n_answers,
+                    upload_u32(rt, &identity, "answer positions")?,
+                )
+            }
+        };
         let n_out = slot_rows.len() * answers.len();
         let logits = scratch_f32(rt, n_out, "logits")?;
         let logprobs = scratch_f32(rt, n_out, "logprobs")?;
@@ -941,9 +1225,9 @@ impl Model {
             1.0,
             self.cfg.rms_eps,
             LmHead {
-                weight: &self.embed.buffer,
-                dtype: DType::BF16,
-                vocab: to_u32(self.cfg.vocab, "vocab")?,
+                weight: &head,
+                dtype: head_dtype,
+                vocab: head_vocab,
             },
             &ans,
             n_answers,
@@ -960,6 +1244,35 @@ impl Model {
             logits: read(&logits)?,
             logprobs: read(&logprobs)?,
         })
+    }
+
+    /// `embed[answers] + D17` as an `[n, hidden]` f32 buffer, cached for the last answer set.
+    fn composed_head(&self, readout: &Readout, answers: &[u32]) -> Result<GpuBuffer> {
+        if let Some((ids, buffer)) = &*self.composed.borrow()
+            && ids == answers
+        {
+            return Ok(buffer.clone());
+        }
+        let h = self.cfg.hidden;
+        let mut rows = vec![0f32; answers.len() * h];
+        {
+            let table = self.embed.buffer.try_contents_u16().gpu("map embedding")?;
+            for (i, &id) in answers.iter().enumerate() {
+                let letter = readout.letter_ids.iter().position(|&l| l == id).ok_or_else(|| {
+                    MetalError::Input(format!(
+                        "answer id {id} is not one of the 17 answer letters, so D17 has no row for it"
+                    ))
+                })?;
+                weights::compose_answer_row(
+                    &table[id as usize * h..(id as usize + 1) * h],
+                    readout.delta.row(letter),
+                    &mut rows[i * h..(i + 1) * h],
+                );
+            }
+        }
+        let buffer = upload_f32(&self.rt, &rows, "D17 answer rows")?;
+        *self.composed.borrow_mut() = Some((answers.to_vec(), buffer.clone()));
+        Ok(buffer)
     }
 
     /// Prefill `ids` from nothing and keep the state.
@@ -1006,17 +1319,20 @@ pub fn weights_file(snapshot: &Path) -> Result<std::path::PathBuf> {
     if single.is_file() {
         return Ok(single);
     }
-    Err(MetalError::Weights(format!("{}: no safetensors index or model.safetensors", snapshot.display())))
+    Err(MetalError::Weights(format!(
+        "{}: no safetensors index or model.safetensors",
+        snapshot.display()
+    )))
 }
 
 #[cfg(test)]
 mod digest_record_tests {
     use super::{
-        digest_scratch_retain_bytes, digest_v1, prefix_state_nbytes, release_oversized_scratch,
-        DIGEST_SCRATCH_RETAIN_TOKENS,
+        DIGEST_SCRATCH_RETAIN_TOKENS, digest_scratch_retain_bytes, digest_v1, prefix_state_nbytes,
+        release_oversized_scratch,
     };
-    use crate::config::tests_support::QWEN35_2B;
     use crate::config::ModelConfig;
+    use crate::config::tests_support::QWEN35_2B;
 
     /// The v1 record against an independent oracle: Python's `hashlib` over the same layout
     /// (`AUDIT/qdm-digest-2026-10-03/digest_v1_oracle.py`). It pins the record layout the GPU
@@ -1026,7 +1342,12 @@ mod digest_record_tests {
     fn the_v1_record_matches_an_independent_oracle() {
         let k: Vec<u8> = (0..=255u8).cycle().take(768).collect();
         let parts: [(&str, &[u8]); 4] = [("conv", b"abc"), ("gdn", b""), ("k", &k), ("v", b"\x00")];
-        let got = digest_v1(7, parts.iter().map(|(t, b)| (*t, b.len(), qd_runtime::sha256(b))));
+        let got = digest_v1(
+            7,
+            parts
+                .iter()
+                .map(|(t, b)| (*t, b.len(), qd_runtime::sha256(b))),
+        );
         assert_eq!(
             qd_runtime::hex(&got),
             "a1b6d7a836b2b373bcc9b3f2da2e3195ae7ae503a68e71934cabd39945d44079"
@@ -1045,7 +1366,11 @@ mod digest_record_tests {
             (2033, 70_164_480),
             (8185, 221_356_032),
         ] {
-            assert_eq!(prefix_state_nbytes(&cfg, tokens).unwrap(), bytes, "{tokens} tokens");
+            assert_eq!(
+                prefix_state_nbytes(&cfg, tokens).unwrap(),
+                bytes,
+                "{tokens} tokens"
+            );
         }
     }
 
@@ -1056,11 +1381,17 @@ mod digest_record_tests {
     fn the_scratch_of_a_default_max_tokens_state_is_kept() {
         let cfg = ModelConfig::from_json(QWEN35_2B).unwrap();
         let state = prefix_state_nbytes(&cfg, DIGEST_SCRATCH_RETAIN_TOKENS).unwrap();
-        assert!(state > 256 << 20, "the case this test is about: {state} bytes");
+        assert!(
+            state > 256 << 20,
+            "the case this test is about: {state} bytes"
+        );
         let keep = digest_scratch_retain_bytes(&cfg).unwrap();
         let mut scratch: Vec<u8> = Vec::with_capacity(state);
         release_oversized_scratch(&mut scratch, keep);
-        assert!(scratch.capacity() >= state, "a {state}-byte scratch was released (keep {keep})");
+        assert!(
+            scratch.capacity() >= state,
+            "a {state}-byte scratch was released (keep {keep})"
+        );
         // One token past the bound is released: the cap still bounds.
         let mut longer: Vec<u8> = Vec::with_capacity(keep + 1);
         release_oversized_scratch(&mut longer, keep);

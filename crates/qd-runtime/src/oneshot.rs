@@ -79,11 +79,7 @@ pub fn read_one_line<R: BufRead>(reader: R, cap: usize) -> io::Result<Vec<u8>> {
 /// Every error here is an `io::Error`, and every one of them means "fall back to the sidecar". A
 /// **refusal or a backend error inside the reply is not an error here** — it is the agent's answer,
 /// and retrying it in-process would be asking a second opinion of the same code.
-pub fn ask_over_socket(
-    socket: &Path,
-    line: &[u8],
-    timeout: Duration,
-) -> io::Result<Vec<u8>> {
+pub fn ask_over_socket(socket: &Path, line: &[u8], timeout: Duration) -> io::Result<Vec<u8>> {
     if line.len() > MAX_PAYLOAD_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,

@@ -6,32 +6,71 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::hex;
 
-use crate::bf16::{check_finite_f32, to_bf16, BadValue, FloatSource};
-use crate::layout::{Layout, SPAN_PREFIX, TEXT_PREFIX, TOWER_PREFIX};
+use crate::bf16::{BadValue, FloatSource, check_finite_f32, to_bf16};
+use crate::layout::{
+    D17_PREFIX, D17_ROWS, D17_TENSOR, Layout, SPAN_PREFIX, TEXT_PREFIX, TOWER_PREFIX,
+};
 use crate::refusal::{Refusal, RefusalKind, Result};
-use crate::safetensors::{sha256_file, Dtype, PlannedTensor, SafeTensorsFile, TensorInfo, Writer, CHUNK_BYTES};
+use crate::safetensors::{
+    CHUNK_BYTES, Dtype, PlannedTensor, SafeTensorsFile, TensorInfo, Writer, sha256_file,
+};
 
+use qd_runtime::release::validate_trained_families;
 /// The release's file names and manifest format. Owned by the reader, `qd_runtime::release`, so
 /// the writer and the runtime cannot spell a file two ways. The first three are what the loader
 /// opens (`qd-metal/src/config.rs:88`, `model.rs:896`, `backend.rs:331`); no serving loader reads
-/// the span head yet (`GAP-J7-EXPORT-SPAN-HEAD-UNSERVED`).
+/// the span head yet (`GAP-J7-EXPORT-SPAN-HEAD-UNSERVED`); `qd-metal`'s `span` module does now,
+/// and refuses a head whose provenance this export did not record ([`span_head_block`]).
 pub use qd_runtime::release::{
     CALIBRATION_FILE, CONFIG_FILE, MANIFEST_FILE, MANIFEST_FORMAT, MAX_SMALL_FILE_BYTES,
     SPAN_HEAD_FILE, TOKENIZER_FILE, TRAINED_FAMILIES_KEY, WEIGHTS_FILE,
 };
-use qd_runtime::release::validate_trained_families;
+
+/// The 17-row readout delta (D17), F32 `[17, H]` as the one tensor `delta`. Present only when the
+/// source carries `d17.delta`; `qd-metal` serves `embed[answer ids] + D17` when it is there.
+pub const D17_FILE: &str = "d17.safetensors";
+
+/// What the manifest's `span_head.serving_contract.version` names: the convention the head was
+/// trained under and the loader implements (`qd-metal/src/span.rs`). A head exported under any
+/// other version is refused by the loader, so a convention change cannot be read as the old one.
+pub const SPAN_CONTRACT_VERSION: &str = "qd-span-head.v1";
+
+/// The only averaged-head pre-registrations a release may cite: `(name, sha256 of the committed
+/// campaign file)`. A pre-registration is bound by its content, not by a sentence in a file the
+/// caller names: `campaign/v6-averaging-preregistered.json` (R7's primary row, whose inputs are v6
+/// seeds that share one span-head init). An amendment changes the digest and so needs a reviewed
+/// edit here and in `qd-metal`'s loader, which reads this same table.
+pub const KNOWN_AVERAGED_PREREGISTRATIONS: [(&str, &str); 1] = [(
+    "v6-averaging",
+    "73ce1cbac9652b0fda5d170c029c8e147d5810c8fe08740439ddb9b7f9c0ceed",
+)];
+
+/// The D17 row order recorded in the manifest and required by the loader: the 16 option letters,
+/// then noul (`qd_runtime::render::OPTION_LETTERS` + `NOUL_LETTER`).
+pub fn d17_row_letters() -> String {
+    qd_runtime::render::OPTION_LETTERS
+        .iter()
+        .chain(std::iter::once(&qd_runtime::render::NOUL_LETTER))
+        .map(|b| char::from(*b))
+        .collect()
+}
 
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
 /// three are what `transformers`' tokenizer loads beside it. All four are in the Qwen3.5-2B-Base
 /// snapshot `b1485b2f`, and a snapshot missing one is not that snapshot.
-pub const TOKENIZER_FILES: [&str; 4] = [TOKENIZER_FILE, "tokenizer_config.json", "vocab.json", "merges.txt"];
+pub const TOKENIZER_FILES: [&str; 4] = [
+    TOKENIZER_FILE,
+    "tokenizer_config.json",
+    "vocab.json",
+    "merges.txt",
+];
 
 /// A source tensor dropped from the release on purpose.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +87,9 @@ impl AllowedExtra {
             .ok_or_else(|| format!("{s:?} is not NAME=REASON"))?;
         let (name, reason) = (name.trim(), reason.trim());
         if name.is_empty() || reason.is_empty() {
-            return Err(format!("{s:?}: both the tensor name and the reason must be non-empty"));
+            return Err(format!(
+                "{s:?}: both the tensor name and the reason must be non-empty"
+            ));
         }
         Ok(Self {
             name: name.to_string(),
@@ -77,6 +118,17 @@ pub struct ExportRequest {
     /// item 4). Required: a release that cannot say what it trained admits nothing.
     pub train_manifest: PathBuf,
     pub allow_extra: Vec<AllowedExtra>,
+    /// The pre-registration that names the **averaged** span head as a primary row
+    /// (`campaign/v6-averaging-preregistered.json`). Required for the loader to serve an averaged
+    /// head at all: a five-seed weight average of independently initialised heads is a blend
+    /// (`GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06`), and only a pre-registered row is
+    /// served. Refused here when the source's `span_head_source` is not `mode: "averaged"`.
+    pub averaged_head_preregistration: Option<PathBuf>,
+    /// The ft ledger holding the completed ft rows named by the source manifest's `ft_row_ids`.
+    /// Required with `averaged_head_preregistration`: the export reads each row's
+    /// `recipe.span_head_init` and refuses unless every seed shared one head init
+    /// (`tools/ckpt_average.py::ft_row_init` reads the same field).
+    pub ft_ledger: Option<PathBuf>,
     /// The release directory; must not exist.
     pub out: PathBuf,
 }
@@ -117,12 +169,16 @@ pub(crate) fn read_small(path: &Path, kind: RefusalKind) -> Result<Vec<u8>> {
 
 /// Read a file whole, refused from its length alone, before a byte is read, when past `limit`.
 fn read_bounded(path: &Path, kind: RefusalKind, limit: u64) -> Result<Vec<u8>> {
-    let meta = std::fs::metadata(path).map_err(|e| refuse(kind, format!("{}: {e}", path.display())))?;
+    let meta =
+        std::fs::metadata(path).map_err(|e| refuse(kind, format!("{}: {e}", path.display())))?;
     if !meta.is_file() {
         return Err(refuse(kind, format!("{} is not a file", path.display())));
     }
     if meta.len() > limit {
-        return Err(refuse(kind, format!("{}: {} bytes exceeds {limit}", path.display(), meta.len())));
+        return Err(refuse(
+            kind,
+            format!("{}: {} bytes exceeds {limit}", path.display(), meta.len()),
+        ));
     }
     std::fs::read(path).map_err(|e| refuse(kind, format!("{}: {e}", path.display())))
 }
@@ -147,6 +203,8 @@ struct SourceManifest {
     n_tensors: usize,
     vocab_size: usize,
     ft_row_ids: Vec<String>,
+    /// The seeds of the source manifest's `inputs`, when it lists them.
+    input_seeds: Vec<u64>,
     tool: Option<String>,
     /// The prompt format the checkpoint was trained on: the source manifest's `prompt_format`, a
     /// positive JSON integer, which its writer copies from the training recipe. **Absent means 1**
@@ -154,23 +212,44 @@ struct SourceManifest {
     prompt_format: u64,
     /// Whether the source manifest stated `prompt_format` (`false`: the default above applied).
     prompt_format_stated: bool,
+    /// `span_head_source` as `tools/ckpt_average.py` wrote it (`mode` `"seed"` or `"averaged"`),
+    /// validated for shape. `None` when the manifest states none: an average made before the field
+    /// existed, whose head may be a blend. The loader refuses to serve such a head.
+    span_head_source: Option<Value>,
 }
 
 fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
     let k = RefusalKind::SourceManifest;
     let bytes = read_small(path, k)?;
-    let v: Value = serde_json::from_slice(&bytes).map_err(|e| refuse(k, format!("{}: not JSON: {e}", path.display())))?;
-    let field = |key: &str| v.get(key).ok_or_else(|| refuse(k, format!("{}: no {key}", path.display())));
+    let v: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| refuse(k, format!("{}: not JSON: {e}", path.display())))?;
+    let field = |key: &str| {
+        v.get(key)
+            .ok_or_else(|| refuse(k, format!("{}: no {key}", path.display())))
+    };
     let st_sha = field("safetensors_sha256")?
         .as_str()
         .filter(|s| is_hex64(s))
-        .ok_or_else(|| refuse(k, format!("{}: safetensors_sha256 is not 64 hex digits", path.display())))?
+        .ok_or_else(|| {
+            refuse(
+                k,
+                format!(
+                    "{}: safetensors_sha256 is not 64 hex digits",
+                    path.display()
+                ),
+            )
+        })?
         .to_ascii_lowercase();
     let count = |key: &str| -> Result<usize> {
         field(key)?
             .as_u64()
             .and_then(|n| usize::try_from(n).ok())
-            .ok_or_else(|| refuse(k, format!("{}: {key} is not a non-negative integer", path.display())))
+            .ok_or_else(|| {
+                refuse(
+                    k,
+                    format!("{}: {key} is not a non-negative integer", path.display()),
+                )
+            })
     };
     let n_tensors = count("n_tensors")?;
     let vocab_size = count("vocab_size")?;
@@ -183,7 +262,15 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
             id.as_str()
                 .filter(|s| !s.trim().is_empty())
                 .map(str::to_string)
-                .ok_or_else(|| refuse(k, format!("{}: ft_row_ids holds {id}, not a non-empty string", path.display())))
+                .ok_or_else(|| {
+                    refuse(
+                        k,
+                        format!(
+                            "{}: ft_row_ids holds {id}, not a non-empty string",
+                            path.display()
+                        ),
+                    )
+                })
         })
         .collect::<Result<Vec<_>>>()?;
     if ft_row_ids.is_empty() {
@@ -211,6 +298,12 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
             )
         })?,
     };
+    let span_head_source = match v.get("span_head_source") {
+        None | Some(Value::Null) => None,
+        Some(block) => Some(check_span_head_source(block).map_err(|detail| {
+            refuse(k, format!("{}: span_head_source: {detail}", path.display()))
+        })?),
+    };
     Ok(SourceManifest {
         path: path.to_path_buf(),
         sha256: hex(&sha256(&bytes)),
@@ -218,10 +311,205 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
         n_tensors,
         vocab_size,
         ft_row_ids,
+        input_seeds: v
+            .get("inputs")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|i| i.get("seed").and_then(Value::as_u64))
+                    .collect()
+            })
+            .unwrap_or_default(),
         tool: v.get("tool").and_then(Value::as_str).map(str::to_string),
         prompt_format,
         prompt_format_stated: v.get("prompt_format").is_some(),
+        span_head_source,
     })
+}
+
+/// `span_head_source`'s shape (`tools/ckpt_average.py::span_head_source_block`): `mode` is
+/// `"averaged"` with no seed, input or digest, or `"seed"` with an integer seed, the input's path
+/// and its 64-hex payload digest. Anything else is a head whose origin cannot be read.
+fn check_span_head_source(block: &Value) -> std::result::Result<Value, String> {
+    let obj = block.as_object().ok_or("is not an object")?;
+    match obj.get("mode").and_then(Value::as_str) {
+        Some("averaged") => {
+            let stray: Vec<&str> = ["seed", "input", "payload_digest"]
+                .into_iter()
+                .filter(|key| obj.get(*key).is_some_and(|v| !v.is_null()))
+                .collect();
+            if stray.is_empty() {
+                Ok(block.clone())
+            } else {
+                Err(format!("is averaged and names {stray:?}"))
+            }
+        }
+        Some("seed") => {
+            let seed_ok = obj.get("seed").is_some_and(|s| s.as_u64().is_some());
+            let input_ok = obj
+                .get("input")
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.trim().is_empty());
+            let digest_ok = obj
+                .get("payload_digest")
+                .and_then(Value::as_str)
+                .is_some_and(is_hex64);
+            if seed_ok && input_ok && digest_ok {
+                Ok(block.clone())
+            } else {
+                Err("is seed-mode but lacks an integer seed, an input path or a 64-hex payload_digest".into())
+            }
+        }
+        other => Err(format!("mode is {other:?}, not \"seed\" or \"averaged\"")),
+    }
+}
+
+/// A pre-registration of the averaged span head as a primary row, read and recorded by digest.
+struct AveragedPreregistration {
+    file: String,
+    sha256: String,
+    name: String,
+    /// What the ft ledger says of the inputs' span-head init, verified here.
+    shared_init: Value,
+}
+
+/// Read the pre-registration `path`: a JSON object with a non-blank `name` whose `rows.primary`
+/// says the manifest must read `span_head_source.mode == 'averaged'` (the sentence
+/// `campaign/v6-averaging-preregistered.json` fixes). The file's digest is what the release records;
+/// the loader cannot re-read the campaign file, so the digest is the binding.
+fn read_averaged_preregistration(path: &Path) -> Result<AveragedPreregistration> {
+    let k = RefusalKind::SourceManifest;
+    let bytes = read_small(path, k)?;
+    let doc: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| refuse(k, format!("{}: not JSON: {e}", path.display())))?;
+    let name = doc
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|n| !qd_runtime::is_blank(n))
+        .ok_or_else(|| refuse(k, format!("{}: no non-blank name", path.display())))?;
+    let says = doc
+        .pointer("/rows/primary/manifest_must_say")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s.contains("span_head_source.mode == 'averaged'"));
+    if !says {
+        return Err(refuse(
+            k,
+            format!(
+                "{}: rows.primary.manifest_must_say does not name span_head_source.mode == \
+                 'averaged', so this file does not pre-register the averaged head as a primary row",
+                path.display()
+            ),
+        ));
+    }
+    let digest = hex(&sha256(&bytes));
+    if !KNOWN_AVERAGED_PREREGISTRATIONS
+        .iter()
+        .any(|(n, d)| *n == name && *d == digest)
+    {
+        return Err(refuse(
+            k,
+            format!(
+                "{}: name {name:?} with sha256 {digest} is not a committed averaged-head \
+                 pre-registration ({KNOWN_AVERAGED_PREREGISTRATIONS:?}); a head is served as the \
+                 primary averaged row only against campaign/v6-averaging-preregistered.json's \
+                 committed content",
+                path.display()
+            ),
+        ));
+    }
+    Ok(AveragedPreregistration {
+        file: path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        ),
+        sha256: digest,
+        name: name.to_string(),
+        shared_init: Value::Null,
+    })
+}
+
+/// Verify from the ft ledger that every input of the average grew its span head from one shared
+/// init: each of `row_ids` is exactly one completed ft row whose seed is one of the inputs', whose
+/// `recipe.span_head_init.shared` is true, and all rows record the same `content_digest`. Returns
+/// the evidence the manifest records (and the loader requires).
+fn verify_shared_init(ledger: &Path, manifest: &SourceManifest) -> Result<Value> {
+    let k = RefusalKind::SourceManifest;
+    let bad = |detail: String| refuse(k, format!("{}: {detail}", ledger.display()));
+    let text = String::from_utf8(read_bounded(ledger, k, MAX_TRAIN_MANIFEST_BYTES)?)
+        .map_err(|e| bad(format!("not UTF-8: {e}")))?;
+    let rows: Vec<Value> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(serde_json::from_str)
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| bad(format!("not JSON lines: {e}")))?;
+    if manifest.ft_row_ids.len() < 2 {
+        return Err(bad(
+            "an average of fewer than 2 ft rows is not an average of seeds".into(),
+        ));
+    }
+    let (mut seeds, mut digest): (Vec<u64>, Option<String>) = (Vec::new(), None);
+    for id in &manifest.ft_row_ids {
+        let found: Vec<&Value> = rows
+            .iter()
+            .filter(|r| r.get("row_id").and_then(Value::as_str) == Some(id))
+            .collect();
+        let [row] = found.as_slice() else {
+            return Err(bad(format!("{} rows have row_id {id:?}", found.len())));
+        };
+        if row.get("run_kind").and_then(Value::as_str) != Some("ft")
+            || row.get("status").and_then(Value::as_str) != Some("completed")
+        {
+            return Err(bad(format!("row {id} is not a completed ft row")));
+        }
+        let seed = row
+            .pointer("/protocol/seed")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| bad(format!("row {id} records no integer protocol.seed")))?;
+        let init = row
+            .pointer("/recipe/span_head_init")
+            .filter(|i| i.is_object())
+            .ok_or_else(|| bad(format!("row {id} records no recipe.span_head_init: what init its head grew from cannot be verified")))?;
+        if init.get("shared").and_then(Value::as_bool) != Some(true) {
+            return Err(bad(format!(
+                "row {id} (seed {seed}) records a span-head init that is not the shared one"
+            )));
+        }
+        let d = init
+            .get("content_digest")
+            .and_then(Value::as_str)
+            .filter(|d| !d.trim().is_empty())
+            .ok_or_else(|| bad(format!("row {id} records no span_head_init.content_digest")))?;
+        if digest.as_deref().is_some_and(|prev| prev != d) {
+            return Err(bad(format!(
+                "row {id} records a different span-head init content_digest than the rows before it"
+            )));
+        }
+        digest = Some(d.to_string());
+        seeds.push(seed);
+    }
+    let mut distinct = seeds.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    if distinct.len() != seeds.len() {
+        return Err(bad(format!("the rows' seeds {seeds:?} are not distinct")));
+    }
+    if !manifest.input_seeds.is_empty() {
+        let mut inputs = manifest.input_seeds.clone();
+        inputs.sort_unstable();
+        if inputs != distinct {
+            return Err(bad(format!(
+                "the rows' seeds {distinct:?} are not the source manifest's inputs' seeds {inputs:?}"
+            )));
+        }
+    }
+    Ok(json!({
+        "shared": true,
+        "content_digest": digest,
+        "seeds": seeds,
+        "ft_row_ids": manifest.ft_row_ids,
+        "ledger_sha256": hex(&sha256(text.as_bytes())),
+    }))
 }
 
 /// `qd_data.manifest.MANIFEST_FORMAT_VERSION`.
@@ -306,15 +594,17 @@ fn read_train_manifest(path: &Path) -> Result<TrainManifest> {
         .get("held_out_families")
         .and_then(Value::as_array)
         .ok_or_else(|| {
-            bad("held_out_families is not an array; without it a held-out family among the \
+            bad(
+                "held_out_families is not an array; without it a held-out family among the \
                  entries could not be refused"
-                .to_string())
+                    .to_string(),
+            )
         })?
         .iter()
         .map(|family| {
-            family
-                .as_str()
-                .ok_or_else(|| bad("held_out_families holds a value that is not a string".to_string()))
+            family.as_str().ok_or_else(|| {
+                bad("held_out_families holds a value that is not a string".to_string())
+            })
         })
         .collect::<Result<BTreeSet<&str>>>()?;
     let entries = obj
@@ -392,9 +682,13 @@ fn len64_of(n: usize) -> Result<u64> {
 fn same_json(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64() && x.as_f64().is_some(),
-        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_json(p, q)),
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_json(p, q))
+        }
         (Value::Object(x), Value::Object(y)) => {
-            x.len() == y.len() && x.iter().all(|(key, p)| y.get(key).is_some_and(|q| same_json(p, q)))
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(key, p)| y.get(key).is_some_and(|q| same_json(p, q)))
         }
         _ => a == b,
     }
@@ -406,13 +700,19 @@ fn same_json(a: &Value, b: &Value) -> bool {
 pub(crate) fn read_calibration(path: &Path) -> Result<(Vec<u8>, CalibrationTable)> {
     let k = RefusalKind::Calibration;
     let bytes = read_small(path, k)?;
-    let doc: Value = serde_json::from_slice(&bytes).map_err(|e| refuse(k, format!("{}: not JSON: {e}", path.display())))?;
-    let table: CalibrationTable = serde_json::from_value(doc.clone())
-        .map_err(|e| refuse(k, format!("{}: not a CalibrationTable: {e}", path.display())))?;
+    let doc: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| refuse(k, format!("{}: not JSON: {e}", path.display())))?;
+    let table: CalibrationTable = serde_json::from_value(doc.clone()).map_err(|e| {
+        refuse(
+            k,
+            format!("{}: not a CalibrationTable: {e}", path.display()),
+        )
+    })?;
     table
         .validate()
         .map_err(|e| refuse(k, format!("{}: {e}", path.display())))?;
-    let back = serde_json::to_value(&table).map_err(|e| refuse(k, format!("{}: {e}", path.display())))?;
+    let back =
+        serde_json::to_value(&table).map_err(|e| refuse(k, format!("{}: {e}", path.display())))?;
     if !same_json(&doc, &back) {
         return Err(refuse(
             k,
@@ -442,6 +742,9 @@ struct Plan {
     source_sha256: String,
     tower: Vec<TowerTensor>,
     head: Vec<(String, TensorInfo)>,
+    /// `d17.delta`, when the source carries it.
+    d17: Vec<(String, TensorInfo)>,
+    preregistration: Option<AveragedPreregistration>,
     dropped: Vec<AllowedExtra>,
     dtype_counts: BTreeMap<&'static str, usize>,
     tokenizer: Vec<(&'static str, Vec<u8>)>,
@@ -453,8 +756,12 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
     // Config, and the operator's vocabulary.
     let config_path = req.base_snapshot.join(CONFIG_FILE);
     let config_bytes = read_small(&config_path, RefusalKind::Config)?;
-    let config_text = std::str::from_utf8(&config_bytes)
-        .map_err(|e| refuse(RefusalKind::Config, format!("{}: {e}", config_path.display())))?;
+    let config_text = std::str::from_utf8(&config_bytes).map_err(|e| {
+        refuse(
+            RefusalKind::Config,
+            format!("{}: {e}", config_path.display()),
+        )
+    })?;
     let layout = Layout::from_config_json(config_text)?;
     if layout.vocab != req.expect_vocab_size {
         return Err(refuse(
@@ -471,7 +778,13 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
     // Tokenizer files, pinned.
     let pin = req.tokenizer_sha256.to_ascii_lowercase();
     if !is_hex64(&pin) {
-        return Err(refuse(RefusalKind::Tokenizer, format!("--tokenizer-sha256 {:?} is not 64 hex digits", req.tokenizer_sha256)));
+        return Err(refuse(
+            RefusalKind::Tokenizer,
+            format!(
+                "--tokenizer-sha256 {:?} is not 64 hex digits",
+                req.tokenizer_sha256
+            ),
+        ));
     }
     let mut tokenizer = Vec::with_capacity(TOKENIZER_FILES.len());
     for name in TOKENIZER_FILES {
@@ -504,14 +817,15 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
     let train = read_train_manifest(&req.train_manifest)?;
 
     // The source manifest, against the source's header.
-    let manifest_path = req
-        .source_manifest
-        .clone()
-        .unwrap_or_else(|| {
-            let mut name = req.source.file_name().map(std::ffi::OsString::from).unwrap_or_default();
-            name.push(".manifest.json");
-            req.source.with_file_name(name)
-        });
+    let manifest_path = req.source_manifest.clone().unwrap_or_else(|| {
+        let mut name = req
+            .source
+            .file_name()
+            .map(std::ffi::OsString::from)
+            .unwrap_or_default();
+        name.push(".manifest.json");
+        req.source.with_file_name(name)
+    });
     let manifest = read_source_manifest(&manifest_path)?;
     if manifest.n_tensors != src.tensors().len() {
         return Err(refuse(
@@ -540,8 +854,10 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
     // Classify every source tensor.
     let want_text = layout.text_tensors()?;
     let want_head = layout.span_head_tensors();
+    let want_d17 = layout.d17_tensors();
     let mut tower: BTreeMap<String, &TensorInfo> = BTreeMap::new();
     let mut head: BTreeMap<String, &TensorInfo> = BTreeMap::new();
+    let mut d17: BTreeMap<String, &TensorInfo> = BTreeMap::new();
     let mut extras: Vec<&str> = Vec::new();
     for (name, info) in src.tensors() {
         if let Some(short) = name.strip_prefix(TOWER_PREFIX)
@@ -552,6 +868,10 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
             && want_head.contains_key(short)
         {
             head.insert(short.to_string(), info);
+        } else if let Some(short) = name.strip_prefix(D17_PREFIX)
+            && want_d17.contains_key(short)
+        {
+            d17.insert(short.to_string(), info);
         } else {
             extras.push(name);
         }
@@ -562,11 +882,19 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         .filter(|k| !tower.contains_key(*k))
         .map(|k| format!("{TOWER_PREFIX}{k}"))
         .collect();
-    missing.extend(want_head.keys().filter(|k| !head.contains_key(*k)).map(|k| format!("{SPAN_PREFIX}{k}")));
+    missing.extend(
+        want_head
+            .keys()
+            .filter(|k| !head.contains_key(*k))
+            .map(|k| format!("{SPAN_PREFIX}{k}")),
+    );
     if !missing.is_empty() {
         return Err(refuse(
             RefusalKind::MissingTensor,
-            format!("{} of the tensors the release needs are not in the source: {missing:?}", missing.len()),
+            format!(
+                "{} of the tensors the release needs are not in the source: {missing:?}",
+                missing.len()
+            ),
         ));
     }
 
@@ -575,10 +903,17 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
     let mut allowed: BTreeMap<&str, &AllowedExtra> = BTreeMap::new();
     for a in &req.allow_extra {
         if allowed.insert(a.name.as_str(), a).is_some() {
-            return Err(refuse(RefusalKind::ExtraTensor, format!("--allow-extra names {} twice", a.name)));
+            return Err(refuse(
+                RefusalKind::ExtraTensor,
+                format!("--allow-extra names {} twice", a.name),
+            ));
         }
     }
-    let unexplained: Vec<&str> = extras.iter().copied().filter(|n| !allowed.contains_key(n)).collect();
+    let unexplained: Vec<&str> = extras
+        .iter()
+        .copied()
+        .filter(|n| !allowed.contains_key(n))
+        .collect();
     if !unexplained.is_empty() {
         return Err(refuse(
             RefusalKind::ExtraTensor,
@@ -591,7 +926,11 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         ));
     }
     let extra_set: BTreeSet<&str> = extras.iter().copied().collect();
-    let stale: Vec<&str> = allowed.keys().copied().filter(|n| !extra_set.contains(n)).collect();
+    let stale: Vec<&str> = allowed
+        .keys()
+        .copied()
+        .filter(|n| !extra_set.contains(n))
+        .collect();
     if !stale.is_empty() {
         return Err(refuse(
             RefusalKind::ExtraTensor,
@@ -616,12 +955,26 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
     let mut bad_shapes = Vec::new();
     for (short, info) in &tower {
         if info.shape != want_text[short] {
-            bad_shapes.push(format!("{TOWER_PREFIX}{short}: {:?}, config implies {:?}", info.shape, want_text[short]));
+            bad_shapes.push(format!(
+                "{TOWER_PREFIX}{short}: {:?}, config implies {:?}",
+                info.shape, want_text[short]
+            ));
         }
     }
     for (short, info) in &head {
         if info.shape != want_head[short] {
-            bad_shapes.push(format!("{SPAN_PREFIX}{short}: {:?}, config implies {:?}", info.shape, want_head[short]));
+            bad_shapes.push(format!(
+                "{SPAN_PREFIX}{short}: {:?}, config implies {:?}",
+                info.shape, want_head[short]
+            ));
+        }
+    }
+    for (short, info) in &d17 {
+        if info.shape != want_d17[short] {
+            bad_shapes.push(format!(
+                "{D17_PREFIX}{short}: {:?}, the readout is {D17_ROWS} rows by the config's hidden size {:?}",
+                info.shape, want_d17[short]
+            ));
         }
     }
     if !bad_shapes.is_empty() {
@@ -657,9 +1010,54 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
             ));
         }
     }
+    for (short, info) in &d17 {
+        if info.dtype != Dtype::F32 {
+            bad_dtypes.push(format!(
+                "{D17_PREFIX}{short} is {}: D17 is an f32 delta added to the embedding's answer rows in \
+                 f32, and is released as it was trained, bit for bit",
+                info.dtype.as_str()
+            ));
+        }
+    }
     if !bad_dtypes.is_empty() {
         return Err(refuse(RefusalKind::Dtype, bad_dtypes.join("; ")));
     }
+
+    // The averaged head is served only as a pre-registered primary row, so a pre-registration is
+    // refused beside any other kind of head: it would say a seed's head was an average.
+    let preregistration = match &req.averaged_head_preregistration {
+        None => None,
+        Some(path) => {
+            let averaged = manifest
+                .span_head_source
+                .as_ref()
+                .and_then(|b| b.get("mode"))
+                .and_then(Value::as_str)
+                == Some("averaged");
+            if !averaged {
+                return Err(refuse(
+                    RefusalKind::SourceManifest,
+                    format!(
+                        "--averaged-head-preregistration {} was given, but {} does not say \
+                         span_head_source.mode is \"averaged\"; a pre-registration of the averaged head \
+                         cannot cover another head",
+                        path.display(),
+                        manifest.path.display()
+                    ),
+                ));
+            }
+            let mut prereg = read_averaged_preregistration(path)?;
+            let ledger = req.ft_ledger.as_ref().ok_or_else(|| {
+                refuse(
+                    RefusalKind::SourceManifest,
+                    "an averaged head with a pre-registration needs --ft-ledger: the export verifies \
+                     from the ft rows that every seed shared one span-head init",
+                )
+            })?;
+            prereg.shared_init = verify_shared_init(ledger, &manifest)?;
+            Some(prereg)
+        }
+    };
 
     // Last, because it reads the whole file: the manifest must describe these bytes.
     let source_sha256 = hex(&src.sha256()?);
@@ -682,6 +1080,8 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         source_sha256,
         tower: tower_out,
         head: head.into_iter().map(|(k, v)| (k, v.clone())).collect(),
+        d17: d17.into_iter().map(|(k, v)| (k, v.clone())).collect(),
+        preregistration,
         dropped,
         dtype_counts,
         tokenizer,
@@ -718,7 +1118,10 @@ pub(crate) fn write_verified(path: &Path, bytes: &[u8], kind: RefusalKind) -> Re
     f.sync_all().map_err(|e| Refusal::io(path, e))?;
     let got = hex(&sha256_file(path)?);
     if got != want {
-        return Err(refuse(kind, format!("{}: wrote sha256 {want}, read back {got}", path.display())));
+        return Err(refuse(
+            kind,
+            format!("{}: wrote sha256 {want}, read back {got}", path.display()),
+        ));
     }
     Ok(got)
 }
@@ -738,7 +1141,89 @@ pub fn weight_hash(digests: &[(String, [u8; 32])]) -> String {
     hex(&sha256(&buf))
 }
 
-fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &Path) -> Result<ExportSummary> {
+/// Write the F32 tensors `tensors` (source names are `prefix` + the name given here) to `path`, bit
+/// for bit, refusing a non-finite value. One writer for the span head and D17: both are trained in
+/// f32 and released as trained.
+fn write_f32_file(
+    src: &SafeTensorsFile,
+    path: &Path,
+    prefix: &str,
+    tensors: &[(String, TensorInfo)],
+    buf: &mut [u8],
+) -> Result<crate::safetensors::WrittenFile> {
+    let mut w = Writer::create(
+        path,
+        tensors
+            .iter()
+            .map(|(short, info)| PlannedTensor {
+                name: short.clone(),
+                dtype: Dtype::F32,
+                shape: info.shape.clone(),
+            })
+            .collect(),
+    )?;
+    let by: BTreeMap<&str, &TensorInfo> = tensors.iter().map(|(k, v)| (k.as_str(), v)).collect();
+    let chunk = u64::try_from(CHUNK_BYTES).map_err(|e| Refusal::io(path, e))?;
+    for planned in w.order() {
+        let info = by.get(planned.name.as_str()).ok_or_else(|| {
+            refuse(
+                RefusalKind::Io,
+                format!("writer planned {} with no source", planned.name),
+            )
+        })?;
+        let src_name = format!("{prefix}{}", planned.name);
+        w.begin(&planned.name)?;
+        let total = info.nbytes();
+        let mut at = 0u64;
+        while at < total {
+            let n = usize::try_from((total - at).min(chunk)).map_err(|e| Refusal::io(path, e))?;
+            src.read_tensor_range(info, at, &mut buf[..n])?;
+            check_finite_f32(&buf[..n], at / 4).map_err(|b| non_finite(&src_name, b))?;
+            w.write(&buf[..n])?;
+            at += u64::try_from(n).map_err(|e| Refusal::io(path, e))?;
+        }
+        w.end()?;
+    }
+    w.finish()
+}
+
+/// The manifest's `span_head` block: where the head came from, what pre-registers it, and the
+/// convention it was trained under. `qd-metal`'s loader serves the span slot only from a block it
+/// can verify (a non-blended source, or an averaged head with a pre-registration).
+fn span_head_block(plan: &Plan, head_sha256: &str) -> Value {
+    json!({
+        "file": SPAN_HEAD_FILE,
+        "sha256": head_sha256,
+        "hidden_size": plan.layout.hidden,
+        "source": plan.manifest.span_head_source,
+        "averaged_head_preregistration": plan.preregistration.as_ref().map(|p| json!({
+            "file": p.file,
+            "sha256": p.sha256,
+            "name": p.name,
+            "row": "primary",
+        })),
+        "shared_init": plan.preregistration.as_ref().map(|p| p.shared_init.clone()),
+        "serving_contract": {
+            "version": SPAN_CONTRACT_VERSION,
+            "hidden_state": "the tower's last hidden state: the output of the final norm \
+                             (Qwen3_5TextModel.last_hidden_state), at the token positions below",
+            "query": "the last token of prefix + slot suffix (training's target_index)",
+            "candidates": "one row per context line, in line order: the first token whose offset \
+                           span contains the line's first byte; a line in no token, or two lines in \
+                           one token, refuse (span_collapse_policy refuse-any)",
+            "abstain_row": "last: row line_count",
+            "rows": "line_count + 1, the runtime's span_rows",
+            "scores": "start and end: (W h_query) . h_candidate, abstain: (W h_query) . abstain_vector",
+        },
+    })
+}
+
+fn write_release(
+    req: &ExportRequest,
+    src: &SafeTensorsFile,
+    plan: &Plan,
+    dir: &Path,
+) -> Result<ExportSummary> {
     let mut files: BTreeMap<String, Value> = BTreeMap::new();
     let mut shas: BTreeMap<String, String> = BTreeMap::new();
     let mut record = |name: &str, sha: String, bytes: u64| {
@@ -747,7 +1232,8 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
     };
 
     // model.safetensors: every tower tensor as BF16 under the loader's name.
-    let by_short: BTreeMap<&str, &TowerTensor> = plan.tower.iter().map(|t| (t.short.as_str(), t)).collect();
+    let by_short: BTreeMap<&str, &TowerTensor> =
+        plan.tower.iter().map(|t| (t.short.as_str(), t)).collect();
     let weights_path = dir.join(WEIGHTS_FILE);
     let mut w = Writer::create(
         &weights_path,
@@ -764,24 +1250,33 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
     let mut converted = Vec::with_capacity(CHUNK_BYTES);
     let (mut rounded, mut copied) = (0usize, 0usize);
     for planned in w.order() {
-        let short = planned
-            .name
-            .strip_prefix(TEXT_PREFIX)
-            .ok_or_else(|| refuse(RefusalKind::Io, format!("writer planned {} outside {TEXT_PREFIX}", planned.name)))?;
-        let t = by_short
-            .get(short)
-            .ok_or_else(|| refuse(RefusalKind::Io, format!("writer planned {} with no source", planned.name)))?;
+        let short = planned.name.strip_prefix(TEXT_PREFIX).ok_or_else(|| {
+            refuse(
+                RefusalKind::Io,
+                format!("writer planned {} outside {TEXT_PREFIX}", planned.name),
+            )
+        })?;
+        let t = by_short.get(short).ok_or_else(|| {
+            refuse(
+                RefusalKind::Io,
+                format!("writer planned {} with no source", planned.name),
+            )
+        })?;
         let src_name = format!("{TOWER_PREFIX}{short}");
         w.begin(&planned.name)?;
         let size = u64::try_from(t.kind.size()).map_err(|e| Refusal::io(&weights_path, e))?;
         let total = t.source.nbytes();
         let mut at = 0u64;
         while at < total {
-            let n = usize::try_from((total - at).min(u64::try_from(CHUNK_BYTES).map_err(|e| Refusal::io(&weights_path, e))?))
-                .map_err(|e| Refusal::io(&weights_path, e))?;
+            let n = usize::try_from(
+                (total - at)
+                    .min(u64::try_from(CHUNK_BYTES).map_err(|e| Refusal::io(&weights_path, e))?),
+            )
+            .map_err(|e| Refusal::io(&weights_path, e))?;
             src.read_tensor_range(&t.source, at, &mut buf[..n])?;
             converted.clear();
-            to_bf16(t.kind, &buf[..n], at / size, &mut converted).map_err(|b| non_finite(&src_name, b))?;
+            to_bf16(t.kind, &buf[..n], at / size, &mut converted)
+                .map_err(|b| non_finite(&src_name, b))?;
             w.write(&converted)?;
             at += u64::try_from(n).map_err(|e| Refusal::io(&weights_path, e))?;
         }
@@ -795,43 +1290,27 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
     let weight_hash = weight_hash(&weights.tensor_digests);
     record(WEIGHTS_FILE, hex(&weights.sha256), weights.bytes);
 
-    // span_head.safetensors: F32, bit for bit.
-    let head_path = dir.join(SPAN_HEAD_FILE);
-    let mut hw = Writer::create(
-        &head_path,
-        plan.head
-            .iter()
-            .map(|(short, info)| PlannedTensor {
-                name: short.clone(),
-                dtype: Dtype::F32,
-                shape: info.shape.clone(),
-            })
-            .collect(),
+    // span_head.safetensors and d17.safetensors: F32, bit for bit.
+    let head = write_f32_file(
+        src,
+        &dir.join(SPAN_HEAD_FILE),
+        SPAN_PREFIX,
+        &plan.head,
+        &mut buf,
     )?;
-    let head_by: BTreeMap<&str, &TensorInfo> = plan.head.iter().map(|(k, v)| (k.as_str(), v)).collect();
-    for planned in hw.order() {
-        let info = head_by
-            .get(planned.name.as_str())
-            .ok_or_else(|| refuse(RefusalKind::Io, format!("writer planned {} with no source", planned.name)))?;
-        let src_name = format!("{SPAN_PREFIX}{}", planned.name);
-        hw.begin(&planned.name)?;
-        let total = info.nbytes();
-        let mut at = 0u64;
-        while at < total {
-            let n = usize::try_from((total - at).min(u64::try_from(CHUNK_BYTES).map_err(|e| Refusal::io(&head_path, e))?))
-                .map_err(|e| Refusal::io(&head_path, e))?;
-            src.read_tensor_range(info, at, &mut buf[..n])?;
-            check_finite_f32(&buf[..n], at / 4).map_err(|b| non_finite(&src_name, b))?;
-            hw.write(&buf[..n])?;
-            at += u64::try_from(n).map_err(|e| Refusal::io(&head_path, e))?;
-        }
-        hw.end()?;
+    let head_sha = hex(&head.sha256);
+    record(SPAN_HEAD_FILE, head_sha.clone(), head.bytes);
+    if !plan.d17.is_empty() {
+        let d17 = write_f32_file(src, &dir.join(D17_FILE), D17_PREFIX, &plan.d17, &mut buf)?;
+        record(D17_FILE, hex(&d17.sha256), d17.bytes);
     }
-    let head = hw.finish()?;
-    record(SPAN_HEAD_FILE, hex(&head.sha256), head.bytes);
 
     // config.json and the tokenizer files, byte for byte.
-    let config_sha = write_verified(&dir.join(CONFIG_FILE), &plan.config_bytes, RefusalKind::Config)?;
+    let config_sha = write_verified(
+        &dir.join(CONFIG_FILE),
+        &plan.config_bytes,
+        RefusalKind::Config,
+    )?;
     record(CONFIG_FILE, config_sha.clone(), len64(&plan.config_bytes)?);
     let mut tokenizer_hash = String::new();
     for (name, bytes) in &plan.tokenizer {
@@ -869,7 +1348,8 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "weights": WEIGHTS_FILE,
             "tensor_prefix": TEXT_PREFIX,
             "tokenizer": TOKENIZER_FILE,
-            "span_head": format!("{SPAN_HEAD_FILE} (no serving loader reads it yet: GAP-J7-EXPORT-SPAN-HEAD-UNSERVED)"),
+            "span_head": format!("{SPAN_HEAD_FILE} (qd-metal's span module serves it, from the `span_head` block below)"),
+            "d17": format!("{D17_FILE} (optional; qd-metal serves embed[answer ids] + D17)"),
         },
         "source": {
             "safetensors": req.source.display().to_string(),
@@ -897,10 +1377,25 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "tower_rounded": rounded,
             "tower_copied": copied,
             "span_head": "F32, copied bit for bit",
+            "d17": "F32, copied bit for bit, when the source carries d17.delta",
             "vocab_size": plan.layout.vocab,
             "hidden_size": plan.layout.hidden,
             "num_hidden_layers": plan.layout.layer_kinds.len(),
         },
+        "span_head": span_head_block(plan, &head_sha),
+        "d17": plan.d17.first().map(|(_, info)| json!({
+            "file": D17_FILE,
+            "sha256": shas[D17_FILE],
+            "rows": D17_ROWS,
+            "hidden_size": plan.layout.hidden,
+            "tensor": D17_TENSOR,
+            "dtype": "F32",
+            "row_letters": d17_row_letters(),
+            "serving": "embed[answer ids] + D17: answer row i is the embedding row of answer id i plus \
+                        D17's row for that letter, summed in f32; D17 = 0 reproduces the \
+                        tied-embedding readout bit for bit",
+            "shape": info.shape,
+        })),
         "dropped_extras": plan.dropped.iter().map(|d| json!({"name": d.name, "reason": d.reason})).collect::<Vec<_>>(),
         "calibration": calibration,
         // What goes together: this tower, served under this config.json, with this tokenizer, in
@@ -936,7 +1431,9 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
     // The task families the tower was trained on: `qd_runtime::admission` refuses every other
     // task as `task_not_trained` (Fable's pipeline ruling, item 4).
     manifest[TRAINED_FAMILIES_KEY] = Value::from(trained_families.clone());
-    let text = serde_json::to_string_pretty(&manifest).map_err(|e| refuse(RefusalKind::Io, e.to_string()))? + "\n";
+    let text = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| refuse(RefusalKind::Io, e.to_string()))?
+        + "\n";
     write_verified(&dir.join(MANIFEST_FILE), text.as_bytes(), RefusalKind::Io)?;
 
     Ok(ExportSummary {
@@ -956,9 +1453,12 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
 /// `<parent>/.<name>.qd-export-partial-<pid>`: beside the output, so the final rename does not
 /// cross a filesystem.
 fn staging_dir(out: &Path) -> Result<PathBuf> {
-    let name = out
-        .file_name()
-        .ok_or_else(|| refuse(RefusalKind::OutputExists, format!("{} has no final component", out.display())))?;
+    let name = out.file_name().ok_or_else(|| {
+        refuse(
+            RefusalKind::OutputExists,
+            format!("{} has no final component", out.display()),
+        )
+    })?;
     let mut staged = std::ffi::OsString::from(".");
     staged.push(name);
     staged.push(format!(".qd-export-partial-{}", std::process::id()));
@@ -980,7 +1480,10 @@ impl Staging {
         if std::fs::symlink_metadata(out).is_ok() {
             return Err(refuse(
                 RefusalKind::OutputExists,
-                format!("{} already exists; a release is never overwritten", out.display()),
+                format!(
+                    "{} already exists; a release is never overwritten",
+                    out.display()
+                ),
             ));
         }
         let parent = out
@@ -988,7 +1491,10 @@ impl Staging {
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
         if !parent.is_dir() {
-            return Err(refuse(RefusalKind::Io, format!("{} is not a directory", parent.display())));
+            return Err(refuse(
+                RefusalKind::Io,
+                format!("{} is not a directory", parent.display()),
+            ));
         }
         let dir = staging_dir(out)?;
         if std::fs::symlink_metadata(&dir).is_ok() {
@@ -1013,7 +1519,10 @@ impl Staging {
             if std::fs::symlink_metadata(&self.out).is_ok() {
                 return Err(refuse(
                     RefusalKind::OutputExists,
-                    format!("{} appeared while the release was being written", self.out.display()),
+                    format!(
+                        "{} appeared while the release was being written",
+                        self.out.display()
+                    ),
                 ));
             }
             std::fs::rename(&self.dir, &self.out).map_err(|e| Refusal::io(&self.out, e))?;

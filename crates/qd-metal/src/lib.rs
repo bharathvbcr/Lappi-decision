@@ -9,7 +9,8 @@
 //! | [`config`] | `config.json` → shapes, refused where the kernels do not implement them |
 //! | [`safetensors`] | the checkpoint reader (hand-parsed header, positioned reads) |
 //! | [`tokenizer`] | `tokenizer.json` via `tokenizers`, and the 17 answer-letter ids |
-//! | [`weights`] | checkpoint tensors → the packed layouts the kernels read (CPU) |
+//! | [`weights`] | checkpoint tensors → the packed layouts the kernels read (CPU), and D17, the 17-row readout delta |
+//! | [`span`] | the span pointer head: provenance-gated loading, line → token mapping, scores (CPU) |
 //! | [`model`] | the GPU model: upload, prefill, snapshot-continuation decode, answer scoring |
 //! | [`backend`] | [`backend::MetalBackend`]: the `DecisionBackend`, on one GPU-owning thread |
 //! | [`serve`] | `qd-metal-serve`'s wiring: release -> backend -> runtime -> service |
@@ -30,6 +31,7 @@ pub mod model;
 pub mod parity_row;
 pub mod safetensors;
 pub mod serve;
+pub mod span;
 pub mod tokenizer;
 pub mod weights;
 

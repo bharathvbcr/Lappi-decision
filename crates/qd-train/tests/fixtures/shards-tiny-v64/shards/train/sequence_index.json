@@ -1,0 +1,498 @@
+{
+ "excluded": [],
+ "format": "qd-sequence-index/1",
+ "role": "gold",
+ "rows_in": 98,
+ "sequences": [
+  {
+   "row_id": "clinc:intent.classification:052f723e31130ad4:20",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:0b8f2036abca32c8:18",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:40dd2ab12b9c3239:15",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:43a764f9c3f24645:22",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:5c95ea5da51b42b1:19",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:5fdd233b7b598ea3:11",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:6c2f7724a285d45b:7",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:7e369cf84bf6f056:14",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:93e594c743428e72:23",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:94efb22a997a9c60:16",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:974aaeedad8847f3:4",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:a0581d2d37169807:6",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:a47a7f8284dd3b07:10",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:a5581590181fe0cf:17",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:ab6bd3b48a9e7709:2",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:bc7d400353432857:21",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:c2f9c99f92dc40f3:13",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:cef5579e29ddc8dc:1",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:d4db992f43e7c096:12",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:e36936379158e10e:0",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:ee117a36ca21d936:3",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:f799bd8e7c52e613:9",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:f8217af4b0532eca:8",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.classification:f8a6cb94a773e5b3:5",
+   "slot_kind": 1,
+   "slot_name": "intent"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:052f723e31130ad4:20",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:0b8f2036abca32c8:18",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:40dd2ab12b9c3239:15",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:43a764f9c3f24645:22",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:5c95ea5da51b42b1:19",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:5fdd233b7b598ea3:11",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:6c2f7724a285d45b:7",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:7e369cf84bf6f056:14",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:93e594c743428e72:23",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:94efb22a997a9c60:16",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:974aaeedad8847f3:4",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:a0581d2d37169807:6",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:a47a7f8284dd3b07:10",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:a5581590181fe0cf:17",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:ab6bd3b48a9e7709:2",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:bc7d400353432857:21",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:c2f9c99f92dc40f3:13",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:cef5579e29ddc8dc:1",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:d4db992f43e7c096:12",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:e36936379158e10e:0",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:ee117a36ca21d936:3",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:f799bd8e7c52e613:9",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:f8217af4b0532eca:8",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "clinc:intent.in_scope:f8a6cb94a773e5b3:5",
+   "slot_kind": 1,
+   "slot_name": "in_scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000000:6978169ea927",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000002:ad596c7d3b7d",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000003:c897d03cb14a",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000004:6818c8e6a6b9",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000006:26c010e03b7b",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000007:acf0c1c0c7ce",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000009:96f9682a7b90",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000a:a40fb713e031",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000b:7d4f7040b55d",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000d:64426faa968b",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000e:67956112fca4",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000010:0956f22beeaf",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000011:d50257fc0dc6",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000012:e9b35157c5db",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000014:fe9f1ece3ab6",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000015:c01cacd6a49a",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000017:900429b51deb",
+   "slot_kind": 2,
+   "slot_name": "scope"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000000:6978169ea927",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000002:ad596c7d3b7d",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000003:c897d03cb14a",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000004:6818c8e6a6b9",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000006:26c010e03b7b",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000007:acf0c1c0c7ce",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000009:96f9682a7b90",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000a:a40fb713e031",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000b:7d4f7040b55d",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000d:64426faa968b",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000e:67956112fca4",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000010:0956f22beeaf",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000011:d50257fc0dc6",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000012:e9b35157c5db",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000014:fe9f1ece3ab6",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000015:c01cacd6a49a",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000017:900429b51deb",
+   "slot_kind": 1,
+   "slot_name": "implements_claim"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00001",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00002",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00003",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00005",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00006",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00007",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00009",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00010",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00011",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00013",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00014",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00015",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00018",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00019",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00021",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  },
+  {
+   "row_id": "squad:qa.answer_span:q00022",
+   "slot_kind": 3,
+   "slot_name": "evidence"
+  }
+ ]
+}

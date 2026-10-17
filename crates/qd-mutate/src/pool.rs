@@ -49,7 +49,11 @@ pub struct FunctionIdentity {
 
 impl std::fmt::Display for FunctionIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}/{}", self.repo, self.path, self.symbol, self.arity)
+        write!(
+            f,
+            "{}:{}:{}/{}",
+            self.repo, self.path, self.symbol, self.arity
+        )
     }
 }
 
@@ -102,12 +106,28 @@ impl PoolRecord {
 
 #[derive(Debug)]
 pub enum PoolError {
-    Io { detail: String },
+    Io {
+        detail: String,
+    },
     /// A malformed line stops the read and names itself. A pool this crate cannot parse in full is
     /// a pool whose record count in the manifest would be a fiction.
-    Malformed { line: u64, detail: String },
-    LineTooLong { line: u64, bytes: usize },
-    TooManyRecords { cap: usize },
+    Malformed {
+        line: u64,
+        detail: String,
+    },
+    LineTooLong {
+        line: u64,
+        bytes: usize,
+    },
+    TooManyRecords {
+        cap: usize,
+    },
+    /// The content guard refused the line: a caller record (never training data, CLAUDE.md
+    /// rule 3) or bytes it could not scan. `detail` is the guard's own refusal.
+    CallerRecord {
+        line: u64,
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for PoolError {
@@ -122,13 +142,14 @@ impl std::fmt::Display for PoolError {
                 "pool line {line} is {bytes} bytes, over the {MAX_RECORD_BYTES}-byte cap"
             ),
             PoolError::TooManyRecords { cap } => write!(f, "pool exceeds {cap} records"),
+            PoolError::CallerRecord { detail, .. } => f.write_str(detail),
         }
     }
 }
 
 impl std::error::Error for PoolError {}
 
-/// Read a JSONL pool. Blank lines are skipped; anything else that is not a record is an error.
+/// Read a JSONL pool, refusing any caller record by content. Blank lines are skipped; anything else that is not a record is an error.
 pub fn read_jsonl(reader: impl Read) -> Result<Vec<PoolRecord>, PoolError> {
     let mut buffered = BufReader::new(reader);
     let mut out = Vec::new();
@@ -153,6 +174,15 @@ pub fn read_jsonl(reader: impl Read) -> Result<Vec<PoolRecord>, PoolError> {
                 bytes: buf.len(),
             });
         }
+        // The canonical content guard (`qd-prep`'s, the one the oracle
+        // `fixtures/caller/guard-cases.json` holds all four implementations to), run on every
+        // line before it is parsed, so a caller record never becomes a pool record and bytes it
+        // cannot scan are refused rather than read as a malformed pool.
+        qd_prep::heldout::refuse_caller_record_bytes(&buf, &format!("pool line {line_number}"))
+            .map_err(|detail| PoolError::CallerRecord {
+                line: line_number,
+                detail,
+            })?;
         let line = String::from_utf8_lossy(&buf);
         let line = line.trim();
         if line.is_empty() {
@@ -201,12 +231,16 @@ mod tests {
         // truncated ones.
         let json = r#"{"id":"r1","repo":"o/r","path":"a.rs","source":"fn f() {}\n","hunks":[{"start_line":2,"end_line":4}]}"#;
         let records = read_jsonl(json.as_bytes()).expect("parses");
-        assert_eq!(records[0].hunks.as_deref(), Some(&[LineSpan::new(2, 4)][..]));
+        assert_eq!(
+            records[0].hunks.as_deref(),
+            Some(&[LineSpan::new(2, 4)][..])
+        );
     }
 
     #[test]
     fn a_malformed_line_names_its_line_number_rather_than_being_skipped() {
-        let jsonl = "{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\nnot json\n";
+        let jsonl =
+            "{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\nnot json\n";
         match read_jsonl(jsonl.as_bytes()) {
             Err(PoolError::Malformed { line, .. }) => assert_eq!(line, 2),
             other => panic!("expected a malformed-line error, got {other:?}"),
@@ -215,7 +249,8 @@ mod tests {
 
     #[test]
     fn blank_lines_are_skipped_and_do_not_shift_the_line_number() {
-        let jsonl = "\n\n{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\n\nbad\n";
+        let jsonl =
+            "\n\n{\"id\":\"a\",\"repo\":\"o/r\",\"path\":\"a.rs\",\"source\":\"x\"}\n\nbad\n";
         match read_jsonl(jsonl.as_bytes()) {
             Err(PoolError::Malformed { line, .. }) => assert_eq!(line, 5),
             other => panic!("expected a malformed-line error, got {other:?}"),
@@ -224,9 +259,103 @@ mod tests {
 
     #[test]
     fn an_explicit_language_overrides_the_extension() {
-        let json = r#"{"id":"r1","repo":"o/r","path":"a.txt","language":"rust","source":"fn f(){}"}"#;
+        let json =
+            r#"{"id":"r1","repo":"o/r","path":"a.txt","language":"rust","source":"fn f(){}"}"#;
         let records = read_jsonl(json.as_bytes()).expect("parses");
         assert_eq!(records[0].language(), Some(LangId::Rust));
+    }
+
+    const OK: &str = r#"{"id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
+
+    /// A copy of an app's caller-record file is refused by content, wherever it was copied from.
+    #[test]
+    fn a_caller_record_file_is_refused_by_content() {
+        let copy = include_bytes!("../../../fixtures/caller/valid-records.jsonl");
+        match read_jsonl(&copy[..]) {
+            Err(PoolError::CallerRecord { line, .. }) => assert_eq!(line, 1),
+            other => panic!("expected a caller-record refusal, got {other:?}"),
+        }
+    }
+
+    /// The characters `str.splitlines()` splits on beyond `\n`. The reader splits on `\n` alone.
+    const SPLITLINES_SEPARATORS: [char; 9] = [
+        '\r', '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}',
+    ];
+
+    /// U+0085, U+2028 and U+2029 are legal raw inside a JSON string and are data: a row that holds
+    /// one is one record, not two truncated ones.
+    #[test]
+    fn a_splitlines_separator_inside_a_string_value_stays_one_record() {
+        let source = "a\u{85}b\u{2028}c\u{2029}d";
+        let line =
+            serde_json::json!({"id":"a","repo":"o/r","path":"a.rs","source":source}).to_string();
+        assert!(
+            line.contains('\u{2028}'),
+            "serde_json writes U+2028 raw, which is the point"
+        );
+        let records = read_jsonl(format!("{line}\n{line}\n").as_bytes()).expect("parses");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].source, source);
+    }
+
+    /// A caller record behind any other line separator is refused: the guard splits on `\n` and
+    /// refuses a line that holds one outside a string, so a reader that splits on it cannot find
+    /// a record the guard passed.
+    #[test]
+    fn a_caller_record_behind_a_splitlines_separator_is_refused() {
+        let rec =
+            r#"{"record":"lappi.caller_record","id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
+        for sep in SPLITLINES_SEPARATORS {
+            let jsonl = format!("{OK}{sep}{rec}\n");
+            match read_jsonl(jsonl.as_bytes()) {
+                Err(PoolError::CallerRecord { line, .. }) => assert_eq!(line, 1, "{sep:?}"),
+                other => panic!("{sep:?}: expected a caller-record refusal, got {other:?}"),
+            }
+        }
+    }
+
+    /// A line that is also a structurally valid pool record, with the marker as an extra key,
+    /// would parse; the guard refuses it, and names the line it sits on.
+    #[test]
+    fn a_pool_shaped_caller_record_is_refused_with_its_line() {
+        let rec =
+            r#"{"record":"lappi.caller_record","id":"a","repo":"o/r","path":"a.rs","source":"x"}"#;
+        let jsonl = format!("{OK}\n{OK}\n{rec}\n");
+        match read_jsonl(jsonl.as_bytes()) {
+            Err(PoolError::CallerRecord { line, .. }) => assert_eq!(line, 3),
+            other => panic!("expected a caller-record refusal, got {other:?}"),
+        }
+    }
+
+    /// Compressed bytes cannot be scanned and are refused, not passed as a pool.
+    #[test]
+    fn unscannable_bytes_are_refused_not_passed() {
+        match read_jsonl(&[0x1f_u8, 0x8b, 8, 0][..]) {
+            Err(PoolError::CallerRecord { .. }) => {}
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    /// A pool source that merely talks about caller records (its text is JSON-escaped inside
+    /// `source`) is not a caller record.
+    #[test]
+    fn a_source_that_mentions_the_prefix_is_not_a_caller_record() {
+        let src = "const P: &str = \"lappi.caller_record\"; // \"record\"";
+        let line =
+            serde_json::json!({"id":"a","repo":"o/r","path":"a.rs","source":src}).to_string();
+        assert_eq!(read_jsonl(line.as_bytes()).unwrap().len(), 1);
+    }
+
+    /// Text that only quotes the format is not a caller record: a pool row of this repository's
+    /// own source, with another `record` key, reads as a pool row.
+    #[test]
+    fn a_row_that_quotes_the_record_format_is_not_a_caller_record() {
+        let src = "let rec = r#\"{\\\"record\\\":\\\"lappi.caller_record\\\"}\"#;";
+        let line = serde_json::json!({
+            "record": "decisions.json", "id": "a", "repo": "o/r", "path": "a.rs", "source": src,
+        })
+        .to_string();
+        assert_eq!(read_jsonl(line.as_bytes()).unwrap().len(), 1);
     }
 
     #[test]

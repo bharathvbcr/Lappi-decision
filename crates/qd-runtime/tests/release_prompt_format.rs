@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use qd_runtime::calibration::CalibrationTable;
-use qd_runtime::release::{Release, ReleaseRefusal, Tower, MANIFEST_FORMAT};
-use serde_json::{json, Value};
+use qd_runtime::release::{MANIFEST_FORMAT, Release, ReleaseRefusal, Tower};
+use serde_json::{Value, json};
 
 static N: AtomicUsize = AtomicUsize::new(0);
 
@@ -88,10 +88,16 @@ fn release(edit: impl FnOnce(&mut Value)) -> Dir {
 fn refused(dir: &Path, kind: &str, needles: &[&str]) -> ReleaseRefusal {
     let tower = Tower::open(dir).expect_err("the tower must be refused");
     let err = Release::open(dir).expect_err("the release must be refused");
-    assert_eq!(tower, err, "Tower::open and Release::open refuse a manifest alike");
+    assert_eq!(
+        tower, err,
+        "Tower::open and Release::open refuse a manifest alike"
+    );
     assert_eq!(err.kind.as_str(), kind, "{err}");
     for needle in needles {
-        assert!(err.detail.contains(needle), "{needle:?} missing from: {err}");
+        assert!(
+            err.detail.contains(needle),
+            "{needle:?} missing from: {err}"
+        );
     }
     err
 }
@@ -128,7 +134,11 @@ fn a_v2_release_that_states_no_prompt_format_is_refused() {
             .unwrap()
             .remove("prompt_format");
     });
-    refused(&dir.0, "prompt_format", &["expected_identity.prompt_format"]);
+    refused(
+        &dir.0,
+        "prompt_format",
+        &["expected_identity.prompt_format"],
+    );
 }
 
 /// A v4 checkpoint exported after the change is stamped 1 by `qd-export` (its recipe states no
@@ -147,8 +157,20 @@ fn a_v2_release_of_another_prompt_format_is_refused_naming_both() {
 
 #[test]
 fn a_prompt_format_that_is_not_a_positive_integer_is_refused() {
-    for bad in [json!("2"), json!(2.0), json!(true), json!(null), json!(-2), json!(0), json!([2])] {
+    for bad in [
+        json!("2"),
+        json!(2.0),
+        json!(true),
+        json!(null),
+        json!(-2),
+        json!(0),
+        json!([2]),
+    ] {
         let dir = release(|m| m["expected_identity"]["prompt_format"] = bad.clone());
-        refused(&dir.0, "prompt_format", &["expected_identity.prompt_format"]);
+        refused(
+            &dir.0,
+            "prompt_format",
+            &["expected_identity.prompt_format"],
+        );
     }
 }

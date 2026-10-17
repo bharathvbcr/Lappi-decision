@@ -37,6 +37,9 @@
 //! - `qd-prep synth --config C [--target NAME=FILE ...] --out-dir DIR`: decision rows
 //!   synthesised by rule for the email sorter, Jarvis or tool selection (see `qd_prep::synth`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, the pool shape `decisions` writes.
+//! - `qd-prep commit-type --manifest M --out-dir DIR`: `gitpulse.commit_type` rows from the
+//!   manifest's train repositories' commit history (see `qd_prep::commit_type`) ->
+//!   `DIR/{examples.jsonl, manifest.json}`, the pool shape `decisions` writes.
 //! - `qd-prep convert --config C --view-record VR --pool NAME [--licence-cache F] --out-dir DIR`:
 //!   one downloaded v6 dataset as a decision pool (see `qd_prep::convert`), the same pool shape
 //!   `decisions` writes; `swe-rebench-filter` and `injections` write a view and a corpus.
@@ -117,6 +120,40 @@ enum Command {
     /// A downloaded v6 dataset made into a decision pool, licence-filtered and decontaminated
     /// (`qd_prep::convert`), or SWE-rebench's filtered view, or the injection-text corpus.
     Convert(ConvertIo),
+    /// `gitpulse.commit_type` rows from the own-repos manifest's train repositories' commit
+    /// history (`qd_prep::commit_type`); GitPulse itself is refused as a producer.
+    CommitType(CommitTypeIo),
+    /// The one v6 cap table: every candidate pool (`convert`, `synth`) and v5's as-built pool
+    /// in, one applied pool out (`qd_prep::allocate`).
+    Allocate(AllocateIo),
+}
+
+/// `qd-prep allocate`'s inputs.
+#[derive(clap::Args, Debug)]
+struct AllocateIo {
+    /// The allocation config (`data/decisions/v6-allocation.json`, schema
+    /// qd-allocation-config/v1).
+    #[arg(long)]
+    config: PathBuf,
+    /// An input pool, `NAME=DIR`; repeat per pool. Exactly the config's pools, each once.
+    #[arg(long = "pool", value_parser = parse_target)]
+    pools: Vec<(String, PathBuf)>,
+    /// The directory to create; refused if it, or DIR.partial, exists.
+    #[arg(long)]
+    out: PathBuf,
+    /// Worker threads for reading the pools; default every core, at most 256.
+    #[arg(long)]
+    threads: Option<usize>,
+}
+
+/// `qd-prep allocate`: the config and the pools in, the applied pool directory out.
+fn run_allocate(io: &AllocateIo) -> Result<String, String> {
+    let threads = bounded_threads(io.threads)?;
+    let inputs = qd_prep::allocate::Inputs {
+        config: io.config.clone(),
+        pools: io.pools.clone(),
+    };
+    qd_prep::allocate::run(&inputs, &io.out, threads)
 }
 
 /// `qd-prep synth`'s inputs.
@@ -225,10 +262,16 @@ struct DecisionCapsIo {
 /// `qd-prep decision-caps`: the config and two surveys in, the refreshed caps out.
 fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     if io.output.exists() {
-        return Err(format!("{} exists; refusing to overwrite it", io.output.display()));
+        return Err(format!(
+            "{} exists; refusing to overwrite it",
+            io.output.display()
+        ));
     }
-    let read =
-        |p: &PathBuf| qd_prep::files::read_bounded(p, qd_prep::files::MAX_RECORD_BYTES, "input");
+    let read = |p: &PathBuf| {
+        let bytes = qd_prep::files::read_bounded(p, qd_prep::files::MAX_RECORD_BYTES, "input")?;
+        qd_prep::heldout::refuse_caller_record_bytes(&bytes, &format!("input {}", p.display()))?;
+        Ok::<_, String>(bytes)
+    };
     let (config, before, after) = (read(&io.config)?, read(&io.before)?, read(&io.after)?);
     let cfg = decisions::Config::parse(&config)?;
     let (caps, moved) = decisions::refresh_train_caps(
@@ -247,7 +290,11 @@ fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
     let mut bytes = serde_json::to_vec_pretty(&out).map_err(|e| e.to_string())?;
     bytes.push(b'\n');
     qd_prep::files::write_new_file(&io.output, &bytes)?;
-    Ok(format!("{} cap(s) moved -> {}", moved.len(), io.output.display()))
+    Ok(format!(
+        "{} cap(s) moved -> {}",
+        moved.len(),
+        io.output.display()
+    ))
 }
 
 /// `qd-prep own-repos`' inputs.
@@ -259,6 +306,21 @@ struct OwnReposIo {
     /// Where to write the manifest; refused if it exists.
     #[arg(long)]
     out: PathBuf,
+}
+
+/// `qd-prep commit-type`'s inputs.
+#[derive(clap::Args, Debug)]
+struct CommitTypeIo {
+    /// A `qd-prep own-repos` manifest; only its train repositories are read.
+    #[arg(long)]
+    manifest: PathBuf,
+    /// The directory to create (`examples.jsonl`, `manifest.json`); refused if it, or
+    /// DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// The seed of the per-repository draw and the val split.
+    #[arg(long, default_value_t = 20261008)]
+    seed: u64,
 }
 
 /// `qd-prep own-swift`' inputs.
@@ -344,7 +406,10 @@ fn parse_target(s: &str) -> Result<(String, PathBuf), String> {
 /// `qd-prep decisions`: the sources in, the pool directory out.
 fn run_decisions(io: &DecisionsIo) -> Result<String, String> {
     if io.out_dir.exists() {
-        return Err(format!("{} exists; refusing to overwrite it", io.out_dir.display()));
+        return Err(format!(
+            "{} exists; refusing to overwrite it",
+            io.out_dir.display()
+        ));
     }
     let threads = bounded_threads(io.threads)?;
     let inputs = decisions::Inputs {
@@ -356,7 +421,11 @@ fn run_decisions(io: &DecisionsIo) -> Result<String, String> {
     };
     let built = decisions::run(&inputs, threads)?;
     decisions::write_out(&io.out_dir, &built)?;
-    Ok(format!("{} on {threads} thread(s) -> {}", built.summary, io.out_dir.display()))
+    Ok(format!(
+        "{} on {threads} thread(s) -> {}",
+        built.summary,
+        io.out_dir.display()
+    ))
 }
 
 /// The arguments of a subcommand whose answer is a directory of files.
@@ -393,6 +462,13 @@ fn run_containment(io: &DirIo) -> Result<String, String> {
 }
 
 /// The request's bytes, refused past `max_input_bytes`, and the thread count to use.
+///
+/// No caller-record content guard here. A request is a binary frame of documents or signatures
+/// (minhash, lsh, containment, ngrams, linfit, dedupe, spancheck), not a training row file: it
+/// is read to dedupe or measure text, and its output is signatures or measurements. A corpus that quotes the
+/// record format (this repository's own sources do) must sign. The guard sits where rows enter
+/// training: `refuse_training_input` on every row producer's inputs, and the Python readers
+/// that feed a request (`qd_data.caller_records`).
 fn read_input(
     input: &Path,
     threads: Option<usize>,
@@ -456,6 +532,8 @@ fn main() -> ExitCode {
         Command::Spancheck(io) => run(io, spancheck::MAX_INPUT_BYTES, spancheck::run_spancheck),
         Command::Synth(io) => run_synth(io),
         Command::Convert(io) => run_convert(io),
+        Command::Allocate(io) => run_allocate(io),
+        Command::CommitType(io) => qd_prep::commit_type::run(&io.manifest, &io.out_dir, io.seed),
     };
     match result {
         Ok(line) => {

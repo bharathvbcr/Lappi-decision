@@ -172,9 +172,9 @@ pub enum SlotSpec {
 impl SlotSpec {
     pub fn name(&self) -> &str {
         match self {
-            SlotSpec::Choice { name, .. } | SlotSpec::Score { name, .. } | SlotSpec::Span { name } => {
-                name
-            }
+            SlotSpec::Choice { name, .. }
+            | SlotSpec::Score { name, .. }
+            | SlotSpec::Span { name } => name,
         }
     }
 
@@ -322,9 +322,7 @@ pub enum SpanBoundsError {
          reordered into a plausible-looking answer"
     )]
     Backwards { start_line: usize, end_line: usize },
-    #[error(
-        "span starts at line 0, but a span is 1-based and inclusive, so line 0 does not exist"
-    )]
+    #[error("span starts at line 0, but a span is 1-based and inclusive, so line 0 does not exist")]
     NotOneBased,
 }
 
@@ -544,14 +542,14 @@ where
                 return Err(D::Error::custom(
                     "the answer's `slots` map has an empty key; a slot answer that cannot be keyed \
                      cannot be matched to the slot that was asked",
-                ))
+                ));
             }
             Some(SlotNameFault::OverCap { cap, actual }) => {
                 return Err(D::Error::custom(format!(
                     "a key of the answer's `slots` map is {actual} bytes, over the slot-name cap \
                      of {cap}; no request carrying such a name can be accepted, so no answer may \
                      carry one back"
-                )))
+                )));
             }
         }
     }

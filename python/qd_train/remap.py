@@ -106,7 +106,8 @@ and return `NotRun` — never a pass — when it is absent.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+import operator
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 
@@ -341,6 +342,63 @@ def _normalize_counts(
 
 
 # --- Building the remap ---------------------------------------------------------------
+
+
+def named_special_ids(
+    special_tokens_map: Mapping[str, object],
+    token_to_id: Callable[[str], object],
+    id_to_token: Callable[[int], object],
+) -> tuple[int, ...]:
+    """Ids of the tokenizer's named special tokens, each distinct string once.
+
+    ``all_special_ids`` is a different set. transformers 5.17 loads this checkpoint as
+    ``Qwen2Tokenizer`` and its ``all_special_ids`` is the named map: ``<|endoftext|>`` plus
+    the seven ``extra_special_tokens`` values. That is the list the characterization pin
+    recorded. transformers 5.18 and 5.19 load the same files as ``Qwen3_5Tokenizer`` and add
+    nine ``additional_special_tokens`` (``<|im_start|>``, ``<|im_end|>``, the object-ref, box
+    and quad markers, and ``<|vision_pad|>``) to ``all_special_ids``. ``special_tokens_map``
+    stays the eight-string map on all three, so the remap sidecar does not move when the
+    installed transformers does.
+    """
+    if not isinstance(special_tokens_map, Mapping):
+        raise RemapCoverageError(
+            "special_tokens_map must be a mapping of name to token, got "
+            f"{type(special_tokens_map).__name__}"
+        )
+    by_id: dict[int, str] = {}
+    for name, raw_token in special_tokens_map.items():
+        if not isinstance(name, str) or not isinstance(raw_token, str) or raw_token == "":
+            raise RemapCoverageError(
+                f"named special token {name!r} must be a non-empty string, got {raw_token!r}"
+            )
+        raw_id = token_to_id(raw_token)
+        if isinstance(raw_id, bool):
+            raise RemapCoverageError(
+                f"named special token {raw_token!r} resolved to {raw_id!r}, not an integer id"
+            )
+        try:
+            token_id = operator.index(raw_id)
+        except TypeError as exc:
+            raise RemapCoverageError(
+                f"named special token {raw_token!r} resolved to {raw_id!r}, not an integer id"
+            ) from exc
+        if token_id < 0:
+            raise RemapCoverageError(
+                f"named special token {raw_token!r} resolved to a negative id {token_id}"
+            )
+        previous = by_id.get(token_id)
+        if previous is not None and previous != raw_token:
+            raise RemapCoverageError(
+                f"named special tokens {previous!r} and {raw_token!r} both have id {token_id}"
+            )
+        spelled = id_to_token(token_id)
+        if spelled != raw_token:
+            raise RemapCoverageError(
+                f"named special token {raw_token!r} resolved to id {token_id}, which spells "
+                f"{spelled!r}"
+            )
+        by_id[token_id] = raw_token
+    return tuple(sorted(by_id))
 
 
 def build_remap(

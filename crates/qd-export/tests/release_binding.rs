@@ -181,16 +181,32 @@ fn the_stamp_is_the_source_manifests_never_the_runtimes_constant() {
 
 #[test]
 fn a_source_prompt_format_that_is_not_a_positive_integer_is_refused_before_anything_is_written() {
-    for bad in [json!("2"), json!(2.0), json!(true), json!(null), json!(0), json!(-1), json!([2])] {
+    for bad in [
+        json!("2"),
+        json!(2.0),
+        json!(true),
+        json!(null),
+        json!(0),
+        json!(-1),
+        json!([2]),
+    ] {
         let fx = fixture_of_format(Some(bad.clone()));
         match export(&fx.request()) {
             Err(err) => {
-                assert_eq!(err.kind, qd_export::RefusalKind::SourceManifest, "{bad}: {err}");
+                assert_eq!(
+                    err.kind,
+                    qd_export::RefusalKind::SourceManifest,
+                    "{bad}: {err}"
+                );
                 assert!(err.detail.contains("prompt_format"), "{bad}: {err}");
             }
             Ok(_) => panic!("a source manifest stating prompt_format {bad} was exported"),
         }
-        assert!(!fx.out.exists(), "{bad}: a refused export left {} behind", fx.out.display());
+        assert!(
+            !fx.out.exists(),
+            "{bad}: a refused export left {} behind",
+            fx.out.display()
+        );
         assert!(fx.leftovers().is_empty(), "{bad}: staging left behind");
     }
 }

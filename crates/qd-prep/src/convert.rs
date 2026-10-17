@@ -1177,7 +1177,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_unstated_licence_is_refused_and_counted_and_a_pending_one_is_kept_and_named() {
+    fn an_unstated_licence_is_refused_and_counted_and_a_registered_dataset_one_is_admitted() {
         let cfg = cfg();
         let mut acc = Acc::new(&cfg);
         acc.offer("t/src", "t.fam", Ok(row("r1", "g1", 0, None)))
@@ -1193,7 +1193,8 @@ pub(crate) mod tests {
         assert_eq!(t.kept, 2);
         assert_eq!(t.refused["licence_unstated"], 1);
         assert_eq!(t.refused["licence_needs_human_call:gpl-3.0"], 1);
-        assert_eq!(t.licence_pending["odc-by-1.0"], 1);
+        assert!(t.licence_pending.is_empty());
+        assert_eq!(t.licence_admitted["odc-by-1.0"], 1);
         assert_eq!(t.licence_admitted["cc-by-4.0"], 1);
         let lic: Vec<&str> = acc.rows.iter().map(|c| c.licence.as_str()).collect();
         assert_eq!(lic, ["odc-by-1.0", "cc-by-4.0"]);

@@ -45,7 +45,7 @@ use qd_export::layout::{Layout, SPAN_PREFIX, TOWER_PREFIX};
 use qd_export::safetensors::{Dtype, PlannedTensor, Writer};
 use serde_json::Value;
 
-use crate::pyjson::{dumps, float, obj, PyJsonError, CANONICAL};
+use crate::pyjson::{CANONICAL, PyJsonError, dumps, float, obj};
 use crate::run_control::hex;
 use crate::step::ParamSpec;
 
@@ -140,22 +140,35 @@ pub struct ExportSummary {
 
 /// `<out>.manifest.json`.
 pub fn manifest_path(out: &Path) -> PathBuf {
-    let mut name = out.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut name = out
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     name.push(MANIFEST_SUFFIX);
     out.with_file_name(name)
 }
 
 /// `epoch-seed<seed>-<device>.safetensors` (or `...-f32-masters.safetensors`). The device is
 /// `[a-z0-9]+`: the scorer splits the stem on its last two `-`.
-pub fn export_file_name(seed: u64, device: &str, precision: Precision) -> Result<String, ExportError> {
-    if device.is_empty() || !device.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) {
+pub fn export_file_name(
+    seed: u64,
+    device: &str,
+    precision: Precision,
+) -> Result<String, ExportError> {
+    if device.is_empty()
+        || !device
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    {
         return refuse(format!(
             "device {device:?} must be [a-z0-9]+: the scorer reads the name as <tag>-seed<N>-<device>"
         ));
     }
     Ok(match precision {
         Precision::Bf16 => format!("{EXPORT_TAG}-seed{seed}-{device}.safetensors"),
-        Precision::F32Masters => format!("{EXPORT_TAG}-seed{seed}-{device}-f32-masters.safetensors"),
+        Precision::F32Masters => {
+            format!("{EXPORT_TAG}-seed{seed}-{device}-f32-masters.safetensors")
+        }
     })
 }
 
@@ -167,13 +180,19 @@ fn is_sha256_hex(s: &str) -> bool {
 fn is_canonical_uuid(s: &str) -> bool {
     let groups: Vec<&str> = s.split('-').collect();
     groups.len() == 5
-        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 impl ManifestInfo {
     fn validate(&self) -> Result<(), ExportError> {
         if self.trainer.trim().is_empty() || self.trainer.contains(char::is_whitespace) {
-            return refuse(format!("trainer {:?} must be a non-empty name", self.trainer));
+            return refuse(format!(
+                "trainer {:?} must be a non-empty name",
+                self.trainer
+            ));
         }
         if !is_canonical_uuid(&self.ft_row_id) {
             return refuse(format!(
@@ -188,7 +207,10 @@ impl ManifestInfo {
             return refuse("prompt_format 0: a format is 1 or more, and qd-export refuses 0");
         }
         if !(self.span_weight.is_finite() && self.span_weight > 0.0) {
-            return refuse(format!("span_weight {} must be positive and finite", self.span_weight));
+            return refuse(format!(
+                "span_weight {} must be positive and finite",
+                self.span_weight
+            ));
         }
         for (name, v) in [
             ("recipe_hash", Some(&self.recipe_hash)),
@@ -206,12 +228,22 @@ impl ManifestInfo {
     }
 }
 
-fn check_against(prefix: &str, given: &[NamedTensor<'_>], want: &BTreeMap<String, Vec<usize>>) -> Result<(), ExportError> {
-    let have: BTreeMap<&str, &Vec<usize>> = given.iter().map(|t| (t.spec.name.as_str(), &t.spec.shape)).collect();
+fn check_against(
+    prefix: &str,
+    given: &[NamedTensor<'_>],
+    want: &BTreeMap<String, Vec<usize>>,
+) -> Result<(), ExportError> {
+    let have: BTreeMap<&str, &Vec<usize>> = given
+        .iter()
+        .map(|t| (t.spec.name.as_str(), &t.spec.shape))
+        .collect();
     if have.len() != given.len() {
         return refuse(format!("a {prefix}* tensor is named twice"));
     }
-    let missing: Vec<&String> = want.keys().filter(|k| !have.contains_key(k.as_str())).collect();
+    let missing: Vec<&String> = want
+        .keys()
+        .filter(|k| !have.contains_key(k.as_str()))
+        .collect();
     let extra: Vec<&&str> = have.keys().filter(|k| !want.contains_key(**k)).collect();
     if !missing.is_empty() || !extra.is_empty() {
         return refuse(format!(
@@ -220,7 +252,10 @@ fn check_against(prefix: &str, given: &[NamedTensor<'_>], want: &BTreeMap<String
     }
     for (name, shape) in &have {
         if want[*name] != **shape {
-            return refuse(format!("{prefix}{name} has shape {shape:?}; config.json implies {:?}", want[*name]));
+            return refuse(format!(
+                "{prefix}{name} has shape {shape:?}; config.json implies {:?}",
+                want[*name]
+            ));
         }
     }
     Ok(())
@@ -243,7 +278,10 @@ pub fn export(
     let manifest = manifest_path(&out);
     for target in [out.as_path(), manifest.as_path()] {
         if target.exists() {
-            return refuse(format!("{} already exists; refusing to overwrite it", target.display()));
+            return refuse(format!(
+                "{} already exists; refusing to overwrite it",
+                target.display()
+            ));
         }
     }
     if let Some(l) = layout {
@@ -268,11 +306,22 @@ pub fn export(
     let mut plan = Vec::with_capacity(tower.len() + head.len());
     let mut sources: BTreeMap<String, Value> = BTreeMap::new();
     let mut by_name: BTreeMap<String, (&NamedTensor<'_>, bool)> = BTreeMap::new();
-    for (tensors, prefix, bf16) in [(tower, TOWER_PREFIX, tower_bf16), (head, SPAN_PREFIX, false)] {
+    for (tensors, prefix, bf16) in [
+        (tower, TOWER_PREFIX, tower_bf16),
+        (head, SPAN_PREFIX, false),
+    ] {
         for t in tensors {
-            let n = t.spec.numel().map_err(|e| ExportError::Refused(e.to_string()))?;
+            let n = t
+                .spec
+                .numel()
+                .map_err(|e| ExportError::Refused(e.to_string()))?;
             if n != t.values.len() {
-                return refuse(format!("{}: {} values for shape {:?}", t.spec.name, t.values.len(), t.spec.shape));
+                return refuse(format!(
+                    "{}: {} values for shape {:?}",
+                    t.spec.name,
+                    t.values.len(),
+                    t.spec.shape
+                ));
             }
             let name = format!("{prefix}{}", t.spec.name);
             plan.push(PlannedTensor {
@@ -282,7 +331,11 @@ pub fn export(
             });
             sources.insert(
                 name.clone(),
-                Value::from(if bf16 { "f32 master, rounded to bf16 (RNE)" } else { "f32 master, as is" }),
+                Value::from(if bf16 {
+                    "f32 master, rounded to bf16 (RNE)"
+                } else {
+                    "f32 master, as is"
+                }),
             );
             if by_name.insert(name.clone(), (t, bf16)).is_some() {
                 return refuse(format!("{name} is planned twice"));
@@ -291,7 +344,11 @@ pub fn export(
     }
     for (name, (t, bf16)) in &by_name {
         for (i, &x) in t.values.iter().enumerate() {
-            let ok = if *bf16 { f32_to_bf16_rne(x).is_some() } else { x.is_finite() };
+            let ok = if *bf16 {
+                f32_to_bf16_rne(x).is_some()
+            } else {
+                x.is_finite()
+            };
             if !ok {
                 return Err(ExportError::NonFinite(format!(
                     "{name}[{i}] = {x} is not a finite {}",
@@ -308,7 +365,9 @@ pub fn export(
         let mut buf = Vec::with_capacity(t.values.len() * if bf16 { 2 } else { 4 });
         for &x in t.values {
             if bf16 {
-                let b = f32_to_bf16_rne(x).ok_or_else(|| ExportError::NonFinite(format!("{} changed while written", p.name)))?;
+                let b = f32_to_bf16_rne(x).ok_or_else(|| {
+                    ExportError::NonFinite(format!("{} changed while written", p.name))
+                })?;
                 buf.extend_from_slice(&b.to_le_bytes());
             } else {
                 buf.extend_from_slice(&x.to_le_bytes());
@@ -345,15 +404,28 @@ pub fn export(
         ("resumable", Value::Bool(false)),
         (
             "why_not_resumable",
-            Value::from("weights only: the optimizer moments are in the trainer's checkpoint, not here"),
+            Value::from(
+                "weights only: the optimizer moments are in the trainer's checkpoint, not here",
+            ),
         ),
         ("schedule", info.schedule.clone()),
         ("provider", Value::from(info.provider.as_str())),
         ("operands", Value::from(info.operands.as_str())),
         ("recipe_hash", Value::from(info.recipe_hash.as_str())),
-        ("loss_log_digest", Value::from(info.loss_log_digest.as_str())),
-        ("consumed_digest", Value::from(info.consumed_digest.as_str())),
-        ("head_init_digest", info.head_init_digest.as_deref().map_or(Value::Null, Value::from)),
+        (
+            "loss_log_digest",
+            Value::from(info.loss_log_digest.as_str()),
+        ),
+        (
+            "consumed_digest",
+            Value::from(info.consumed_digest.as_str()),
+        ),
+        (
+            "head_init_digest",
+            info.head_init_digest
+                .as_deref()
+                .map_or(Value::Null, Value::from),
+        ),
         ("tensor_sources", obj(sources)?),
     ];
     if info.prompt_format != 1 {
@@ -363,16 +435,26 @@ pub fn export(
     let text = dumps(&body, CANONICAL)? + "\n";
     let tmp = manifest.with_file_name(format!(
         ".{}.partial",
-        manifest.file_name().and_then(|n| n.to_str()).unwrap_or("manifest")
+        manifest
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("manifest")
     ));
     let ioe = |p: &Path, e: std::io::Error| ExportError::Io(format!("{}: {e}", p.display()));
     {
-        let mut f = fs::File::options().write(true).create_new(true).open(&tmp).map_err(|e| ioe(&tmp, e))?;
+        let mut f = fs::File::options()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| ioe(&tmp, e))?;
         f.write_all(text.as_bytes()).map_err(|e| ioe(&tmp, e))?;
         f.sync_all().map_err(|e| ioe(&tmp, e))?;
     }
     if manifest.exists() {
-        return refuse(format!("{} appeared while the weights were written", manifest.display()));
+        return refuse(format!(
+            "{} appeared while the weights were written",
+            manifest.display()
+        ));
     }
     fs::rename(&tmp, &manifest).map_err(|e| ioe(&manifest, e))?;
     Ok(ExportSummary {

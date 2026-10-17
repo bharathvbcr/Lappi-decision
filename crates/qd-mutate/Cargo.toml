@@ -25,6 +25,9 @@ path = "src/noul_rows/main.rs"
 [dependencies]
 # The language facts (LangId, the path map, the pool's languages), re-exported; a workspace crate.
 qd-lang = { path = "../qd-lang" }
+# A workspace crate, not a third-party dependency: the one owner of the caller-record content
+# guard (`qd_prep::heldout`), which every pool read runs through rather than a second copy.
+qd-prep = { path = "../qd-prep" }
 tree-sitter.workspace = true
 tree-sitter-rust.workspace = true
 tree-sitter-go.workspace = true

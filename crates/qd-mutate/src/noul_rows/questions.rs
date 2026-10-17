@@ -14,11 +14,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read};
 
-use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::seq::SliceRandom;
 use serde::Deserialize;
 
-use crate::hunk::{self, draw_shape, has_char_in, item_rng, mark_block, order_key, Shape};
+use crate::hunk::{self, Shape, draw_shape, has_char_in, item_rng, mark_block, order_key};
 use crate::prose::{path_for, wrap};
 
 pub const FORM: &str = "question";
@@ -101,7 +101,11 @@ pub fn read(
             // Counted by the allowlist step, by the reason the title was excluded.
             continue;
         }
-        let normalised = row.question.split_whitespace().collect::<Vec<_>>().join(" ");
+        let normalised = row
+            .question
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         let reason = if row.question.contains(['\n', '\r']) {
             Some("multi_line")
         } else if has_char_in(&row.question, invisible) {
@@ -117,12 +121,19 @@ pub fn read(
         };
         match reason {
             Some(r) => bump(&mut skipped, r),
-            None => groups.entry((row.title, row.context)).or_default().push(normalised),
+            None => groups
+                .entry((row.title, row.context))
+                .or_default()
+                .push(normalised),
         }
     }
     let groups = groups
         .into_iter()
-        .map(|((title, context), questions)| Group { title, context, questions })
+        .map(|((title, context), questions)| Group {
+            title,
+            context,
+            questions,
+        })
         .collect();
     Ok((groups, skipped))
 }
@@ -132,8 +143,14 @@ pub fn render(g: &Group, seed: u64) -> Result<(String, String), &'static str> {
     let mut rng = item_rng(seed, KEY, &format!("{}\u{1f}{}", g.title, g.context));
     let mut questions = g.questions.clone();
     questions.shuffle(&mut rng);
-    let mut k = QUESTIONS_PER_ROW[rng.random_range(0..QUESTIONS_PER_ROW.len())].min(questions.len());
-    let words = |k: usize| questions[..k].iter().map(|q| q.split(' ').count()).sum::<usize>();
+    let mut k =
+        QUESTIONS_PER_ROW[rng.random_range(0..QUESTIONS_PER_ROW.len())].min(questions.len());
+    let words = |k: usize| {
+        questions[..k]
+            .iter()
+            .map(|q| q.split(' ').count())
+            .sum::<usize>()
+    };
     while k < questions.len().min(MAX_QUESTIONS_PER_ROW) && words(k) < MIN_ROW_WORDS {
         k += 1;
     }
@@ -144,7 +161,11 @@ pub fn render(g: &Group, seed: u64) -> Result<(String, String), &'static str> {
     let width = rng.random_range(MIN_WIDTH..=MAX_WIDTH);
     let mut lines = wrap(&text, width);
     if lines.len() < 2 {
-        let longest = text.split(' ').map(|w| w.chars().count()).max().unwrap_or(0);
+        let longest = text
+            .split(' ')
+            .map(|w| w.chars().count())
+            .max()
+            .unwrap_or(0);
         lines = wrap(&text, longest.max(text.chars().count().div_ceil(2)));
     }
     if lines.len() < 2 {
@@ -174,7 +195,12 @@ pub fn select(
 ) -> Result<(Vec<(&Group, String, String)>, BTreeMap<String, u64>), String> {
     let mut order: Vec<(&Group, [u8; 32])> = groups
         .iter()
-        .map(|g| (g, order_key(seed, KEY, &format!("{}\u{1f}{}", g.title, g.context))))
+        .map(|g| {
+            (
+                g,
+                order_key(seed, KEY, &format!("{}\u{1f}{}", g.title, g.context)),
+            )
+        })
         .collect();
     order.sort_by(|a, b| {
         a.1.cmp(&b.1)
@@ -221,27 +247,53 @@ mod tests {
     }
 
     fn allowed(titles: &[&str]) -> BTreeMap<String, String> {
-        titles.iter().map(|t| ((*t).to_string(), format!("squad-title:{t}"))).collect()
+        titles
+            .iter()
+            .map(|t| ((*t).to_string(), format!("squad-title:{t}")))
+            .collect()
     }
 
     #[test]
     fn questions_are_read_from_allowlisted_titles_once_each_grouped_by_paragraph() {
         let file = [
-            line("Kept", "P1", "In what year did the northern survey of the valley begin?"),
-            line("Kept", "P1", "Who  funded the museum exhibit about the floods?"),
-            line("Kept", "P2", "In what year did the northern survey of the valley begin?"),
+            line(
+                "Kept",
+                "P1",
+                "In what year did the northern survey of the valley begin?",
+            ),
+            line(
+                "Kept",
+                "P1",
+                "Who  funded the museum exhibit about the floods?",
+            ),
+            line(
+                "Kept",
+                "P2",
+                "In what year did the northern survey of the valley begin?",
+            ),
             line("Kept", "P2", "Why?"),
-            line("Kept", "P2", "Which\u{200B} village rebuilt further up the slope?"),
-            line("Held", "P9", "What did the held-out article say about the river?"),
+            line(
+                "Kept",
+                "P2",
+                "Which\u{200B} village rebuilt further up the slope?",
+            ),
+            line(
+                "Held",
+                "P9",
+                "What did the held-out article say about the river?",
+            ),
         ]
         .concat();
         let (groups, skipped) =
             read(file.as_bytes(), &allowed(&["Kept"]), &[(0x200B, 0x200F)]).unwrap();
         assert_eq!(groups.len(), 1, "{groups:?}");
-        assert_eq!(groups[0].questions, vec![
-            "In what year did the northern survey of the valley begin?".to_string(),
-            "Who funded the museum exhibit about the floods?".to_string(),
-        ]);
+        assert_eq!(
+            groups[0].questions,
+            vec![
+                "In what year did the northern survey of the valley begin?".to_string(),
+                "Who funded the museum exhibit about the floods?".to_string(),
+            ]
+        );
         assert_eq!(skipped.get("question:duplicate_text"), Some(&1));
         assert_eq!(skipped.get("question:fewer_words_than_min"), Some(&1));
         assert_eq!(skipped.get("question:invisible_format_character"), Some(&1));
@@ -266,16 +318,34 @@ mod tests {
             assert!(!path.contains("notes") && !path.ends_with(".txt"), "{path}");
             let body: Vec<&str> = diff.lines().skip(1).collect();
             assert!(body.len() >= 2, "{diff}");
-            assert!(body.iter().all(|l| l.chars().count() <= MAX_WIDTH + 1), "{body:?}");
-            assert!(body.iter().any(|l| l.starts_with(' ')), "no context line: {body:?}");
+            assert!(
+                body.iter().all(|l| l.chars().count() <= MAX_WIDTH + 1),
+                "{body:?}"
+            );
+            assert!(
+                body.iter().any(|l| l.starts_with(' ')),
+                "no context line: {body:?}"
+            );
             let text = body.iter().map(|l| &l[1..]).collect::<Vec<_>>().join(" ");
-            let used = g.questions.iter().filter(|q| text.contains(q.as_str())).count();
-            let total: usize = g.questions.iter().filter(|q| text.contains(q.as_str()))
-                .map(|q| q.len()).sum::<usize>() + used.saturating_sub(1);
+            let used = g
+                .questions
+                .iter()
+                .filter(|q| text.contains(q.as_str()))
+                .count();
+            let total: usize = g
+                .questions
+                .iter()
+                .filter(|q| text.contains(q.as_str()))
+                .map(|q| q.len())
+                .sum::<usize>()
+                + used.saturating_sub(1);
             assert!((1..=3).contains(&used) && total == text.len(), "{text}");
             single += usize::from(used == 1);
         }
-        assert!((15..=45).contains(&single), "{single} of 60 rows were one question");
+        assert!(
+            (15..=45).contains(&single),
+            "{single} of 60 rows were one question"
+        );
         assert_eq!(render(&g, 4), render(&g, 4));
     }
 
@@ -284,15 +354,24 @@ mod tests {
         let g = Group {
             title: "T".to_string(),
             context: "c".to_string(),
-            questions: vec!["Who built it?".to_string(), "When exactly was it built?".to_string()],
+            questions: vec![
+                "Who built it?".to_string(),
+                "When exactly was it built?".to_string(),
+            ],
         };
         for seed in 0..20 {
             let (_, diff) = render(&g, seed).unwrap();
-            let words: usize = diff.lines().skip(1).map(|l| l[1..].split_whitespace().count())
+            let words: usize = diff
+                .lines()
+                .skip(1)
+                .map(|l| l[1..].split_whitespace().count())
                 .sum();
             assert!(words >= MIN_ROW_WORDS, "{diff}");
         }
-        let lone = Group { questions: vec!["Who built it?".to_string()], ..g };
+        let lone = Group {
+            questions: vec!["Who built it?".to_string()],
+            ..g
+        };
         assert_eq!(render(&lone, 0), Err("fewer_row_words_than_min"));
     }
 
@@ -309,6 +388,10 @@ mod tests {
         let (got, _) = select(&groups, 4, 0).unwrap();
         assert_eq!(got.iter().filter(|(g, _, _)| g.title == "A").count(), 3);
         assert_eq!(got.iter().filter(|(g, _, _)| g.title == "B").count(), 1);
-        assert!(select(&groups, 5, 0).unwrap_err().contains("only 4 question rows"));
+        assert!(
+            select(&groups, 5, 0)
+                .unwrap_err()
+                .contains("only 4 question rows")
+        );
     }
 }

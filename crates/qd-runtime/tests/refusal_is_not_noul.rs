@@ -110,7 +110,11 @@ fn backend_kind_of(error: &BackendError) -> &'static str {
 #[test]
 fn every_variant_is_covered_and_names_its_own_check() {
     for refusal in all_refusals() {
-        assert_eq!(refusal.kind(), kind_of(&refusal), "kind drifted: {refusal:?}");
+        assert_eq!(
+            refusal.kind(),
+            kind_of(&refusal),
+            "kind drifted: {refusal:?}"
+        );
     }
     for error in all_backend_errors() {
         assert_eq!(
@@ -130,7 +134,11 @@ fn every_variant_is_covered_and_names_its_own_check() {
     assert_eq!(refusal_kinds.len(), 40, "a refusal kind lost its fixture");
     let error_kinds: std::collections::BTreeSet<_> =
         all_backend_errors().iter().map(|e| e.kind()).collect();
-    assert_eq!(error_kinds.len(), 12, "a backend-error kind lost its fixture");
+    assert_eq!(
+        error_kinds.len(),
+        12,
+        "a backend-error kind lost its fixture"
+    );
 }
 
 #[test]

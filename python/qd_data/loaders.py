@@ -31,10 +31,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from .caller_records import assert_no_caller_records, jsonl_lines
 from .errors import QdRefusal
 from .sources import Reachability, source_by_id
 
@@ -581,9 +583,10 @@ def read_jsonl(
         raise ValueError(f"limit must be >= 0, got {limit}")
     if max_row_bytes < 1:
         raise ValueError(f"max_row_bytes must be >= 1, got {max_row_bytes}")
+    assert_no_caller_records(path)
     out: list[dict[str, Any]] = []
     capped = False
-    with path.open("r", encoding="utf-8") as fh:
+    with closing(jsonl_lines(path)) as fh:
         for lineno, line in enumerate(fh, start=1):
             if not line.strip():
                 continue

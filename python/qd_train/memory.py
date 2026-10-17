@@ -46,8 +46,9 @@ import math
 import struct
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 __all__ = [
     "ADAMW_BF16",
@@ -68,13 +69,16 @@ __all__ = [
     "ModelSpec",
     "OptimizerSpec",
     "StepFootprint",
+    "TensorRange",
     "checkpoint_tensor_index",
+    "estimate_scoring",
     "estimate_step",
     "head_is_tied",
     "max_positions_that_fit",
     "refuse_unless_it_fits",
     "safetensors_header",
     "spec_from_checkpoint",
+    "tensor_ranges",
 ]
 
 #: Bytes per element, by the names this repository uses for dtypes. ``float8`` is absent on
@@ -404,6 +408,45 @@ class CheckpointRefused(ValueError):
     """The checkpoint on disk is not one this module will describe, and it says why."""
 
 
+#: serde_json's recursion limit is 128 and it refuses the 128th nested container, so 127 is the
+#: deepest it reads (measured by the shared fixture's json_nesting_127/128 cases). Python's own
+#: parser would take ~1000.
+_MAX_JSON_DEPTH: Final[int] = 127
+
+
+def _json_depth(value: Any) -> int:
+    """Container nesting depth of a parsed JSON value, iteratively (no recursion limit)."""
+    deepest = 0
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, dict):
+            children = node.values()
+        elif isinstance(node, list):
+            children = node
+        else:
+            continue
+        deepest = max(deepest, depth)
+        stack.extend((child, depth + 1) for child in children)
+    return deepest
+
+
+def _require_encodable_strings(value: Any) -> None:
+    """Refuse a lone surrogate in any decoded string, keys included (serde_json refuses the
+    escape; Python's `json` decodes it to a str that cannot be encoded)."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            item.encode("utf-8")
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                key.encode("utf-8")
+                stack.append(child)
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
 def safetensors_header(path: Path) -> dict[str, Any]:
     """The JSON header of one safetensors file, without reading a byte of tensor data."""
     path = Path(path)
@@ -422,15 +465,184 @@ def safetensors_header(path: Path) -> dict[str, Any]:
         raise CheckpointRefused(
             f"{path}: safetensors header claims {n} bytes and the file holds {len(raw)}"
         )
+    # Strict UTF-8 text, no BOM, no NaN/Infinity: what serde_json accepts. `json.loads(bytes)`
+    # would sniff UTF-16/32 and skip a UTF-8 BOM, and `json.loads` takes NaN by default.
+    def _no_constant(name: str) -> Any:
+        raise ValueError(f"{name} is not JSON")
+
+    def _finite(text: str) -> float:
+        value = float(text)
+        if math.isinf(value):
+            raise ValueError(f"number {text[:24]}... is out of range")
+        return value
+
+    def _finite_int(text: str) -> int:
+        # serde_json reads an integer too big for u64/i64 as an f64 and refuses an infinite one;
+        # 2**64 is finite and accepted by both.
+        _finite(text)
+        return int(text)
+
+    def _pairs_without_duplicate_keys(pairs: list[tuple[Any, Any]]) -> dict[str, Any]:
+        # json.loads keeps the last value of a repeated key. A weight file must not.
+        out: dict[str, Any] = {}
+        for key, value in pairs:
+            if not isinstance(key, str):
+                raise ValueError(f"object key {key!r} is not a string")
+            if key in out:
+                raise ValueError(f"duplicate key {key!r}")
+            out[key] = value
+        return out
+
     try:
-        header = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        header = json.loads(
+            raw.decode("utf-8"),
+            parse_constant=_no_constant,
+            parse_float=_finite,
+            parse_int=_finite_int,
+            object_pairs_hook=_pairs_without_duplicate_keys,
+        )
+        _require_encodable_strings(header)
+    except (UnicodeError, ValueError, RecursionError) as exc:
         raise CheckpointRefused(f"{path}: safetensors header is not JSON: {exc}") from exc
+    if _json_depth(header) > _MAX_JSON_DEPTH:
+        raise CheckpointRefused(
+            f"{path}: safetensors header is not JSON: recursion limit exceeded "
+            f"(nesting deeper than {_MAX_JSON_DEPTH})"
+        )
     if not isinstance(header, dict):
         raise CheckpointRefused(
             f"{path}: safetensors header is a {type(header).__name__}, not an object"
         )
     return header
+
+
+#: Every dtype the safetensors format names, with its element size in bytes. The Rust owner
+#: (`qd_export::safetensors::Dtype`) carries the same 15; the shared adversarial list holds
+#: both to one verdict on an unknown name.
+_SAFETENSORS_DTYPE_BYTES: Final[Mapping[str, int]] = {
+    "BOOL": 1, "U8": 1, "I8": 1, "F8_E5M2": 1, "F8_E4M3": 1,
+    "I16": 2, "U16": 2, "F16": 2, "BF16": 2,
+    "I32": 4, "U32": 4, "F32": 4,
+    "F64": 8, "I64": 8, "U64": 8,
+}
+
+_U64_MAX: Final[int] = 2**64 - 1
+
+
+class TensorRange(NamedTuple):
+    """One tensor of a checked safetensors file: its absolute byte range in the file."""
+
+    dtype: str
+    shape: tuple[int, ...]
+    start: int
+    end: int
+
+
+def _uint(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= _U64_MAX
+
+
+def tensor_ranges(path: Path) -> dict[str, TensorRange]:
+    """Every tensor of one safetensors file, checked in full: ``{name: TensorRange}``.
+
+    [`safetensors_header`] bounds and parses the header and refuses a repeated object key.
+    This checks what the header claims against the file: a known dtype, an unsigned shape, a
+    two-entry ``data_offsets`` that fits the data section and spans exactly
+    ``prod(shape) * itemsize`` bytes, no two tensors sharing a byte, and one contiguous
+    coverage of the data section from offset 0 through its end. An empty tensor map covers
+    only an empty data section. The same refusals ``qd_export::SafeTensorsFile::open`` makes,
+    held to the same list (``crates/qd-export/tests/fixtures/safetensors-adversarial.json``).
+    Offsets come back absolute, so a reader seeks straight to ``start``.
+    """
+    path = Path(path)
+    header = safetensors_header(path)
+    with path.open("rb") as handle:
+        handle.seek(0)
+        data_start = 8 + struct.unpack("<Q", handle.read(8))[0]
+        file_len = handle.seek(0, 2)
+    data_len = file_len - data_start
+    out: dict[str, TensorRange] = {}
+    for name, entry in header.items():
+        if name == "__metadata__":
+            continue
+        if not isinstance(entry, dict):
+            raise CheckpointRefused(f"{path}: {name}: entry is not an object")
+        dtype = entry.get("dtype")
+        if not isinstance(dtype, str):
+            raise CheckpointRefused(f"{path}: {name}: no dtype")
+        itemsize = _SAFETENSORS_DTYPE_BYTES.get(dtype)
+        if itemsize is None:
+            raise CheckpointRefused(
+                f"{path}: {name}: dtype {dtype!r} is not a safetensors dtype this reader knows"
+            )
+        shape = entry.get("shape")
+        if not isinstance(shape, list):
+            raise CheckpointRefused(f"{path}: {name}: no shape")
+        if not all(_uint(d) for d in shape):
+            raise CheckpointRefused(f"{path}: {name}: shape entry in {shape!r} is not a usize")
+        offsets = entry.get("data_offsets")
+        if not isinstance(offsets, list):
+            raise CheckpointRefused(f"{path}: {name}: no data_offsets")
+        if len(offsets) != 2:
+            raise CheckpointRefused(
+                f"{path}: {name}: data_offsets has {len(offsets)} entries, not 2"
+            )
+        begin, end = offsets
+        if not (_uint(begin) and _uint(end)):
+            raise CheckpointRefused(f"{path}: {name}: data_offsets {offsets!r} are not u64")
+        if end < begin or end > data_len:
+            raise CheckpointRefused(
+                f"{path}: {name}: data_offsets [{begin}, {end}) do not fit the "
+                f"{data_len}-byte data section"
+            )
+        # Left to right, refusing at the first overflow of usize like Rust's checked fold: a
+        # trailing zero does not rescue a product that already overflowed.
+        numel = 1
+        for dim in shape:
+            numel *= dim
+            if numel > _U64_MAX:
+                raise CheckpointRefused(f"{path}: {name}: shape {shape!r} overflows")
+        if numel * itemsize > _U64_MAX:
+            raise CheckpointRefused(f"{path}: {name}: byte size overflows")
+        if numel * itemsize != end - begin:
+            raise CheckpointRefused(
+                f"{path}: {name}: {shape!r} x {itemsize} bytes = {numel * itemsize}, but "
+                f"data_offsets span {end - begin}"
+            )
+        out[name] = TensorRange(dtype, tuple(shape), data_start + begin, data_start + end)
+    ordered = sorted(out.items(), key=lambda kv: (kv[1].start, kv[1].end))
+    _require_contiguous_coverage(path, ordered, data_start, file_len, data_len)
+    return out
+
+
+def _require_contiguous_coverage(
+    path: Path,
+    ordered: list[tuple[str, TensorRange]],
+    data_start: int,
+    file_len: int,
+    data_len: int,
+) -> None:
+    """The data section is one span from offset 0 through ``file_len``.
+
+    Touching edges are contiguous, including two zero-length tensors at the same cursor.
+    Overlap keeps its own words, so a shared byte is not reported as a gap.
+    """
+    if not ordered:
+        if data_len != 0:
+            raise CheckpointRefused(f"{path}: data section is not covered")
+        return
+    first_name, first = ordered[0]
+    if first.start != data_start:
+        raise CheckpointRefused(
+            f"{path}: tensor {first_name} starts at offset {first.start - data_start}, not 0"
+        )
+    for (left_name, left), (right_name, right) in pairwise(ordered):
+        if right.start < left.end:
+            raise CheckpointRefused(f"{path}: tensors {left_name} and {right_name} overlap")
+        if right.start > left.end:
+            raise CheckpointRefused(f"{path}: gap between tensors {left_name} and {right_name}")
+    if ordered[-1][1].end != file_len:
+        raise CheckpointRefused(f"{path}: data section is not covered")
 
 
 def checkpoint_tensor_index(snapshot: Path) -> dict[str, tuple[Path, tuple[int, ...]]]:
@@ -764,7 +976,8 @@ class ActivationModel:
 
 @dataclass(frozen=True, slots=True)
 class StepFootprint:
-    """What one training step needs, with every component kept separately.
+    """What one training step (or, ``purpose="scoring"``, one scoring forward) needs, with every
+    component kept separately.
 
     Nothing here is a single total with its parts folded in: a number that cannot be
     attributed cannot be argued with, and the first question anyone asks of a budget is
@@ -787,6 +1000,12 @@ class StepFootprint:
     recompute: str
     attention: str
     safety_fraction: float
+    #: The full-vocabulary head over every position, materialised: what a SCORING step holds
+    #: where a training step holds the fused-CE accumulator (``loss_head_bytes``). Zero on a
+    #: training footprint.
+    logit_slab_bytes: int = 0
+    #: ``"train"`` (``estimate_step``) or ``"scoring"`` (``estimate_scoring``).
+    purpose: str = "train"
 
     @property
     def static_bytes(self) -> int:
@@ -805,7 +1024,9 @@ class StepFootprint:
 
     @property
     def total_bytes(self) -> int:
-        return self.static_bytes + self.dynamic_bytes + self.loss_head_bytes
+        return (
+            self.static_bytes + self.dynamic_bytes + self.loss_head_bytes + self.logit_slab_bytes
+        )
 
     @property
     def positions(self) -> int:
@@ -841,8 +1062,17 @@ class StepFootprint:
             f"{self.score_matrix_bytes/gb:8.2f} GB",
             f"  recurrent state           {self.recurrent_state_bytes:>15,} B  "
             f"{self.recurrent_state_bytes/gb:8.2f} GB",
-            f"  loss head (fused CE)      {self.loss_head_bytes:>15,} B  "
-            f"{self.loss_head_bytes/gb:8.2f} GB",
+            *(
+                [
+                    f"  logit slab (full vocab)   {self.logit_slab_bytes:>15,} B  "
+                    f"{self.logit_slab_bytes/gb:8.2f} GB"
+                ]
+                if self.purpose == "scoring"
+                else [
+                    f"  loss head (fused CE)      {self.loss_head_bytes:>15,} B  "
+                    f"{self.loss_head_bytes/gb:8.2f} GB"
+                ]
+            ),
             f"  stated allowance ({self.safety_fraction:.0%})     {self.safety_bytes:>15,} B  "
             f"{self.safety_bytes/gb:8.2f} GB",
             f"  TOTAL                     {self.total_bytes:>15,} B  "
@@ -976,6 +1206,84 @@ def estimate_step(
         recompute=acts.describe(),
         attention=acts.attention,
         safety_fraction=float(safety_fraction),
+    )
+
+
+def estimate_scoring(
+    model: ModelSpec,
+    *,
+    rows: int,
+    width: int,
+    param_dtype: str,
+    activation_dtype: str,
+    activations: ActivationModel | None = None,
+    vocab_size: int | None = None,
+    safety_fraction: float = SAFETY_FRACTION,
+) -> StepFootprint:
+    """One no-grad scoring forward's memory: weights + no-grad activations + the logit slab.
+
+    A scoring step holds no gradient, no optimizer state and no master copy, so none of them
+    is priced (pricing them refused a 9B scored fp32 at 133.4 GiB against 33.4 GiB of weights).
+    Under ``no_grad`` nothing is saved for a backward: one layer is live at a time, so the
+    activation term is one layer's enumerated set (the larger of the two layer kinds, an upper
+    bound on what that layer transiently holds) plus its input and output residuals, and the
+    attention score matrix and the recurrent state are one layer's. The logit slab is the
+    full-vocabulary head over every position in the tower's dtype -- what
+    ``QwenDecisionStep.lm_head`` materialises and ``real_ft_run._readout`` indexes -- and is
+    exact rather than allowed-for. ``activations`` contributes only its ``attention`` kind.
+    """
+    for name, value in (("rows", rows), ("width", width)):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"{name} must be a positive int, got {value!r}")
+    if not isinstance(safety_fraction, (int, float)) or isinstance(safety_fraction, bool):
+        raise TypeError(
+            f"safety_fraction must be a real number, got {type(safety_fraction).__name__}"
+        )
+    if not 0.0 <= safety_fraction <= MAX_SAFETY_FRACTION:
+        raise ValueError(
+            f"safety_fraction must be in [0, {MAX_SAFETY_FRACTION}], got {safety_fraction!r}. "
+            "An allowance larger than the thing it covers is a guess, not an allowance."
+        )
+    acts = activations if activations is not None else ActivationModel()
+    p_bytes = _dtype_bytes(param_dtype, what="param_dtype")
+    a_bytes = _dtype_bytes(activation_dtype, what="activation_dtype")
+    positions = rows * width
+    one_layer = ActivationModel(recompute="full", attention=acts.attention)
+    per_token = (
+        max(one_layer.linear_layer_elements(model), one_layer.full_layer_elements(model))
+        + 2 * model.hidden_size
+    )
+    activation_bytes = positions * per_token * a_bytes
+    score_bytes = one_layer.score_matrix_elements(model, rows=rows, width=width) * a_bytes
+    recurrent_bytes = (
+        rows
+        * model.linear_value_heads
+        * model.linear_head_dim
+        * model.linear_value_head_dim
+        * model.recurrent_state_bytes
+        if model.n_linear_attention_layers
+        else 0
+    )
+    effective_vocab = vocab_size if vocab_size is not None else model.vocab_size
+    return StepFootprint(
+        model=model.name,
+        trainable_params=model.trainable_params(vocab_size=vocab_size),
+        rows=rows,
+        width=width,
+        param_bytes=model.trainable_params(vocab_size=vocab_size) * p_bytes,
+        grad_bytes=0,
+        optimizer_bytes=0,
+        master_bytes=0,
+        activation_bytes=activation_bytes,
+        score_matrix_bytes=score_bytes,
+        recurrent_state_bytes=recurrent_bytes,
+        loss_head_bytes=0,
+        safety_bytes=int((activation_bytes + score_bytes + recurrent_bytes) * safety_fraction),
+        recompute="none (no_grad)",
+        attention=acts.attention,
+        safety_fraction=float(safety_fraction),
+        logit_slab_bytes=positions * effective_vocab * p_bytes,
+        purpose="scoring",
     )
 
 

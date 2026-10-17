@@ -760,12 +760,16 @@ def test_both_row_kinds_record_what_ran() -> None:
     # the protocol of the eval row it supplements through _recorder's `protocol`.
     # run_ood_diagnostic (2026-10-01): a --score-plan kind's OOD-only diagnostic row.
     # run_composed_slice (2026-10-01): a --score-plan kind's report-only composed-slice row.
+    # run_arm_b_probe (2026-10-14): the --arm-b-candidates probe's quick report-only eval row
+    # (AUDIT/board-sweep-2026-10-13/fable-arm-b-probe-construction-ruling.md).
     assert writers == {
         "_train", "_record_verdict", "_record_score", "run_needle_control",
         "_record_shuffled_label", "run_ood_diagnostic", "run_composed_slice",
+        "run_arm_b_probe",
     }, (
         "expected the ft, verdict, eval, needle-control, shuffled-label control, OOD "
-        f"diagnostic and composed-slice rows to come from _recorder, got {sorted(writers)}"
+        "diagnostic, composed-slice and Arm B probe rows to come from _recorder, got "
+        f"{sorted(writers)}"
     )
 
 

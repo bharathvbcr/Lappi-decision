@@ -24,7 +24,7 @@ use rand::seq::IndexedRandom;
 use rand_chacha::ChaCha20Rng;
 use sha2::{Digest, Sha256};
 
-use crate::hunk::{self, item_rng, Line, Mark};
+use crate::hunk::{self, Line, Mark, item_rng};
 
 pub const SOURCE: &str = "unseen-language";
 pub const UNIT_PREFIX: &str = "noul-template/";
@@ -44,31 +44,91 @@ impl Template {
 }
 
 const TYPES: &[&str] = &[
-    "Invoice", "Shipment", "Tenant", "Voucher", "Parcel", "Courier", "Warehouse", "Ticket",
-    "Coupon", "Subscriber", "Playlist", "Thermostat", "Greenhouse", "Turbine", "Orchard",
-    "Lantern", "Harbor", "Beacon", "Ferry", "Pantry", "Quarry", "Meadow", "Kiln", "Glacier",
+    "Invoice",
+    "Shipment",
+    "Tenant",
+    "Voucher",
+    "Parcel",
+    "Courier",
+    "Warehouse",
+    "Ticket",
+    "Coupon",
+    "Subscriber",
+    "Playlist",
+    "Thermostat",
+    "Greenhouse",
+    "Turbine",
+    "Orchard",
+    "Lantern",
+    "Harbor",
+    "Beacon",
+    "Ferry",
+    "Pantry",
+    "Quarry",
+    "Meadow",
+    "Kiln",
+    "Glacier",
 ];
 const VERBS: &[&str] = &[
-    "archive_stale", "refresh_quota", "assign_courier", "apply_coupon", "rotate_keys",
-    "prune_cache", "export_ledger", "reconcile_balance", "book_pickup", "throttle_bursts",
-    "renew_lease", "flag_overdue", "merge_profiles", "normalize_postcode", "recompute_tariff",
-    "drain_backlog", "seal_batch", "warm_cache",
+    "archive_stale",
+    "refresh_quota",
+    "assign_courier",
+    "apply_coupon",
+    "rotate_keys",
+    "prune_cache",
+    "export_ledger",
+    "reconcile_balance",
+    "book_pickup",
+    "throttle_bursts",
+    "renew_lease",
+    "flag_overdue",
+    "merge_profiles",
+    "normalize_postcode",
+    "recompute_tariff",
+    "drain_backlog",
+    "seal_batch",
+    "warm_cache",
 ];
 const NOUNS: &[&str] = &[
-    "due_date", "postcode", "retry_limit", "grace_days", "tracking_code", "region_code",
-    "batch_size", "unit_price", "tax_rate", "max_attempts", "timeout_ms", "label_text",
-    "door_number", "shelf_slot", "humidity", "voltage", "latitude", "billing_email", "locale",
+    "due_date",
+    "postcode",
+    "retry_limit",
+    "grace_days",
+    "tracking_code",
+    "region_code",
+    "batch_size",
+    "unit_price",
+    "tax_rate",
+    "max_attempts",
+    "timeout_ms",
+    "label_text",
+    "door_number",
+    "shelf_slot",
+    "humidity",
+    "voltage",
+    "latitude",
+    "billing_email",
+    "locale",
     "currency",
 ];
 const WORDS: &[&str] = &[
     "pending", "shipped", "expired", "north", "amber", "sealed", "draft", "queued", "paused",
     "retired", "frozen", "partial",
 ];
-const ORGS: &[&str] = &["northwind", "brightline", "tidewater", "copperleaf", "larkspur", "ironbark"];
+const ORGS: &[&str] = &[
+    "northwind",
+    "brightline",
+    "tidewater",
+    "copperleaf",
+    "larkspur",
+    "ironbark",
+];
 
 pub const CATALOGUE: &[Template] = &[
     // -- kotlin ----------------------------------------------------------------------------
-    Template { language: "kotlin", name: "repository-cache",
+    Template {
+        language: "kotlin",
+        name: "repository-cache",
         path: "app/src/main/kotlin/com/«org»/«t»/«T»Repository.kt",
         lines: &[
             " package com.«org».«t»",
@@ -82,8 +142,11 @@ pub const CATALOGUE: &[Template] = &[
             " ",
             "     fun clear() = cache.clear()",
             " }",
-        ] },
-    Template { language: "kotlin", name: "data-class-default",
+        ],
+    },
+    Template {
+        language: "kotlin",
+        name: "data-class-default",
         path: "core/src/main/kotlin/com/«org»/model/«T».kt",
         lines: &[
             " import java.time.Duration",
@@ -99,8 +162,11 @@ pub const CATALOGUE: &[Template] = &[
             "+    fun isStale(now: Instant): Boolean =",
             "+        Duration.between(createdAt, now).toDays() > «n»",
             " }",
-        ] },
-    Template { language: "kotlin", name: "when-branch",
+        ],
+    },
+    Template {
+        language: "kotlin",
+        name: "when-branch",
         path: "app/src/main/kotlin/com/«org»/«t»/«T»Labels.kt",
         lines: &[
             " package com.«org».«t»",
@@ -112,8 +178,11 @@ pub const CATALOGUE: &[Template] = &[
             "+    «T»State.Cancelled -> \"cancelled\"",
             "+    else -> error(\"unexpected state $state\")",
             " }",
-        ] },
-    Template { language: "kotlin", name: "retry-backoff",
+        ],
+    },
+    Template {
+        language: "kotlin",
+        name: "retry-backoff",
         path: "net/src/main/kotlin/com/«org»/net/«T»Retry.kt",
         lines: &[
             " suspend fun <R> «f»(maxRetries: Int = «n», block: suspend () -> R): R {",
@@ -128,8 +197,11 @@ pub const CATALOGUE: &[Template] = &[
             "     }",
             "     return block()",
             " }",
-        ] },
-    Template { language: "kotlin", name: "extension-check",
+        ],
+    },
+    Template {
+        language: "kotlin",
+        name: "extension-check",
         path: "app/src/main/kotlin/com/«org»/«t»/«T»Extensions.kt",
         lines: &[
             " package com.«org».«t»",
@@ -141,8 +213,11 @@ pub const CATALOGUE: &[Template] = &[
             " fun List<«T»>.readyCount(): Int = count { it.«f»() }",
             " ",
             " fun «T».describe(): String = \"«T»($«a»)\"",
-        ] },
-    Template { language: "kotlin", name: "sealed-result",
+        ],
+    },
+    Template {
+        language: "kotlin",
+        name: "sealed-result",
         path: "domain/src/main/kotlin/com/«org»/«t»/«T»Result.kt",
         lines: &[
             " package com.«org».«t»",
@@ -155,8 +230,11 @@ pub const CATALOGUE: &[Template] = &[
             " }",
             " ",
             " fun «T»Result.isOk(): Boolean = this is «T»Result.Ok",
-        ] },
-    Template { language: "kotlin", name: "state-flow",
+        ],
+    },
+    Template {
+        language: "kotlin",
+        name: "state-flow",
         path: "app/src/main/kotlin/com/«org»/ui/«T»ViewModel.kt",
         lines: &[
             " class «T»ViewModel(private val repo: «T»Repository) : ViewModel() {",
@@ -169,9 +247,12 @@ pub const CATALOGUE: &[Template] = &[
             "+        _state.value = repo.«f»(id)",
             "     }",
             " }",
-        ] },
+        ],
+    },
     // -- csharp ----------------------------------------------------------------------------
-    Template { language: "csharp", name: "async-action",
+    Template {
+        language: "csharp",
+        name: "async-action",
         path: "src/«Org».Api/Controllers/«T»Controller.cs",
         lines: &[
             " [HttpGet(\"{id}\")]",
@@ -185,8 +266,11 @@ pub const CATALOGUE: &[Template] = &[
             " ",
             " [HttpDelete(\"{id}\")]",
             " public async Task<IActionResult> Delete(int id)",
-        ] },
-    Template { language: "csharp", name: "record-member",
+        ],
+    },
+    Template {
+        language: "csharp",
+        name: "record-member",
         path: "src/«Org».Domain/«T».cs",
         lines: &[
             " namespace «Org».Domain;",
@@ -200,8 +284,11 @@ pub const CATALOGUE: &[Template] = &[
             "-    public bool IsEmpty => string.IsNullOrEmpty(«A»);",
             "+    public bool IsExpired(DateTimeOffset now) => now - UpdatedAt > TimeSpan.FromDays(«n»);",
             " }",
-        ] },
-    Template { language: "csharp", name: "linq-order",
+        ],
+    },
+    Template {
+        language: "csharp",
+        name: "linq-order",
         path: "src/«Org».Services/«T»Query.cs",
         lines: &[
             " public IReadOnlyList<«T»> «F»(IEnumerable<«T»> source)",
@@ -213,8 +300,11 @@ pub const CATALOGUE: &[Template] = &[
             "+        .ThenBy(x => x.«A», StringComparer.Ordinal)",
             "+        .ToList();",
             " }",
-        ] },
-    Template { language: "csharp", name: "using-declaration",
+        ],
+    },
+    Template {
+        language: "csharp",
+        name: "using-declaration",
         path: "src/«Org».Import/«T»Reader.cs",
         lines: &[
             " public void «F»(string path)",
@@ -226,8 +316,11 @@ pub const CATALOGUE: &[Template] = &[
             "-    stream.Close();",
             "+    _logger.LogDebug(\"read {Length} chars from {Path}\", _«a».Length, path);",
             " }",
-        ] },
-    Template { language: "csharp", name: "switch-expression",
+        ],
+    },
+    Template {
+        language: "csharp",
+        name: "switch-expression",
         path: "src/«Org».Domain/«T»Kind.cs",
         lines: &[
             " private static string Describe(«T»Kind kind)",
@@ -240,8 +333,11 @@ pub const CATALOGUE: &[Template] = &[
             "+        _ => \"other\",",
             "+    };",
             " }",
-        ] },
-    Template { language: "csharp", name: "null-guard",
+        ],
+    },
+    Template {
+        language: "csharp",
+        name: "null-guard",
         path: "src/«Org».Services/«T»Service.cs",
         lines: &[
             " public «T»Service(I«T»Store store, ILogger<«T»Service> logger)",
@@ -253,8 +349,11 @@ pub const CATALOGUE: &[Template] = &[
             " }",
             " ",
             " private readonly I«T»Store _store;",
-        ] },
-    Template { language: "csharp", name: "http-client-options",
+        ],
+    },
+    Template {
+        language: "csharp",
+        name: "http-client-options",
         path: "src/«Org».Api/Startup.cs",
         lines: &[
             " services.AddHttpClient<«T»Client>(client =>",
@@ -266,9 +365,12 @@ pub const CATALOGUE: &[Template] = &[
             " });",
             " ",
             " services.AddScoped<I«T»Store, Sql«T»Store>();",
-        ] },
+        ],
+    },
     // -- php -------------------------------------------------------------------------------
-    Template { language: "php", name: "request-validate",
+    Template {
+        language: "php",
+        name: "request-validate",
         path: "app/Http/Controllers/«T»Controller.php",
         lines: &[
             " public function «f»(Request $request): JsonResponse",
@@ -281,8 +383,11 @@ pub const CATALOGUE: &[Template] = &[
             "     $record = «T»::create($data);",
             "     return response()->json($record, 201);",
             " }",
-        ] },
-    Template { language: "php", name: "null-coalesce",
+        ],
+    },
+    Template {
+        language: "php",
+        name: "null-coalesce",
         path: "src/«T»/helpers.php",
         lines: &[
             " <?php",
@@ -293,8 +398,11 @@ pub const CATALOGUE: &[Template] = &[
             "+    $region = $options['«a_»'] ?? '«w»';",
             "     return strtoupper($region);",
             " }",
-        ] },
-    Template { language: "php", name: "typed-properties",
+        ],
+    },
+    Template {
+        language: "php",
+        name: "typed-properties",
         path: "src/Domain/«T».php",
         lines: &[
             " final class «T»",
@@ -307,8 +415,11 @@ pub const CATALOGUE: &[Template] = &[
             "     {",
             "         $this->«a» = $«a»;",
             "     }",
-        ] },
-    Template { language: "php", name: "prepared-statement",
+        ],
+    },
+    Template {
+        language: "php",
+        name: "prepared-statement",
         path: "src/Repository/«T»Repository.php",
         lines: &[
             " public function findBy«A»(string $value): array",
@@ -321,8 +432,11 @@ pub const CATALOGUE: &[Template] = &[
             "     foreach ($rows as $row) {",
             "         $out[] = «T»::fromRow($row);",
             "     }",
-        ] },
-    Template { language: "php", name: "match-expression",
+        ],
+    },
+    Template {
+        language: "php",
+        name: "match-expression",
         path: "src/Domain/«T»Status.php",
         lines: &[
             " public function label(): string",
@@ -336,8 +450,11 @@ pub const CATALOGUE: &[Template] = &[
             "+        default => 'Unknown',",
             "+    };",
             " }",
-        ] },
-    Template { language: "php", name: "array-column",
+        ],
+    },
+    Template {
+        language: "php",
+        name: "array-column",
         path: "src/Report/«T»Report.php",
         lines: &[
             " $«a»List = [];",
@@ -348,8 +465,11 @@ pub const CATALOGUE: &[Template] = &[
             " sort($«a»List);",
             " ",
             " return implode(', ', $«a»List);",
-        ] },
-    Template { language: "php", name: "catch-specific",
+        ],
+    },
+    Template {
+        language: "php",
+        name: "catch-specific",
         path: "src/Delivery/«T»Sender.php",
         lines: &[
             " try {",
@@ -362,9 +482,12 @@ pub const CATALOGUE: &[Template] = &[
             " }",
             " ",
             " return true;",
-        ] },
+        ],
+    },
     // -- scala -----------------------------------------------------------------------------
-    Template { language: "scala", name: "future-option",
+    Template {
+        language: "scala",
+        name: "future-option",
         path: "src/main/scala/«org»/«t»/«T»Service.scala",
         lines: &[
             " class «T»Service(repo: «T»Repo)(implicit ec: ExecutionContext) {",
@@ -376,8 +499,11 @@ pub const CATALOGUE: &[Template] = &[
             "+      case None        => Future.failed(new NoSuchElementException(s\"«t» $id\"))",
             "+    }",
             " }",
-        ] },
-    Template { language: "scala", name: "case-class-copy",
+        ],
+    },
+    Template {
+        language: "scala",
+        name: "case-class-copy",
         path: "src/main/scala/«org»/model/«T».scala",
         lines: &[
             " package «org».model",
@@ -389,8 +515,11 @@ pub const CATALOGUE: &[Template] = &[
             " }",
             " ",
             " object «T» { val empty: «T» = «T»(\"\", 0) }",
-        ] },
-    Template { language: "scala", name: "match-cases",
+        ],
+    },
+    Template {
+        language: "scala",
+        name: "match-cases",
         path: "src/main/scala/«org»/events/«T»Events.scala",
         lines: &[
             " def describe(event: «T»Event): String = event match {",
@@ -401,8 +530,11 @@ pub const CATALOGUE: &[Template] = &[
             " }",
             " ",
             " def isTerminal(event: «T»Event): Boolean = event.isInstanceOf[«T»Event.Closed]",
-        ] },
-    Template { language: "scala", name: "actor-receive",
+        ],
+    },
+    Template {
+        language: "scala",
+        name: "actor-receive",
         path: "src/main/scala/«org»/actors/«T»Actor.scala",
         lines: &[
             " class «T»Actor(store: «T»Store) extends Actor with ActorLogging {",
@@ -414,8 +546,11 @@ pub const CATALOGUE: &[Template] = &[
             "     case Put(id, value) => store.put(id, value)",
             "   }",
             " }",
-        ] },
-    Template { language: "scala", name: "implicit-ordering",
+        ],
+    },
+    Template {
+        language: "scala",
+        name: "implicit-ordering",
         path: "src/main/scala/«org»/model/«T»Ordering.scala",
         lines: &[
             " package «org».model",
@@ -427,8 +562,11 @@ pub const CATALOGUE: &[Template] = &[
             " }",
             " ",
             " final case class «T»(«a»: String, «b»: Int)",
-        ] },
-    Template { language: "scala", name: "for-comprehension",
+        ],
+    },
+    Template {
+        language: "scala",
+        name: "for-comprehension",
         path: "src/main/scala/«org»/flows/«T»Flow.scala",
         lines: &[
             " import scala.concurrent.TimeoutException",
@@ -440,8 +578,11 @@ pub const CATALOGUE: &[Template] = &[
             "+    «t»     <- «t»s.latest(account).recover { case _: TimeoutException => «T».empty }",
             "+    _       <- audit.record(userId, «t».id)",
             "   } yield «t»",
-        ] },
-    Template { language: "scala", name: "lazy-config",
+        ],
+    },
+    Template {
+        language: "scala",
+        name: "lazy-config",
         path: "src/main/scala/«org»/config/«T»Config.scala",
         lines: &[
             " import com.typesafe.config.Config",
@@ -453,9 +594,12 @@ pub const CATALOGUE: &[Template] = &[
             " ",
             "   def describe: String = s\"«t»(${«a»})\"",
             " }",
-        ] },
+        ],
+    },
     // -- elixir ----------------------------------------------------------------------------
-    Template { language: "elixir", name: "with-clause",
+    Template {
+        language: "elixir",
+        name: "with-clause",
         path: "lib/«org»/«t»s.ex",
         lines: &[
             " def «f_»(params) do",
@@ -467,8 +611,11 @@ pub const CATALOGUE: &[Template] = &[
             "+    {:error, changeset} -> {:error, changeset}",
             "+  end",
             " end",
-        ] },
-    Template { language: "elixir", name: "genserver-cast",
+        ],
+    },
+    Template {
+        language: "elixir",
+        name: "genserver-cast",
         path: "lib/«org»/«t»_cache.ex",
         lines: &[
             " def handle_call({:get, key}, _from, state) do",
@@ -480,8 +627,11 @@ pub const CATALOGUE: &[Template] = &[
             "+  {:noreply, Map.put(state, key, value)}",
             "+end",
             "+",
-        ] },
-    Template { language: "elixir", name: "pipe-reject",
+        ],
+    },
+    Template {
+        language: "elixir",
+        name: "pipe-reject",
         path: "lib/«org»/«t»_import.ex",
         lines: &[
             " def «f_»(rows) do",
@@ -492,8 +642,11 @@ pub const CATALOGUE: &[Template] = &[
             "   |> Enum.uniq()",
             "   |> Enum.sort()",
             " end",
-        ] },
-    Template { language: "elixir", name: "schema-field",
+        ],
+    },
+    Template {
+        language: "elixir",
+        name: "schema-field",
         path: "lib/«org»/«t».ex",
         lines: &[
             " schema \"«t»s\" do",
@@ -505,8 +658,11 @@ pub const CATALOGUE: &[Template] = &[
             " ",
             "   timestamps()",
             " end",
-        ] },
-    Template { language: "elixir", name: "guards",
+        ],
+    },
+    Template {
+        language: "elixir",
+        name: "guards",
         path: "lib/«org»/«t»_rates.ex",
         lines: &[
             " @doc \"«w» rate for one «t»\"",
@@ -517,8 +673,11 @@ pub const CATALOGUE: &[Template] = &[
             " @doc false",
             " def default_rate, do: «n»",
             " def rates, do: [«n», «m»]",
-        ] },
-    Template { language: "elixir", name: "case-status",
+        ],
+    },
+    Template {
+        language: "elixir",
+        name: "case-status",
         path: "lib/«org»/clients/«t»_client.ex",
         lines: &[
             " def fetch(url) do",
@@ -529,8 +688,11 @@ pub const CATALOGUE: &[Template] = &[
             "+    {:error, reason} -> {:error, reason}",
             "   end",
             " end",
-        ] },
-    Template { language: "elixir", name: "module-attrs",
+        ],
+    },
+    Template {
+        language: "elixir",
+        name: "module-attrs",
         path: "lib/«org»/notifiers/«t»_notifier.ex",
         lines: &[
             " defmodule «Org».«T»Notifier do",
@@ -541,9 +703,12 @@ pub const CATALOGUE: &[Template] = &[
             "   def deliver(«t»), do: Mailer.deliver(«t», timeout: @timeout)",
             "+  def retries, do: @retries",
             " end",
-        ] },
+        ],
+    },
     // -- shell -----------------------------------------------------------------------------
-    Template { language: "shell", name: "strict-mode",
+    Template {
+        language: "shell",
+        name: "strict-mode",
         path: "scripts/«t»-sync.sh",
         lines: &[
             " #!/usr/bin/env bash",
@@ -555,8 +720,11 @@ pub const CATALOGUE: &[Template] = &[
             "-cd $«TU»_DIR",
             "+cd \"$«TU»_DIR\"",
             " rsync -a \"$1\" .",
-        ] },
-    Template { language: "shell", name: "quote-vars",
+        ],
+    },
+    Template {
+        language: "shell",
+        name: "quote-vars",
         path: "scripts/«t»-backup.sh",
         lines: &[
             " SRC=\"$1\"",
@@ -569,8 +737,11 @@ pub const CATALOGUE: &[Template] = &[
             " ",
             "-echo done",
             "+echo \"«t» backup: $(ls \"$DEST\" | wc -l) files\"",
-        ] },
-    Template { language: "shell", name: "retry-loop",
+        ],
+    },
+    Template {
+        language: "shell",
+        name: "retry-loop",
         path: "bin/«t»-wait.sh",
         lines: &[
             " «f_»() {",
@@ -582,8 +753,11 @@ pub const CATALOGUE: &[Template] = &[
             "     sleep 2",
             "   done",
             " }",
-        ] },
-    Template { language: "shell", name: "getopts",
+        ],
+    },
+    Template {
+        language: "shell",
+        name: "getopts",
         path: "scripts/«t»-export.sh",
         lines: &[
             " VERBOSE=0",
@@ -595,8 +769,11 @@ pub const CATALOGUE: &[Template] = &[
             "+    o) OUT_FILE=\"$OPTARG\" ;;",
             "   esac",
             " done",
-        ] },
-    Template { language: "shell", name: "trap-cleanup",
+        ],
+    },
+    Template {
+        language: "shell",
+        name: "trap-cleanup",
         path: "scripts/«t»-unpack.sh",
         lines: &[
             " tmp=$(mktemp -d)",
@@ -607,8 +784,11 @@ pub const CATALOGUE: &[Template] = &[
             "+«f_» \"$tmp\" \"«w»\"",
             " ",
             " echo \"unpacked $1\"",
-        ] },
-    Template { language: "shell", name: "double-brackets",
+        ],
+    },
+    Template {
+        language: "shell",
+        name: "double-brackets",
         path: "bin/«t»-ctl.sh",
         lines: &[
             " #!/usr/bin/env bash",
@@ -620,8 +800,11 @@ pub const CATALOGUE: &[Template] = &[
             "+readonly «TU»_ID=\"$1\"",
             " ",
             " exec «t»ctl status \"$1\"",
-        ] },
-    Template { language: "shell", name: "env-defaults",
+        ],
+    },
+    Template {
+        language: "shell",
+        name: "env-defaults",
         path: "deploy/«t»-run.sh",
         lines: &[
             " #!/bin/sh",
@@ -632,7 +815,8 @@ pub const CATALOGUE: &[Template] = &[
             "+export «TU»_LOG_LEVEL=\"${«TU»_LOG_LEVEL:-info}\"",
             " ",
             " exec «t»-server --host \"$«TU»_HOST\" --port \"$«TU»_PORT\"",
-        ] },
+        ],
+    },
 ];
 
 /// `sha256` over every template and every identifier pool. The allowlist records it, so a
@@ -657,7 +841,11 @@ pub fn catalogue_sha256() -> String {
         }
         hasher.update([1u8]);
     }
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Every template unit, sorted. What `qd-noul-rows units` prints for the allowlist step.
@@ -771,7 +959,10 @@ pub fn instantiate(t: &Template, rng: &mut ChaCha20Rng) -> Result<(String, Strin
             .next()
             .and_then(Mark::from_prefix)
             .ok_or_else(|| format!("{}: line {raw:?} has no diff marker", t.unit()))?;
-        lines.push(Line { mark, text: fill(chars.as_str(), &vars)? });
+        lines.push(Line {
+            mark,
+            text: fill(chars.as_str(), &vars)?,
+        });
     }
     Ok((path, hunk::render(rng.random_range(5..=600u32), &lines)))
 }
@@ -800,7 +991,9 @@ pub fn rows(
         by_language.entry(t.language).or_default().push(t);
     }
     if let Some((lang, _)) = by_language.iter().find(|(_, v)| v.is_empty()) {
-        return Err(format!("language {lang} has no train-split template unit in the allowlist"));
+        return Err(format!(
+            "language {lang} has no train-split template unit in the allowlist"
+        ));
     }
     let n_lang = by_language.len();
     let mut out = Vec::with_capacity(n);
@@ -822,7 +1015,9 @@ pub fn rows(
             i += 1;
             let (path, diff) = instantiate(t, &mut rng)?;
             if !seen.insert(diff.clone()) {
-                *skipped.entry("duplicate_instantiation".to_string()).or_insert(0) += 1;
+                *skipped
+                    .entry("duplicate_instantiation".to_string())
+                    .or_insert(0) += 1;
                 continue;
             }
             out.push(TemplateRow {
@@ -852,10 +1047,16 @@ mod tests {
                 assert!(!path.contains('»') && !diff.contains('»'), "{diff}");
                 assert_eq!(diff.matches("\n@@").count(), 0, "one hunk: {diff}");
                 let header = diff.lines().next().unwrap();
-                assert!(header.starts_with("@@ -") && header.ends_with(" @@"), "{header}");
+                assert!(
+                    header.starts_with("@@ -") && header.ends_with(" @@"),
+                    "{header}"
+                );
                 let body: Vec<&str> = diff.lines().skip(1).collect();
                 assert!(body.len() >= 7, "{}: {} lines", t.unit(), body.len());
-                assert!(body.iter().any(|l| l.starts_with('-') || l.starts_with('+')));
+                assert!(
+                    body.iter()
+                        .any(|l| l.starts_with('-') || l.starts_with('+'))
+                );
                 assert!(body.iter().any(|l| l.starts_with(' ')), "{}", t.unit());
             }
         }
@@ -872,8 +1073,14 @@ mod tests {
         }
         assert_eq!(
             per,
-            BTreeMap::from([("csharp", 7), ("elixir", 7), ("kotlin", 7), ("php", 7),
-                            ("scala", 7), ("shell", 7)])
+            BTreeMap::from([
+                ("csharp", 7),
+                ("elixir", 7),
+                ("kotlin", 7),
+                ("php", 7),
+                ("scala", 7),
+                ("shell", 7)
+            ])
         );
         assert_eq!(catalogue_sha256(), catalogue_sha256());
         assert_eq!(catalogue_sha256().len(), 64);
@@ -899,8 +1106,10 @@ mod tests {
         let diffs: BTreeSet<&str> = rows.iter().map(|r| r.diff.as_str()).collect();
         assert_eq!(diffs.len(), rows.len());
 
-        let no_shell: BTreeSet<String> =
-            units().into_iter().filter(|u| !u.contains("/shell/")).collect();
+        let no_shell: BTreeSet<String> = units()
+            .into_iter()
+            .filter(|u| !u.contains("/shell/"))
+            .collect();
         assert!(rows_err(&no_shell).contains("shell has no train-split"));
     }
 
@@ -916,7 +1125,15 @@ mod tests {
         assert_eq!(pascal("due_date"), "DueDate");
         assert_eq!(camel("due_date"), "dueDate");
         assert_eq!(snake_of_pascal("Greenhouse"), "greenhouse");
-        assert!(fill("«nope»", &BTreeMap::new()).unwrap_err().contains("unknown placeholder"));
-        assert!(fill("«T", &BTreeMap::new()).unwrap_err().contains("unclosed"));
+        assert!(
+            fill("«nope»", &BTreeMap::new())
+                .unwrap_err()
+                .contains("unknown placeholder")
+        );
+        assert!(
+            fill("«T", &BTreeMap::new())
+                .unwrap_err()
+                .contains("unclosed")
+        );
     }
 }

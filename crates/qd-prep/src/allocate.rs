@@ -103,7 +103,9 @@ const CONFIG_KEYS: [&str; 9] = [
 ];
 
 fn is_sha256_hex(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn object<'a>(v: &'a Value, key: &str) -> Result<&'a serde_json::Map<String, Value>, String> {
@@ -112,15 +114,77 @@ fn object<'a>(v: &'a Value, key: &str) -> Result<&'a serde_json::Map<String, Val
         .ok_or_else(|| format!("config: {key:?} is not an object"))
 }
 
+/// Refuse a JSON object that names a key twice, at any depth. `serde_json::Value` keeps the last
+/// value of a repeated key, so a reader of the file would see one cap or draw and the tool would
+/// apply the other. `bytes` is already valid JSON, so the scan only tracks nesting and strings.
+fn reject_duplicate_keys(bytes: &[u8]) -> Result<(), String> {
+    struct Frame {
+        object: bool,
+        expect_key: bool,
+        seen: BTreeSet<String>,
+    }
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => stack.push(Frame {
+                object: true,
+                expect_key: true,
+                seen: BTreeSet::new(),
+            }),
+            b'[' => stack.push(Frame {
+                object: false,
+                expect_key: false,
+                seen: BTreeSet::new(),
+            }),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            b',' => {
+                if let Some(f) = stack.last_mut() {
+                    f.expect_key = f.object;
+                }
+            }
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                if let Some(f) = stack.last_mut()
+                    && f.object
+                    && f.expect_key
+                {
+                    let key: String =
+                        serde_json::from_slice(&bytes[start..=i.min(bytes.len() - 1)])
+                            .map_err(|e| format!("config: {e}"))?;
+                    if !f.seen.insert(key.clone()) {
+                        return Err(format!(
+                            "config: duplicate key {key:?}; a key may be given once"
+                        ));
+                    }
+                    f.expect_key = false;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 impl Config {
     pub fn parse(bytes: &[u8]) -> Result<Self, String> {
         let v: Value = serde_json::from_slice(bytes).map_err(|e| format!("config: {e}"))?;
+        reject_duplicate_keys(bytes)?;
         let top = v.as_object().ok_or("config: not a JSON object")?;
         // Every key is required or prose: a misspelt optional key would otherwise be a rule
         // silently not applied.
         let unknown: Vec<&String> = top
             .keys()
-            .filter(|k| !CONFIG_KEYS.contains(&k.as_str()) && !CONFIG_PROSE_KEYS.contains(&k.as_str()))
+            .filter(|k| {
+                !CONFIG_KEYS.contains(&k.as_str()) && !CONFIG_PROSE_KEYS.contains(&k.as_str())
+            })
             .collect();
         if !unknown.is_empty() {
             return Err(format!("config: unknown key(s) {unknown:?}"));
@@ -135,13 +199,20 @@ impl Config {
         let mut pools = BTreeMap::new();
         for (name, p) in object(&v, "pools")? {
             let what = format!("config pools.{name}");
-            let o = p.as_object().ok_or_else(|| format!("{what}: not an object"))?;
-            if let Some(k) = o.keys().find(|k| !["examples_sha256", "draw", "note"].contains(&k.as_str())) {
+            let o = p
+                .as_object()
+                .ok_or_else(|| format!("{what}: not an object"))?;
+            if let Some(k) = o
+                .keys()
+                .find(|k| !["examples_sha256", "draw", "note"].contains(&k.as_str()))
+            {
                 return Err(format!("{what}: unknown key {k:?}"));
             }
             let sha = decisions::get_str(p, "examples_sha256", &what)?;
             if !is_sha256_hex(sha) {
-                return Err(format!("{what}: examples_sha256 {sha:?} is not 64 lower-case hex digits"));
+                return Err(format!(
+                    "{what}: examples_sha256 {sha:?} is not 64 lower-case hex digits"
+                ));
             }
             let as_built = match decisions::get_str(p, "draw", &what)? {
                 DRAW_AS_BUILT => true,
@@ -152,10 +223,19 @@ impl Config {
                     ));
                 }
             };
-            pools.insert(name.clone(), PoolSpec { examples_sha256: sha.to_owned(), as_built });
+            pools.insert(
+                name.clone(),
+                PoolSpec {
+                    examples_sha256: sha.to_owned(),
+                    as_built,
+                },
+            );
         }
         if pools.is_empty() || pools.len() > MAX_POOLS {
-            return Err(format!("config: {} pools; 1 to {MAX_POOLS} are allowed", pools.len()));
+            return Err(format!(
+                "config: {} pools; 1 to {MAX_POOLS} are allowed",
+                pools.len()
+            ));
         }
         let train_caps = object(&v, "train_caps")?
             .iter()
@@ -174,9 +254,9 @@ impl Config {
             let set = arr
                 .iter()
                 .map(|x| {
-                    x.as_str()
-                        .map(str::to_owned)
-                        .ok_or_else(|| format!("config: refused_licences.{family} holds a non-string"))
+                    x.as_str().map(str::to_owned).ok_or_else(|| {
+                        format!("config: refused_licences.{family} holds a non-string")
+                    })
                 })
                 .collect::<Result<BTreeSet<_>, _>>()?;
             if set.is_empty() || set.len() != arr.len() {
@@ -223,7 +303,10 @@ struct Interner(Mutex<BTreeSet<&'static str>>);
 
 impl Interner {
     fn get(&self, s: &str) -> Result<&'static str, String> {
-        let mut set = self.0.lock().map_err(|_| "interner lock poisoned".to_owned())?;
+        let mut set = self
+            .0
+            .lock()
+            .map_err(|_| "interner lock poisoned".to_owned())?;
         if let Some(hit) = set.get(s) {
             return Ok(hit);
         }
@@ -253,7 +336,11 @@ fn candidate(v: &Value, what: &str, interner: &Interner) -> Result<Candidate, St
         .as_array()
         .ok_or_else(|| format!("{what}: \"options\" is not a list"))?
         .iter()
-        .map(|o| o.as_str().map(str::to_owned).ok_or_else(|| format!("{what}: an option is not a string")))
+        .map(|o| {
+            o.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("{what}: an option is not a string"))
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let noul = decisions::get(v, "gold_noul", what)?
         .as_bool()
@@ -271,7 +358,11 @@ fn candidate(v: &Value, what: &str, interner: &Interner) -> Result<Candidate, St
     let split = match s("split")? {
         "train" => "train",
         "val" => "val",
-        other => return Err(format!("{what}: split {other:?}; a pool holds only train and val rows")),
+        other => {
+            return Err(format!(
+                "{what}: split {other:?}; a pool holds only train and val rows"
+            ));
+        }
     };
     let c = Candidate {
         id: s("id")?.to_owned(),
@@ -327,6 +418,24 @@ fn read_pool(
     let manifest_bytes = files::read_bounded(&manifest_path, files::MAX_RECORD_BYTES, &what)?;
     let manifest: Value = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+    if spec.as_built {
+        // An as-built pool passes through with no cap drawn from it, so the output may say
+        // "applied" for it only if it already was, or predates producers naming an allocation
+        // (v5's pool). A synth or convert pool is a candidate: refuse, never launder it.
+        let state = manifest
+            .get("allocation")
+            .and_then(|a| a.get("state"))
+            .and_then(Value::as_str);
+        let pre_v6 = manifest.get("tool").is_none() && manifest.get("allocation").is_none();
+        if !(pre_v6 || state == Some(pool::ALLOCATION_APPLIED)) {
+            return Err(format!(
+                "{what}: drawn as_built, but its manifest is a candidate pool (tool {:?}, \
+                 allocation state {state:?}): no cap table has drawn from it, and passing it \
+                 through would stamp it applied. Draw it capped",
+                manifest.get("tool").and_then(Value::as_str)
+            ));
+        }
+    }
     if manifest.get("schema").and_then(Value::as_str) != Some(decisions::MANIFEST_SCHEMA)
         || manifest.get("mode").and_then(Value::as_str) != Some("build")
     {
@@ -365,7 +474,11 @@ fn read_pool(
     decisions::check_pin(
         &examples_path,
         &examples.sha256,
-        decisions::get_str(&manifest, "examples_sha256", &manifest_path.display().to_string())?,
+        decisions::get_str(
+            &manifest,
+            "examples_sha256",
+            &manifest_path.display().to_string(),
+        )?,
         &format!("its manifest {}", manifest_path.display()),
     )?;
     if canonical != examples.sha256 {
@@ -390,17 +503,17 @@ fn read_pool(
         rows,
         examples,
         manifest_sha256: sha256_hex(&manifest_bytes),
-        decontamination: manifest.get("decontamination").cloned().unwrap_or(Value::Null),
+        decontamination: manifest
+            .get("decontamination")
+            .cloned()
+            .unwrap_or(Value::Null),
         allocation: manifest.get("allocation").cloned().unwrap_or(Value::Null),
     })
 }
 
 /// Every pool, read on up to `threads` threads. The result is in `order`, whatever the thread
 /// count; the first refusal in that order is the one reported.
-fn read_pools(
-    order: &[(&str, &Path, &PoolSpec)],
-    threads: usize,
-) -> Result<Vec<PoolRead>, String> {
+fn read_pools(order: &[(&str, &Path, &PoolSpec)], threads: usize) -> Result<Vec<PoolRead>, String> {
     let interner = Interner(Mutex::new(BTreeSet::new()));
     let workers = threads.clamp(1, order.len().max(1));
     let mut slots: Vec<Option<Result<PoolRead, String>>> = (0..order.len()).map(|_| None).collect();
@@ -447,7 +560,10 @@ pub fn largest_remainder(n: usize, avail: &[usize]) -> Vec<usize> {
         return avail.to_vec();
     }
     let (n, sum) = (n as u128, sum as u128);
-    let mut take: Vec<usize> = avail.iter().map(|a| (n * *a as u128 / sum) as usize).collect();
+    let mut take: Vec<usize> = avail
+        .iter()
+        .map(|a| (n * *a as u128 / sum) as usize)
+        .collect();
     let rem: Vec<u128> = avail.iter().map(|a| n * *a as u128 % sum).collect();
     let mut rest = n as usize - take.iter().sum::<usize>();
     let mut by_rem: Vec<usize> = (0..avail.len()).collect();
@@ -470,8 +586,16 @@ pub fn largest_remainder(n: usize, avail: &[usize]) -> Vec<usize> {
 fn identity_key(c: &Candidate) -> [u8; 32] {
     let mut h = Sha256::new();
     let rendered = c.rendered_context();
-    let parts = [c.family_id.as_str(), c.group_key.as_str(), rendered.as_str()];
-    for p in parts.iter().copied().chain(c.options.iter().map(String::as_str)) {
+    let parts = [
+        c.family_id.as_str(),
+        c.group_key.as_str(),
+        rendered.as_str(),
+    ];
+    for p in parts
+        .iter()
+        .copied()
+        .chain(c.options.iter().map(String::as_str))
+    {
         h.update(&(p.len() as u64).to_le_bytes());
         h.update(p.as_bytes());
     }
@@ -516,7 +640,6 @@ impl Tally {
         json!({"train": self.train, "val": self.val})
     }
 }
-
 
 /// One capped family's draw, for the manifest.
 #[derive(Default)]
@@ -658,7 +781,10 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
         let (name, dir, spec) = order[p];
         let mut fam_split: BTreeMap<&str, Tally> = BTreeMap::new();
         for c in &r.rows {
-            fam_split.entry(c.family_id.as_str()).or_default().add(c.split);
+            fam_split
+                .entry(c.family_id.as_str())
+                .or_default()
+                .add(c.split);
         }
         pools_record.insert(
             name.to_owned(),
@@ -679,7 +805,10 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
             format!("pool/{name}/examples.jsonl"),
             r.examples.clone(),
         );
-        digests.insert(format!("pool/{name}/manifest.json"), r.manifest_sha256.clone());
+        digests.insert(
+            format!("pool/{name}/manifest.json"),
+            r.manifest_sha256.clone(),
+        );
         let rows = std::mem::take(&mut r.rows);
         if spec.as_built {
             as_built_rows.extend(rows.into_iter().enumerate().map(|(i, c)| (p, i, c)));
@@ -749,7 +878,11 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     let mut draws: BTreeMap<String, FamilyDraw> = BTreeMap::new();
     for c in &cands {
         let d = draws.entry(c.family_id.clone()).or_default();
-        d.strata.entry(c.stratum.clone()).or_default().0.add(c.split);
+        d.strata
+            .entry(c.stratum.clone())
+            .or_default()
+            .0
+            .add(c.split);
     }
     let empty: Vec<&String> = cfg
         .train_caps
@@ -769,11 +902,7 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     for (family, d) in draws.iter_mut() {
         d.cap = cfg.train_caps[family];
         let avail: Vec<usize> = d.strata.values().map(|(a, _, _)| a.train).collect();
-        for ((stratum, entry), cap) in d
-            .strata
-            .iter_mut()
-            .zip(largest_remainder(d.cap, &avail))
-        {
+        for ((stratum, entry), cap) in d.strata.iter_mut().zip(largest_remainder(d.cap, &avail)) {
             entry.1 = cap;
             stratum_caps.insert(stratum.clone(), cap);
         }
@@ -841,6 +970,16 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     }
     let refused_total: usize = refused.values().flat_map(BTreeMap::values).sum();
     let dropped_total = cross_pool + within_pool;
+    // What `load_decision_pool` checks beside the state: the digests of the rows and of the
+    // config that drew them, so a hand-written `applied` has to carry both and the config's.
+    let mut allocation = pool::allocation(
+        true,
+        "qd-prep allocate: the pinned config's train_caps (per family, shared over strata by \
+         largest remainder), val caps and floors drew the capped pools; the as-built pools \
+         passed through whole",
+    );
+    allocation["rows_sha256"] = json!(ex.sha256);
+    allocation["config_sha256"] = json!(digests["config"]);
     let manifest = json!({
         "schema": decisions::MANIFEST_SCHEMA, "mode": "build", "tool": TOOL,
         "tool_version": env!("CARGO_PKG_VERSION"), "seed": cfg.seed,
@@ -885,9 +1024,7 @@ pub fn build(inputs: &Inputs, threads: usize) -> Result<Built, String> {
         "decontamination_note": "allocate runs no scan; each input pool's own record is under \
                                  pools.NAME.decontamination",
         "examples": ex.rows, "examples_sha256": ex.sha256,
-        "allocation": pool::allocation(true, "qd-prep allocate: the pinned config's train_caps \
-                 (per family, shared over strata by largest remainder), val caps and floors \
-                 drew the capped pools; the as-built pools passed through whole"),
+        "allocation": allocation,
     });
     let summary = format!(
         "qd-prep allocate: {} rows ({} as built, {} drawn of {} candidates); {refused_total} \
@@ -960,16 +1097,29 @@ mod tests {
             c[k] = v;
             Config::parse(&serde_json::to_vec(&c).unwrap())
         };
-        assert!(with("train_cap", json!({})).unwrap_err().contains("unknown key"));
         assert!(
-            with("pools", json!({"p": {"examples_sha256": "A".repeat(64), "draw": "capped"}}))
-                .is_err()
+            with("train_cap", json!({}))
+                .unwrap_err()
+                .contains("unknown key")
         );
         assert!(
-            with("pools", json!({"p": {"examples_sha256": "a".repeat(64), "draw": "all"}}))
-                .is_err()
+            with(
+                "pools",
+                json!({"p": {"examples_sha256": "A".repeat(64), "draw": "capped"}})
+            )
+            .is_err()
         );
-        assert!(with("refused_licences", json!({"g": ["x"]})).is_err(), "uncapped family");
+        assert!(
+            with(
+                "pools",
+                json!({"p": {"examples_sha256": "a".repeat(64), "draw": "all"}})
+            )
+            .is_err()
+        );
+        assert!(
+            with("refused_licences", json!({"g": ["x"]})).is_err(),
+            "uncapped family"
+        );
         assert!(with("stated_zero_train_families", json!({"f": "why"})).is_err());
         assert!(with("val_floor_per_family", json!(11)).is_err());
     }
@@ -987,7 +1137,11 @@ mod tests {
         assert_eq!(decisions::example_json(&c), row);
         let mut extra = row.clone();
         extra["len_ratio"] = json!(1.5);
-        assert!(candidate(&extra, "t", &interner).unwrap_err().contains("pool seam"));
+        assert!(
+            candidate(&extra, "t", &interner)
+                .unwrap_err()
+                .contains("pool seam")
+        );
         let mut held = row.clone();
         held["split"] = json!("heldout");
         assert!(candidate(&held, "t", &interner).is_err());

@@ -36,12 +36,22 @@
 //! - [`dedupe`]: `qd_data.dedupe.dedupe`'s MinHash path end to end -- sign, band, confirm,
 //!   union across repos, and the keep rule (v5's lexical or v6's split priority) -- over
 //!   [`minhash`], [`wire`] and [`lsh`].
+//! - [`allocate`]: the one cap table over every v6 pool -- N candidate pools in, one pool out
+//!   whose manifest says `allocation.state = "applied"`, the only state
+//!   `qd_data.decisions.load_decision_pool` admits (R1/R2 of the v6 data-design ruling).
+//!   `decisions::run` keeps its own copy of the pool steps: moving it onto [`pool`] would touch
+//!   v5's byte-identical path, and the ruling cut that refactor from v6 (R1, R9).
+//! - [`commit_type`]: `gitpulse.commit_type` rows from the own train repositories' commit
+//!   history, rendered as the request GitPulse sends (v6 R5). `devtype.route` is a
+//!   [`synth_tools`] variant (`synth` kind `route`).
 //! - [`convert`] (with [`convert_licence`], [`convert_tools`], [`convert_text`],
 //!   [`convert_code`] and [`convert_inject`]): the downloaded v6 datasets made into decision
 //!   pools through the [`pool`] seam, with licence filters. Not a port: its licence table is a
 //!   mirror of `qd_data.licences`, and `tests/convert_licence_parity.rs` holds it to Python.
 
+pub mod allocate;
 pub mod blake2b;
+pub mod commit_type;
 pub mod containment;
 pub mod convert;
 pub mod convert_code;

@@ -153,6 +153,11 @@ OUT=/home/ubuntu/j6a-v4
 CKPT=/home/ubuntu/ckpt/j6a-v4
 if [ -e "$OUT/train.log" ]; then say "j6a: $OUT/train.log exists; refusing to run twice"; exit 3; fi
 mkdir -p "$OUT" "$CKPT"
+# The split rebuild's cache (tools/split_cache.py; ~200 s of an idle GPU on the v5 data): the
+# training process writes it and the --needle-control process, a second process with the same
+# data argv, reads it instead of rebuilding. 0700, owner-only: the cache reads pickles.
+J6A_SPLIT_CACHE=/home/ubuntu/split-cache/j6a-v4
+mkdir -p -m 700 "$J6A_SPLIT_CACHE"
 # F's data argv with build 2's root and the replay partition (the needle control's too).
 J6A_SPLIT=(--out "$J6A_DATA" --no-repo-history
            --rev 881ab304f15ea13529002391dda8520c2ea47af4
@@ -160,7 +165,8 @@ J6A_SPLIT=(--out "$J6A_DATA" --no-repo-history
            --defect-download data/pool/commitpackft
            --defect-noul data/pool/defect-noul-v3b
            --general-record "$REC" --general-max-rows 200000
-           --real-backbone "$BACKBONE" --replay-partition)
+           --real-backbone "$BACKBONE" --replay-partition
+           --split-cache "$J6A_SPLIT_CACHE")
 J6A_ARGV=("${J6A_SPLIT[@]}" "${F_RECIPE[@]}" --devices cuda --seeds 0
           --checkpoint-dir "$CKPT" --checkpoint-every 100000
           --replay-shards "$REPLAY_DIR" --replay-attestation "$ATTESTATION"

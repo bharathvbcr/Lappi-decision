@@ -13,11 +13,14 @@
 //!   already requires to be distinct (ojas's `ExternalGrad` does too). The final-norm rows go to
 //!   the callback, and its gradient goes back as a host f32 tensor charged to the provider's
 //!   budget.
-//! * **The optimizer.** tessl's AdamW takes one learning rate for every tensor, so any
-//!   `lr_scale` other than 1.0 is refused (qd-train's contract item 6), before any device work
-//!   and again by ojas-qwen35's own plan check. The weight decays are the caller's per-entry
-//!   vector. They are grouped by value into ojas-qwen35's `OptimizerPlan`, with no rule of this
-//!   crate's choosing. tessl takes them as f32: f32(0.01) is 0.00999999977648258, 2.2e-8
+//! * **The optimizer.** ojas-qwen35's `Qwen35Step::adamw_step` takes an `OptimizerPlan` of
+//!   per-entry learning-rate scales and weight decays and runs tessl's `adamw_step_scaled`
+//!   (entry `i` learns at `lr * lr_scale[i]`), so the layer-wise split of F's recipe is the
+//!   caller's own `lr_scale` vector, passed through whole (board-sweep ruling 2h, 2026-10-12;
+//!   it retires ruling 6's refusal). The scales and the weight decays are the caller's
+//!   per-entry vectors. They are grouped by value into the plan's rules ([`build_plan`]), with
+//!   no rule of this crate's choosing, and ojas-qwen35 refuses a scale that is negative or not
+//!   finite. tessl takes them as f32: f32(0.01) is 0.00999999977648258, 2.2e-8
 //!   relative below 0.01. The clip coefficient is f32 too in ojas-qwen35's `AdamWHyper`, and
 //!   torch's `clip_grad_norm_` also forms it in the gradients' dtype. Both roundings are named
 //!   in [`StepProvider::describe`]'s text, so the ledger row carries them.
@@ -48,12 +51,14 @@ use std::path::{Path, PathBuf};
 
 use ojas_core::{Budget, Tensor};
 use ojas_qwen35::{
-    tower_tensors, AdamWHyper as OjasHyper, BankState, ExternalGrad, GroupSpec, LrRule, Numerics, OptimizerPlan,
-    Qwen35Error, Qwen35Step, Qwen35TextConfig, Select, Sequence, Snapshot, WdRule, Which,
+    AdamWHyper as OjasHyper, BankState, ExternalGrad, GroupSpec, LrRule, Numerics, OptimizerPlan,
+    Precision, Qwen35Error, Qwen35Step, Qwen35TextConfig, Select, Sequence, Snapshot, TensorSpec,
+    WdRule, Which, tower_tensors,
 };
 use qd_train::ledger::git_commit;
 use qd_train::step::{
-    check_per_entry, refuse_lr_scale, AdamWHyper, BankMode, HiddenGrad, ParamSpec, SequenceJob, StepError, StepProvider,
+    AdamWHyper, BankMode, HiddenGrad, ParamSpec, SequenceJob, StepError, StepProvider,
+    check_per_entry,
 };
 
 use crate::args::Operands;
@@ -62,13 +67,11 @@ use crate::args::Operands;
 /// (`../../../tessl` from their manifests), which ojas-qwen35's `../../tessl` also reaches.
 pub const TESSL_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../tessl");
 /// The ojas workspace ojas-qwen35 is built from.
-pub const OJAS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ojas");
+pub use crate::pin::OJAS_DIR;
 /// The child of a checkpoint's provider directory that holds ojas-qwen35's state.
 pub const STATE_DIR: &str = "qwen35-state";
 /// Host bytes beyond one f32 parameter table: hidden rows and their gradients, per sequence.
 pub const HOST_MARGIN_BYTES: u64 = 1 << 30;
-
-const WHO: &str = "ojas-qwen35 over tessl (qwen35_adamw.rs takes one learning rate for every tensor)";
 
 /// ojas-qwen35's name for the operand precision.
 pub fn numerics(operands: Operands) -> Numerics {
@@ -85,7 +88,9 @@ pub fn step_error(e: Qwen35Error) -> StepError {
         Qwen35Error::Invalid { .. } | Qwen35Error::Config(_) => StepError::Contract(e.to_string()),
         Qwen35Error::Unsupported { .. } => StepError::Unsupported(e.to_string()),
         Qwen35Error::Io(_) => StepError::Io(e.to_string()),
-        Qwen35Error::Ojas(_) | Qwen35Error::Tessl { .. } | Qwen35Error::Poisoned(_) => StepError::Backend(e.to_string()),
+        Qwen35Error::Ojas(_) | Qwen35Error::Tessl { .. } | Qwen35Error::Poisoned(_) => {
+            StepError::Backend(e.to_string())
+        }
     }
 }
 
@@ -96,7 +101,10 @@ pub fn host_budget_bytes(cfg: &Qwen35TextConfig) -> Result<u64, StepError> {
     tower_tensors(cfg)
         .iter()
         .try_fold(HOST_MARGIN_BYTES, |acc, t| {
-            u64::try_from(t.numel()).ok().and_then(|n| n.checked_mul(4)).and_then(|b| acc.checked_add(b))
+            u64::try_from(t.numel())
+                .ok()
+                .and_then(|n| n.checked_mul(4))
+                .and_then(|b| acc.checked_add(b))
         })
         .ok_or_else(|| StepError::Contract("the parameter table's byte count overflows u64".into()))
 }
@@ -109,8 +117,8 @@ pub fn description(operands: Operands, tessl_commit: &str, ojas_commit: &str) ->
          {} GEMM operands with f32 accumulation, f32 weights, gradients and AdamW state; one unpadded \
          sequence per forward; attention tessl::attn_train (attn_train_forward/attn_train_backward, \
          causal GQA, head_dim 256, log-sum-exp); GDN tessl::gdn_train (rule published); AdamW \
-         tessl::qwen35_adamw (one learning rate, per-entry weight decay as f32: f32(0.01) = \
-         0.00999999977648258); clip coefficient applied as f32",
+         tessl::qwen35_adamw (adamw_step_scaled: per-entry lr_scale, per-entry weight decay as f32: \
+         f32(0.01) = 0.00999999977648258); clip coefficient applied as f32",
         operands.as_str()
     )
 }
@@ -122,17 +130,21 @@ pub struct Qwen35Provider {
     hidden: usize,
     vocab: usize,
     budget: Budget,
-    /// The plan for the last weight-decay vector, keyed by its f32 bits.
-    plan: Option<(Vec<u32>, OptimizerPlan)>,
+    /// The plan for the last `(lr_scale, weight decay)` vectors, keyed by their bits.
+    plan: Option<(Vec<(u64, u32)>, OptimizerPlan)>,
     description: String,
 }
 
 impl Qwen35Provider {
-    /// Load `snapshot` onto the GPU through [`Qwen35Step::open`], with a host budget of
+    /// Load `snapshot` onto the GPU through [`Qwen35Step::open`] at [`Precision::F32`] (f32
+    /// weights, gradients and AdamW moments: the optimizer recipe this crate's rows are labelled
+    /// for; ojas-qwen35's bf16 tower is a different recipe and is not offered), with a host
+    /// budget of
     /// [`host_budget_bytes`].
     pub fn open(snapshot: &Snapshot, operands: Operands) -> Result<Self, StepError> {
         let budget = Budget::new(host_budget_bytes(&snapshot.config)?);
-        let step = Qwen35Step::open(snapshot, numerics(operands), budget.clone()).map_err(step_error)?;
+        let step = Qwen35Step::open(snapshot, numerics(operands), Precision::F32, budget.clone())
+            .map_err(step_error)?;
         let params = step
             .parameter_table()
             .iter()
@@ -140,7 +152,11 @@ impl Qwen35Provider {
             .collect();
         let hidden = step.config().hidden as usize;
         let vocab = step.config().vocab as usize;
-        let description = description(operands, &git_commit(Path::new(TESSL_DIR)), &git_commit(Path::new(OJAS_DIR)));
+        let description = description(
+            operands,
+            &git_commit(Path::new(TESSL_DIR)),
+            &git_commit(Path::new(OJAS_DIR)),
+        );
         Ok(Self {
             step,
             params,
@@ -157,47 +173,106 @@ impl Qwen35Provider {
         &self.step
     }
 
-    fn ensure_plan(&mut self, weight_decay: &[f64]) -> Result<(), StepError> {
-        let as_f32: Vec<f32> = weight_decay.iter().map(|&w| w as f32).collect();
-        if let Some((i, w)) = as_f32.iter().enumerate().find(|(_, w)| !w.is_finite()) {
-            return Err(StepError::Contract(format!("entry {i}: weight decay {w} is not finite as f32")));
-        }
-        let key: Vec<u32> = as_f32.iter().map(|w| w.to_bits()).collect();
+    fn ensure_plan(&mut self, lr_scale: &[f64], weight_decay: &[f64]) -> Result<(), StepError> {
+        let key = plan_key(lr_scale, weight_decay)?;
         if self.plan.as_ref().is_some_and(|(k, _)| *k == key) {
             return Ok(());
         }
-        let mut groups: Vec<(u32, Vec<Select>)> = Vec::new();
-        for (spec, bits) in self.params.iter().zip(&key) {
-            let name = Select::Name(spec.name.clone());
-            match groups.iter_mut().find(|(b, _)| b == bits) {
-                Some((_, names)) => names.push(name),
-                None => groups.push((*bits, vec![name])),
-            }
-        }
-        let spec = GroupSpec {
-            lr: vec![LrRule {
-                label: "lr_scale=1".into(),
-                select: Select::All,
-                lr_scale: 1.0,
-            }],
-            weight_decay: groups
-                .into_iter()
-                .map(|(bits, names)| WdRule {
-                    label: format!("weight_decay={:?} (f32 bits {bits:#010x})", f32::from_bits(bits)),
-                    select: Select::AnyOf(names),
-                    weight_decay: f32::from_bits(bits),
-                })
-                .collect(),
-        };
-        let plan = OptimizerPlan::build(self.step.parameter_table(), &spec).map_err(step_error)?;
-        if !plan.weight_decay().iter().map(|w| w.to_bits()).eq(key.iter().copied()) {
-            return Err(StepError::Backend(
-                "ojas-qwen35's plan does not carry the recipe's per-entry weight decays".into(),
-            ));
-        }
+        let plan = build_plan(self.step.parameter_table(), lr_scale, weight_decay)?;
         self.plan = Some((key, plan));
         Ok(())
     }
+}
+
+/// The cache key of a plan: each entry's `lr_scale` bits and its weight decay's f32 bits.
+fn plan_key(lr_scale: &[f64], weight_decay: &[f64]) -> Result<Vec<(u64, u32)>, StepError> {
+    lr_scale
+        .iter()
+        .zip(weight_decay)
+        .enumerate()
+        .map(|(i, (&s, &w))| {
+            let w = w as f32;
+            if !s.is_finite() || s < 0.0 {
+                return Err(StepError::Contract(format!(
+                    "entry {i}: lr_scale {s} must be finite and >= 0"
+                )));
+            }
+            if !w.is_finite() {
+                return Err(StepError::Contract(format!(
+                    "entry {i}: weight decay {w} is not finite as f32"
+                )));
+            }
+            Ok((s.to_bits(), w.to_bits()))
+        })
+        .collect()
+}
+
+/// ojas-qwen35's [`OptimizerPlan`] over `table` for the caller's per-entry vectors: one
+/// learning-rate rule per distinct `lr_scale` and one weight-decay rule per distinct f32 weight
+/// decay, each selecting exactly the entries that carry it. The plan's vectors are checked
+/// equal, entry by entry and bit for bit, to the caller's (the weight decays as f32), so the
+/// plan cannot differ from the optimizer table the loop derived.
+pub fn build_plan(
+    table: &[TensorSpec],
+    lr_scale: &[f64],
+    weight_decay: &[f64],
+) -> Result<OptimizerPlan, StepError> {
+    check_per_entry(table.len(), lr_scale, weight_decay)?;
+    let key = plan_key(lr_scale, weight_decay)?;
+    let mut lr_groups: Vec<(u64, Vec<Select>)> = Vec::new();
+    let mut wd_groups: Vec<(u32, Vec<Select>)> = Vec::new();
+    for (t, (scale_bits, wd_bits)) in table.iter().zip(&key) {
+        let name = Select::Name(t.name.clone());
+        match lr_groups.iter_mut().find(|(b, _)| b == scale_bits) {
+            Some((_, names)) => names.push(name.clone()),
+            None => lr_groups.push((*scale_bits, vec![name.clone()])),
+        }
+        match wd_groups.iter_mut().find(|(b, _)| b == wd_bits) {
+            Some((_, names)) => names.push(name),
+            None => wd_groups.push((*wd_bits, vec![name])),
+        }
+    }
+    let spec = GroupSpec {
+        lr: lr_groups
+            .into_iter()
+            .map(|(bits, names)| LrRule {
+                label: format!(
+                    "lr_scale={:?} (f64 bits {bits:#018x})",
+                    f64::from_bits(bits)
+                ),
+                select: Select::AnyOf(names),
+                lr_scale: f64::from_bits(bits),
+            })
+            .collect(),
+        weight_decay: wd_groups
+            .into_iter()
+            .map(|(bits, names)| WdRule {
+                label: format!(
+                    "weight_decay={:?} (f32 bits {bits:#010x})",
+                    f32::from_bits(bits)
+                ),
+                select: Select::AnyOf(names),
+                weight_decay: f32::from_bits(bits),
+            })
+            .collect(),
+    };
+    let plan = OptimizerPlan::build(table, &spec).map_err(step_error)?;
+    let same = plan
+        .lr_scale()
+        .iter()
+        .map(|s| s.to_bits())
+        .eq(key.iter().map(|k| k.0))
+        && plan
+            .weight_decay()
+            .iter()
+            .map(|w| w.to_bits())
+            .eq(key.iter().map(|k| k.1));
+    if !same {
+        return Err(StepError::Backend(
+            "ojas-qwen35's plan does not carry the recipe's per-entry learning-rate scales and weight decays".into(),
+        ));
+    }
+    Ok(plan)
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), StepError> {
@@ -253,7 +328,9 @@ impl StepProvider for Qwen35Provider {
                 ));
             }
             (BankMode::Add, BankState::Invalid(why)) => {
-                return Err(StepError::Backend(format!("the gradient bank is invalid: {why}")));
+                return Err(StepError::Backend(format!(
+                    "the gradient bank is invalid: {why}"
+                )));
             }
         }
         let pending = self
@@ -302,13 +379,18 @@ impl StepProvider for Qwen35Provider {
     }
 
     fn supports_lr_scale(&self) -> bool {
-        false
+        true
     }
 
-    fn adamw_step(&mut self, hyper: &AdamWHyper, step: u64, lr_scale: &[f64], weight_decay: &[f64]) -> Result<(), StepError> {
+    fn adamw_step(
+        &mut self,
+        hyper: &AdamWHyper,
+        step: u64,
+        lr_scale: &[f64],
+        weight_decay: &[f64],
+    ) -> Result<(), StepError> {
         hyper.validate()?;
         check_per_entry(self.params.len(), lr_scale, weight_decay)?;
-        refuse_lr_scale(lr_scale, WHO)?;
         let have = self.step.step_count();
         if have.checked_add(1) != Some(step) {
             return Err(StepError::Contract(format!(
@@ -323,10 +405,14 @@ impl StepProvider for Qwen35Provider {
                 hyper.grad_scale
             )));
         }
-        self.ensure_plan(weight_decay)?;
+        self.ensure_plan(lr_scale, weight_decay)?;
         let plan = match &self.plan {
             Some((_, p)) => p,
-            None => return Err(StepError::Backend("no optimizer plan after building one".into())),
+            None => {
+                return Err(StepError::Backend(
+                    "no optimizer plan after building one".into(),
+                ));
+            }
         };
         let next = self
             .step
@@ -342,7 +428,9 @@ impl StepProvider for Qwen35Provider {
             )
             .map_err(step_error)?;
         if next != step {
-            return Err(StepError::Backend(format!("ojas-qwen35 reports step {next} after step {step}")));
+            return Err(StepError::Backend(format!(
+                "ojas-qwen35 reports step {next} after step {step}"
+            )));
         }
         Ok(())
     }
@@ -352,7 +440,10 @@ impl StepProvider for Qwen35Provider {
     }
 
     fn read_parameters(&mut self) -> Result<Vec<Vec<f32>>, StepError> {
-        let table = self.step.read_table(Which::Parameters).map_err(step_error)?;
+        let table = self
+            .step
+            .read_table(Which::Parameters)
+            .map_err(step_error)?;
         if table.len() != self.params.len() {
             return Err(StepError::Backend(format!(
                 "read {} tensors for {} parameters",
@@ -372,7 +463,11 @@ impl StepProvider for Qwen35Provider {
                     spec.shape
                 )));
             }
-            out.push(t.tensor.to_f32_vec().map_err(|e| StepError::Backend(e.to_string()))?);
+            out.push(
+                t.tensor
+                    .to_f32_vec()
+                    .map_err(|e| StepError::Backend(e.to_string()))?,
+            );
         }
         Ok(out)
     }
@@ -391,6 +486,8 @@ impl StepProvider for Qwen35Provider {
     }
 
     fn load_state(&mut self, dir: &Path) -> Result<(), StepError> {
-        self.step.load_state(&dir.join(STATE_DIR)).map_err(step_error)
+        self.step
+            .load_state(&dir.join(STATE_DIR))
+            .map_err(step_error)
     }
 }

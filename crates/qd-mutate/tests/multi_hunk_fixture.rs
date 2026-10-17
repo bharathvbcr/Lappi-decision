@@ -12,14 +12,13 @@
 use std::path::PathBuf;
 
 use qd_mutate::diffspan;
-use qd_mutate::generate::{Example, DIFF_CONTEXT};
-use qd_mutate::manifest::{sha256_hex, Manifest};
+use qd_mutate::generate::{DIFF_CONTEXT, Example};
+use qd_mutate::manifest::{Manifest, sha256_hex};
 use qd_mutate::ops::MutationClass;
 use qd_mutate::pool;
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../python/tests/data/qd_mutate_multi_hunk")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/tests/data/qd_mutate_multi_hunk")
 }
 
 fn read_fixture() -> (Vec<Example>, Manifest, Vec<u8>) {
@@ -62,8 +61,9 @@ fn every_diff_in_the_fixture_is_what_the_renderer_produces_today() {
     let sources = post_images();
     assert!(!examples.is_empty());
     for example in &examples {
-        let rendered = diffspan::unified_multi_detailed(&example.before, &example.after, DIFF_CONTEXT)
-            .expect("renders");
+        let rendered =
+            diffspan::unified_multi_detailed(&example.before, &example.after, DIFF_CONTEXT)
+                .expect("renders");
         assert_eq!(
             rendered.text, example.diff,
             "{}: the renderer no longer produces the committed diff; regenerate the fixture \
@@ -75,7 +75,9 @@ fn every_diff_in_the_fixture_is_what_the_renderer_produces_today() {
             continue;
         }
         let span = example.span.expect("a mutated row has a span");
-        let source = sources.get(&example.pool_id).expect("every row's pool record is committed");
+        let source = sources
+            .get(&example.pool_id)
+            .expect("every row's pool record is committed");
         assert!(
             rendered.shows_edit(&example.before, source, &example.after),
             "{}",

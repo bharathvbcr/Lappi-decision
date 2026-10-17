@@ -186,7 +186,10 @@ mod tests {
                 Shape::Remove => (5, 3),
                 Shape::Replace => (4, 4),
             };
-            assert!(header.starts_with(&format!("@@ -1,{old} +1,{new} @@")), "{header}");
+            assert!(
+                header.starts_with(&format!("@@ -1,{old} +1,{new} @@")),
+                "{header}"
+            );
         }
         // One line cannot be half removed: a one-line Replace reads as an addition.
         let one = mark_block(texts(3), 1, 2, Shape::Replace);

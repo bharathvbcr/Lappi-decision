@@ -202,7 +202,9 @@ def test_every_recipe_name_maps_to_one_spec_and_an_unknown_one_is_refused() -> N
     assert real_ft_run.optimizer_spec("bf16", "kahan") is ADAMW_KAHAN
     assert real_ft_run.optimizer_spec("bf16", "bf16") is ADAMW_BF16
     assert real_ft_run.optimizer_spec("fp32", "kahan") is ADAMW_FP32
-    assert set(real_ft_run.OPTIMIZER_RECIPES) == {"bf16", "master", "kahan"}
+    # "f32" and "lora" are ledger labels (board-sweep ruling 2h) that no torch step here builds;
+    # tests/test_real_ft_optimizer_labels.py pins them.
+    assert set(real_ft_run.OPTIMIZER_RECIPES) == {"bf16", "master", "kahan", "f32", "lora"}
     for unknown in ("kahan-bf16", "Master", "", "sgd"):
         with pytest.raises(ValueError, match="no optimizer recipe"):
             real_ft_run.optimizer_spec("bf16", unknown)
@@ -815,6 +817,9 @@ def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu
         "manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
         "source": "masters", "n_inputs": 3, "protocol_seed": SUITE_SEED,
         "suite_seed": SUITE_SEED,
+        # ruling 2g: every new average records how its span head was made.
+        "span_head_source": {"mode": "averaged", "seed": None, "input": None,
+                             "payload_digest": None},
     }
     assert recipe["scored_checkpoint"] == f"avg.safetensors:{manifest['safetensors_sha256']}"
     assert recipe["score_dtype"] == "fp32"

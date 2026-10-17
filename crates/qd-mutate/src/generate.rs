@@ -55,10 +55,10 @@ use sha2::{Digest, Sha256};
 use crate::diffspan;
 use crate::fmt::{self, Availability, Resolved};
 use crate::lang::{LangId, Language};
-use crate::manifest::{sha256_hex, Manifest, PoolReport};
+use crate::manifest::{Manifest, PoolReport, sha256_hex};
 use crate::normalize::{self, Normalization};
 use crate::ops::{self, Candidate, MutationClass, OpCtx, OpId};
-use crate::parse::{parse_bounded, Refusal};
+use crate::parse::{Refusal, parse_bounded};
 use crate::pool::{FunctionIdentity, Hunk, PoolRecord};
 use crate::span::{self, LineSpan};
 
@@ -524,7 +524,9 @@ impl Generator {
         manifest.pool.records = records.len() as u64;
         // Measured on what is emitted, not inferred from the renderer.
         for example in &examples {
-            manifest.diff.note_diff(example.class.as_str(), &example.diff);
+            manifest
+                .diff
+                .note_diff(example.class.as_str(), &example.diff);
         }
         let mut run = Run { examples, manifest };
         // The digest is over the JSONL a caller would write, so the manifest names the same bytes
@@ -660,12 +662,11 @@ impl Generator {
                         operator: op.as_str().to_string(),
                         detail: format!("could not canonicalise the input: {e}"),
                     })?;
-            let after_canonical = fmt::canonical(resolved, &after).map_err(|e| {
-                Refusal::CosmeticNotPreserving {
+            let after_canonical =
+                fmt::canonical(resolved, &after).map_err(|e| Refusal::CosmeticNotPreserving {
                     operator: op.as_str().to_string(),
                     detail: format!("could not canonicalise the output: {e}"),
-                }
-            })?;
+                })?;
             if before_canonical != after_canonical {
                 return Err(Refusal::CosmeticNotPreserving {
                     operator: op.as_str().to_string(),
@@ -857,8 +858,14 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
                 !example.diff.is_empty(),
                 "a clean example carries an empty diff, so its class is readable from its length"
             );
-            assert_eq!(example.before, prior, "before must be the agent's pre-image");
-            assert_eq!(example.after, RUST_FILE, "after must still be the post-image");
+            assert_eq!(
+                example.before, prior,
+                "before must be the agent's pre-image"
+            );
+            assert_eq!(
+                example.after, RUST_FILE,
+                "after must still be the post-image"
+            );
             // The same renderer every mutated example's diff goes through, so the two kinds
             // cannot be separated on format alone.
             assert_eq!(
@@ -898,7 +905,12 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         (0..n)
             .map(|i| PoolRecord {
                 prior_source: prior.map(str::to_string),
-                ..record(&format!("r{i}"), &format!("g{i}.rs"), source, Some(vec![GAMMA]))
+                ..record(
+                    &format!("r{i}"),
+                    &format!("g{i}.rs"),
+                    source,
+                    Some(vec![GAMMA]),
+                )
             })
             .collect()
     }
@@ -919,15 +931,24 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
     fn two_agent_hunks_and_a_mutation_in_a_third_region_are_three_hunks() {
         let source = three_region_file();
         let prior = source.replace("a + 1", "a + 2").replace("b * 2", "b * 3");
-        let run = Generator::new(all_mutated()).run(&records_over(24, Some(&prior), &source), pool_report());
+        let run = Generator::new(all_mutated())
+            .run(&records_over(24, Some(&prior), &source), pool_report());
         let mutated: Vec<_> = run
             .examples
             .iter()
             .filter(|e| e.class != MutationClass::Clean)
             .collect();
-        assert!(mutated.len() >= 5, "only {} examples; the fixture is not exercising this", mutated.len());
+        assert!(
+            mutated.len() >= 5,
+            "only {} examples; the fixture is not exercising this",
+            mutated.len()
+        );
         for example in &mutated {
-            assert_eq!(example.before, prior, "{}: before must be the pre-image", example.id);
+            assert_eq!(
+                example.before, prior,
+                "{}: before must be the pre-image",
+                example.id
+            );
             assert_eq!(
                 header_count(&example.diff),
                 3,
@@ -944,12 +965,19 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             // The label is the injected edit, unchanged: derived between the post-image and
             // `after`, and it sits in the third hunk -- the needle.
             let span = example.span.expect("a mutated example has a span");
-            assert_eq!(diffspan::span_from_text_diff(&source, &example.after), Some(span));
+            assert_eq!(
+                diffspan::span_from_text_diff(&source, &example.after),
+                Some(span)
+            );
             let rendered = diffspan::unified_multi_detailed(&prior, &example.after, DIFF_CONTEXT)
                 .expect("renders");
             assert_eq!(rendered.text, example.diff);
             assert_eq!(rendered.hunk_containing(span), Some(2), "{}", example.id);
-            assert!(rendered.shows_edit(&prior, &source, &example.after), "{}", example.id);
+            assert!(
+                rendered.shows_edit(&prior, &source, &example.after),
+                "{}",
+                example.id
+            );
         }
         assert_eq!(
             run.manifest.diff.hunks_per_diff.get(&3).copied(),
@@ -966,7 +994,8 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         // The commit's only change is inside `gamma`, a line or two from wherever the mutation
         // lands -- so the two must come out as one hunk, holding both.
         let prior = source.replace("let mut z = 0;", "let mut z = 7;");
-        let run = Generator::new(all_mutated()).run(&records_over(24, Some(&prior), &source), pool_report());
+        let run = Generator::new(all_mutated())
+            .run(&records_over(24, Some(&prior), &source), pool_report());
         let mutated: Vec<_> = run
             .examples
             .iter()
@@ -993,7 +1022,11 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             let rendered = diffspan::unified_multi_detailed(&prior, &example.after, DIFF_CONTEXT)
                 .expect("renders");
             assert_eq!(rendered.hunk_containing(span), Some(0), "{}", example.id);
-            assert!(rendered.shows_edit(&prior, &source, &example.after), "{}", example.id);
+            assert!(
+                rendered.shows_edit(&prior, &source, &example.after),
+                "{}",
+                example.id
+            );
             // Where the mutation left the commit's line alone, the commit's change is in the same
             // hunk as the needle -- it was merged, not dropped.
             if example.after.contains("    let mut z = 0;\n") {
@@ -1007,7 +1040,10 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
                 both_visible += 1;
             }
         }
-        assert!(both_visible > 0, "no example kept the commit's line, so the merge went unchecked");
+        assert!(
+            both_visible > 0,
+            "no example kept the commit's line, so the merge went unchecked"
+        );
     }
 
     #[test]
@@ -1015,16 +1051,25 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let source = three_region_file();
         let prior = source.replace("a + 1", "a + 2").replace("b * 2", "b * 3");
         let crlf_prior = format!("\u{feff}{}", prior.replace('\n', "\r\n"));
-        let lf = Generator::new(all_mutated()).run(&records_over(12, Some(&prior), &source), pool_report());
-        let crlf =
-            Generator::new(all_mutated()).run(&records_over(12, Some(&crlf_prior), &source), pool_report());
+        let lf = Generator::new(all_mutated())
+            .run(&records_over(12, Some(&prior), &source), pool_report());
+        let crlf = Generator::new(all_mutated())
+            .run(&records_over(12, Some(&crlf_prior), &source), pool_report());
         assert!(!lf.examples.is_empty());
         assert_eq!(lf.examples.len(), crlf.examples.len());
         for (a, b) in lf.examples.iter().zip(&crlf.examples) {
             assert_eq!(a.id, b.id);
-            assert_eq!(a.diff, b.diff, "{}: line endings in the pre-image reached the diff", a.id);
+            assert_eq!(
+                a.diff, b.diff,
+                "{}: line endings in the pre-image reached the diff",
+                a.id
+            );
             assert_eq!(a.before, b.before);
-            assert_eq!(b.before, prior, "{}: before must be the normalized pre-image", b.id);
+            assert_eq!(
+                b.before, prior,
+                "{}: before must be the normalized pre-image",
+                b.id
+            );
             assert!(!b.before.contains('\r') && !b.before.starts_with('\u{feff}'));
             assert_eq!(a.span, b.span);
         }
@@ -1052,13 +1097,18 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         })
         .run(&records_over(10, None, &source), pool_report());
         assert!(clean.manifest.totals.clean > 0);
-        assert_eq!(clean.manifest.diff.clean_without_prior, clean.manifest.totals.clean);
+        assert_eq!(
+            clean.manifest.diff.clean_without_prior,
+            clean.manifest.totals.clean
+        );
         assert_eq!(clean.manifest.diff.mutated_without_prior, 0);
 
         // A pool that carries pre-images counts no fallback at all.
         let source_prior = source.replace("a + 1", "a + 2");
-        let with_prior = Generator::new(all_mutated())
-            .run(&records_over(10, Some(&source_prior), &source), pool_report());
+        let with_prior = Generator::new(all_mutated()).run(
+            &records_over(10, Some(&source_prior), &source),
+            pool_report(),
+        );
         assert!(with_prior.manifest.totals.mutated > 0);
         assert_eq!(with_prior.manifest.diff.mutated_without_prior, 0);
     }
@@ -1071,9 +1121,18 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         // span the diff does not show changing.
         let source = three_region_file();
         let prior = source.replace("if c < d {", "if c <= d {");
-        let run = Generator::new(all_mutated()).run(&records_over(80, Some(&prior), &source), pool_report());
-        let refused = run.manifest.refusals.get("needle_not_in_diff").copied().unwrap_or(0);
-        assert!(refused > 0, "no candidate undid the commit, so the refusal went unexercised");
+        let run = Generator::new(all_mutated())
+            .run(&records_over(80, Some(&prior), &source), pool_report());
+        let refused = run
+            .manifest
+            .refusals
+            .get("needle_not_in_diff")
+            .copied()
+            .unwrap_or(0);
+        assert!(
+            refused > 0,
+            "no candidate undid the commit, so the refusal went unexercised"
+        );
         let gamma_report = run
             .manifest
             .languages
@@ -1082,13 +1141,23 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             .and_then(|r| r.operators.get("logic.widen_comparison"))
             .expect("widen_comparison ran");
         assert!(
-            gamma_report.refused.get("needle_not_in_diff").copied().unwrap_or(0) > 0,
+            gamma_report
+                .refused
+                .get("needle_not_in_diff")
+                .copied()
+                .unwrap_or(0)
+                > 0,
             "the refusal must be charged to the operator that produced it"
         );
-        for example in run.examples.iter().filter(|e| e.class != MutationClass::Clean) {
+        for example in run
+            .examples
+            .iter()
+            .filter(|e| e.class != MutationClass::Clean)
+        {
             let span = example.span.expect("span");
-            let rendered = diffspan::unified_multi_detailed(&example.before, &example.after, DIFF_CONTEXT)
-                .expect("renders");
+            let rendered =
+                diffspan::unified_multi_detailed(&example.before, &example.after, DIFF_CONTEXT)
+                    .expect("renders");
             assert!(
                 rendered.shows_edit(&example.before, &source, &example.after),
                 "{}: invisible needle emitted",
@@ -1107,23 +1176,44 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             clean_permille: 300,
             ..all_mutated()
         };
-        let run = Generator::new(options).run(&records_over(30, Some(&prior), &source), pool_report());
+        let run =
+            Generator::new(options).run(&records_over(30, Some(&prior), &source), pool_report());
         let mut seen = (0usize, 0usize);
         for example in &run.examples {
             if example.class == MutationClass::Clean {
                 assert_eq!(example.before, prior);
-                assert_eq!(example.diff, diffspan::unified(&prior, &source, DIFF_CONTEXT));
+                assert_eq!(
+                    example.diff,
+                    diffspan::unified(&prior, &source, DIFF_CONTEXT)
+                );
                 seen.0 += 1;
             } else {
-                assert_eq!(example.before, source, "v2 diffs a mutation from the post-image");
-                assert_eq!(example.diff, diffspan::unified(&source, &example.after, DIFF_CONTEXT));
+                assert_eq!(
+                    example.before, source,
+                    "v2 diffs a mutation from the post-image"
+                );
+                assert_eq!(
+                    example.diff,
+                    diffspan::unified(&source, &example.after, DIFF_CONTEXT)
+                );
                 seen.1 += 1;
             }
             assert_eq!(header_count(&example.diff), 1);
         }
-        assert!(seen.0 > 0 && seen.1 > 0, "both branches must be exercised, got {seen:?}");
+        assert!(
+            seen.0 > 0 && seen.1 > 0,
+            "both branches must be exercised, got {seen:?}"
+        );
         assert_eq!(run.manifest.diff.renderer, "single_hunk");
-        assert_eq!(run.manifest.diff.hunks_per_diff.keys().copied().collect::<Vec<_>>(), [1]);
+        assert_eq!(
+            run.manifest
+                .diff
+                .hunks_per_diff
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [1]
+        );
     }
 
     #[test]
@@ -1153,9 +1243,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let records = vec![record_with_prior("r1", "a.rs", RUST_FILE, RUST_FILE)];
         let out = Generator::new(all_clean()).run(&records, pool_report());
         assert!(
-            out.examples
-                .iter()
-                .all(|e| e.class != MutationClass::Clean),
+            out.examples.iter().all(|e| e.class != MutationClass::Clean),
             "an unchanged pre-image produced a clean example with an empty context"
         );
     }
@@ -1171,9 +1259,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let records = vec![record_with_prior("r1", "a.rs", &crlf_prior, RUST_FILE)];
         let out = Generator::new(all_clean()).run(&records, pool_report());
         assert!(
-            out.examples
-                .iter()
-                .all(|e| e.class != MutationClass::Clean),
+            out.examples.iter().all(|e| e.class != MutationClass::Clean),
             "a pre-image differing only in line endings produced a clean example, so its diff \
              claims a change that normalization removes"
         );
@@ -1296,7 +1382,10 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             "emitted {:?}",
             run.examples.iter().map(|e| &e.detail).collect::<Vec<_>>()
         );
-        assert!(run.manifest.totals.outside_hunk > 0, "the refusal was not counted");
+        assert!(
+            run.manifest.totals.outside_hunk > 0,
+            "the refusal was not counted"
+        );
     }
 
     #[test]
@@ -1402,7 +1491,12 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
     fn a_language_filter_keeps_the_other_languages_out() {
         let records = vec![
             record("r1", "a.rs", RUST_FILE, None),
-            record("r2", "b.py", "def f(a: int) -> int:\n    x = 1\n    return x\n", None),
+            record(
+                "r2",
+                "b.py",
+                "def f(a: int) -> int:\n    x = 1\n    return x\n",
+                None,
+            ),
         ];
         let run = Generator::new(Options {
             seed: 3,
@@ -1428,11 +1522,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             ..Options::default()
         })
         .run(&records, pool_report());
-        let silent = run
-            .examples
-            .iter()
-            .filter(|e| e.silent)
-            .count();
+        let silent = run.examples.iter().filter(|e| e.silent).count();
         let panics = run
             .examples
             .iter()

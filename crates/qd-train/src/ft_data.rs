@@ -6,7 +6,7 @@
 //! `plan_span_batch` ([`ft_supervision`], [`plan_span_batch`], pinned to Python by
 //! `tests/parity.rs`); this module only re-shapes their output per row, and
 //! `tests/ft_data.rs` checks the re-shaped rows against the same Python dump. The consumed
-//! digest is L-data's `fold_batch`.
+//! digest is L-data's `Batch::fold_into`.
 //!
 //! **What the letter channel is.** `ft_supervision` sets exactly one letter position per
 //! non-span row (`choice` and `score` alike, at `target_index`), and none on a span row; a row
@@ -26,9 +26,10 @@ use std::path::Path;
 use qd_export::safetensors::{Dtype, SafeTensorsFile};
 
 use crate::objective::{self, FtBatch, LetterTarget};
+use crate::run_control::ConsumedPrefix;
 use crate::run_control::{hex, sidecar_digest, tensor_ref_digest};
-use crate::shards::{Batch, ConsumedPrefix};
-use crate::span_head::{self, SpanGold, SpanRowInput, SpanRowPlan, PARAMETER_NAMES};
+use crate::shards::Batch;
+use crate::span_head::{self, PARAMETER_NAMES, SpanGold, SpanRowInput, SpanRowPlan};
 use crate::step::ParamSpec;
 use crate::supervision::{ft_supervision, plan_span_batch};
 use crate::trainer::{ConsumedBatch, HostParams, TrainError};
@@ -38,7 +39,8 @@ fn refuse<T>(m: impl Into<String>) -> Result<T, TrainError> {
 }
 
 fn token(x: i32, what: &str) -> Result<u32, TrainError> {
-    u32::try_from(x).map_err(|_| TrainError::Refused(format!("{what} is {x}, not a token id or position")))
+    u32::try_from(x)
+        .map_err(|_| TrainError::Refused(format!("{what} is {x}, not a token id or position")))
 }
 
 /// One shard [`Batch`], with each row's real tokens and its one supervised answer.
@@ -54,7 +56,9 @@ impl RealBatch {
     /// refuses, and a row whose supervised positions are not inside its real tokens.
     pub fn new(batch: Batch) -> Result<Self, TrainError> {
         let at = format!("batch {}", batch.index);
-        batch.validate().map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
+        batch
+            .validate()
+            .map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
         let sup = ft_supervision(&batch).map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
         let rows = batch.rows();
         let mut tokens = Vec::with_capacity(rows);
@@ -63,7 +67,10 @@ impl RealBatch {
                 .ok()
                 .filter(|&l| l >= 1 && l <= batch.width)
                 .ok_or_else(|| {
-                    TrainError::Refused(format!("{at} row {r}: length {} in a batch {} wide", batch.lengths[r], batch.width))
+                    TrainError::Refused(format!(
+                        "{at} row {r}: length {} in a batch {} wide",
+                        batch.lengths[r], batch.width
+                    ))
                 })?;
             tokens.push(
                 (0..len)
@@ -74,9 +81,14 @@ impl RealBatch {
         let mut letters: Vec<Option<LetterTarget>> = vec![None; rows];
         for (r, c) in sup.letter_positions() {
             if letters[r].is_some() {
-                return refuse(format!("{at} row {r}: more than one supervised letter position"));
+                return refuse(format!(
+                    "{at} row {r}: more than one supervised letter position"
+                ));
             }
-            let target = token(sup.targets[r * sup.columns + c], &format!("{at} row {r} letter target"))?;
+            let target = token(
+                sup.targets[r * sup.columns + c],
+                &format!("{at} row {r} letter target"),
+            )?;
             let position = u32::try_from(c).map_err(|e| TrainError::Refused(e.to_string()))?;
             if c + 1 >= tokens[r].len() {
                 return refuse(format!(
@@ -89,24 +101,38 @@ impl RealBatch {
         }
         let mut spans: Vec<Option<SpanRowPlan>> = vec![None; rows];
         if let Some(span) = &sup.span {
-            let plan = plan_span_batch(span).map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
+            let plan =
+                plan_span_batch(span).map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
             for (k, &r) in span.rows.iter().enumerate() {
-                let n = usize::try_from(plan.n_candidates[k]).map_err(|e| TrainError::Refused(e.to_string()))?;
-                let candidates = plan.candidate_pos[k * plan.max_candidates..k * plan.max_candidates + n]
+                let n = usize::try_from(plan.n_candidates[k])
+                    .map_err(|e| TrainError::Refused(e.to_string()))?;
+                let candidates = plan.candidate_pos
+                    [k * plan.max_candidates..k * plan.max_candidates + n]
                     .iter()
-                    .map(|&p| u32::try_from(p).map_err(|_| TrainError::Refused(format!("{at} row {r}: candidate {p}"))))
+                    .map(|&p| {
+                        u32::try_from(p).map_err(|_| {
+                            TrainError::Refused(format!("{at} row {r}: candidate {p}"))
+                        })
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let gold = if plan.abstaining[k] {
                     SpanGold::Abstain
                 } else {
-                    let ord = |g: i64| usize::try_from(g).map_err(|_| TrainError::Refused(format!("{at} row {r}: gold {g}")));
+                    let ord = |g: i64| {
+                        usize::try_from(g)
+                            .map_err(|_| TrainError::Refused(format!("{at} row {r}: gold {g}")))
+                    };
                     SpanGold::Lines {
                         start: ord(plan.gold_start[k])?,
                         end: ord(plan.gold_end[k])?,
                     }
                 };
-                let query = u32::try_from(plan.query_index[k])
-                    .map_err(|_| TrainError::Refused(format!("{at} row {r}: query index {}", plan.query_index[k])))?;
+                let query = u32::try_from(plan.query_index[k]).map_err(|_| {
+                    TrainError::Refused(format!(
+                        "{at} row {r}: query index {}",
+                        plan.query_index[k]
+                    ))
+                })?;
                 let row = SpanRowPlan::new(query, candidates, gold)
                     .map_err(|e| TrainError::Refused(format!("{at} row {r}: {e}")))?;
                 if let Some(&p) = row.positions().last()
@@ -142,7 +168,7 @@ impl ConsumedBatch for RealBatch {
     }
 
     fn fold_into(&self, prefix: &mut ConsumedPrefix) -> Result<(), TrainError> {
-        prefix.fold_batch(&self.batch);
+        self.batch.fold_into(prefix);
         Ok(())
     }
 }
@@ -185,7 +211,8 @@ pub struct HostSpanHead {
 
 impl HostSpanHead {
     pub fn new(params: span_head::SpanHead) -> Result<Self, TrainError> {
-        let bank = span_head::SpanHead::zeros(params.hidden_size()).map_err(|e| TrainError::Refused(e.to_string()))?;
+        let bank = span_head::SpanHead::zeros(params.hidden_size())
+            .map_err(|e| TrainError::Refused(e.to_string()))?;
         Ok(Self {
             params,
             bank,
@@ -200,9 +227,19 @@ impl HostSpanHead {
 
 /// `(lse(scores) - scores[gold])` in f64 over f32 scores: one pointer's cross-entropy.
 fn pointer_ce(scores: &[f32], gold: usize) -> Result<f64, String> {
-    let g = *scores.get(gold).ok_or_else(|| format!("gold row {gold} of {} scores", scores.len()))?;
-    let max = scores.iter().map(|&s| f64::from(s)).fold(f64::NEG_INFINITY, f64::max);
-    let lse = max + scores.iter().map(|&s| (f64::from(s) - max).exp()).sum::<f64>().ln();
+    let g = *scores
+        .get(gold)
+        .ok_or_else(|| format!("gold row {gold} of {} scores", scores.len()))?;
+    let max = scores
+        .iter()
+        .map(|&s| f64::from(s))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let lse = max
+        + scores
+            .iter()
+            .map(|&s| (f64::from(s) - max).exp())
+            .sum::<f64>()
+            .ln();
     Ok(lse - f64::from(g))
 }
 
@@ -226,7 +263,11 @@ impl HostParams for HostSpanHead {
 
     fn grads(&self) -> Vec<Option<&[f32]>> {
         let reached = self.reached;
-        self.bank.named().into_iter().map(|(_, g)| reached.then_some(g)).collect()
+        self.bank
+            .named()
+            .into_iter()
+            .map(|(_, g)| reached.then_some(g))
+            .collect()
     }
 
     fn values(&self) -> Vec<&[f32]> {
@@ -260,24 +301,39 @@ impl objective::SpanHead for HostSpanHead {
         scale: f32,
     ) -> Result<(f64, Vec<f32>), String> {
         if width != self.params.hidden_size() {
-            return Err(format!("hidden width {width}, the head is {} wide", self.params.hidden_size()));
+            return Err(format!(
+                "hidden width {width}, the head is {} wide",
+                self.params.hidden_size()
+            ));
         }
         if positions != span.positions() {
-            return Err(format!("positions {positions:?} are not the row's {:?}", span.positions()));
+            return Err(format!(
+                "positions {positions:?} are not the row's {:?}",
+                span.positions()
+            ));
         }
         let weight = 2.0 * scale;
         let step = self
             .params
-            .loss_and_backward(&[SpanRowInput { plan: span, hidden }], weight, &mut self.bank)
+            .loss_and_backward(
+                &[SpanRowInput { plan: span, hidden }],
+                weight,
+                &mut self.bank,
+            )
             .map_err(|e| e.to_string())?;
         self.reached = true;
-        let (Some(scores), Some(dh)) = (step.scores.first(), step.d_hidden.into_iter().next()) else {
+        let (Some(scores), Some(dh)) = (step.scores.first(), step.d_hidden.into_iter().next())
+        else {
             return Err("the head returned no row for a one-row batch".into());
         };
         if dh.positions != positions {
-            return Err(format!("the head's gradient is at {:?}, not {positions:?}", dh.positions));
+            return Err(format!(
+                "the head's gradient is at {:?}, not {positions:?}",
+                dh.positions
+            ));
         }
-        let loss = pointer_ce(&scores.start, span.gold_start())? + pointer_ce(&scores.end, span.gold_end())?;
+        let loss = pointer_ce(&scores.start, span.gold_start())?
+            + pointer_ce(&scores.end, span.gold_end())?;
         Ok((loss, dh.rows))
     }
 }
@@ -287,13 +343,26 @@ impl objective::SpanHead for HostSpanHead {
 /// [`PARAMETER_NAMES`] at their shapes, all bare or all under `span_head.` (the export's
 /// prefix); anything else -- another dtype, a missing, extra or misshapen tensor, a mixed
 /// prefix, a non-finite value -- is refused.
-pub fn load_span_head(path: &Path, hidden_size: usize) -> Result<(span_head::SpanHead, String), TrainError> {
+pub fn load_span_head(
+    path: &Path,
+    hidden_size: usize,
+) -> Result<(span_head::SpanHead, String), TrainError> {
     let at = path.display().to_string();
-    let file = SafeTensorsFile::open(path).map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
-    let sha = hex(&file.sha256().map_err(|e| TrainError::Refused(format!("{at}: {e}")))?);
+    let file =
+        SafeTensorsFile::open(path).map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
+    let sha = hex(&file
+        .sha256()
+        .map_err(|e| TrainError::Refused(format!("{at}: {e}")))?);
     let names: Vec<&String> = file.tensors().keys().collect();
-    let prefix = if names.iter().all(|n| n.starts_with("span_head.")) { "span_head." } else { "" };
-    let want: Vec<String> = PARAMETER_NAMES.iter().map(|n| format!("{prefix}{n}")).collect();
+    let prefix = if names.iter().all(|n| n.starts_with("span_head.")) {
+        "span_head."
+    } else {
+        ""
+    };
+    let want: Vec<String> = PARAMETER_NAMES
+        .iter()
+        .map(|n| format!("{prefix}{n}"))
+        .collect();
     let mut have: Vec<String> = names.iter().map(|n| (*n).clone()).collect();
     have.sort();
     let mut sorted_want = want.clone();
@@ -309,22 +378,34 @@ pub fn load_span_head(path: &Path, hidden_size: usize) -> Result<(span_head::Spa
     for (name, shape) in want.iter().zip([vec![h, h], vec![h, h], vec![h], vec![h]]) {
         let info = &file.tensors()[name];
         if info.dtype != Dtype::F32 || info.shape != shape {
-            return refuse(format!("{at}: {name} is {:?} {:?}, not f32 {shape:?}", info.dtype, info.shape));
+            return refuse(format!(
+                "{at}: {name} is {:?} {:?}, not f32 {shape:?}",
+                info.dtype, info.shape
+            ));
         }
         let mut bytes = vec![0u8; shape.iter().product::<usize>() * 4];
         file.read_tensor_range(info, 0, &mut bytes)
             .map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
-        let v: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
+        let v: Vec<f32> = bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
+            .collect();
         if let Some(i) = v.iter().position(|x| !x.is_finite()) {
             return refuse(format!("{at}: {name}[{i}] = {} is not finite", v[i]));
         }
         out.push(v);
     }
     let mut it = out.into_iter();
-    let (Some(s), Some(e), Some(a_s), Some(a_e)) = (it.next(), it.next(), it.next(), it.next()) else {
-        return refuse(format!("{at}: four tensors were checked but not all were read"));
+    let (Some(s), Some(e), Some(a_s), Some(a_e)) = (it.next(), it.next(), it.next(), it.next())
+    else {
+        return refuse(format!(
+            "{at}: four tensors were checked but not all were read"
+        ));
     };
-    let head = span_head::SpanHead::new(h, s, e, a_s, a_e).map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
+    let head = span_head::SpanHead::new(h, s, e, a_s, a_e)
+        .map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
     Ok((head, sha))
 }
 
@@ -337,12 +418,17 @@ pub fn span_head_content_digest(head: &span_head::SpanHead) -> Result<String, Tr
     let mut refs = Vec::with_capacity(4);
     for (name, values) in head.named() {
         // The two projections are `[H, H]` (`*.weight`), the two abstain vectors `[H]`.
-        let shape: Vec<usize> = if name.ends_with(".weight") { vec![h, h] } else { vec![h] };
+        let shape: Vec<usize> = if name.ends_with(".weight") {
+            vec![h, h]
+        } else {
+            vec![h]
+        };
         let mut bytes = Vec::with_capacity(values.len() * 4);
         for v in values {
             bytes.extend_from_slice(&v.to_le_bytes());
         }
-        let digest = tensor_ref_digest("float32", &shape, 4, &bytes).map_err(|e| TrainError::Refused(format!("span_head.{name}: {e}")))?;
+        let digest = tensor_ref_digest("float32", &shape, 4, &bytes)
+            .map_err(|e| TrainError::Refused(format!("span_head.{name}: {e}")))?;
         refs.push((format!("span_head.{name}"), digest));
     }
     sidecar_digest(&refs).map_err(|e| TrainError::Refused(e.to_string()))
@@ -358,7 +444,11 @@ pub struct HeadInitPin {
 
 /// [`load_span_head`], then refuse unless the file's sha256 and the loaded head's content
 /// digest are both the pinned ones. Returns the head and both digests.
-pub fn load_span_head_pinned(path: &Path, hidden_size: usize, pin: &HeadInitPin) -> Result<(span_head::SpanHead, String, String), TrainError> {
+pub fn load_span_head_pinned(
+    path: &Path,
+    hidden_size: usize,
+    pin: &HeadInitPin,
+) -> Result<(span_head::SpanHead, String, String), TrainError> {
     let (head, sha) = load_span_head(path, hidden_size)?;
     let content = span_head_content_digest(&head)?;
     let mut wrong = Vec::new();
@@ -366,7 +456,10 @@ pub fn load_span_head_pinned(path: &Path, hidden_size: usize, pin: &HeadInitPin)
         wrong.push(format!("file sha256 {sha}, pinned {}", pin.sha256));
     }
     if content != pin.content_digest {
-        wrong.push(format!("content digest {content}, pinned {}", pin.content_digest));
+        wrong.push(format!(
+            "content digest {content}, pinned {}",
+            pin.content_digest
+        ));
     }
     if !wrong.is_empty() {
         return refuse(format!(

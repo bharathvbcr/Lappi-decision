@@ -1,25 +1,31 @@
 //! Safetensors, read and written by hand: an 8-byte little-endian header length, a JSON header
 //! of `{name: {dtype, shape, data_offsets}}`, then the raw little-endian data.
 //!
-//! **Why a reader here as well as in qd-metal.** `qd_metal::safetensors` is the serving loader's
-//! reader, and this crate cannot depend on it: qd-metal links tessl, and tessl links Metal
-//! unconditionally, so the dependency would make this binary unbuildable for the Linux box the
-//! averaged checkpoint lives on. The two readers are kept honest against each other rather than
-//! trusted: `tests/roundtrip.rs` parses every file this crate writes with qd-metal's reader and
-//! requires the same `(name, dtype, shape, offsets)` set. Extracting one tessl-free reader both
-//! crates use is recorded as `GAP-J7-EXPORT-SAFETENSORS-READER-DUPLICATED`.
+//! **The one Rust reader.** `qd_metal::safetensors` is the serving loader's reader, and it is a
+//! thin adapter over [`SafeTensorsFile`] here: header parsing, the header bound and every offset
+//! check live in this module only. The dependency points this way because this crate must stay
+//! tessl-free (tessl links Metal unconditionally, so a dependency on qd-metal would make this
+//! binary unbuildable on the Linux box the averaged checkpoint lives on); qd-metal already
+//! reaches this crate through qd-train, so the edge adds no third-party dependency. The adapter
+//! keeps qd-metal's own three-dtype admission (BF16/F16/F32) and its public API.
+//! `tests/safetensors_adversarial.rs` drives both callers from one JSON case list that the Python
+//! reader (`qd_train.memory.safetensors_header`) is held to as well.
 //!
 //! This reader knows every dtype the format names, so a tensor of a dtype the export refuses is
 //! refused *as a dtype*, by name, rather than failing as an unparseable header.
 //!
-//! **The writer** lays the tensors out back to back, in name order, with no gap: the Python
-//! `safetensors` package refuses a data section with holes or trailing bytes. The only padding is
-//! the format's own: the header is padded with spaces so the data section starts on an 8-byte
-//! boundary. The header string is built here, in a fixed order, rather than by serialising a
-//! JSON map whose key order depends on a feature another workspace crate could turn on: the same
-//! inputs give the same bytes, so a release's hashes are reproducible.
+//! **The writer** lays the tensors out back to back, in name order, with no gap. The reader
+//! requires that same coverage: the first tensor starts at data offset 0, each next tensor
+//! starts where the previous one ends, and the last one ends at the end of the data section.
+//! An empty tensor map is a file only when that section is empty. A repeated JSON object key is
+//! refused at every depth, because `serde_json` would otherwise keep the last value and a weight
+//! file would silently change. The only padding is the format's own: the header is padded with
+//! spaces so the data section starts on an 8-byte boundary. The header string is built here, in
+//! a fixed order, rather than by serialising a JSON map whose key order depends on a feature
+//! another workspace crate could turn on: the same inputs give the same bytes, so a release's
+//! hashes are reproducible.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::os::unix::fs::FileExt;
@@ -30,9 +36,12 @@ use sha2::{Digest, Sha256};
 
 use crate::refusal::{Refusal, RefusalKind, Result};
 
-/// The format's own limit on the header (safetensors spec: 100 MB), the same bound qd-metal
-/// applies.
-pub const MAX_HEADER_BYTES: u64 = 100 * 1024 * 1024;
+/// The bound on the JSON header, in bytes; a longer header is refused before it is read, and the
+/// writer refuses to produce one. 64 MiB is the bound `qd_train.memory.MAX_SAFETENSORS_HEADER_BYTES`
+/// already carries (tested in `python/tests/test_memory.py`). It refuses nothing real: the 2B's
+/// header is ~70 KB, and `MAX_CHECKPOINT_TENSORS` (65,536 tensors) times a ~150-byte entry is
+/// ~10 MB. (The format spec's own ceiling is 100 MB; this is deliberately tighter.)
+pub const MAX_HEADER_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Bytes read per positioned read when streaming a file or a tensor. A multiple of every
 /// element size, so a chunk never splits an element.
@@ -134,7 +143,10 @@ pub struct SafeTensorsFile {
 }
 
 fn bad(path: &Path, msg: impl std::fmt::Display) -> Refusal {
-    Refusal::new(RefusalKind::SourceFormat, format!("{}: {msg}", path.display()))
+    Refusal::new(
+        RefusalKind::SourceFormat,
+        format!("{}: {msg}", path.display()),
+    )
 }
 
 impl SafeTensorsFile {
@@ -142,20 +154,31 @@ impl SafeTensorsFile {
         let file = File::open(path).map_err(|e| Refusal::io(path, e))?;
         let len = file.metadata().map_err(|e| Refusal::io(path, e))?.len();
         if len < 8 {
-            return Err(bad(path, format!("{len} bytes is too short for a header length")));
+            return Err(bad(
+                path,
+                format!("{len} bytes is too short for a header length"),
+            ));
         }
         let mut len_bytes = [0u8; 8];
-        file.read_exact_at(&mut len_bytes, 0).map_err(|e| Refusal::io(path, e))?;
+        file.read_exact_at(&mut len_bytes, 0)
+            .map_err(|e| Refusal::io(path, e))?;
         let header_len = u64::from_le_bytes(len_bytes);
         if header_len == 0 || header_len > MAX_HEADER_BYTES {
-            return Err(bad(path, format!("header length {header_len} is outside (0, {MAX_HEADER_BYTES}]")));
+            return Err(bad(
+                path,
+                format!("header length {header_len} is outside (0, {MAX_HEADER_BYTES}]"),
+            ));
         }
         let data_start = 8 + header_len;
         if data_start > len {
-            return Err(bad(path, format!("header length {header_len} runs past the end of a {len}-byte file")));
+            return Err(bad(
+                path,
+                format!("header length {header_len} runs past the end of a {len}-byte file"),
+            ));
         }
         let mut header = vec![0u8; usize::try_from(header_len).map_err(|e| bad(path, e))?];
-        file.read_exact_at(&mut header, 8).map_err(|e| Refusal::io(path, e))?;
+        file.read_exact_at(&mut header, 8)
+            .map_err(|e| Refusal::io(path, e))?;
         let tensors = parse_header(&header, data_start, len).map_err(|m| bad(path, m))?;
         Ok(Self {
             path: path.to_path_buf(),
@@ -184,9 +207,17 @@ impl SafeTensorsFile {
     /// `dst.len()` bytes of `info`'s data, starting `offset` bytes into the tensor.
     pub fn read_tensor_range(&self, info: &TensorInfo, offset: u64, dst: &mut [u8]) -> Result<()> {
         let n = u64::try_from(dst.len()).map_err(|e| bad(&self.path, e))?;
-        let end = offset.checked_add(n).ok_or_else(|| bad(&self.path, "read range overflows"))?;
+        let end = offset
+            .checked_add(n)
+            .ok_or_else(|| bad(&self.path, "read range overflows"))?;
         if end > info.nbytes() {
-            return Err(bad(&self.path, format!("read of [{offset}, {end}) runs past a {}-byte tensor", info.nbytes())));
+            return Err(bad(
+                &self.path,
+                format!(
+                    "read of [{offset}, {end}) runs past a {}-byte tensor",
+                    info.nbytes()
+                ),
+            ));
         }
         self.file
             .read_exact_at(dst, info.start + offset)
@@ -214,8 +245,127 @@ pub fn sha256_file(path: &Path) -> Result<[u8; 32]> {
     Ok(h.finalize().into())
 }
 
-fn parse_header(header: &[u8], data_start: u64, file_len: u64) -> std::result::Result<BTreeMap<String, TensorInfo>, String> {
-    let root: Value = serde_json::from_slice(header).map_err(|e| format!("header is not JSON: {e}"))?;
+/// Refuse a JSON object that names a key twice, at any depth.
+///
+/// `serde_json::Value` keeps the last value of a repeated key. `bytes` is already valid JSON, so
+/// the scan only tracks nesting and strings. Copied from `qd-prep`'s config scanner: that crate
+/// does not depend on this one, and this one does not depend on qd-prep.
+fn reject_duplicate_keys(bytes: &[u8]) -> std::result::Result<(), String> {
+    struct Frame {
+        object: bool,
+        expect_key: bool,
+        seen: BTreeSet<String>,
+    }
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => stack.push(Frame {
+                object: true,
+                expect_key: true,
+                seen: BTreeSet::new(),
+            }),
+            b'[' => stack.push(Frame {
+                object: false,
+                expect_key: false,
+                seen: BTreeSet::new(),
+            }),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            b',' => {
+                if let Some(frame) = stack.last_mut() {
+                    frame.expect_key = frame.object;
+                }
+            }
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                if let Some(frame) = stack.last_mut()
+                    && frame.object
+                    && frame.expect_key
+                {
+                    let quoted = &bytes[start..=i.min(bytes.len() - 1)];
+                    let key: String = serde_json::from_slice(quoted)
+                        .map_err(|e| format!("duplicate-key scan: {e}"))?;
+                    if !frame.seen.insert(key.clone()) {
+                        return Err(format!("duplicate key {key:?}"));
+                    }
+                    frame.expect_key = false;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
+/// The data section is one contiguous span: offset 0 through `file_len`, no holes.
+///
+/// An empty tensor map covers only an empty data section. Touching edges are contiguous,
+/// including two zero-length tensors at the same cursor. Overlap keeps its own words so a
+/// file that shares a byte is not reported as a gap.
+fn require_coverage(
+    tensors: &BTreeMap<String, TensorInfo>,
+    data_start: u64,
+    file_len: u64,
+) -> std::result::Result<(), String> {
+    let data_len = file_len - data_start;
+    if tensors.is_empty() {
+        return if data_len == 0 {
+            Ok(())
+        } else {
+            Err("data section is not covered".to_string())
+        };
+    }
+    let mut ranges: Vec<(&str, u64, u64)> = tensors
+        .iter()
+        .map(|(name, tensor)| (name.as_str(), tensor.start, tensor.end))
+        .collect();
+    ranges.sort_by_key(|range| (range.1, range.2));
+    let first = ranges[0];
+    if first.1 != data_start {
+        return Err(format!(
+            "tensor {} starts at offset {}, not 0",
+            first.0,
+            first.1 - data_start
+        ));
+    }
+    for window in ranges.windows(2) {
+        if window[1].1 < window[0].2 {
+            return Err(format!(
+                "tensors {} and {} overlap",
+                window[0].0, window[1].0
+            ));
+        }
+        if window[1].1 > window[0].2 {
+            return Err(format!(
+                "gap between tensors {} and {}",
+                window[0].0, window[1].0
+            ));
+        }
+    }
+    let last = ranges[ranges.len() - 1];
+    if last.2 != file_len {
+        return Err("data section is not covered".to_string());
+    }
+    Ok(())
+}
+
+fn parse_header(
+    header: &[u8],
+    data_start: u64,
+    file_len: u64,
+) -> std::result::Result<BTreeMap<String, TensorInfo>, String> {
+    let root: Value =
+        serde_json::from_slice(header).map_err(|e| format!("header is not JSON: {e}"))?;
+    // Before the object check, so a duplicate key nested in a non-object fails the same way
+    // the Python reader fails: its parser sees the repeated key while it is still parsing.
+    reject_duplicate_keys(header)?;
     let obj = root.as_object().ok_or("header is not a JSON object")?;
     let data_len = file_len - data_start;
     let mut tensors = BTreeMap::new();
@@ -227,7 +377,9 @@ fn parse_header(header: &[u8], data_start: u64, file_len: u64) -> std::result::R
             .get("dtype")
             .and_then(Value::as_str)
             .ok_or_else(|| format!("{name}: no dtype"))?;
-        let dtype = Dtype::parse(dtype_s).ok_or_else(|| format!("{name}: dtype {dtype_s:?} is not a safetensors dtype this reader knows"))?;
+        let dtype = Dtype::parse(dtype_s).ok_or_else(|| {
+            format!("{name}: dtype {dtype_s:?} is not a safetensors dtype this reader knows")
+        })?;
         let shape = entry
             .get("shape")
             .and_then(Value::as_array)
@@ -244,14 +396,21 @@ fn parse_header(header: &[u8], data_start: u64, file_len: u64) -> std::result::R
             .and_then(Value::as_array)
             .ok_or_else(|| format!("{name}: no data_offsets"))?;
         let [b, e] = offsets.as_slice() else {
-            return Err(format!("{name}: data_offsets has {} entries, not 2", offsets.len()));
+            return Err(format!(
+                "{name}: data_offsets has {} entries, not 2",
+                offsets.len()
+            ));
         };
         let (b, e) = (
-            b.as_u64().ok_or_else(|| format!("{name}: data_offsets[0] is not a u64"))?,
-            e.as_u64().ok_or_else(|| format!("{name}: data_offsets[1] is not a u64"))?,
+            b.as_u64()
+                .ok_or_else(|| format!("{name}: data_offsets[0] is not a u64"))?,
+            e.as_u64()
+                .ok_or_else(|| format!("{name}: data_offsets[1] is not a u64"))?,
         );
         if e < b || e > data_len {
-            return Err(format!("{name}: data_offsets [{b}, {e}) do not fit the {data_len}-byte data section"));
+            return Err(format!(
+                "{name}: data_offsets [{b}, {e}) do not fit the {data_len}-byte data section"
+            ));
         }
         let numel = shape
             .iter()
@@ -277,13 +436,7 @@ fn parse_header(header: &[u8], data_start: u64, file_len: u64) -> std::result::R
             },
         );
     }
-    let mut ranges: Vec<(&str, u64, u64)> = tensors.iter().map(|(n, t)| (n.as_str(), t.start, t.end)).collect();
-    ranges.sort_by_key(|r| (r.1, r.2));
-    for w in ranges.windows(2) {
-        if w[1].1 < w[0].2 {
-            return Err(format!("tensors {} and {} overlap", w[0].0, w[1].0));
-        }
-    }
+    require_coverage(&tensors, data_start, file_len)?;
     Ok(tensors)
 }
 
@@ -299,7 +452,10 @@ pub struct PlannedTensor {
 
 impl PlannedTensor {
     fn nbytes(&self) -> Option<u64> {
-        let numel = self.shape.iter().try_fold(1usize, |acc, &d| acc.checked_mul(d))?;
+        let numel = self
+            .shape
+            .iter()
+            .try_fold(1usize, |acc, &d| acc.checked_mul(d))?;
         u64::try_from(numel.checked_mul(self.dtype.size())?).ok()
     }
 }
@@ -324,7 +480,9 @@ pub fn header_bytes(plan: &[PlannedTensor]) -> std::result::Result<(Vec<u8>, Dat
     let mut offsets = Vec::with_capacity(plan.len());
     let mut at = 0u64;
     for t in plan {
-        let n = t.nbytes().ok_or_else(|| format!("{}: byte size overflows", t.name))?;
+        let n = t
+            .nbytes()
+            .ok_or_else(|| format!("{}: byte size overflows", t.name))?;
         let end = at.checked_add(n).ok_or("data section overflows u64")?;
         let name = serde_json::to_string(&t.name).map_err(|e| format!("{}: {e}", t.name))?;
         let shape: Vec<String> = t.shape.iter().map(usize::to_string).collect();
@@ -414,7 +572,9 @@ impl Writer {
     }
 
     fn emit(&mut self, bytes: &[u8]) -> Result<()> {
-        self.out.write_all(bytes).map_err(|e| Refusal::io(&self.path, e))?;
+        self.out
+            .write_all(bytes)
+            .map_err(|e| Refusal::io(&self.path, e))?;
         self.file_hash.update(bytes);
         self.bytes += u64::try_from(bytes.len()).map_err(|e| werr(&self.path, e))?;
         Ok(())
@@ -422,13 +582,25 @@ impl Writer {
 
     pub fn begin(&mut self, name: &str) -> Result<()> {
         if self.open {
-            return Err(werr(&self.path, format!("begin({name}) while {} is still open", self.plan[self.cur].0.name)));
+            return Err(werr(
+                &self.path,
+                format!(
+                    "begin({name}) while {} is still open",
+                    self.plan[self.cur].0.name
+                ),
+            ));
         }
         let Some((next, _)) = self.plan.get(self.cur) else {
-            return Err(werr(&self.path, format!("begin({name}) after every planned tensor was written")));
+            return Err(werr(
+                &self.path,
+                format!("begin({name}) after every planned tensor was written"),
+            ));
         };
         if next.name != name {
-            return Err(werr(&self.path, format!("begin({name}) but the next planned tensor is {}", next.name)));
+            return Err(werr(
+                &self.path,
+                format!("begin({name}) but the next planned tensor is {}", next.name),
+            ));
         }
         self.open = true;
         self.cur_written = 0;
@@ -443,7 +615,14 @@ impl Writer {
         let n = u64::try_from(bytes.len()).map_err(|e| werr(&self.path, e))?;
         let (t, want) = &self.plan[self.cur];
         if self.cur_written + n > *want {
-            return Err(werr(&self.path, format!("{}: {} bytes written past its {want}", t.name, self.cur_written + n)));
+            return Err(werr(
+                &self.path,
+                format!(
+                    "{}: {} bytes written past its {want}",
+                    t.name,
+                    self.cur_written + n
+                ),
+            ));
         }
         self.cur_hash.update(bytes);
         self.cur_written += n;
@@ -457,7 +636,10 @@ impl Writer {
         }
         let (t, want) = &self.plan[self.cur];
         if self.cur_written != *want {
-            return Err(werr(&self.path, format!("{}: {} of {want} bytes written", t.name, self.cur_written)));
+            return Err(werr(
+                &self.path,
+                format!("{}: {} of {want} bytes written", t.name, self.cur_written),
+            ));
         }
         let digest: [u8; 32] = std::mem::take(&mut self.cur_hash).finalize().into();
         self.digests.push((t.name.clone(), digest));
@@ -471,11 +653,18 @@ impl Writer {
         if self.open || self.cur != self.plan.len() {
             return Err(werr(
                 &self.path,
-                format!("finished with {} of {} tensors written", self.digests.len(), self.plan.len()),
+                format!(
+                    "finished with {} of {} tensors written",
+                    self.digests.len(),
+                    self.plan.len()
+                ),
             ));
         }
         let path = self.path;
-        let file = self.out.into_inner().map_err(|e| Refusal::io(&path, e.error()))?;
+        let file = self
+            .out
+            .into_inner()
+            .map_err(|e| Refusal::io(&path, e.error()))?;
         file.sync_all().map_err(|e| Refusal::io(&path, e))?;
         Ok(WrittenFile {
             sha256: self.file_hash.finalize().into(),
@@ -503,7 +692,8 @@ pub(crate) mod tests {
     impl Drop for TempPath {
         fn drop(&mut self) {
             // A leftover temp file only costs disk; the test already has its answer.
-            let _ignored = std::fs::remove_file(&self.0).or_else(|_| std::fs::remove_dir_all(&self.0));
+            let _ignored =
+                std::fs::remove_file(&self.0).or_else(|_| std::fs::remove_dir_all(&self.0));
         }
     }
 
@@ -519,8 +709,16 @@ pub(crate) mod tests {
     #[test]
     fn header_is_padded_to_eight_and_tensors_are_contiguous_in_name_order() {
         let plan = vec![
-            PlannedTensor { name: "a".into(), dtype: Dtype::Bf16, shape: vec![3] },
-            PlannedTensor { name: "b".into(), dtype: Dtype::F32, shape: vec![2, 1] },
+            PlannedTensor {
+                name: "a".into(),
+                dtype: Dtype::Bf16,
+                shape: vec![3],
+            },
+            PlannedTensor {
+                name: "b".into(),
+                dtype: Dtype::F32,
+                shape: vec![2, 1],
+            },
         ];
         let (h, offs) = header_bytes(&plan).unwrap();
         assert_eq!(h.len() % 8, 0, "8 + header length must be a multiple of 8");
@@ -537,8 +735,16 @@ pub(crate) mod tests {
     fn writer_round_trips_through_the_reader_and_enforces_the_plan() {
         let p = TempPath::new("w");
         let plan = vec![
-            PlannedTensor { name: "z".into(), dtype: Dtype::F32, shape: vec![2] },
-            PlannedTensor { name: "a".into(), dtype: Dtype::Bf16, shape: vec![1, 3] },
+            PlannedTensor {
+                name: "z".into(),
+                dtype: Dtype::F32,
+                shape: vec![2],
+            },
+            PlannedTensor {
+                name: "a".into(),
+                dtype: Dtype::Bf16,
+                shape: vec![1, 3],
+            },
         ];
         let mut w = Writer::create(&p.0, plan).unwrap();
         assert_eq!(w.order()[0].name, "a", "written in name order");
@@ -560,7 +766,10 @@ pub(crate) mod tests {
 
         let st = SafeTensorsFile::open(&p.0).unwrap();
         let a = &st.tensors()["a"];
-        assert_eq!((a.dtype, a.shape.clone(), a.nbytes()), (Dtype::Bf16, vec![1, 3], 6));
+        assert_eq!(
+            (a.dtype, a.shape.clone(), a.nbytes()),
+            (Dtype::Bf16, vec![1, 3], 6)
+        );
         let mut buf = [0u8; 6];
         st.read_tensor_range(a, 0, &mut buf).unwrap();
         assert_eq!(buf, [1, 2, 3, 4, 5, 6]);
@@ -577,7 +786,11 @@ pub(crate) mod tests {
     #[test]
     fn a_writer_that_is_not_finished_says_so() {
         let p = TempPath::new("unfinished");
-        let plan = vec![PlannedTensor { name: "a".into(), dtype: Dtype::U8, shape: vec![1] }];
+        let plan = vec![PlannedTensor {
+            name: "a".into(),
+            dtype: Dtype::U8,
+            shape: vec![1],
+        }];
         let w = Writer::create(&p.0, plan).unwrap();
         assert!(w.finish().unwrap_err().detail.contains("0 of 1"));
     }
@@ -587,15 +800,31 @@ pub(crate) mod tests {
         let cases: [(&str, usize, &str); 7] = [
             ("not json", 0, "not JSON"),
             ("[1]", 0, "not a JSON object"),
-            (r#"{"a":{"dtype":"Q7","shape":[1],"data_offsets":[0,1]}}"#, 1, "dtype \"Q7\""),
-            (r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}"#, 8, "span 4"),
-            (r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#, 4, "do not fit"),
+            (
+                r#"{"a":{"dtype":"Q7","shape":[1],"data_offsets":[0,1]}}"#,
+                1,
+                "dtype \"Q7\"",
+            ),
+            (
+                r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}"#,
+                8,
+                "span 4",
+            ),
+            (
+                r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#,
+                4,
+                "do not fit",
+            ),
             (
                 r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},"b":{"dtype":"F32","shape":[1],"data_offsets":[2,6]}}"#,
                 8,
                 "overlap",
             ),
-            (r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0]}}"#, 4, "not 2"),
+            (
+                r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0]}}"#,
+                4,
+                "not 2",
+            ),
         ];
         for (header, data_len, needle) in cases {
             let f = write_raw(header, &vec![0u8; data_len]);
@@ -604,7 +833,122 @@ pub(crate) mod tests {
             assert!(err.detail.contains(needle), "{needle:?} not in {err:?}");
         }
         // Every dtype the format names parses, so an unwanted one is refused as a dtype later.
-        let f = write_raw(r#"{"a":{"dtype":"I64","shape":[1],"data_offsets":[0,8]}}"#, &[0u8; 8]);
-        assert_eq!(SafeTensorsFile::open(&f.0).unwrap().tensors()["a"].dtype, Dtype::I64);
+        let f = write_raw(
+            r#"{"a":{"dtype":"I64","shape":[1],"data_offsets":[0,8]}}"#,
+            &[0u8; 8],
+        );
+        assert_eq!(
+            SafeTensorsFile::open(&f.0).unwrap().tensors()["a"].dtype,
+            Dtype::I64
+        );
+    }
+
+    #[test]
+    fn reader_refuses_gaps_trailing_bytes_and_duplicate_keys() {
+        let cases: [(&str, &[u8], &str); 8] = [
+            (
+                r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},"b":{"dtype":"F32","shape":[1],"data_offsets":[8,12]}}"#,
+                &[0u8; 12],
+                "gap",
+            ),
+            (
+                r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}"#,
+                &[0u8; 8],
+                "not covered",
+            ),
+            (
+                r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[4,8]}}"#,
+                &[0u8; 8],
+                "not 0",
+            ),
+            ("{}", &[0u8; 16], "not covered"),
+            (r#"{"__metadata__":{"x":1}}"#, &[0u8; 4], "not covered"),
+            (
+                r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}"#,
+                &[0u8; 4],
+                "duplicate",
+            ),
+            (
+                "{\"a\\\"b\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]},\"a\\\"b\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+                &[0u8; 4],
+                "duplicate",
+            ),
+            (
+                "{\"\\u00e9\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]},\"é\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}",
+                &[0u8; 4],
+                "duplicate",
+            ),
+        ];
+        for (header, data, needle) in cases {
+            let f = write_raw(header, data);
+            let err = SafeTensorsFile::open(&f.0).err().expect(needle);
+            assert!(err.detail.contains(needle), "{needle:?} not in {err:?}");
+        }
+    }
+
+    #[test]
+    fn an_empty_archive_is_accepted() {
+        let f = write_raw("{}", b"");
+        let st = SafeTensorsFile::open(&f.0).unwrap();
+        assert!(st.is_empty());
+        assert_eq!(st.len(), 10);
+    }
+
+    #[test]
+    fn a_non_ascii_path_is_named_in_the_refusal() {
+        let path = TempPath::new("权重");
+        let header = "{}";
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(&[0, 1, 2, 3]);
+        std::fs::write(&path.0, bytes).unwrap();
+        let err = SafeTensorsFile::open(&path.0)
+            .err()
+            .expect("uncovered data");
+        assert!(err.detail.contains("权重"), "{err:?}");
+        assert!(err.detail.contains("not covered"), "{err:?}");
+    }
+
+    #[test]
+    fn contiguous_layouts_open_and_one_extra_byte_does_not() {
+        // A fixed LCG, so the cases do not depend on the clock. Sizes include 0: an empty
+        // span sits on the cursor and is still contiguous.
+        let mut state: u64 = 0x00C0_FFEE;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            state
+        };
+        for _ in 0..40 {
+            let count = (next() % 5) + 1;
+            let mut at = 0usize;
+            let mut body = String::from("{");
+            for index in 0..count {
+                let (dtype, shape, span) = match next() % 4 {
+                    0 => ("U8", "[0]", 0usize),
+                    1 => ("U8", "[1]", 1),
+                    2 => ("F32", "[1]", 4),
+                    _ => ("I64", "[1]", 8),
+                };
+                if index > 0 {
+                    body.push(',');
+                }
+                let end = at + span;
+                body.push_str(&format!(
+                    "\"t{index}\":{{\"dtype\":\"{dtype}\",\"shape\":{shape},\"data_offsets\":[{at},{end}]}}"
+                ));
+                at = end;
+            }
+            body.push('}');
+            let file = write_raw(&body, &vec![0u8; at]);
+            SafeTensorsFile::open(&file.0).unwrap_or_else(|err| panic!("{body}: {err}"));
+            let mut raw = std::fs::read(&file.0).unwrap();
+            raw.push(0);
+            let holed = TempPath::new("hole");
+            std::fs::write(&holed.0, &raw).unwrap();
+            let err = SafeTensorsFile::open(&holed.0).err().expect("extra byte");
+            assert!(err.detail.contains("not covered"), "{body}: {err:?}");
+        }
     }
 }

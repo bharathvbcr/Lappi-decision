@@ -20,12 +20,10 @@ mod common;
 
 use common::{Behaviour, Wrapped};
 use qd_runtime::answer::readonly_decode;
-use qd_runtime::backend::{
-    DecisionBackend, DecodeMode, QueryKind, SlotIsolationCheck, SlotQuery,
-};
+use qd_runtime::backend::{DecisionBackend, DecodeMode, QueryKind, SlotIsolationCheck, SlotQuery};
 use qd_runtime::reference::ReferenceBackend;
 use qd_runtime::refusal::BackendError;
-use qd_runtime::render::{render, RenderCaps};
+use qd_runtime::render::{RenderCaps, render};
 use qd_runtime::schema::{CallerReading, Response};
 use serde_json::json;
 

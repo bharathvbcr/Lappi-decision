@@ -155,7 +155,10 @@ fn two_runs_of_one_seed_produce_byte_identical_output_and_the_same_hash() {
     let (jsonl_a, manifest_a, digest_a) = generate(&dir, &pool, "a", "20260919");
     let (jsonl_b, manifest_b, digest_b) = generate(&dir, &pool, "b", "20260919");
 
-    assert!(!jsonl_a.trim().is_empty(), "the run produced no examples at all");
+    assert!(
+        !jsonl_a.trim().is_empty(),
+        "the run produced no examples at all"
+    );
     assert_eq!(digest_a, digest_b, "the two runs printed different digests");
     assert_eq!(jsonl_a, jsonl_b, "the two runs wrote different examples");
     assert_eq!(
@@ -263,7 +266,10 @@ fn a_limit_is_honoured_and_an_unreadable_pool_is_a_failure_not_an_empty_run() {
         .output()
         .expect("runs");
     assert!(status.status.success());
-    let lines = std::fs::read_to_string(&out).expect("examples").lines().count();
+    let lines = std::fs::read_to_string(&out)
+        .expect("examples")
+        .lines()
+        .count();
     assert!(lines <= 2, "--limit 2 produced {lines} lines");
 
     // A pool that is not there must fail loudly rather than write an empty snapshot.
@@ -285,5 +291,8 @@ fn a_limit_is_honoured_and_an_unreadable_pool_is_a_failure_not_an_empty_run() {
         !missing.status.success(),
         "a missing pool must not exit zero with an empty output file"
     );
-    assert!(!dir.join("x.jsonl").exists(), "an empty snapshot was written anyway");
+    assert!(
+        !dir.join("x.jsonl").exists(),
+        "an empty snapshot was written anyway"
+    );
 }

@@ -1,0 +1,35 @@
+{
+  "name": "v6-averaging",
+  "recorded": "2026-10-12, before any v6 average exists or is scored (no v6 training run has produced a checkpoint; no v6 number has been read).",
+  "status": "pre-registration of the span-head rule of v6's averaged rows. The averaged row is a release candidate only; average_may_promote stays false (docs/promotion-decisions.json).",
+  "design_by": "AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md R7 and R8 (Fable, 2026-10-08); AUDIT/board-sweep-2026-10-12/fable-board-sweep-ruling.md ruling 2g. Closes ft-bebe98461d1 criterion 3.",
+  "why": "v5's five-seed average beat every seed on the tower metrics and collapsed span (0.773 against 0.907-0.915) because the seeds' span heads were near-orthogonal and their mean is 1/sqrt(5) of a head (GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06). v6 starts every seed from one shared span-head init (R7), then averages the tower.",
+  "inputs": "v6 seeds 0, 1 and 2 at their final optimizer step, one checkpoint per seed, each with its completed ft ledger row; every seed's ft row records recipe.span_head_init.shared = true.",
+  "rows": {
+    "primary": {
+      "what": "the averaged tower plus the averaged span head",
+      "command": "python tools/ckpt_average.py --from masters --ft-row-ids <3 ft rows> --out <avg>.safetensors <3 checkpoints>",
+      "manifest_must_say": "span_head_source.mode == 'averaged'"
+    },
+    "fallback": {
+      "what": "the averaged tower plus seed 0's span head",
+      "command": "python tools/ckpt_average.py --from masters --span-head-seed 0 --v6-run --ft-ledger <ledger> --ft-row-ids <3 ft rows> --out <avg-seed0head>.safetensors <3 checkpoints>",
+      "manifest_must_say": "span_head_source.mode == 'seed', seed 0, and span_head_source.init.shared == true (read by ckpt_average from the selected seed's ft row; a row recording no shared init is refused, not trusted)"
+    },
+    "both_fixed_before_scoring": "Both rows are named here before either is scored. Neither is chosen after a score is read."
+  },
+  "reading_rule": "Which row is served is not decided here: R7 names the two rows and R8's reading rule governs them, unchanged (this file adds no threshold; rule 2). The rows are never pooled: they differ in span_head_source, which the scored row's averaged block carries.",
+  "tower": "--from masters (fp32 masters, float64 mean, one cast). --norm-preserving is not part of this registration.",
+  "refusals_relied_on": [
+    "--span-head-seed refuses no or several inputs of that seed",
+    "--span-head-seed refuses --same-seed-trajectory",
+    "a v6 run (--v6-run, or any input's row records a shared init) refuses a selected seed whose ft row records a non-shared init or none"
+  ],
+  "not_decided_here": [
+    "the guard thresholds (R8's, unchanged)",
+    "whether the averaged row is released (a human decision)",
+    "refit heads (span-refit-mac-preregistered.json; ckpt_average offers no option for them)"
+  ],
+  "amendments": [],
+  "committed_by": "fix lane lane4-lora-ckpt, round 2, 2026-10-12, from R7/R8 as written; no average exists."
+}

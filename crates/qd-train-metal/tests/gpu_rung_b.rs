@@ -18,10 +18,12 @@
 //! * `grads_step0`: report-only at this rung, and not measured by this file (the loop does not
 //!   expose the bank before the update).
 //!
-//! **Not runnable yet, and failing rather than passing when tried:** the reference trains
-//! layers 0-1 at 0.1x, and tessl has no per-entry learning rate. The loop refuses the recipe
-//! before the clock starts (`supports_lr_scale` is false), so the two parity tests fail with
-//! that refusal until tessl's `lr_scale` lands. They never pass vacuously. The single-group
+//! **Not yet run through the adapter's per-entry learning rate:** the reference trains layers
+//! 0-1 at 0.1x, and the provider now passes the loop's `lr_scale` vector to ojas-qwen35's plan
+//! (`supports_lr_scale` is true; board-sweep ruling 2h), so the parity tests below are
+//! runnable. They are `#[ignore]` (GPU) and have not been run against this path: a pass
+//! here is the first measurement, and a recipe the provider refused would fail, never pass
+//! vacuously. The single-group
 //! arm runs today as a **smoke test, not a parity test**: it uses one learning rate, so it is
 //! a different recipe from the reference. It checks only that the run completes with finite
 //! losses and repeats bit for bit, and it prints its distance from the reference for
@@ -55,11 +57,13 @@ use qd_train::recipe::{self, LowerLayers, OptimizerRecipe};
 use qd_train::run_control::{MonotonicClock, WallClockCap};
 use qd_train::schedule::LrSchedule;
 use qd_train::step::StepProvider;
-use qd_train::trainer::{train, HostParams, Hooks, Termination, TrainConfig, TrainError, TrainResult};
+use qd_train::trainer::{
+    Hooks, HostParams, Termination, TrainConfig, TrainError, TrainResult, train,
+};
 use qd_train_metal::args::Operands;
 use qd_train_metal::provider::Qwen35Provider;
 use serde_json::Value;
-use tiny_published::{dir, init_head, json, tensors, Sequences};
+use tiny_published::{Sequences, dir, init_head, json, tensors};
 
 const TOWER_PREFIX: &str = "model.language_model.";
 
@@ -75,12 +79,18 @@ fn recipe_lower() -> LowerLayers {
     assert_eq!(r["lr"].as_f64(), Some(1e-5));
     assert_eq!(r["span_weight"].as_f64(), Some(1.0));
     assert_eq!(r["max_grad_norm"].as_f64(), Some(recipe::MAX_GRAD_NORM));
-    assert_eq!(r["train_attention_mask"], "none", "tessl's step is unpadded");
+    assert_eq!(
+        r["train_attention_mask"], "none",
+        "tessl's step is unpadded"
+    );
     let s = &r["schedule"];
     let ours = LrSchedule::real_ft(1e-5, 20).unwrap();
     assert_eq!(s["total_steps"].as_u64(), Some(ours.total_steps()));
     assert_eq!(s["warmup_steps"].as_u64(), Some(ours.warmup_steps()));
-    assert_eq!(s["min_lr"].as_f64().map(f64::to_bits), Some(ours.min_lr().to_bits()));
+    assert_eq!(
+        s["min_lr"].as_f64().map(f64::to_bits),
+        Some(ours.min_lr().to_bits())
+    );
     assert_eq!(s["grad_accum"].as_u64(), Some(1));
     LowerLayers {
         n: r["lower_layers_n"].as_u64().unwrap() as usize,
@@ -90,15 +100,22 @@ fn recipe_lower() -> LowerLayers {
 
 /// The clip of arm `arm`, read from its manifest entry.
 fn arm_max_grad_norm(arm: &str) -> f64 {
-    json("manifest.json")["arms"][arm]["max_grad_norm"].as_f64().unwrap_or_else(|| panic!("arm {arm}: max_grad_norm"))
+    json("manifest.json")["arms"][arm]["max_grad_norm"]
+        .as_f64()
+        .unwrap_or_else(|| panic!("arm {arm}: max_grad_norm"))
 }
 
 fn run(operands: Operands, lower: Option<LowerLayers>) -> Result<Run, TrainError> {
     run_clipped(operands, lower, recipe::MAX_GRAD_NORM)
 }
 
-fn run_clipped(operands: Operands, lower: Option<LowerLayers>, max_grad_norm: f64) -> Result<Run, TrainError> {
-    let snap = Snapshot::from_files(&dir().join("config.json"), &dir().join("init.safetensors")).unwrap();
+fn run_clipped(
+    operands: Operands,
+    lower: Option<LowerLayers>,
+    max_grad_norm: f64,
+) -> Result<Run, TrainError> {
+    let snap =
+        Snapshot::from_files(&dir().join("config.json"), &dir().join("init.safetensors")).unwrap();
     let mut p = Qwen35Provider::open(&snap, operands).unwrap();
     let mut o: LetterSpanObjective<RealBatch, HostSpanHead> =
         LetterSpanObjective::new(HostSpanHead::new(init_head()).unwrap(), 1.0).unwrap();
@@ -113,12 +130,21 @@ fn run_clipped(operands: Operands, lower: Option<LowerLayers>, max_grad_norm: f6
         },
         max_grad_norm,
         epoch: 0,
+        epochs: 1,
         seed: 0,
         checkpoint: None,
         eta: None,
     };
     let source = Sequences::load().batches().into_iter().map(RealBatch::new);
-    let result = train(&mut p, &mut o, source, &cfg, &MonotonicClock::new(), None, &mut Hooks::default())?;
+    let result = train(
+        &mut p,
+        &mut o,
+        source,
+        &cfg,
+        &MonotonicClock::new(),
+        None,
+        &mut Hooks::default(),
+    )?;
     assert_eq!(result.termination, Termination::StepsExhausted);
     assert_eq!(result.optimizer_steps, 20);
     let mut weights = BTreeMap::new();
@@ -133,7 +159,10 @@ fn run_clipped(operands: Operands, lower: Option<LowerLayers>, max_grad_norm: f6
 }
 
 fn trajectory(arm: &str) -> Vec<Value> {
-    json(&format!("{arm}/trajectory.json")).as_array().unwrap().clone()
+    json(&format!("{arm}/trajectory.json"))
+        .as_array()
+        .unwrap()
+        .clone()
 }
 
 fn max_abs(v: &[f32]) -> f64 {
@@ -142,7 +171,9 @@ fn max_abs(v: &[f32]) -> f64 {
 
 fn max_diff(a: &[f32], b: &[f32]) -> f64 {
     assert_eq!(a.len(), b.len());
-    a.iter().zip(b).fold(0.0f64, |m, (x, y)| m.max((f64::from(*x) - f64::from(*y)).abs()))
+    a.iter().zip(b).fold(0.0f64, |m, (x, y)| {
+        m.max((f64::from(*x) - f64::from(*y)).abs())
+    })
 }
 
 /// Per-step loss against `arm`'s trajectory: prints every step and returns the worst relative
@@ -154,7 +185,10 @@ fn losses_vs(run: &Run, arm: &str) -> (f64, f64) {
     for (s, (want, got)) in t.iter().zip(&run.result.steps).enumerate() {
         let w = want["loss_total"].as_f64().unwrap();
         let rel = (got.loss - w).abs() / w.abs();
-        println!("  step {s:2}: rust {:.9} {arm} {w:.9} rel {rel:.3e}", got.loss);
+        println!(
+            "  step {s:2}: rust {:.9} {arm} {w:.9} rel {rel:.3e}",
+            got.loss
+        );
         if s <= 5 {
             early = early.max(rel);
         }
@@ -184,7 +218,11 @@ fn final_weights(run: &Run, arm: &str) -> (f64, String) {
         let d = max_diff(got, want);
         let own = max_abs(want);
         let disp = max_diff(want, &init[name].1);
-        let denom = if name.starts_with("span_head.") { head_max } else { own };
+        let denom = if name.starts_with("span_head.") {
+            head_max
+        } else {
+            own
+        };
         let gated = d / denom;
         println!(
             "  {name}: |rust-ref| {d:.3e}  /own max {:.3e}  /displacement {:.3e}  gated {gated:.3e}",
@@ -199,7 +237,10 @@ fn final_weights(run: &Run, arm: &str) -> (f64, String) {
 }
 
 fn bits(run: &Run) -> BTreeMap<&String, Vec<u32>> {
-    run.weights.iter().map(|(n, v)| (n, v.iter().map(|x| x.to_bits()).collect())).collect()
+    run.weights
+        .iter()
+        .map(|(n, v)| (n, v.iter().map(|x| x.to_bits()).collect()))
+        .collect()
 }
 
 /// CPU only, and run by `cargo test`: what the GPU tests read is checked before the GPU
@@ -210,13 +251,22 @@ fn rung_b_recipe_and_head_are_the_ones_this_file_trains() {
     let lower = recipe_lower();
     assert_eq!((lower.n, lower.lr_scale), (2, 0.1));
     let cfg = json("config.json");
-    assert_eq!(init_head().hidden_size() as u64, cfg["text_config"]["hidden_size"].as_u64().unwrap());
+    assert_eq!(
+        init_head().hidden_size() as u64,
+        cfg["text_config"]["hidden_size"].as_u64().unwrap()
+    );
     // The clip-150 arm is F's recipe with only the clip changed, and both clip branches run.
     let m = json("manifest.json");
     assert_eq!(arm_max_grad_norm("fp32"), recipe::MAX_GRAD_NORM);
     assert_eq!(arm_max_grad_norm("fp32_clip150"), 150.0);
-    let inactive = m["arms"]["fp32_clip150"]["clip_inactive_steps"].as_array().expect("clip_inactive_steps").len();
-    assert!(inactive > 0 && inactive < 20, "{inactive} of 20 steps unclipped");
+    let inactive = m["arms"]["fp32_clip150"]["clip_inactive_steps"]
+        .as_array()
+        .expect("clip_inactive_steps")
+        .len();
+    assert!(
+        inactive > 0 && inactive < 20,
+        "{inactive} of 20 steps unclipped"
+    );
     // The span head steps only on a batch with a span row: torch skips its `None` grad, and the
     // trainer skips a host entry with no gradient (`adamw_entry_step`).
     let with_span = json("batches/plan.json")["batches"]
@@ -227,7 +277,11 @@ fn rung_b_recipe_and_head_are_the_ones_this_file_trains() {
         .count() as u64;
     assert_eq!(with_span, 13);
     for (name, row) in m["per_parameter"].as_object().unwrap() {
-        let want = if name.starts_with("span_head.") { with_span } else { 20 };
+        let want = if name.starts_with("span_head.") {
+            with_span
+        } else {
+            20
+        };
         assert_eq!(row["adamw_steps_taken"].as_u64(), Some(want), "{name}");
     }
 }
@@ -252,10 +306,11 @@ fn rung_b_fixture_config_is_tied_and_opens_in_ojas() {
 }
 
 #[test]
-#[ignore = "GPU; and F's two-group recipe is refused until tessl's per-entry lr_scale lands"]
+#[ignore = "GPU: opens a Metal runtime; the two-group recipe runs through the per-entry lr_scale plan, not yet measured"]
 fn gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe() {
     let lower = Some(recipe_lower());
-    let a = run(Operands::ExactF32, lower).expect("rung (b) needs tessl's per-entry lr_scale (ruling 6)");
+    let a = run(Operands::ExactF32, lower)
+        .expect("rung (b)'s two-group recipe must run through the per-entry lr_scale plan");
     println!("rung (b) ExactF32 vs torch fp32, losses:");
     let (early, all) = losses_vs(&a, "fp32");
     println!("rung (b) ExactF32 vs torch fp32, final weights (Amendment 2 measure):");
@@ -263,7 +318,10 @@ fn gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe() {
     println!("grads_step0: report-only at this rung; not measured by this test");
     let b = run(Operands::ExactF32, lower).unwrap();
     assert_eq!(bits(&a), bits(&b), "two Rust runs are bit-identical");
-    assert_eq!(a.result.loss_log_digest().unwrap(), b.result.loss_log_digest().unwrap());
+    assert_eq!(
+        a.result.loss_log_digest().unwrap(),
+        b.result.loss_log_digest().unwrap()
+    );
     assert!(early <= 1e-5, "loss steps 0-5: {early:.3e} > 1e-5");
     assert!(all <= 1e-4, "loss steps 0-19: {all:.3e} > 1e-4");
     assert!(worst <= 1e-5, "final weights: {worst:.3e} > 1e-5 on {on}");
@@ -273,21 +331,27 @@ fn gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe() {
 /// the composed step runs both clip branches. The per-step clip coefficients are printed beside
 /// the reference's (report-only).
 #[test]
-#[ignore = "GPU; and F's two-group recipe is refused until tessl's per-entry lr_scale lands"]
+#[ignore = "GPU: opens a Metal runtime; the two-group recipe runs through the per-entry lr_scale plan, not yet measured"]
 fn gpu_rung_b_exact_f32_clip_150_trains_as_torch_fp32_clip150() {
     let lower = Some(recipe_lower());
     let a = run_clipped(Operands::ExactF32, lower, arm_max_grad_norm("fp32_clip150"))
-        .expect("rung (b) needs tessl's per-entry lr_scale (ruling 6)");
+        .expect("rung (b)'s two-group recipe must run through the per-entry lr_scale plan");
     println!("rung (b) ExactF32 clip 150 vs torch fp32_clip150, losses:");
     let (early, all) = losses_vs(&a, "fp32_clip150");
     println!("rung (b) ExactF32 clip 150, clip coefficient per step (report-only):");
-    for (s, (want, got)) in trajectory("fp32_clip150").iter().zip(&a.result.steps).enumerate() {
+    for (s, (want, got)) in trajectory("fp32_clip150")
+        .iter()
+        .zip(&a.result.steps)
+        .enumerate()
+    {
         println!(
             "  step {s:2}: rust {:.9} fp32_clip150 {:.9} (active {})",
             got.clip_coefficient, want["clip_coef"], want["clip_active"]
         );
     }
-    println!("rung (b) ExactF32 clip 150 vs torch fp32_clip150, final weights (Amendment 2 measure):");
+    println!(
+        "rung (b) ExactF32 clip 150 vs torch fp32_clip150, final weights (Amendment 2 measure):"
+    );
     let (worst, on) = final_weights(&a, "fp32_clip150");
     assert!(early <= 1e-5, "loss steps 0-5: {early:.3e} > 1e-5");
     assert!(all <= 1e-4, "loss steps 0-19: {all:.3e} > 1e-4");
@@ -295,14 +359,18 @@ fn gpu_rung_b_exact_f32_clip_150_trains_as_torch_fp32_clip150() {
 }
 
 #[test]
-#[ignore = "GPU; and F's two-group recipe is refused until tessl's per-entry lr_scale lands"]
+#[ignore = "GPU: opens a Metal runtime; the two-group recipe runs through the per-entry lr_scale plan, not yet measured"]
 fn gpu_rung_b_bf16_operands_loss_stays_within_2e_8_of_torch_fp32() {
-    let a = run(Operands::Bf16, Some(recipe_lower())).expect("rung (b) needs tessl's per-entry lr_scale (ruling 6)");
+    let a = run(Operands::Bf16, Some(recipe_lower()))
+        .expect("rung (b)'s two-group recipe must run through the per-entry lr_scale plan");
     println!("rung (b) Bf16 operands vs torch fp32 (gated):");
     let (_, all) = losses_vs(&a, "fp32");
     println!("rung (b) Bf16 operands vs torch master-bf16 (report-only):");
     losses_vs(&a, "master_bf16");
-    assert!(all <= 2f64.powi(-8), "Bf16 loss vs torch fp32: {all:.3e} > 2^-8");
+    assert!(
+        all <= 2f64.powi(-8),
+        "Bf16 loss vs torch fp32: {all:.3e} > 2^-8"
+    );
 }
 
 /// SMOKE, not parity: one learning rate for every tensor, which is not the reference's recipe.
@@ -310,11 +378,21 @@ fn gpu_rung_b_bf16_operands_loss_stays_within_2e_8_of_torch_fp32() {
 #[ignore = "GPU"]
 fn gpu_rung_b_single_group_smoke_completes_finite_and_repeats_bit_for_bit() {
     let a = run(Operands::ExactF32, None).unwrap();
-    assert!(a.result.steps.iter().all(|s| s.loss.is_finite() && s.grad_norm.is_finite()));
+    assert!(
+        a.result
+            .steps
+            .iter()
+            .all(|s| s.loss.is_finite() && s.grad_norm.is_finite())
+    );
     let b = run(Operands::ExactF32, None).unwrap();
     assert_eq!(bits(&a), bits(&b), "two Rust runs are bit-identical");
-    assert_eq!(a.result.loss_log_digest().unwrap(), b.result.loss_log_digest().unwrap());
-    println!("single-group smoke vs the two-group torch fp32 reference (information only; not a parity measure):");
+    assert_eq!(
+        a.result.loss_log_digest().unwrap(),
+        b.result.loss_log_digest().unwrap()
+    );
+    println!(
+        "single-group smoke vs the two-group torch fp32 reference (information only; not a parity measure):"
+    );
     losses_vs(&a, "fp32");
     let (worst, on) = final_weights(&a, "fp32");
     println!("  worst gated ratio {worst:.3e} on {on} (a different recipe; no bar applies)");

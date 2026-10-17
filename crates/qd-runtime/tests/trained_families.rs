@@ -228,7 +228,11 @@ fn a_malformed_trained_families_refuses_the_release_at_open() {
         ("not-a-list", json!(DEFECT), "not an array"),
         ("not-a-string", json!([DEFECT, 7]), "not a string"),
         ("blank", json!([" "]), "blank"),
-        ("unsorted", json!([DEFECT, "code.change_scope"]), "ascending"),
+        (
+            "unsorted",
+            json!([DEFECT, "code.change_scope"]),
+            "ascending",
+        ),
         ("duplicate", json!([DEFECT, DEFECT]), "ascending"),
         ("untrimmed", json!([" code.defect_class"]), "whitespace"),
         ("too-long", json!([long]), "bytes"),
@@ -240,7 +244,10 @@ fn a_malformed_trained_families_refuses_the_release_at_open() {
             Err(err) => {
                 assert_eq!(err.kind, ReleaseRefusalKind::Manifest, "{tag}: {err}");
                 assert!(err.detail.contains("trained_families"), "{tag}: {err}");
-                assert!(err.detail.contains(needle), "{tag}: {needle:?} not in {err}");
+                assert!(
+                    err.detail.contains(needle),
+                    "{tag}: {needle:?} not in {err}"
+                );
             }
             Ok(_) => panic!("{tag}: a release with a malformed trained_families opened"),
         }
@@ -261,8 +268,14 @@ fn the_release_and_the_runtime_report_what_a_task_is_checked_against() {
     );
 
     let dir = release_dir("report-absent", None);
-    assert_eq!(Release::open(&dir.0).expect("opens").trained_families(), None);
-    assert_eq!(runtime(&dir.0).trained_families(), &TrainedFamilies::Unrecorded);
+    assert_eq!(
+        Release::open(&dir.0).expect("opens").trained_families(),
+        None
+    );
+    assert_eq!(
+        runtime(&dir.0).trained_families(),
+        &TrainedFamilies::Unrecorded
+    );
 
     // No release: the check does not run, and the runtime says so rather than reading as a
     // check that ran and passed. The test seam still answers an untrained task; that is the open

@@ -2,14 +2,14 @@
  "what": "run_control._sidecar_digest over the span_head.* TensorRefs of the tiny init (Amendment 2 (iv))",
  "generator": {
   "script": "tools/qd_train_oracle_head_digest.py",
-  "script_sha256": "79a47e7247d722c540b3cc884d657d8de2bf6b6816a5c7d985b7a4d3b48f8031",
+  "script_sha256": "389dda21b6ffcac77576cfd84914e7d7936dfa719b42902869894d60d32ebfa3",
   "argv": [
    "--init",
-   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/tiny-published/init.safetensors",
+   "crates/qd-train/tests/fixtures/tiny-published/init.safetensors",
    "--out",
-   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/span-head-init-digest-tiny.json"
+   "crates/qd-train/tests/fixtures/span-head-init-digest-tiny.json"
   ],
-  "python": "3.14.7",
+  "python": "3.14.8",
   "torch": "2.12.1"
  },
  "source": "init.safetensors",

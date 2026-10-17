@@ -55,7 +55,9 @@ fn parse(argv: &[String]) -> Result<Args> {
         ));
     }
     if !theirs.iter().any(|a| a == "--fixtures") {
-        return Err(MetalError::Input("pass the gate's --fixtures <dir> after --".into()));
+        return Err(MetalError::Input(
+            "pass the gate's --fixtures <dir> after --".into(),
+        ));
     }
     let args = Args {
         parity_bin: bin.ok_or_else(|| MetalError::Input("--parity-bin is required".into()))?,
@@ -75,13 +77,18 @@ fn parse(argv: &[String]) -> Result<Args> {
 
 /// The value after `flag` in `argv`.
 fn flag_value<'a>(argv: &'a [String], flag: &str) -> Option<&'a str> {
-    argv.iter().position(|a| a == flag).and_then(|i| argv.get(i + 1)).map(String::as_str)
+    argv.iter()
+        .position(|a| a == flag)
+        .and_then(|i| argv.get(i + 1))
+        .map(String::as_str)
 }
 
 fn run(argv: &[String]) -> Result<i32> {
     let args = parse(argv)?;
     // What the row will say about the model, resolved before the GPU is touched.
-    let snapshot = qd_metal::config::resolve_snapshot(flag_value(&args.passthrough, "--snapshot").map(std::path::Path::new))?;
+    let snapshot = qd_metal::config::resolve_snapshot(
+        flag_value(&args.passthrough, "--snapshot").map(std::path::Path::new),
+    )?;
     let cfg = qd_metal::config::ModelConfig::load(&snapshot)?;
     let model = ModelFacts {
         snapshot_name: snapshot
@@ -124,7 +131,12 @@ fn run(argv: &[String]) -> Result<i32> {
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(MetalError::Ledger(format!("{}: {e}", args.raw_out.display()))),
+        Err(e) => {
+            return Err(MetalError::Ledger(format!(
+                "{}: {e}",
+                args.raw_out.display()
+            )));
+        }
     };
     let run = ParityRun {
         raw_line,
@@ -172,15 +184,35 @@ mod tests {
 
     #[test]
     fn the_gate_never_writes_into_ledger_itself() {
-        let base = ["--parity-bin", "/b", "--ledger", "/r/ledger/mac-qd-metal-x.jsonl", "--raw-out", "/nonexistent/raw.jsonl"];
+        let base = [
+            "--parity-bin",
+            "/b",
+            "--ledger",
+            "/r/ledger/mac-qd-metal-x.jsonl",
+            "--raw-out",
+            "/nonexistent/raw.jsonl",
+        ];
         let mut ok = s(&base);
         ok.extend(s(&["--", "--fixtures", "/f"]));
         let a = parse(&ok).unwrap();
         assert_eq!(a.passthrough, s(&["--fixtures", "/f"]));
         let mut bad = s(&base);
-        bad.extend(s(&["--", "--fixtures", "/f", "--ledger", "/r/ledger/mac-qd-metal-x.jsonl"]));
+        bad.extend(s(&[
+            "--",
+            "--fixtures",
+            "/f",
+            "--ledger",
+            "/r/ledger/mac-qd-metal-x.jsonl",
+        ]));
         assert!(parse(&bad).is_err());
-        let mut campaign = s(&["--parity-bin", "/b", "--ledger", "/r/ledger/runs.jsonl", "--raw-out", "/n/raw.jsonl"]);
+        let mut campaign = s(&[
+            "--parity-bin",
+            "/b",
+            "--ledger",
+            "/r/ledger/runs.jsonl",
+            "--raw-out",
+            "/n/raw.jsonl",
+        ]);
         campaign.extend(s(&["--", "--fixtures", "/f"]));
         assert!(parse(&campaign).is_err());
         assert!(parse(&s(&base)).is_err(), "no --fixtures after --");

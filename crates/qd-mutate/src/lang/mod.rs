@@ -191,8 +191,12 @@ pub trait Language: Sync + Send {
     fn early_return(&self, return_type: Option<&str>) -> Option<String>;
     /// A hardcoded return built from a literal already present in the function. `None` where the
     /// literal does not match the declared return type.
-    fn hardcoded_return(&self, return_type: Option<&str>, literal: &str, kind: LiteralKind)
-    -> Option<String>;
+    fn hardcoded_return(
+        &self,
+        return_type: Option<&str>,
+        literal: &str,
+        kind: LiteralKind,
+    ) -> Option<String>;
     /// Negate a condition's rendered text.
     fn negate(&self, condition: &str) -> String;
     /// True when the condition is already negated at the top level.

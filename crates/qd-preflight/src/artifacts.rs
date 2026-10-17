@@ -39,13 +39,19 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
-        let n = file.read(&mut buf).map_err(|e| format!("{}: {e}", path.display()))?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
     }
-    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// Verify every artifact in the manifest.
@@ -69,7 +75,7 @@ pub fn check_artifacts(manifest_path: Option<&Path>, root: &Path) -> TriState {
     let raw = match std::fs::read_to_string(manifest_path) {
         Ok(r) => r,
         Err(e) => {
-            return TriState::not_run(format!("could not read {}: {e}", manifest_path.display()))
+            return TriState::not_run(format!("could not read {}: {e}", manifest_path.display()));
         }
     };
     let manifest: ArtifactManifest = match serde_json::from_str(&raw) {
@@ -173,7 +179,10 @@ mod tests {
         let d = tmpdir();
         let m = write(&d, "empty.json", br#"{"schema_version":1,"artifacts":[]}"#);
         let s = check_artifacts(Some(&m), &d);
-        assert!(!s.did_run(), "an empty manifest must not read as a clean one");
+        assert!(
+            !s.did_run(),
+            "an empty manifest must not read as a clean one"
+        );
     }
 
     #[test]

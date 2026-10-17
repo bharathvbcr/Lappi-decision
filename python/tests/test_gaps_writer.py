@@ -230,7 +230,28 @@ def test_the_real_ledger_is_not_touched_by_any_of_this(tmp_path: Path) -> None:
     from qd_train.gaps import DEFAULT_GAPS_PATH
 
     assert DEFAULT_GAPS_PATH.name == "gaps.jsonl"
-    assert DEFAULT_GAPS_PATH.parent.name in ("qwen-decision", "Lappi-decision")
+    # Keyed on the repo root this tree is in, never on what the checkout directory is called:
+    # a pinned worktree is named for its lane, and a rename is not a defect.
+    assert Path(__file__).resolve().parents[2] / "gaps.jsonl" == DEFAULT_GAPS_PATH
     before = len(read_gaps(DEFAULT_GAPS_PATH))
     append_gap(GOOD, path=_ledger(tmp_path))
     assert len(read_gaps(DEFAULT_GAPS_PATH)) == before
+
+
+def test_the_default_ledger_is_the_roots_gaps_file_whatever_the_checkout_is_called(
+    tmp_path: Path,
+) -> None:
+    import importlib.util
+
+    import qd_train.gaps as real
+
+    root = tmp_path / "wt"
+    package = root / "python" / "qd_train"
+    package.mkdir(parents=True)
+    copy = package / "gaps.py"
+    copy.write_text(Path(real.__file__).read_text(encoding="utf-8"), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("gaps_in_a_worktree", copy)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert root / "gaps.jsonl" == module.DEFAULT_GAPS_PATH

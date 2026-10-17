@@ -81,6 +81,13 @@ select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "PTH"]
 # amendments, the dedupe probe, the H100 smoke and the pre-drop checks, kept as they ran. The
 # same ruling, applied to new records on GAP-LINT-GATE-RED-ON-HEAD-154-FINDINGS-IN-18-
 # COMMITTED-FILES-2026-10-06: rule by rule, only what each already breaks (ruff 0.16.8).
+# The span-refit scripts (2026-10-06), committed 2026-10-12 exactly as the pre-registered chain
+# ran them: ledger rows pin their sha256 (tools/span_refit_rows.py), so their bytes stay. Rule
+# by rule, only what each already breaks (ruff 0.16.8), as the records above.
+"tools/span_refit_common.py" = ["B905", "E501", "PTH123", "RUF007", "SIM108", "UP035"]
+"tools/span_refit_extract.py" = ["B905", "E501", "I001", "RUF046", "RUF100"]
+"tools/span_refit_fit.py" = ["B905", "E501", "I001", "RUF100", "UP037"]
+"tools/span_refit_score.py" = ["B905", "E501", "I001", "RUF100", "SIM118"]
 "AUDIT/finalize-2026-10-03/apply_v5_containment_scope_amendment.py" = ["E501"]
 "AUDIT/finalize-2026-10-03/apply_v5_freeze.py" = ["E501", "E741", "B905", "UP031"]
 "AUDIT/finalize-2026-10-03/apply_v5_launch_amendment.py" = ["E501"]

@@ -34,15 +34,19 @@ The served-families row is recomputed from the same score row's verdicts by
 
 - **Choice questions with 2 to 16 options** in 21 trained task families: routing, policy, evidence,
   NLI, reading comprehension, science, intent and multiple-choice questions. Fifteen of them were
-  load-tested through the runtime on Apple silicon.
+  load-tested through the runtime on Apple silicon; the other six (the four intent families,
+  `knowledge.multiple_choice` and `commonsense.multiple_choice`) were never sent through it.
 - At an 80% precision target it answers about 91% of validation questions at about 86% precision
-  (two-fold estimate, served families). 16-option questions are refused about half the time.
+  (two-fold estimate, served families). Questions in the 16-row calibration entry (15 options plus
+  the reserved abstain row) are refused about half the time.
 
 ### What it does not serve
 
 - **`code.defect_class`**, the code-change family this project was built around. Its trained
   request needs a span slot, which has no calibration in this release. A choice-only request is a
-  prompt the model never saw. Multi-file diffs are refused at admission.
+  prompt the model never saw. Admission accepts only the two trained context shapes (single-file
+  hunks, or composed `diff --git` file blocks) and refuses anything else, such as a bare `---`/`+++`
+  preamble, as `context_not_unified_diff`.
 - **Span and score slots.** The release's span head is the mean of five seeds' heads, which do not
   agree, and it is not served. Span top-1 pools SQuAD answer spans (5,139 val rows) and
   code-change evidence lines (2,099). On the code rows it is weak evidence, because the diff's `+`
@@ -58,7 +62,9 @@ trained for (849 pairs, local models only), Lappi ties Qwen3.5-2B: domain macro 
 0.522, with an interval on the difference that includes zero. Gemma 4 E4B (8B) is clearly better
 (0.632), and so is decider-2b (0.612), a typed decision model on the same base model: paired, it
 leads Lappi by +0.110 [+0.071, +0.157]. Pairwise response preference is one of decider-2b's trained
-tasks, asked in its own request format; for Lappi it is not. Lappi is near chance outside
+tasks, asked in its own request format; for Lappi it is not. Whether decider-2b's training data
+overlaps these benchmarks is unverified: its card names an unversioned RewardBench
+(`AUDIT/decider-2b-comparison-2026-10-12.md`). Lappi is near chance outside
 RewardBench 2's Ties domain and scores 0.111 on RM-Bench's
 code pairs, where it calls most pairs a tie or prefers the broken program. Those pairs reach it as a
 "which answer is better" question, through `pairwise.helpfulness`, its weakest family. Asked its own

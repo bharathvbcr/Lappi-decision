@@ -1,25 +1,24 @@
-//! A safetensors reader, by hand: `u64` little-endian header length, a JSON header, then the data.
+//! The serving loader's safetensors reader: a thin adapter over `qd_export::safetensors`, which
+//! owns the format (header length, the 64 MiB header bound, JSON parsing, shape/offset/overlap
+//! checks; zero-length headers are refused there). What this module adds is serving-side only:
+//! the three-dtype admission (this loader reads BF16, F16 and F32 and nothing else, checked when
+//! the file is opened), `Refusal` -> [`MetalError`], and the typed accessors tessl's loaders use.
 //!
-//! tessl has no safetensors or mmap helper (`rg -i "safetensor|mmap" tessl/src` is empty; its
-//! loader is `npy.rs`), and the format is small enough that a crate for it would be a new
-//! dependency for what `std` and `serde_json` already do. Reads are positioned
-//! (`FileExt::read_exact_at`) straight into the destination, so a tensor bound for a GPU buffer is
-//! read into the buffer's own mapping with no intermediate copy.
-//!
-//! Everything the header claims is checked before any tensor is read: a tensor's byte length is
-//! its shape times its element size, every range lies inside the file, and no two ranges overlap.
+//! tessl has had a strict safetensors reader of its own since 2026-09-29 (`tessl/src/safetensors.rs`,
+//! commit 61e00c3, positioned reads, header bound 100 MB). This loader does not use it: the
+//! workspace's one Rust owner of the format is `qd_export::safetensors` (ft-e0211ba7412), whose
+//! 64 MiB header bound is the number the Python reader and the shared adversarial case list
+//! hold, and two Rust readers with different bounds is what that card removed. Reads are
+//! positioned (`FileExt::read_exact_at`, inside qd-export's reader) straight into the
+//! destination, so a tensor bound for a GPU buffer is read into the buffer's own mapping with no
+//! intermediate copy.
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use qd_export::safetensors::SafeTensorsFile;
 
 use crate::error::{MetalError, Result};
-
-/// The format's own limit on the header (safetensors spec: 100 MB).
-const MAX_HEADER_BYTES: u64 = 100 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dtype {
@@ -67,7 +66,7 @@ impl TensorInfo {
 
 pub struct SafeTensors {
     path: PathBuf,
-    file: File,
+    file: SafeTensorsFile,
     tensors: BTreeMap<String, TensorInfo>,
 }
 
@@ -77,25 +76,29 @@ fn bad(path: &Path, msg: impl std::fmt::Display) -> MetalError {
 
 impl SafeTensors {
     pub fn open(path: &Path) -> Result<Self> {
-        let file = File::open(path).map_err(|e| bad(path, e))?;
-        let file_len = file.metadata().map_err(|e| bad(path, e))?.len();
-        if file_len < 8 {
-            return Err(bad(path, format!("{file_len} bytes is too short for a header length")));
+        // A refusal's detail already names the path.
+        let file = SafeTensorsFile::open(path).map_err(|r| MetalError::Weights(r.detail))?;
+        let mut tensors = BTreeMap::new();
+        for (name, t) in file.tensors() {
+            let dtype = Dtype::parse(t.dtype.as_str()).ok_or_else(|| {
+                bad(
+                    path,
+                    format!(
+                        "{name}: dtype {} is not one this reader loads (BF16, F16, F32)",
+                        t.dtype.as_str()
+                    ),
+                )
+            })?;
+            tensors.insert(
+                name.clone(),
+                TensorInfo {
+                    dtype,
+                    shape: t.shape.clone(),
+                    start: t.start,
+                    end: t.end,
+                },
+            );
         }
-        let mut len_bytes = [0u8; 8];
-        file.read_exact_at(&mut len_bytes, 0).map_err(|e| bad(path, e))?;
-        let header_len = u64::from_le_bytes(len_bytes);
-        if header_len > MAX_HEADER_BYTES {
-            return Err(bad(path, format!("header length {header_len} exceeds {MAX_HEADER_BYTES}")));
-        }
-        let data_start = 8 + header_len;
-        if data_start > file_len {
-            return Err(bad(path, format!("header length {header_len} runs past the end of a {file_len}-byte file")));
-        }
-        // header_len <= 100 MB, so it fits usize.
-        let mut header = vec![0u8; usize::try_from(header_len).map_err(|e| bad(path, e))?];
-        file.read_exact_at(&mut header, 8).map_err(|e| bad(path, e))?;
-        let tensors = parse_header(&header, data_start, file_len).map_err(|m| bad(path, m))?;
         Ok(Self {
             path: path.to_path_buf(),
             file,
@@ -141,12 +144,21 @@ impl SafeTensors {
         if dst.len() != info.nbytes() {
             return Err(bad(
                 &self.path,
-                format!("{name}: {} bytes, destination holds {}", info.nbytes(), dst.len()),
+                format!(
+                    "{name}: {} bytes, destination holds {}",
+                    info.nbytes(),
+                    dst.len()
+                ),
             ));
         }
+        let owned = self
+            .file
+            .tensors()
+            .get(name)
+            .ok_or_else(|| bad(&self.path, format!("no tensor named {name}")))?;
         self.file
-            .read_exact_at(dst, info.start)
-            .map_err(|e| bad(&self.path, format!("{name}: {e}")))
+            .read_tensor_range(owned, 0, dst)
+            .map_err(|r| bad(&self.path, format!("{name}: {}", r.detail)))
     }
 
     /// A bf16 tensor of `shape`, as raw bit patterns.
@@ -170,101 +182,38 @@ impl SafeTensors {
 
 /// Little-endian 16-bit words.
 pub fn u16_words(bytes: &[u8]) -> Vec<u16> {
-    bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect()
+    bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
+        .collect()
 }
 
 /// Little-endian `dtype` elements, widened to f32 exactly.
 pub fn widen(dtype: Dtype, bytes: &[u8]) -> Vec<f32> {
     match dtype {
-        Dtype::F32 => bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect(),
-        Dtype::Bf16 => u16_words(bytes).into_iter().map(tessl::tensor::bf16_bits_to_f32).collect(),
-        Dtype::F16 => u16_words(bytes).into_iter().map(tessl::tensor::f16_bits_to_f32).collect(),
-    }
-}
-
-fn parse_header(header: &[u8], data_start: u64, file_len: u64) -> std::result::Result<BTreeMap<String, TensorInfo>, String> {
-    let root: Value =
-        serde_json::from_slice(header).map_err(|e| format!("header is not JSON: {e}"))?;
-    let obj = root.as_object().ok_or("header is not a JSON object")?;
-    let data_len = file_len - data_start;
-    let mut tensors = BTreeMap::new();
-    for (name, entry) in obj {
-        if name == "__metadata__" {
-            continue;
-        }
-        let dtype_s = entry
-            .get("dtype")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{name}: no dtype"))?;
-        let dtype = Dtype::parse(dtype_s)
-            .ok_or_else(|| format!("{name}: dtype {dtype_s} is not one this reader loads (BF16, F16, F32)"))?;
-        let shape = entry
-            .get("shape")
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("{name}: no shape"))?
+        Dtype::F32 => bytes
+            .as_chunks::<4>()
+            .0
             .iter()
-            .map(|d| {
-                d.as_u64()
-                    .and_then(|d| usize::try_from(d).ok())
-                    .ok_or_else(|| format!("{name}: shape entry {d} is not a usize"))
-            })
-            .collect::<std::result::Result<Vec<usize>, String>>()?;
-        let offsets = entry
-            .get("data_offsets")
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("{name}: no data_offsets"))?;
-        let [b, e] = offsets.as_slice() else {
-            return Err(format!("{name}: data_offsets has {} entries, not 2", offsets.len()));
-        };
-        let (b, e) = (
-            b.as_u64().ok_or_else(|| format!("{name}: data_offsets[0] is not a u64"))?,
-            e.as_u64().ok_or_else(|| format!("{name}: data_offsets[1] is not a u64"))?,
-        );
-        if e < b || e > data_len {
-            return Err(format!(
-                "{name}: data_offsets [{b}, {e}) do not fit the {data_len}-byte data section"
-            ));
-        }
-        let numel = shape
-            .iter()
-            .try_fold(1usize, |acc, &d| acc.checked_mul(d))
-            .ok_or_else(|| format!("{name}: shape {shape:?} overflows"))?;
-        let want = numel
-            .checked_mul(dtype.size())
-            .ok_or_else(|| format!("{name}: byte size overflows"))?;
-        if u64::try_from(want).map_err(|e| e.to_string())? != e - b {
-            return Err(format!(
-                "{name}: {shape:?} x {} bytes = {want}, but data_offsets span {}",
-                dtype.size(),
-                e - b
-            ));
-        }
-        tensors.insert(
-            name.clone(),
-            TensorInfo {
-                dtype,
-                shape,
-                start: data_start + b,
-                end: data_start + e,
-            },
-        );
+            .map(|c| f32::from_le_bytes(*c))
+            .collect(),
+        Dtype::Bf16 => u16_words(bytes)
+            .into_iter()
+            .map(tessl::tensor::bf16_bits_to_f32)
+            .collect(),
+        Dtype::F16 => u16_words(bytes)
+            .into_iter()
+            .map(tessl::tensor::f16_bits_to_f32)
+            .collect(),
     }
-    let mut ranges: Vec<(&str, u64, u64)> = tensors
-        .iter()
-        .map(|(n, t)| (n.as_str(), t.start, t.end))
-        .collect();
-    ranges.sort_by_key(|r| (r.1, r.2));
-    for w in ranges.windows(2) {
-        if w[1].1 < w[0].2 {
-            return Err(format!("tensors {} and {} overlap", w[0].0, w[1].0));
-        }
-    }
-    Ok(tensors)
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -281,7 +230,10 @@ pub(crate) mod tests {
 
     pub(crate) fn write_raw(header: &str, data: &[u8]) -> TempFile {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("qd-metal-st-{}-{n}.safetensors", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "qd-metal-st-{}-{n}.safetensors",
+            std::process::id()
+        ));
         let mut f = File::create(&path).unwrap();
         f.write_all(&(header.len() as u64).to_le_bytes()).unwrap();
         f.write_all(header.as_bytes()).unwrap();
@@ -313,12 +265,35 @@ pub(crate) mod tests {
         assert_eq!(st.names().collect::<Vec<_>>(), ["a", "b"]);
         assert_eq!(st.f32("a", &[2, 2]).unwrap(), [1.0, 2.0, -3.0, 0.5]);
         assert_eq!(st.f32("b", &[3]).unwrap(), [1.5, -2.0, 7.0]);
-        assert_eq!(st.bf16("a", &[2, 2]).unwrap()[1], tessl::tensor::f32_to_bf16_bits(2.0));
-        assert!(st.bf16("b", &[3]).unwrap_err().to_string().contains("expected one of [Bf16]"));
-        assert!(st.f32("a", &[4]).unwrap_err().to_string().contains("shape [2, 2]"));
-        assert!(st.f32("c", &[1]).unwrap_err().to_string().contains("no tensor named c"));
+        assert_eq!(
+            st.bf16("a", &[2, 2]).unwrap()[1],
+            tessl::tensor::f32_to_bf16_bits(2.0)
+        );
+        assert!(
+            st.bf16("b", &[3])
+                .unwrap_err()
+                .to_string()
+                .contains("expected one of [Bf16]")
+        );
+        assert!(
+            st.f32("a", &[4])
+                .unwrap_err()
+                .to_string()
+                .contains("shape [2, 2]")
+        );
+        assert!(
+            st.f32("c", &[1])
+                .unwrap_err()
+                .to_string()
+                .contains("no tensor named c")
+        );
         let mut small = [0u8; 7];
-        assert!(st.read_into("a", &mut small).unwrap_err().to_string().contains("destination"));
+        assert!(
+            st.read_into("a", &mut small)
+                .unwrap_err()
+                .to_string()
+                .contains("destination")
+        );
     }
 
     #[test]
@@ -326,16 +301,32 @@ pub(crate) mod tests {
         let cases: [(&str, usize, &str); 7] = [
             ("not json", 0, "not JSON"),
             (r#"[1]"#, 0, "not a JSON object"),
-            (r#"{"a":{"dtype":"I8","shape":[1],"data_offsets":[0,1]}}"#, 1, "dtype I8"),
-            (r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}"#, 8, "span 4"),
-            (r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#, 4, "do not fit"),
+            (
+                r#"{"a":{"dtype":"I8","shape":[1],"data_offsets":[0,1]}}"#,
+                1,
+                "dtype I8",
+            ),
+            (
+                r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}"#,
+                8,
+                "span 4",
+            ),
+            (
+                r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#,
+                4,
+                "do not fit",
+            ),
             (
                 r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},
                     "b":{"dtype":"F32","shape":[1],"data_offsets":[2,6]}}"#,
                 8,
                 "overlap",
             ),
-            (r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0]}}"#, 4, "not 2"),
+            (
+                r#"{"a":{"dtype":"F32","shape":[1],"data_offsets":[0]}}"#,
+                4,
+                "not 2",
+            ),
         ];
         for (header, data_len, needle) in cases {
             let f = write_raw(header, &vec![0u8; data_len]);
@@ -347,16 +338,30 @@ pub(crate) mod tests {
     #[test]
     fn refuses_truncated_files() {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("qd-metal-st-short-{}-{n}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("qd-metal-st-short-{}-{n}", std::process::id()));
         std::fs::write(&path, [1u8, 2, 3]).unwrap();
         let f = TempFile(path);
-        assert!(SafeTensors::open(&f.0).err().unwrap().to_string().contains("too short"));
+        assert!(
+            SafeTensors::open(&f.0)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("too short")
+        );
 
-        let path = std::env::temp_dir().join(format!("qd-metal-st-long-{}-{n}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("qd-metal-st-long-{}-{n}", std::process::id()));
         let mut bytes = 1000u64.to_le_bytes().to_vec();
         bytes.extend_from_slice(b"{}");
         std::fs::write(&path, bytes).unwrap();
         let f = TempFile(path);
-        assert!(SafeTensors::open(&f.0).err().unwrap().to_string().contains("runs past"));
+        assert!(
+            SafeTensors::open(&f.0)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("runs past")
+        );
     }
 }

@@ -3,15 +3,17 @@
 //!
 //! Every value of the recipe is a required flag. The binary has no defaults of its own,
 //! because a default here would be a recipe choice nobody made. The exception is what F's
-//! recipe pins and this trainer cannot change: one pass over the plan in the reader's order,
+//! recipe pins and this trainer cannot change: one `--epochs` count (default 1) of passes over the plan in the reader's order,
 //! `grad_accum` 1, AdamW's betas, eps and weight decay, and the clip at 1.0 (qd-train's
 //! `recipe`).
 //!
+//! **The layer-wise split** (`--lower-layers-n`, `--lower-layers-lr-scale`, together) is
+//! accepted: ojas-qwen35's `OptimizerPlan` carries a learning-rate scale per entry into tessl's
+//! `adamw_step_scaled` (Fable's board-sweep ruling 2h, 2026-10-12, retiring the lead's ruling 6
+//! of 2026-10-01). The split is never folded into one rate or run as two updates.
+//!
 //! **Refused by name**, so a flag from `tools/real_ft_run.py` cannot be dropped silently:
 //!
-//! * `--lower-layers-n` and `--lower-layers-lr-scale`. tessl has no per-entry learning rate
-//!   (the lead's ruling 6, 2026-10-01). The refusal stays until tessl's `lr_scale` lands; it is
-//!   never worked around.
 //! * `--passes`, `--max-width`, `--option-permutation-seed` and `--replay-shards`, real_ft's
 //!   source transforms. F's epoch arm uses none of them: it trains `plan_all` with `passes=1`
 //!   (`tools/real_ft_run.py` `_train(plan=plan_all, passes=1)` in the `--epoch` branch). Its
@@ -24,10 +26,14 @@
 //!   `--allow-not-run-snapshot`). This binary trains only from a shard set that passes every
 //!   check.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use serde_json::Value;
+
 use qd_train::ft_data::HeadInitPin;
-use qd_train::ledger::check_ledger_path;
+use qd_train::ledger::{check_ledger_path, prompt_format_extra};
+use qd_train::recipe::LowerLayers;
 use qd_train::run_control::WallClockCap;
 use qd_train::trainer::EtaRule;
 
@@ -81,15 +87,104 @@ pub struct TrainArgs {
     /// The protocol seed: the row's, the export's name's and the head init's.
     pub seed: u64,
     pub lr: f64,
-    /// Optimizer steps: the first `steps` batches of the epoch plan, one per step, and a
-    /// schedule over exactly that many.
+    /// Optimizer steps **per epoch**: the first `steps` batches of each epoch's plan, one per
+    /// step. The schedule runs over `steps * epochs`, as `real_ft_run.py`'s `batches * passes`.
     pub steps: u64,
+    /// `--epochs`: how many passes (default 1). Epoch `e` is the plan drawn at (`--seed`, `e`);
+    /// the schedule is one cosine over every epoch, not one per epoch.
+    pub epochs: u64,
     pub batch_tokens: u64,
     pub span_weight: f64,
     pub cap_s: f64,
     pub eta: Option<EtaRule>,
     pub operands: Operands,
     pub checkpoint_every: Option<u64>,
+    /// The cosine floor when `--min-lr` is given; otherwise `lr / 10` (`LrSchedule::real_ft`).
+    /// v5's recipe ran `--min-lr 0`.
+    pub min_lr: Option<f64>,
+    /// A `ckpt-<step>` directory of an earlier run of this same recipe to resume from.
+    pub resume: Option<PathBuf>,
+    /// F's layer-wise split: decoder layers `0 .. n - 1` at `lr_scale` times the schedule.
+    pub lower_layers: Option<LowerLayers>,
+    /// `--unpinned-ojas`: run although the ojas checkout is not at the commit `upstream.lock.json`
+    /// pins. The row is then marked `unpinned ojas` ([`crate::pin`]); it is quick either way.
+    pub unpinned_ojas: bool,
+}
+
+impl TrainArgs {
+    /// The seed the epoch plan is drawn at: the run's own `--seed`, as `real_ft_run.py
+    /// --batch-order seed` does, so two seeds are two batch orders. (Rows before this change
+    /// planned every seed at `DataConfig().seed`; the row's recipe now says `batch_order: seed`
+    /// so they hash apart.) A resume refuses a checkpoint of another seed for the same reason.
+    pub fn data_seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// What a checkpoint root records of this command line's recipe (`recipe.json` beside the
+    /// `ckpt-*` directories): every setting that shapes the optimizer trajectory, which the
+    /// checkpoint itself does not store. Precision is `f32`, the only one the provider opens.
+    pub fn checkpoint_recipe(&self) -> Value {
+        let mut recipe = serde_json::json!({
+            "format": "qd-train-metal-recipe/v1",
+            "precision": "f32",
+            "operands": self.operands.as_str(),
+            "seed": self.seed,
+            "batch_order": "seed",
+            "lr": self.lr,
+            "min_lr": self.min_lr,
+            "steps": self.steps,
+            "batch_tokens": self.batch_tokens,
+            "span_weight": self.span_weight,
+            "lower_layers": self.lower_layers.map(|l| serde_json::json!({"n": l.n, "lr_scale": l.lr_scale})),
+        });
+        // Only a run of several epochs names its count, so a one-epoch run's recipe.json is what
+        // it was before `--epochs` existed and its checkpoints still resume.
+        if self.epochs > 1 {
+            recipe["epochs"] = Value::from(self.epochs);
+        }
+        recipe
+    }
+
+    /// Refuse a resume whose recipe is not the one `saved` (read from the checkpoint root's
+    /// `recipe.json`) records. Absent (`Null`) is refused: a checkpoint without its recipe was
+    /// not written by this binary, so what it was trained under cannot be stated.
+    pub fn check_resume_recipe(&self, saved: &Value) -> Result<(), String> {
+        let now = self.checkpoint_recipe();
+        if *saved == now {
+            return Ok(());
+        }
+        let differs: Vec<&str> = match (saved.as_object(), now.as_object()) {
+            (Some(was), Some(is)) => is
+                .iter()
+                .filter(|(k, v)| was.get(*k) != Some(*v))
+                .map(|(k, _)| k.as_str())
+                .chain(
+                    was.keys()
+                        .filter(|k| !is.contains_key(*k))
+                        .map(String::as_str),
+                )
+                .collect(),
+            _ => vec!["recipe.json is missing or not an object"],
+        };
+        Err(format!(
+            "the checkpoint was written under another recipe ({differs:?} differ): a resume \
+             continues the same optimizer trajectory or it is refused"
+        ))
+    }
+
+    /// The recipe keys this command line adds beyond the fixed ones, as `real_ft_run.py`
+    /// names them: `batch_order` (always `"seed"`: the plan is drawn at `--seed`), `min_lr`
+    /// when `--min-lr` was given, and the shard set's `prompt_format` when it is not 1. Each
+    /// moves the recipe hash, so a row with another batch order or floor never pools with one
+    /// that lacks the key.
+    pub fn recipe_extra(&self, prompt_format: u64) -> BTreeMap<String, Value> {
+        let mut extra = prompt_format_extra(prompt_format);
+        extra.insert("batch_order".to_owned(), Value::from("seed"));
+        if let Some(floor) = self.min_lr {
+            extra.insert("min_lr".to_owned(), Value::from(floor));
+        }
+        extra
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,9 +211,14 @@ pub const USAGE: &str = "qd-train-metal \
 --head-init FILE --head-init-sha256 HEX --head-init-content-digest HEX \
 --out DIR --ledger ledger/mac-ojas-*.jsonl --repo DIR \
 --seed N --lr X --steps N --batch-tokens N --span-weight X --cap-s X --operands exact_f32|bf16 \
-[--eta-at-step N --eta-margin-s X] [--checkpoint-every N]";
+[--epochs N] [--eta-at-step N --eta-margin-s X] [--checkpoint-every N] [--min-lr X] [--resume CKPT_DIR] \
+[--lower-layers-n N --lower-layers-lr-scale X] [--unpinned-ojas]";
 
-const TAKES_VALUE: [&str; 22] = [
+/// The one flag that takes no value: run although ojas is not at the locked commit.
+pub const UNPINNED_OJAS: &str = "--unpinned-ojas";
+
+const TAKES_VALUE: [&str; 27] = [
+    "--epochs",
     "--head-init-sha256",
     "--head-init-content-digest",
     "--snapshot",
@@ -141,27 +241,27 @@ const TAKES_VALUE: [&str; 22] = [
     "--eta-at-step",
     "--eta-margin-s",
     "--checkpoint-every",
+    "--min-lr",
+    "--resume",
+    "--lower-layers-n",
+    "--lower-layers-lr-scale",
 ];
-
-/// The refusal for a layer-wise learning rate (the lead's ruling 6).
-pub const LR_SCALE_REFUSAL: &str = "a layer-wise learning rate needs a per-entry lr_scale in tessl's \
-Qwen35Model::adamw_step (qwen35_adamw.rs), which tessl does not have yet. Folding the scale into one \
-rate or running two updates would change the optimizer under test, so this trainer refuses it until \
-tessl's lr_scale lands (ruling 6, 2026-10-01). Without it this binary runs the single-group \
-optimizer, which is not rung (d)";
 
 fn refused_flag(flag: &str) -> Option<String> {
     match flag {
-        "--lower-layers-n" | "--lower-layers-lr-scale" => Some(format!("{flag}: {LR_SCALE_REFUSAL}")),
-        "--passes" | "--max-width" | "--option-permutation-seed" | "--replay-shards" => Some(format!(
-            "{flag}: real_ft's source transforms are not ported. F's epoch arm uses none of them \
+        "--passes" | "--max-width" | "--option-permutation-seed" | "--replay-shards" => {
+            Some(format!(
+                "{flag}: real_ft's source transforms are not ported. F's epoch arm uses none of them \
              (plan_all, passes=1, no permutation, no replay), so this trainer runs the reader's \
              batch order as is, and a recipe that needs one is refused rather than run without it"
-        )),
-        "--allow-stale-code" | "--allow-rev-mismatch" | "--allow-not-run-snapshot" => Some(format!(
-            "{flag}: the shard door's escape hatches are not offered; this trainer reads only a \
+            ))
+        }
+        "--allow-stale-code" | "--allow-rev-mismatch" | "--allow-not-run-snapshot" => {
+            Some(format!(
+                "{flag}: the shard door's escape hatches are not offered; this trainer reads only a \
              shard set that passes every check"
-        )),
+            ))
+        }
         _ => None,
     }
 }
@@ -174,6 +274,7 @@ fn number<T: std::str::FromStr>(flag: &str, raw: &str) -> Result<T, ArgsError> {
 /// Parse `args` (without the program name). Refuses before anything is read.
 pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
     let mut seen: Vec<(String, String)> = Vec::new();
+    let mut unpinned_ojas = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -185,6 +286,16 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         }
         if flag == "--help" || flag == "-h" {
             return Err(ArgsError::Usage("help requested".into()));
+        }
+        if flag == UNPINNED_OJAS {
+            if inline.is_some() {
+                return Err(ArgsError::Usage(format!("{UNPINNED_OJAS} takes no value")));
+            }
+            if unpinned_ojas {
+                return Err(ArgsError::Usage(format!("{UNPINNED_OJAS} is given twice")));
+            }
+            unpinned_ojas = true;
+            continue;
         }
         if !TAKES_VALUE.contains(&flag.as_str()) {
             return Err(ArgsError::Usage(format!("unknown argument {arg:?}")));
@@ -204,53 +315,131 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         }
         seen.push((flag, value));
     }
-    let get = |flag: &str| seen.iter().find(|(f, _)| f == flag).map(|(_, v)| v.as_str());
+    let get = |flag: &str| {
+        seen.iter()
+            .find(|(f, _)| f == flag)
+            .map(|(_, v)| v.as_str())
+    };
     let req = |flag: &str| get(flag).ok_or_else(|| ArgsError::Usage(format!("{flag} is required")));
     let path = |flag: &str| req(flag).map(PathBuf::from);
 
     let lr: f64 = number("--lr", req("--lr")?)?;
     if !(lr.is_finite() && lr > 0.0) {
-        return Err(ArgsError::Usage(format!("--lr {lr} must be positive and finite")));
+        return Err(ArgsError::Usage(format!(
+            "--lr {lr} must be positive and finite"
+        )));
     }
     let steps: u64 = number("--steps", req("--steps")?)?;
     if steps == 0 {
         return Err(ArgsError::Usage("--steps must be at least 1".into()));
     }
+    let epochs: u64 = match get("--epochs") {
+        None => 1,
+        Some(raw) => number("--epochs", raw)?,
+    };
+    if epochs == 0 {
+        return Err(ArgsError::Usage("--epochs must be at least 1".into()));
+    }
+    let total_steps = steps.checked_mul(epochs).ok_or_else(|| {
+        ArgsError::Usage(format!("--steps {steps} x --epochs {epochs} overflows"))
+    })?;
     let batch_tokens: u64 = number("--batch-tokens", req("--batch-tokens")?)?;
     if batch_tokens == 0 {
         return Err(ArgsError::Usage("--batch-tokens must be at least 1".into()));
     }
     let span_weight: f64 = number("--span-weight", req("--span-weight")?)?;
     if !(span_weight.is_finite() && span_weight > 0.0) {
-        return Err(ArgsError::Usage(format!("--span-weight {span_weight} must be positive and finite")));
+        return Err(ArgsError::Usage(format!(
+            "--span-weight {span_weight} must be positive and finite"
+        )));
     }
     let cap_s: f64 = number("--cap-s", req("--cap-s")?)?;
     WallClockCap::new(cap_s).map_err(|e| ArgsError::Usage(format!("--cap-s: {e}")))?;
     let operands = match req("--operands")? {
         "exact_f32" => Operands::ExactF32,
         "bf16" => Operands::Bf16,
-        other => return Err(ArgsError::Usage(format!("--operands {other:?}: exact_f32 or bf16"))),
+        other => {
+            return Err(ArgsError::Usage(format!(
+                "--operands {other:?}: exact_f32 or bf16"
+            )));
+        }
     };
     let eta = match (get("--eta-at-step"), get("--eta-margin-s")) {
         (None, None) => None,
+        (Some(_), Some(_)) if epochs > 1 => {
+            return Err(ArgsError::Refused(
+                "--eta-at-step: the ETA rule projects one process's steps against one cap and is \
+                 not defined across epochs; drop it or run --epochs 1"
+                    .into(),
+            ));
+        }
         (Some(s), Some(m)) => {
             let rule = EtaRule {
                 at_step: number("--eta-at-step", s)?,
                 margin_s: number("--eta-margin-s", m)?,
             };
-            rule.validate(steps, cap_s).map_err(|e| ArgsError::Usage(e.to_string()))?;
+            rule.validate(total_steps, cap_s)
+                .map_err(|e| ArgsError::Usage(e.to_string()))?;
             Some(rule)
         }
-        _ => return Err(ArgsError::Usage("--eta-at-step and --eta-margin-s come together".into())),
+        _ => {
+            return Err(ArgsError::Usage(
+                "--eta-at-step and --eta-margin-s come together".into(),
+            ));
+        }
     };
     let checkpoint_every = match get("--checkpoint-every") {
         None => None,
         Some(raw) => {
             let n: u64 = number("--checkpoint-every", raw)?;
             if n == 0 {
-                return Err(ArgsError::Usage("--checkpoint-every must be at least 1".into()));
+                return Err(ArgsError::Usage(
+                    "--checkpoint-every must be at least 1".into(),
+                ));
             }
             Some(n)
+        }
+    };
+    if epochs > 1 && checkpoint_every.is_none() {
+        return Err(ArgsError::Refused(
+            "--epochs above 1 needs --checkpoint-every: the epoch-end checkpoint is how the model \
+             and the optimizer's moments cross into the next epoch"
+                .into(),
+        ));
+    }
+    let min_lr = match get("--min-lr") {
+        None => None,
+        Some(raw) => {
+            let floor: f64 = number("--min-lr", raw)?;
+            if !(floor.is_finite() && floor >= 0.0 && floor <= lr) {
+                return Err(ArgsError::Usage(format!(
+                    "--min-lr {floor} must be finite, at least 0 and at most --lr {lr}"
+                )));
+            }
+            Some(floor)
+        }
+    };
+    let lower_layers = match (get("--lower-layers-n"), get("--lower-layers-lr-scale")) {
+        (None, None) => None,
+        (Some(n), Some(scale)) => {
+            let n: usize = number("--lower-layers-n", n)?;
+            let lr_scale: f64 = number("--lower-layers-lr-scale", scale)?;
+            if n == 0 {
+                return Err(ArgsError::Usage(
+                    "--lower-layers-n must be at least 1; zero is the plain optimizer, so give no split".into(),
+                ));
+            }
+            if !(lr_scale.is_finite() && lr_scale > 0.0) {
+                return Err(ArgsError::Usage(format!(
+                    "--lower-layers-lr-scale {lr_scale} must be finite and positive"
+                )));
+            }
+            Some(LowerLayers { n, lr_scale })
+        }
+        _ => {
+            return Err(ArgsError::Usage(
+                "--lower-layers-n and --lower-layers-lr-scale come together".into(),
+            ));
         }
     };
     let ledger = path("--ledger")?;
@@ -260,7 +449,9 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         if v.len() == 64 && v.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
             Ok(v.to_owned())
         } else {
-            Err(ArgsError::Usage(format!("{flag} {v:?} is not 64 lowercase hex characters")))
+            Err(ArgsError::Usage(format!(
+                "{flag} {v:?} is not 64 lowercase hex characters"
+            )))
         }
     };
     let head_init_pin = HeadInitPin {
@@ -282,11 +473,16 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         seed: number("--seed", req("--seed")?)?,
         lr,
         steps,
+        epochs,
         batch_tokens,
         span_weight,
         cap_s,
         eta,
         operands,
         checkpoint_every,
+        min_lr,
+        resume: get("--resume").map(PathBuf::from),
+        lower_layers,
+        unpinned_ojas,
     })
 }

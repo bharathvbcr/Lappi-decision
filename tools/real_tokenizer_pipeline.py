@@ -71,6 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from repo_git import git_bytes, git_text, require_full_sha, resolve_rev, tracked_paths
 
+from qd_data.caller_records import assert_no_caller_records, jsonl_lines, split_jsonl_text
 from qd_data.config import DataConfig
 from qd_data.decisions import load_decision_pool, pool_data_config
 from qd_data.dedupe import dedupe
@@ -137,7 +138,12 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
-from qd_train.remap import build_remap, count_corpus_tokens, full_vocab_remap
+from qd_train.remap import (
+    build_remap,
+    count_corpus_tokens,
+    full_vocab_remap,
+    named_special_ids,
+)
 from qd_train.run_control import CostEstimate, WallClockCap
 from qd_train.shards import (
     COVERAGE_NAME,
@@ -320,6 +326,7 @@ def commitpackft_pool_rows(
     rows: list[CommitPackFtRow] = []
     for lang, sha in expected.items():
         path = root / f"{lang}.jsonl"
+        assert_no_caller_records(path)
         data = path.read_bytes()
         actual = hashlib.sha256(data).hexdigest()
         if actual != sha:
@@ -327,7 +334,7 @@ def commitpackft_pool_rows(
                 f"{path} hashes to {actual} but {root / 'manifest.json'} records {sha}: the "
                 "file changed after it was downloaded, so which rows it holds cannot be stated"
             )
-        for index, line in enumerate(data.decode("utf-8").splitlines()):
+        for index, line in enumerate(split_jsonl_text(data.decode("utf-8"))):
             if line.strip():
                 rows.append(parse_commitpackft(json.loads(line), index=index))
     total = len(rows)
@@ -1088,6 +1095,7 @@ def load_report_only_slice(
     manifest_path = slice_dir / "manifest.json"
     for p in (examples_path, manifest_path, download_root):
         assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
+    assert_no_caller_records(examples_path)
     manifest_bytes = manifest_path.read_bytes()
     manifest = json.loads(manifest_bytes)
     if manifest.get("mode") != REPORT_ONLY_MODE:
@@ -1121,7 +1129,7 @@ def load_report_only_slice(
     halves: collections.Counter[str] = collections.Counter()
     bad: collections.Counter[str] = collections.Counter()
     first_bad: list[str] = []
-    with examples_path.open(encoding="utf-8") as fh:
+    with contextlib.closing(jsonl_lines(examples_path)) as fh:
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
@@ -3849,7 +3857,11 @@ def run(
     counts = count_corpus_tokens(
         remap_ids, source_vocab_size=len(tok.tok), max_sequences=len(remap_ids) + 1
     )
-    special_ids = tuple(sorted({int(i) for i in tok.tok.all_special_ids}))
+    special_ids = named_special_ids(
+        tok.tok.special_tokens_map,
+        tok.tok.convert_tokens_to_ids,
+        tok.tok.convert_ids_to_tokens,
+    )
     if vocab == VOCAB_FULL:
         remap = full_vocab_remap(
             source_vocab_size=checkpoint_vocab_rows(tokenizer_len=len(tok.tok)),

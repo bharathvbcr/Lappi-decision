@@ -207,7 +207,7 @@ def test_the_span_entry_fits_bit_exactly(calib_fit_bin, pointer_file, tmp_path, 
     assert report["population_counts"]["span_rows_not_fitted"] == 0
     assert all(t["span"] == "fitted" for t in report["tables"])
     assert report["span"]["scored"]["gold_abstains"] > 0
-    assert not any("GAP-CALIB-SPAN" in c for c in report["caveats"])
+    assert not any("GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS" in c for c in report["caveats"])
 
 
 def test_span_lines_with_and_without_scores_are_refused_by_both(calib_fit_bin, tmp_path):

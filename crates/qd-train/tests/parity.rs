@@ -13,10 +13,11 @@ use common::{fixture, open_train, oracle, repo_root};
 use qd_train::held_out::DataConfig;
 use qd_train::np_random::{Pcg64, SeedSequence, default_rng};
 use qd_train::pyjson::{self, CANONICAL, SORTED_DEFAULT, float_repr};
+use qd_train::run_control::{CONSUMED_PREFIX_DOMAIN, ConsumedPrefix};
 use qd_train::shards::{
-    Batch, CONSUMED_PREFIX_DOMAIN, ConsumedPrefix, MAX_PADDING_WASTE, MAX_POSITIONS_PER_BATCH,
-    MAX_ROWS_PER_BATCH, NO_SPAN, PAD_ID, REMAP_FORMAT, SEQUENCE_INDEX_FORMAT, SHARD_FORMAT,
-    SLOT_CHOICE, SLOT_LM, SLOT_SCORE, SLOT_SPAN, SPAN_ABSTAIN,
+    Batch, MAX_PADDING_WASTE, MAX_POSITIONS_PER_BATCH, MAX_ROWS_PER_BATCH, NO_SPAN, PAD_ID,
+    REMAP_FORMAT, SEQUENCE_INDEX_FORMAT, SHARD_FORMAT, SLOT_CHOICE, SLOT_LM, SLOT_SCORE, SLOT_SPAN,
+    SPAN_ABSTAIN,
 };
 use qd_train::supervision::{
     RESERVED_NOUL_ROWS, SpanSupervision, ft_supervision, plan_span_batch, span_head_rows,
@@ -394,13 +395,13 @@ fn batch_order_and_consumed_digest_match_python_on_every_config() {
                 "{what} batch {index}: lengths"
             );
             let mut one = ConsumedPrefix::new();
-            one.fold_batch(&batch);
+            batch.fold_into(&mut one);
             assert_eq!(
                 one.hexdigest(),
                 want["fold_digest"].as_str().expect("fd"),
                 "{what} batch {index}: _fold bytes"
             );
-            prefix.fold_batch(&batch);
+            batch.fold_into(&mut prefix);
         }
         assert_eq!(
             prefix.n_folded(),
@@ -417,7 +418,7 @@ fn batch_order_and_consumed_digest_match_python_on_every_config() {
             .collect::<Result<_, _>>()
             .expect("ok");
         let mut again = ConsumedPrefix::new();
-        via_iter.iter().for_each(|b| again.fold_batch(b));
+        via_iter.iter().for_each(|b| b.fold_into(&mut again));
         assert_eq!(
             again.hexdigest(),
             prefix.hexdigest(),

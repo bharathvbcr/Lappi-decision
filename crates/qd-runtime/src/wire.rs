@@ -32,9 +32,8 @@ use serde_json::{Map, Value};
 use crate::context::{self, Context};
 use crate::refusal::Refusal;
 use crate::schema::{
-    check_slot_name, DecisionRequest, HashExpectation, Route, SlotKind, SlotSpec, MAX_BINS,
-    MAX_OPTIONS, MAX_SLOT_NAME_BYTES, MIN_BINS, MIN_OPTIONS, NOUL_LABEL,
-    SUPPORTED_SCHEMA_VERSIONS,
+    DecisionRequest, HashExpectation, MAX_BINS, MAX_OPTIONS, MAX_SLOT_NAME_BYTES, MIN_BINS,
+    MIN_OPTIONS, NOUL_LABEL, Route, SUPPORTED_SCHEMA_VERSIONS, SlotKind, SlotSpec, check_slot_name,
 };
 
 /// Bounded fan-out: a request with an unbounded number of slots is an unbounded number of decode
@@ -147,8 +146,7 @@ pub fn payload_budget(caps: &crate::render::RenderCaps) -> PayloadBudget {
             * (SLOT_PUNCTUATION
                 + MAX_SLOT_NAME_BYTES * JSON_ESCAPE_WORST_CASE_GROWTH
                 + MAX_OPTIONS
-                    * (caps.max_option_bytes * JSON_ESCAPE_WORST_CASE_GROWTH
-                        + OPTION_PUNCTUATION)),
+                    * (caps.max_option_bytes * JSON_ESCAPE_WORST_CASE_GROWTH + OPTION_PUNCTUATION)),
         envelope: ENVELOPE_KEYS_AND_EXPECT,
         // Empty, and that is the point: every term of a request is now counted, so `total()` is
         // the worst case rather than a lower bound on it. `slots[].name` was the one entry until
@@ -228,11 +226,12 @@ pub fn parse_line(line: &[u8]) -> Result<Incoming, Refusal> {
 
 fn parse_op(obj: &Map<String, Value>) -> Result<ControlOp, Refusal> {
     known_keys(obj, &["op"])?;
-    let raw = obj.get("op").and_then(Value::as_str).ok_or_else(|| {
-        Refusal::MalformedRequest {
+    let raw = obj
+        .get("op")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Refusal::MalformedRequest {
             detail: "`op` must be a string".to_string(),
-        }
-    })?;
+        })?;
     match raw {
         "status" => Ok(ControlOp::Status),
         "evict" => Ok(ControlOp::Evict),
@@ -330,7 +329,7 @@ pub fn validate(obj: &Map<String, Value>) -> Result<DecisionRequest, Refusal> {
             return Err(Refusal::UnknownRoute {
                 supported: Route::supported(),
                 actual: other.to_string(),
-            })
+            });
         }
     };
 
@@ -398,7 +397,7 @@ fn parse_context(obj: &Map<String, Value>) -> Result<Context, Refusal> {
         Some(other) => {
             return Err(Refusal::ContextNotBytes {
                 got: json_type_name(other).to_string(),
-            })
+            });
         }
     };
 
@@ -412,13 +411,13 @@ fn parse_context(obj: &Map<String, Value>) -> Result<Context, Refusal> {
             None => {
                 return Err(Refusal::ContextLenMissing {
                     found: format!("{n}, which is not a non-negative integer"),
-                })
+                });
             }
         },
         Some(other) => {
             return Err(Refusal::ContextLenMissing {
                 found: format!("a JSON {}", json_type_name(other)),
-            })
+            });
         }
     };
 
@@ -453,14 +452,14 @@ fn parse_slot(raw: &Value, index: usize) -> Result<SlotSpec, Refusal> {
                 slot: name,
                 supported: SlotKind::supported(),
                 actual: other.to_string(),
-            })
+            });
         }
         None => {
             return Err(Refusal::UnknownSlotType {
                 slot: name,
                 supported: SlotKind::supported(),
                 actual: "absent".to_string(),
-            })
+            });
         }
     };
 

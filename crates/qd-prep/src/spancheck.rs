@@ -371,7 +371,11 @@ fn runs_of(
 /// One sequence's answer. `Err` only for a state the parse makes impossible.
 fn check(seq: &Seq<'_>, scratch: &mut Scratch, run_budget: u64) -> Result<Outcome, String> {
     let echo = (if seq.abstain { REPLY_ABSTAIN } else { 0 })
-        | (if seq.nfc_stable { 0 } else { REPLY_NFC_UNSTABLE });
+        | (if seq.nfc_stable {
+            0
+        } else {
+            REPLY_NFC_UNSTABLE
+        });
     let refused = |status: Status, detail: u32| Outcome {
         status,
         flags: echo,
@@ -387,22 +391,20 @@ fn check(seq: &Seq<'_>, scratch: &mut Scratch, run_budget: u64) -> Result<Outcom
         return Ok(refused(Status::OffsetCount, seq.n_offsets));
     }
     scratch.offsets.clear();
-    scratch.offsets.extend(
-        seq.offsets
-            .as_chunks::<8>()
-            .0
-            .iter()
-            .map(|p| {
-                (
-                    u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
-                    u32::from_le_bytes([p[4], p[5], p[6], p[7]]),
-                )
-            }),
-    );
+    scratch
+        .offsets
+        .extend(seq.offsets.as_chunks::<8>().0.iter().map(|p| {
+            (
+                u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                u32::from_le_bytes([p[4], p[5], p[6], p[7]]),
+            )
+        }));
 
     // 2. The offsets reach the end of the text, in code points.
     scratch.newline.clear();
-    scratch.newline.extend(seq.text.chars().map(|ch| ch == '\n'));
+    scratch
+        .newline
+        .extend(seq.text.chars().map(|ch| ch == '\n'));
     let n_chars = u32_of(scratch.newline.len(), "the code-point count")?;
     let reach = scratch.offsets.iter().map(|o| o.1).max().unwrap_or(0);
     if reach != n_chars {
@@ -767,7 +769,10 @@ mod tests {
         assert_eq!(gold.candidates, vec![0, 4, 6, 6, 8, 11]);
         assert_eq!((gold.start, gold.end), (8, 8));
         let abstain = one(base().refuse_gold());
-        assert_eq!((abstain.status, abstain.flags & REPLY_ABSTAIN), (Status::Ok, REPLY_ABSTAIN));
+        assert_eq!(
+            (abstain.status, abstain.flags & REPLY_ABSTAIN),
+            (Status::Ok, REPLY_ABSTAIN)
+        );
         assert_eq!(abstain.candidates, vec![0, 4, 6, 6, 8, 11]);
         // A gold on one of the collapsed lines is refused even under refuse-gold.
         let shared = one(base().gold(9, 9).refuse_gold());
@@ -806,7 +811,11 @@ mod tests {
 
     #[test]
     fn special_tokens_and_empty_spans_are_never_chosen() {
-        let o = one(S::new("abcdef", vec![(0, 0), (0, 3), (0, 0), (3, 6)], vec![0, 3]));
+        let o = one(S::new(
+            "abcdef",
+            vec![(0, 0), (0, 3), (0, 0), (3, 6)],
+            vec![0, 3],
+        ));
         assert_eq!(o.candidates, vec![1, 3]);
         // A start past its end contains nothing either.
         let reversed = one(S::new("ab", vec![(2, 0), (0, 2)], vec![0]));
@@ -836,7 +845,10 @@ mod tests {
         let past = one(S::new(text, per_char(), vec![0, 9]));
         assert_eq!((past.status, past.detail), (Status::LineInNoToken, 9));
         let gold_none = one(S::new(text, vec![(0, 1), (2, 5)], vec![0, 3]).gold(0, 1));
-        assert_eq!((gold_none.status, gold_none.detail), (Status::GoldInNoToken, 1));
+        assert_eq!(
+            (gold_none.status, gold_none.detail),
+            (Status::GoldInNoToken, 1)
+        );
         let reversed = one(S::new(text, vec![(3, 5), (0, 3)], vec![0, 3]).gold(0, 3));
         assert_eq!(
             (reversed.status, reversed.start, reversed.end),
@@ -848,7 +860,10 @@ mod tests {
                 .gold(2, 4)
                 .refuse_gold(),
         );
-        assert_eq!((one_token.status, one_token.detail), (Status::GoldInOneToken, 2));
+        assert_eq!(
+            (one_token.status, one_token.detail),
+            (Status::GoldInOneToken, 2)
+        );
         let not_candidate = one(S::new(text, per_char(), vec![0, 3]).gold(1, 1));
         assert_eq!(
             (not_candidate.status, not_candidate.detail),
@@ -864,7 +879,10 @@ mod tests {
         let on = one(S::new(crlf, byte_offsets(crlf), vec![0, 3]));
         assert_eq!(on.flags & REPLY_OFF_GRID, 0);
         let off = one(S::new(crlf, byte_offsets(crlf), vec![0, 2]));
-        assert_eq!((off.status, off.flags & REPLY_OFF_GRID), (Status::Ok, REPLY_OFF_GRID));
+        assert_eq!(
+            (off.status, off.flags & REPLY_OFF_GRID),
+            (Status::Ok, REPLY_OFF_GRID)
+        );
         // A lone CR is not a line terminator.
         let cr = "a\rb";
         assert_eq!(
@@ -901,7 +919,10 @@ mod tests {
         let mut s = S::new("e\u{301}\nx", byte_offsets("e\u{301}\nx"), vec![0, 3]);
         s.nfc_stable = false;
         let o = one(s);
-        assert_eq!((o.status, o.flags & REPLY_NFC_UNSTABLE), (Status::Ok, REPLY_NFC_UNSTABLE));
+        assert_eq!(
+            (o.status, o.flags & REPLY_NFC_UNSTABLE),
+            (Status::Ok, REPLY_NFC_UNSTABLE)
+        );
     }
 
     #[test]

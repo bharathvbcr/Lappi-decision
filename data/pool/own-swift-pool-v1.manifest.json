@@ -1,0 +1,244 @@
+{
+  "code_root": "/Users/bharath/Code",
+  "downstream": [
+    "qd-mutate generate stamps every example hunk_constrained: false",
+    "a clean example from this pool carries an empty diff, which qd_train.mutate_adapter.refuse_leaky_diff_corpus refuses in diff mode; --clean-permille 0 emits none",
+    "qd-mutate compose has no pristine rendering of a record without prior_source (compose::render_pristine), so every record is file_no_pristine_change there"
+  ],
+  "files": {
+    "count": 1396,
+    "file": "files.jsonl",
+    "line_shape": "{repo, path, sha256 of the file's bytes}; one line per pool record, in pool order, so the human can strike any file (the 2026-09-28 approval's condition; qd-noul-rows own-prose writes the same)",
+    "sha256": "8d8f874cf6a1b917fc22730e823f830ca63fdb2972a54f69df6d0122166bc88c"
+  },
+  "heldout_repos_not_read": [
+    "devtools/GitPulse",
+    "research/GenoThermalTargeting",
+    "research/StressProject",
+    "scholarlm/wisdev-arc"
+  ],
+  "language": "swift",
+  "licence": "owner-granted",
+  "own_repos_manifest": {
+    "path": "data/pool/.build-b/own/manifest.json",
+    "sha256": "9fbdd9047a1cc0f1340ab2d6f2fdcae7bbd331dc2879ba67006f716344596854"
+  },
+  "per_repo": {
+    "apps/AcademiaTrack": {
+      "emitted": 0,
+      "head": "be7e844207ca4dd8a06a21706eac26100d937c74",
+      "refusals": {},
+      "slug": "bharathvbcr/academiatrack",
+      "swift_paths": 0,
+      "tree_blobs": 291
+    },
+    "apps/Chronicle": {
+      "emitted": 0,
+      "head": "aa53e581a847e3701bb1cee9eb251c12b5a36e73",
+      "refusals": {},
+      "slug": "bharathvbcr/chronicle",
+      "swift_paths": 0,
+      "tree_blobs": 663
+    },
+    "apps/ChronosFlow": {
+      "emitted": 205,
+      "head": "b7a23d41c02e4e8cb88a9c6e4c96dc2c1ed2cdc4",
+      "refusals": {},
+      "slug": "bharathvbcr/chronosflow",
+      "swift_paths": 205,
+      "tree_blobs": 1416
+    },
+    "apps/Curio": {
+      "emitted": 149,
+      "head": "c211296cf7b3cee801524320027d8ac5ec66ebd7",
+      "refusals": {},
+      "slug": "bharathvbcr/curio",
+      "swift_paths": 149,
+      "tree_blobs": 384
+    },
+    "apps/DevType": {
+      "emitted": 532,
+      "head": "daea2b79a8f0ae9c3c76f7cb7099a1e0f9bc473c",
+      "refusals": {},
+      "slug": "bharathvbcr/devtype",
+      "swift_paths": 532,
+      "tree_blobs": 655
+    },
+    "apps/M5Blade": {
+      "emitted": 158,
+      "head": "b7cb408c112d015de0d8f8a67a8b244b8fa7030c",
+      "refusals": {},
+      "slug": "bharathvbcr/m5blade",
+      "swift_paths": 158,
+      "tree_blobs": 177
+    },
+    "apps/Meridian": {
+      "emitted": 115,
+      "head": "0b16935a607acefba430b80ace12fbb8752b429a",
+      "refusals": {},
+      "slug": "bharathvbcr/meridian",
+      "swift_paths": 115,
+      "tree_blobs": 358
+    },
+    "apps/SalEdge": {
+      "emitted": 0,
+      "head": "3eafbd4c26bf0e38217b8ae33a8e12dbab336e36",
+      "refusals": {},
+      "slug": "bharathvbcr/saledge",
+      "swift_paths": 0,
+      "tree_blobs": 260
+    },
+    "apps/TrailBlazer": {
+      "emitted": 0,
+      "head": "1d28a7b918fcd89a84fc779e57fe32747421061b",
+      "refusals": {},
+      "slug": "bharathvbcr/trailblazer",
+      "swift_paths": 0,
+      "tree_blobs": 271
+    },
+    "devtools/DevCouncil": {
+      "emitted": 2,
+      "head": "08a77bd69dc4a3aa0c6df43a603f6c887e195c54",
+      "refusals": {},
+      "slug": "bharathvbcr/devcouncil",
+      "swift_paths": 2,
+      "tree_blobs": 5488
+    },
+    "devtools/Jarvis": {
+      "emitted": 0,
+      "head": "74c0cde4c593abd29c89613088ba75623836104a",
+      "refusals": {},
+      "slug": "bharathvbcr/jarvis",
+      "swift_paths": 0,
+      "tree_blobs": 285
+    },
+    "devtools/LiquiTask": {
+      "emitted": 0,
+      "head": "fd2015e99d7bf415fe9f5922c6a9426885b91bde",
+      "refusals": {},
+      "slug": "bharathvbcr/liquitask",
+      "swift_paths": 0,
+      "tree_blobs": 905
+    },
+    "devtools/Manvi": {
+      "emitted": 0,
+      "head": "d61ddafaa05aa688d0ef5a720073a0e82fd790af",
+      "refusals": {},
+      "slug": "bharathvbcr/manvi",
+      "swift_paths": 0,
+      "tree_blobs": 789
+    },
+    "devtools/MarkDev": {
+      "emitted": 234,
+      "head": "0ecf26acdadf05c4b0cad4780bb93452117d0099",
+      "refusals": {},
+      "slug": "bharathvbcr/markdev",
+      "swift_paths": 234,
+      "tree_blobs": 335
+    },
+    "devtools/gusset": {
+      "emitted": 0,
+      "head": "7ea6b3535a7a100bd1f4955e57b835324ce95267",
+      "refusals": {},
+      "slug": "bharathvbcr/gusset",
+      "swift_paths": 0,
+      "tree_blobs": 287
+    },
+    "research/BINN": {
+      "emitted": 0,
+      "head": "30f68d3f407f6e3664a9fc1050e6b74bdc2eb58b",
+      "refusals": {},
+      "slug": "bharathvbcr/brain-inspired_neural_network",
+      "swift_paths": 0,
+      "tree_blobs": 6550
+    },
+    "research/MLSystemsLab": {
+      "emitted": 1,
+      "head": "7e56ef20dd6684b4d73fa2ec4a96e68c980d7f11",
+      "refusals": {},
+      "slug": "bharathvbcr/machinelearning",
+      "swift_paths": 1,
+      "tree_blobs": 6016
+    },
+    "research/ojas": {
+      "emitted": 0,
+      "head": "4be10691f440ae0720ce808f5b7efa4f529c4244",
+      "refusals": {},
+      "slug": "bharathvbcr/ojas",
+      "swift_paths": 0,
+      "tree_blobs": 1986
+    },
+    "research/tessl": {
+      "emitted": 0,
+      "head": "52c091c0f2f33cc14b20f4bd5342eb42c398f378",
+      "refusals": {},
+      "slug": "bharathvbcr/tessl",
+      "swift_paths": 0,
+      "tree_blobs": 439
+    },
+    "scholarlm": {
+      "emitted": 0,
+      "head": "a4738d374575fe6d55f149dfd0a99b693751244d",
+      "refusals": {},
+      "slug": "bharathvbcr/scholarlm",
+      "swift_paths": 0,
+      "tree_blobs": 5048
+    },
+    "web/BlueberryFarming": {
+      "emitted": 0,
+      "head": "f8355ef991e189d37e4466c62329978ee60e5a22",
+      "refusals": {},
+      "slug": "bharathvbcr/blueberryfarming",
+      "swift_paths": 0,
+      "tree_blobs": 70
+    },
+    "web/Portfolio": {
+      "emitted": 0,
+      "head": "2206949cf406c64d0534e08bd509f1eda169e7f2",
+      "refusals": {},
+      "slug": "bharathvbcr/portfolio-vbcr",
+      "swift_paths": 0,
+      "tree_blobs": 832
+    },
+    "web/Void": {
+      "emitted": 0,
+      "head": "3ed68f5fdcc50cdee3e0633aa03d05a16708870b",
+      "refusals": {},
+      "slug": "bharathvbcr/void",
+      "swift_paths": 0,
+      "tree_blobs": 111
+    }
+  },
+  "pool": {
+    "bytes": 20404893,
+    "file": "pool.jsonl",
+    "records": 1396,
+    "sha256": "fd8cc9269d7916a379b40dc26fd8a888ae23cb14288470fa787be8c17466baa3"
+  },
+  "record_shape": "qd-mutate pool::PoolRecord {id, repo, path, source}; hunks and prior_source absent (a pool walked off a pinned tree has no diff attached)",
+  "rules": {
+    "files": "blobs in `git ls-tree -r <pinned head>` that qd_lang::language_from_path calls swift; the working tree is never read",
+    "max_file_bytes": 1048576,
+    "refusals_first_wins": [
+      "inside_nested_repository",
+      "struck_path",
+      "not_a_regular_file",
+      "file_too_large",
+      "binary",
+      "not_utf8"
+    ],
+    "repositories": "the manifest's split: train rows, each re-checked against own_repos::split_of; held-out rows are never read"
+  },
+  "ruling": "AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md R3",
+  "schema": "qd-own-swift-pool/v1",
+  "source_id": "bharathvbcr/own-repositories",
+  "tool": "qd-prep own-swift",
+  "tool_version": "0.1.0",
+  "totals": {
+    "records": 1396,
+    "refusals": {},
+    "swift_paths": 1396,
+    "train_repos": 23,
+    "tree_blobs": 33616
+  }
+}

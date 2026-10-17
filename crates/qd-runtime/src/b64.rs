@@ -128,7 +128,11 @@ fn map_error(err: base64::DecodeError, text: &str) -> DecodeError {
             let quantum_start = (src.len().saturating_sub(1) / 4) * 4;
             let kept = offset.saturating_sub(quantum_start) + 1;
             let slack_bits = 8usize.saturating_sub(2 * kept);
-            let within_sextet = if slack_bits >= 8 { 0xffu8 } else { (1u8 << slack_bits) - 1 };
+            let within_sextet = if slack_bits >= 8 {
+                0xffu8
+            } else {
+                (1u8 << slack_bits) - 1
+            };
             let canonical = symbol_value & !within_sextet & 0x3f;
             DecodeError {
                 offset,
@@ -287,7 +291,10 @@ mod tests {
         assert_eq!(decode("Zg=="), Ok(b"f".to_vec()));
         let err = decode("Zh==").expect_err("non-zero slack bits must not decode");
         assert!(err.expected.contains("unused low bits"), "{err:?}");
-        assert!(err.expected.contains("`g`"), "names the canonical form: {err:?}");
+        assert!(
+            err.expected.contains("`g`"),
+            "names the canonical form: {err:?}"
+        );
         // The same at the three-character boundary.
         assert_eq!(decode("Zm8="), Ok(b"fo".to_vec()));
         assert!(decode("Zm9=").is_err());
@@ -305,7 +312,10 @@ mod tests {
         let three = decode("Zm9=").expect_err("xxx= with slack bits");
         assert_eq!(three.offset, 2);
         assert!(three.expected.contains("2 unused low bits"), "{three:?}");
-        assert!(three.expected.contains("`8`"), "canonical for `9` is `8`: {three:?}");
+        assert!(
+            three.expected.contains("`8`"),
+            "canonical for `9` is `8`: {three:?}"
+        );
     }
 
     #[test]

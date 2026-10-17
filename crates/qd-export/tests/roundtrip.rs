@@ -15,18 +15,24 @@ use std::collections::BTreeMap;
 
 use qd_export::bf16::{f16_bits_to_f32, f32_to_bf16_rne};
 use qd_export::layout::Layout;
-use qd_export::{export, RefusalKind};
+use qd_export::{RefusalKind, export};
 use qd_metal::config::ModelConfig;
-use qd_metal::safetensors::{widen, Dtype as MetalDtype, SafeTensors};
+use qd_metal::safetensors::{Dtype as MetalDtype, SafeTensors, widen};
 use qd_metal::tokenizer::QwenTokenizer;
-use qd_metal::weights::{self, TensorDigest, TEXT_PREFIX};
+use qd_metal::weights::{self, TEXT_PREFIX, TensorDigest};
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::{hex, sha256};
 use serde_json::Value;
 
 /// The bf16 bits the release must hold for a source tensor, computed by tessl / qd-metal.
 fn oracle_bf16(t: &common::Tensor) -> Vec<u16> {
-    let words = |b: &[u8]| -> Vec<u16> { b.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect() };
+    let words = |b: &[u8]| -> Vec<u16> {
+        b.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
+            .collect()
+    };
     match t.dtype {
         qd_export::safetensors::Dtype::Bf16 => words(&t.bytes),
         qd_export::safetensors::Dtype::F16 => widen(MetalDtype::F16, &t.bytes)
@@ -45,23 +51,35 @@ fn oracle_bf16(t: &common::Tensor) -> Vec<u16> {
 fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() {
     let tensors = common::standard_tensors();
     // A format-2 checkpoint: its source manifest states the prompt format its recipe trained on.
-    let fx = common::build(&tensors, &common::tiny_config(), |m| m["prompt_format"] = 2.into());
+    let fx = common::build(&tensors, &common::tiny_config(), |m| {
+        m["prompt_format"] = 2.into()
+    });
     let table = CalibrationTable::reference();
     let table_path = fx.dir.0.join("table.json");
     std::fs::write(&table_path, serde_json::to_vec_pretty(&table).unwrap()).unwrap();
     let mut req = fx.request();
     req.calibration = Some(table_path.clone());
     let summary = export(&req).expect("the standard fixture exports");
-    assert!(fx.leftovers().is_empty(), "staging left behind: {:?}", fx.leftovers());
+    assert!(
+        fx.leftovers().is_empty(),
+        "staging left behind: {:?}",
+        fx.leftovers()
+    );
 
     // The loader's entry points, in Model::load's order.
-    let cfg = ModelConfig::load(&fx.out).expect("qd-metal's ModelConfig accepts the release's config.json");
+    let cfg = ModelConfig::load(&fx.out)
+        .expect("qd-metal's ModelConfig accepts the release's config.json");
     let wf = qd_metal::model::weights_file(&fx.out).unwrap();
     assert_eq!(wf, fx.out.join("model.safetensors"));
     let st = SafeTensors::open(&wf).expect("qd-metal's reader opens model.safetensors");
-    weights::check_text_tensor_set(&st, &cfg).expect("exactly the text tensors the forward pass reads");
+    weights::check_text_tensor_set(&st, &cfg)
+        .expect("exactly the text tensors the forward pass reads");
     let names: Vec<String> = st.names().map(str::to_string).collect();
-    assert_eq!(names, weights::expected_text_tensors(&cfg), "and nothing outside the prefix either");
+    assert_eq!(
+        names,
+        weights::expected_text_tensors(&cfg),
+        "and nothing outside the prefix either"
+    );
 
     // Both readers agree on every header entry.
     let mine = qd_export::safetensors::SafeTensorsFile::open(&wf).unwrap();
@@ -69,7 +87,11 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
     for (name, info) in mine.tensors() {
         let theirs = st.info(name).unwrap();
         assert_eq!(theirs.dtype, MetalDtype::Bf16, "{name}");
-        assert_eq!((&theirs.shape, theirs.start, theirs.end), (&info.shape, info.start, info.end), "{name}");
+        assert_eq!(
+            (&theirs.shape, theirs.start, theirs.end),
+            (&info.shape, info.start, info.end),
+            "{name}"
+        );
         assert_eq!(info.dtype.as_str(), "BF16");
     }
 
@@ -84,32 +106,57 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
             rounded += 1;
         }
     }
-    assert_eq!((summary.rounded, summary.copied), (rounded, names.len() - rounded));
+    assert_eq!(
+        (summary.rounded, summary.copied),
+        (rounded, names.len() - rounded)
+    );
     // The ties at the head of every F32 tensor went to even, as tessl says they should.
-    let embed = st.bf16(&format!("{TEXT_PREFIX}embed_tokens.weight"), &[common::VOCAB, common::HIDDEN]).unwrap();
-    assert_eq!(&embed[..6], &[0x3F80, 0x3F82, 0xBF80, 0x0000, 0x0002, 0x4000]);
+    let embed = st
+        .bf16(
+            &format!("{TEXT_PREFIX}embed_tokens.weight"),
+            &[common::VOCAB, common::HIDDEN],
+        )
+        .unwrap();
+    assert_eq!(
+        &embed[..6],
+        &[0x3F80, 0x3F82, 0xBF80, 0x0000, 0x0002, 0x4000]
+    );
 
     // The CPU half of Model::load (model.rs:323-429): embed and final norm digests, then
     // prepare_layer for every layer -- which also checks each tensor's shape and dtype against
     // what the kernels read -- then the weight hash the backend reports.
     let h = cfg.hidden;
     let embed_name = format!("{TEXT_PREFIX}embed_tokens.weight");
-    let info = st.expect(&embed_name, &[cfg.vocab, h], &[MetalDtype::Bf16]).unwrap().clone();
+    let info = st
+        .expect(&embed_name, &[cfg.vocab, h], &[MetalDtype::Bf16])
+        .unwrap()
+        .clone();
     let mut bytes = vec![0u8; info.nbytes()];
     st.read_into(&embed_name, &mut bytes).unwrap();
     let mut digests: Vec<TensorDigest> = vec![(embed_name, sha256(&bytes))];
     let norm_name = format!("{TEXT_PREFIX}norm.weight");
-    let info = st.expect(&norm_name, &[h], &[MetalDtype::Bf16, MetalDtype::F32]).unwrap().clone();
+    let info = st
+        .expect(&norm_name, &[h], &[MetalDtype::Bf16, MetalDtype::F32])
+        .unwrap()
+        .clone();
     let mut bytes = vec![0u8; info.nbytes()];
     st.read_into(&norm_name, &mut bytes).unwrap();
     digests.push((norm_name, sha256(&bytes)));
     for i in 0..cfg.n_layers() {
-        let layer = weights::prepare_layer(&st, &cfg, i).unwrap_or_else(|e| panic!("layer {i}: {e}"));
+        let layer =
+            weights::prepare_layer(&st, &cfg, i).unwrap_or_else(|e| panic!("layer {i}: {e}"));
         digests.extend(layer.digests);
     }
-    assert_eq!(digests.len(), names.len(), "Model::load reads every tensor once");
+    assert_eq!(
+        digests.len(),
+        names.len(),
+        "Model::load reads every tensor once"
+    );
     let loader_hash = weights::weight_hash(&mut digests);
-    assert_eq!(summary.weight_hash, loader_hash, "the manifest's weight_hash is the one qd-metal will report");
+    assert_eq!(
+        summary.weight_hash, loader_hash,
+        "the manifest's weight_hash is the one qd-metal will report"
+    );
 
     // Tokenizer: the loader's hash is the pinned file's.
     let tok = QwenTokenizer::load(&fx.out.join("tokenizer.json")).unwrap();
@@ -120,20 +167,30 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
     let head = SafeTensors::open(&fx.out.join("span_head.safetensors")).unwrap();
     let layout = Layout::from_config_json(&common::tiny_config().to_string()).unwrap();
     for (short, shape) in layout.span_head_tensors() {
-        let info = head.expect(&short, &shape, &[MetalDtype::F32]).unwrap().clone();
+        let info = head
+            .expect(&short, &shape, &[MetalDtype::F32])
+            .unwrap()
+            .clone();
         let mut got = vec![0u8; info.nbytes()];
         head.read_into(&short, &mut got).unwrap();
         assert_eq!(got, tensors[&format!("span_head.{short}")].bytes, "{short}");
     }
 
     // The manifest: every file's sha256 is the file's, and the identity is the loader's.
-    let manifest: Value = serde_json::from_slice(&std::fs::read(fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(fx.out.join("release_manifest.json")).unwrap())
+            .unwrap();
     let files = manifest["files"].as_object().unwrap();
     let on_disk: BTreeMap<String, String> = std::fs::read_dir(&fx.out)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|n| n != "release_manifest.json")
-        .map(|n| (n.clone(), hex(&sha256(&std::fs::read(fx.out.join(&n)).unwrap()))))
+        .map(|n| {
+            (
+                n.clone(),
+                hex(&sha256(&std::fs::read(fx.out.join(&n)).unwrap())),
+            )
+        })
         .collect();
     assert_eq!(files.len(), on_disk.len());
     for (name, sha) in &on_disk {
@@ -146,17 +203,35 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
     assert_eq!(id["weight_hash"], loader_hash.as_str());
     assert_eq!(id["tokenizer_hash"], tok.hash());
     assert_eq!(id["calibration_hash"], table.hash().as_str());
-    assert!(id["not_computed"]["head_hash"].is_string(), "named as not computed, not omitted");
+    assert!(
+        id["not_computed"]["head_hash"].is_string(),
+        "named as not computed, not omitted"
+    );
     assert_eq!(manifest["calibration"]["table_hash"], table.hash().as_str());
     let src = &manifest["source"];
     assert_eq!(src["ft_row_ids"], serde_json::json!(common::FT_ROW_IDS));
-    assert_eq!(src["prompt_format"], 2, "the source block records what the stamp was read from");
-    assert_eq!(src["manifest_sha256"], hex(&sha256(&std::fs::read(&fx.manifest).unwrap())).as_str());
-    assert_eq!(src["safetensors_sha256"], hex(&sha256(&std::fs::read(&fx.source).unwrap())).as_str());
+    assert_eq!(
+        src["prompt_format"], 2,
+        "the source block records what the stamp was read from"
+    );
+    assert_eq!(
+        src["manifest_sha256"],
+        hex(&sha256(&std::fs::read(&fx.manifest).unwrap())).as_str()
+    );
+    assert_eq!(
+        src["safetensors_sha256"],
+        hex(&sha256(&std::fs::read(&fx.source).unwrap())).as_str()
+    );
 
     // Passed through byte for byte.
-    assert_eq!(std::fs::read(fx.out.join("config.json")).unwrap(), std::fs::read(fx.snapshot.join("config.json")).unwrap());
-    assert_eq!(std::fs::read(fx.out.join("calibration.json")).unwrap(), std::fs::read(&table_path).unwrap());
+    assert_eq!(
+        std::fs::read(fx.out.join("config.json")).unwrap(),
+        std::fs::read(fx.snapshot.join("config.json")).unwrap()
+    );
+    assert_eq!(
+        std::fs::read(fx.out.join("calibration.json")).unwrap(),
+        std::fs::read(&table_path).unwrap()
+    );
 
     // And the release is never overwritten.
     assert_eq!(export(&req).unwrap_err().kind, RefusalKind::OutputExists);
@@ -174,11 +249,13 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
 #[test]
 #[ignore = "needs the model snapshot and ~9 GB of temp disk"]
 fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
-    use qd_export::safetensors::{Dtype, PlannedTensor, SafeTensorsFile, Writer, CHUNK_BYTES};
+    use qd_export::safetensors::{CHUNK_BYTES, Dtype, PlannedTensor, SafeTensorsFile, Writer};
 
     let snap = qd_metal::config::resolve_snapshot(None).expect("the Qwen3.5-2B-Base snapshot");
     let base = SafeTensorsFile::open(&qd_metal::model::weights_file(&snap).unwrap()).unwrap();
-    let layout = Layout::from_config_json(&std::fs::read_to_string(snap.join("config.json")).unwrap()).unwrap();
+    let layout =
+        Layout::from_config_json(&std::fs::read_to_string(snap.join("config.json")).unwrap())
+            .unwrap();
     let dir = common::TempDir::new("real");
 
     // The source: the base's text tensors as tower.*, plus a zero F32 span head.
@@ -196,7 +273,11 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
         .collect();
     assert_eq!(plan.len(), 320);
     for (short, shape) in layout.span_head_tensors() {
-        plan.push(PlannedTensor { name: format!("span_head.{short}"), dtype: Dtype::F32, shape });
+        plan.push(PlannedTensor {
+            name: format!("span_head.{short}"),
+            dtype: Dtype::F32,
+            shape,
+        });
     }
     let n_tensors = plan.len();
     let mut w = Writer::create(&source, plan).unwrap();
@@ -226,7 +307,11 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
         "safetensors_sha256": hex(&written.sha256),
         "n_tensors": n_tensors,
     });
-    std::fs::write(dir.0.join("avg.safetensors.manifest.json"), manifest.to_string()).unwrap();
+    std::fs::write(
+        dir.0.join("avg.safetensors.manifest.json"),
+        manifest.to_string(),
+    )
+    .unwrap();
 
     let out = dir.0.join("release");
     let summary = export(&qd_export::ExportRequest {
@@ -241,6 +326,8 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
             &common::TRAINED_FAMILIES,
         ),
         allow_extra: Vec::new(),
+        averaged_head_preregistration: None,
+        ft_ledger: None,
         out: out.clone(),
     })
     .expect("the base weights export");
@@ -265,18 +352,29 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
         (info.dtype, sha256(&b))
     };
     let embed = format!("{TEXT_PREFIX}embed_tokens.weight");
-    st.expect(&embed, &[248_320, 2048], &[MetalDtype::Bf16]).unwrap();
+    st.expect(&embed, &[248_320, 2048], &[MetalDtype::Bf16])
+        .unwrap();
     let norm = format!("{TEXT_PREFIX}norm.weight");
-    let mut digests: Vec<TensorDigest> = vec![(embed.clone(), digest_of(&st, &embed).1), (norm.clone(), digest_of(&st, &norm).1)];
+    let mut digests: Vec<TensorDigest> = vec![
+        (embed.clone(), digest_of(&st, &embed).1),
+        (norm.clone(), digest_of(&st, &norm).1),
+    ];
     for i in 0..cfg.n_layers() {
-        digests.extend(weights::prepare_layer(&st, &cfg, i).unwrap_or_else(|e| panic!("layer {i}: {e}")).digests);
+        digests.extend(
+            weights::prepare_layer(&st, &cfg, i)
+                .unwrap_or_else(|e| panic!("layer {i}: {e}"))
+                .digests,
+        );
     }
     assert_eq!(digests.len(), 320);
     let mut identical = 0;
     for (name, d) in &digests {
         let (base_dtype, base_d) = digest_of(&base_m, name);
         if base_dtype == MetalDtype::Bf16 {
-            assert_eq!(*d, base_d, "{name}: a BF16 base tensor must come back bit for bit");
+            assert_eq!(
+                *d, base_d,
+                "{name}: a BF16 base tensor must come back bit for bit"
+            );
             identical += 1;
         } else {
             assert!(
@@ -291,19 +389,31 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
                 .into_iter()
                 .flat_map(|x| tessl::tensor::f32_to_bf16_bits(x).to_le_bytes())
                 .collect();
-            assert_eq!(*d, sha256(&cast), "{name}: not the bf16 cast of the base's F32");
+            assert_eq!(
+                *d,
+                sha256(&cast),
+                "{name}: not the bf16 cast of the base's F32"
+            );
         }
     }
     assert_eq!(identical, 284);
     assert_eq!(weights::weight_hash(&mut digests), summary.weight_hash);
 
     let tok = QwenTokenizer::load(&out.join("tokenizer.json")).unwrap();
-    assert_eq!(tok.hash(), "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927");
-    assert_eq!(std::fs::read(out.join("config.json")).unwrap(), std::fs::read(snap.join("config.json")).unwrap());
+    assert_eq!(
+        tok.hash(),
+        "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927"
+    );
+    assert_eq!(
+        std::fs::read(out.join("config.json")).unwrap(),
+        std::fs::read(snap.join("config.json")).unwrap()
+    );
     eprintln!(
         "real export: weight_hash {}; model.safetensors {} bytes",
         summary.weight_hash,
-        std::fs::metadata(out.join("model.safetensors")).unwrap().len()
+        std::fs::metadata(out.join("model.safetensors"))
+            .unwrap()
+            .len()
     );
 }
 

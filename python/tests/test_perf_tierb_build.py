@@ -56,7 +56,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, str]]:
     _git(src, "add", "-A", env=env)
     _git(src, "commit", "-qm", "base", env=env)
     (src / "data" / "pool" / "pool-v2.jsonl").symlink_to(store / "pool-v2.jsonl")
-    (src / "data" / "pool" / "corpus" / "examples.jsonl").symlink_to(store / "corpus" / "examples.jsonl")
+    (src / "data" / "pool" / "corpus" / "examples.jsonl").symlink_to(
+        store / "corpus" / "examples.jsonl"
+    )
     (src / "__pycache__").mkdir()
     (src / "__pycache__" / "x.pyc").write_text("")
     perf = tmp_path / "perf"
@@ -94,8 +96,8 @@ def test_build_links_every_ignored_data_symlink_of_the_source(tmp_path: Path) ->
     code = perf / "p3fused"
     pool = code / "data" / "pool" / "pool-v2.jsonl"
     examples = code / "data" / "pool" / "corpus" / "examples.jsonl"
-    assert pool.is_symlink() and os.readlink(pool) == str(store / "pool-v2.jsonl")
-    assert examples.is_symlink() and os.readlink(examples) == str(store / "corpus" / "examples.jsonl")
+    assert pool.is_symlink() and pool.readlink() == store / "pool-v2.jsonl"
+    assert examples.is_symlink() and examples.readlink() == store / "corpus" / "examples.jsonl"
     assert pool.read_text() == "pool\n"
     assert not (code / "__pycache__").exists()
     assert _git(code, "status", "--porcelain", env=env) == ""
@@ -108,7 +110,7 @@ def test_nomask_build_links_too(tmp_path: Path) -> None:
     proc = _run(src, perf, env, "nomask", "--build")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     pool = perf / "p3nomask" / "data" / "pool" / "pool-v2.jsonl"
-    assert pool.is_symlink() and os.readlink(pool) == str(store / "pool-v2.jsonl")
+    assert pool.is_symlink() and pool.readlink() == store / "pool-v2.jsonl"
 
 
 def test_link_repairs_an_existing_clone_without_rebuilding_it(tmp_path: Path) -> None:
@@ -119,7 +121,7 @@ def test_link_repairs_an_existing_clone_without_rebuilding_it(tmp_path: Path) ->
     proc = _run(src, perf, env, "fused", "--link")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     pool = code / "data" / "pool" / "pool-v2.jsonl"
-    assert pool.is_symlink() and os.readlink(pool) == str(store / "pool-v2.jsonl")
+    assert pool.is_symlink() and pool.readlink() == store / "pool-v2.jsonl"
     assert _git(code, "rev-parse", "HEAD", env=env) == head
     again = _run(src, perf, env, "fused", "--link")
     assert again.returncode == 0, again.stdout + again.stderr
@@ -169,7 +171,10 @@ def test_a_destination_that_differs_refuses(tmp_path: Path) -> None:
 
 def test_a_source_with_no_ignored_links_refuses(tmp_path: Path) -> None:
     src, perf, _store, env = _fixture(tmp_path)
-    for link in (src / "data" / "pool" / "pool-v2.jsonl", src / "data" / "pool" / "corpus" / "examples.jsonl"):
+    for link in (
+        src / "data" / "pool" / "pool-v2.jsonl",
+        src / "data" / "pool" / "corpus" / "examples.jsonl",
+    ):
         link.unlink()
     proc = _run(src, perf, env, "fused", "--build")
     assert proc.returncode == 3

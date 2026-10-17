@@ -42,7 +42,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::pyjson::{dumps, float, obj, PyJsonError, CANONICAL, CANONICAL_ASCII};
+use crate::pyjson::{CANONICAL, CANONICAL_ASCII, PyJsonError, dumps, float, obj};
 use crate::run_control::hex;
 use crate::trainer::{EtaRule, TrainResult};
 use crate::tristate::{TriState, TriStateError};
@@ -56,7 +56,12 @@ pub const REQUIRED_GATES: [&str; 5] = [
     "ece",
 ];
 /// `ledger.REQUIRED_CONTROLS`.
-pub const REQUIRED_CONTROLS: [&str; 4] = ["shuffled_label", "privileged_hunk", "degenerate_head", "transfer_gate"];
+pub const REQUIRED_CONTROLS: [&str; 4] = [
+    "shuffled_label",
+    "privileged_hunk",
+    "degenerate_head",
+    "transfer_gate",
+];
 /// `ledger.NOT_APPLICABLE`: a build row's marker, refused in a training row.
 pub const NOT_APPLICABLE: &str = "n/a:build";
 
@@ -80,7 +85,10 @@ fn refuse<T>(m: impl Into<String>) -> Result<T, LedgerError> {
 /// `train.termination` is read back.
 fn termination_value(t: &TriState) -> Option<&str> {
     match t {
-        TriState::Ran { value: Value::String(s), .. } => Some(s),
+        TriState::Ran {
+            value: Value::String(s),
+            ..
+        } => Some(s),
         _ => None,
     }
 }
@@ -93,6 +101,12 @@ fn tristates(m: &BTreeMap<String, TriState>) -> Result<Value, LedgerError> {
             .collect::<Result<_, LedgerError>>()?,
     ))
 }
+
+/// `recipe.optimizer_recipe` of a Metal full fine-tune: AdamW over f32 parameters, with no
+/// master/bf16 split. It is not `"master"` (torch's `MasterWeightAdamW` over bf16 parameters),
+/// so a Mac row is never pooled with a v5 row (Fable's board-sweep ruling 2h). LoRA-2B's label is
+/// `"lora"` (D6); both are in Python's `OPTIMIZER_RECIPES`.
+pub const METAL_FULL_FT_OPTIMIZER_RECIPE: &str = "f32";
 
 /// The ft recipe as the row stores (and hashes) it. Keys follow `real_ft_run._train`'s recipe
 /// and `_recipe_pieces`, plus the keys only a Metal run has (`provider`, `operands`,
@@ -166,17 +180,32 @@ impl FtRecipe {
             ("span_weight".into(), float(self.span_weight)?),
             ("deterministic".into(), Value::Bool(self.deterministic)),
             ("shard_hash".into(), Value::from(self.shard_hash.as_str())),
-            ("backbone_snapshot".into(), Value::from(self.backbone_snapshot.as_str())),
+            (
+                "backbone_snapshot".into(),
+                Value::from(self.backbone_snapshot.as_str()),
+            ),
             ("backbone_vocab".into(), Value::from(self.backbone_vocab)),
             ("backbone_params".into(), Value::from(self.backbone_params)),
-            ("attn_implementation".into(), Value::from(self.attn_implementation.as_str())),
-            ("optimizer_recipe".into(), Value::from(self.optimizer_recipe.as_str())),
+            (
+                "attn_implementation".into(),
+                Value::from(self.attn_implementation.as_str()),
+            ),
+            (
+                "optimizer_recipe".into(),
+                Value::from(self.optimizer_recipe.as_str()),
+            ),
             ("provider".into(), Value::from(self.provider.as_str())),
             ("operands".into(), Value::from(self.operands.as_str())),
-            ("optimizer_groups".into(), Value::from(self.optimizer_groups.as_str())),
+            (
+                "optimizer_groups".into(),
+                Value::from(self.optimizer_groups.as_str()),
+            ),
         ];
         if self.train_attention_mask != "padding" {
-            pairs.push(("train_attention_mask".into(), Value::from(self.train_attention_mask.as_str())));
+            pairs.push((
+                "train_attention_mask".into(),
+                Value::from(self.train_attention_mask.as_str()),
+            ));
         }
         if let Some(c) = self.wall_clock_cap_s
             && c != crate::run_control::DEFAULT_CAP_S
@@ -232,12 +261,20 @@ impl Protocol {
     /// The protocol of a run of `recipe` at `seed`: `backbone_commit` is
     /// `"<snapshot>:vocab<vocab>"` (`_backbone_commit`), `recipe_hash` is sha256 over the
     /// recipe's `json.dumps(sort_keys=True, separators=(",", ":"))`.
-    pub fn for_recipe(recipe: &FtRecipe, data_snapshot_hash: &str, tokenizer_hash: &str, seed: u64) -> Result<Self, LedgerError> {
+    pub fn for_recipe(
+        recipe: &FtRecipe,
+        data_snapshot_hash: &str,
+        tokenizer_hash: &str,
+        seed: u64,
+    ) -> Result<Self, LedgerError> {
         let body = dumps(&recipe.to_json()?, CANONICAL_ASCII)?;
         Ok(Self {
             data_snapshot_hash: data_snapshot_hash.to_string(),
             tokenizer_hash: tokenizer_hash.to_string(),
-            backbone_commit: format!("{}:vocab{}", recipe.backbone_snapshot, recipe.backbone_vocab),
+            backbone_commit: format!(
+                "{}:vocab{}",
+                recipe.backbone_snapshot, recipe.backbone_vocab
+            ),
             recipe_hash: hex(&Sha256::digest(body.as_bytes())),
             seed,
         })
@@ -260,9 +297,15 @@ impl Protocol {
             }
         }
         Ok(obj([
-            ("data_snapshot_hash", Value::from(self.data_snapshot_hash.as_str())),
+            (
+                "data_snapshot_hash",
+                Value::from(self.data_snapshot_hash.as_str()),
+            ),
             ("tokenizer_hash", Value::from(self.tokenizer_hash.as_str())),
-            ("backbone_commit", Value::from(self.backbone_commit.as_str())),
+            (
+                "backbone_commit",
+                Value::from(self.backbone_commit.as_str()),
+            ),
             ("recipe_hash", Value::from(self.recipe_hash.as_str())),
             ("seed", Value::from(self.seed)),
         ])?)
@@ -270,7 +313,9 @@ impl Protocol {
 
     /// `Protocol.hash`: sha256 over the canonical protocol (`ensure_ascii=False`).
     pub fn hash(&self) -> Result<String, LedgerError> {
-        Ok(hex(&Sha256::digest(dumps(&self.to_json()?, CANONICAL)?.as_bytes())))
+        Ok(hex(&Sha256::digest(
+            dumps(&self.to_json()?, CANONICAL)?.as_bytes(),
+        )))
     }
 }
 
@@ -321,14 +366,22 @@ impl Environment {
 
     /// `Environment.to_json`. A Rust process probes neither CUDA library, so both are `not_run`.
     pub fn to_json(&self) -> Result<Value, LedgerError> {
-        let probe = |what: &str, field: &str| TriState::not_run(format!("{what} dry run not executed")).to_json(field);
+        let probe = |what: &str, field: &str| {
+            TriState::not_run(format!("{what} dry run not executed")).to_json(field)
+        };
         Ok(obj([
             ("torch", Value::from(self.torch.as_str())),
-            ("transformers_sha", Value::from(self.transformers_sha.as_str())),
+            (
+                "transformers_sha",
+                Value::from(self.transformers_sha.as_str()),
+            ),
             ("device", Value::from(self.device.as_str())),
             ("host", Value::from(self.host.as_str())),
             ("fla_present", probe("fla", "env.fla_present")?),
-            ("causal_conv1d_present", probe("causal-conv1d", "env.causal_conv1d_present")?),
+            (
+                "causal_conv1d_present",
+                probe("causal-conv1d", "env.causal_conv1d_present")?,
+            ),
         ])?)
     }
 }
@@ -401,13 +454,21 @@ impl Row {
     /// reproduce `protocol.recipe_hash`.
     pub fn line(&self, stamp: &Stamp) -> Result<String, LedgerError> {
         if !RUN_KINDS.contains(&self.run_kind.as_str()) {
-            return refuse(format!("run_kind {:?} is not one of {RUN_KINDS:?}", self.run_kind));
+            return refuse(format!(
+                "run_kind {:?} is not one of {RUN_KINDS:?}",
+                self.run_kind
+            ));
         }
         if self.quick_reason.trim().is_empty() {
-            return refuse("quick=True requires quick_reason; every row this crate writes is quick (rule 8)");
+            return refuse(
+                "quick=True requires quick_reason; every row this crate writes is quick (rule 8)",
+            );
         }
         if !(self.wall_clock_s.is_finite() && self.wall_clock_s >= 0.0) {
-            return refuse(format!("wall_clock_s {} is not a measured duration", self.wall_clock_s));
+            return refuse(format!(
+                "wall_clock_s {} is not a measured duration",
+                self.wall_clock_s
+            ));
         }
         if !self.recipe.as_object().is_some_and(|o| !o.is_empty()) {
             return refuse(
@@ -415,7 +476,9 @@ impl Row {
                  `LedgerRow` refuses an empty one",
             );
         }
-        let recipe_hash = hex(&Sha256::digest(dumps(&self.recipe, CANONICAL_ASCII)?.as_bytes()));
+        let recipe_hash = hex(&Sha256::digest(
+            dumps(&self.recipe, CANONICAL_ASCII)?.as_bytes(),
+        ));
         if recipe_hash != self.protocol.recipe_hash {
             return refuse(format!(
                 "protocol.recipe_hash {} is not the hash of the stored recipe ({recipe_hash})",
@@ -424,11 +487,21 @@ impl Row {
         }
         let gates: BTreeMap<String, TriState> = REQUIRED_GATES
             .iter()
-            .map(|g| (g.to_string(), TriState::not_run(format!("gate '{g}' was never evaluated by this run"))))
+            .map(|g| {
+                (
+                    g.to_string(),
+                    TriState::not_run(format!("gate '{g}' was never evaluated by this run")),
+                )
+            })
             .collect();
         let controls: BTreeMap<String, TriState> = REQUIRED_CONTROLS
             .iter()
-            .map(|c| (c.to_string(), TriState::not_run(format!("control '{c}' was never evaluated by this run"))))
+            .map(|c| {
+                (
+                    c.to_string(),
+                    TriState::not_run(format!("control '{c}' was never evaluated by this run")),
+                )
+            })
             .collect();
         let row = obj([
             ("row_id", Value::from(stamp.row_id.as_str())),
@@ -520,7 +593,10 @@ pub struct RunFacts<'a> {
 /// Rust run adds: the consumed-batch digest, the provider that ran, the head-init digest and
 /// the ETA projection. A run that did not end by running out of work says so with
 /// `train.termination` `passed=false` (a capped run, and an `eta_rule` stop).
-pub fn ft_metrics(result: &TrainResult, facts: &RunFacts<'_>) -> Result<BTreeMap<String, TriState>, LedgerError> {
+pub fn ft_metrics(
+    result: &TrainResult,
+    facts: &RunFacts<'_>,
+) -> Result<BTreeMap<String, TriState>, LedgerError> {
     let mut m = BTreeMap::new();
     let steps = result.optimizer_steps;
     let cap_s = facts.cap_s;
@@ -558,14 +634,24 @@ pub fn ft_metrics(result: &TrainResult, facts: &RunFacts<'_>) -> Result<BTreeMap
             (None, _) => TriState::not_run("this run had no ETA rule"),
         },
     );
-    m.insert("train.optimizer_steps".to_string(), TriState::ran(true, steps));
-    m.insert("train.micro_batches".to_string(), TriState::ran(true, result.micro_batches));
+    m.insert(
+        "train.optimizer_steps".to_string(),
+        TriState::ran(true, steps),
+    );
+    m.insert(
+        "train.micro_batches".to_string(),
+        TriState::ran(true, result.micro_batches),
+    );
     let c = &result.counts;
     m.insert(
         "train.supervised_tokens".to_string(),
-        TriState::ran(true, c.supervised_tokens).with_coverage(c.supervised_tokens, c.total_positions),
+        TriState::ran(true, c.supervised_tokens)
+            .with_coverage(c.supervised_tokens, c.total_positions),
     );
-    m.insert("train.span_rows".to_string(), TriState::ran(true, c.span_rows));
+    m.insert(
+        "train.span_rows".to_string(),
+        TriState::ran(true, c.span_rows),
+    );
     let frac = if c.total_positions > 0 {
         c.padded_positions as f64 / c.total_positions as f64
     } else {
@@ -582,11 +668,16 @@ pub fn ft_metrics(result: &TrainResult, facts: &RunFacts<'_>) -> Result<BTreeMap
             None => TriState::ran(false, Value::Null).with_detail("no optimizer step completed"),
         },
     );
-    m.insert("train.loss_log_digest".to_string(), TriState::ran(true, result.loss_log_digest()?));
+    m.insert(
+        "train.loss_log_digest".to_string(),
+        TriState::ran(true, result.loss_log_digest()?),
+    );
     m.insert(
         "train.consumed_digest".to_string(),
-        TriState::ran(true, result.consumed_digest.as_str())
-            .with_detail(format!("ConsumedPrefix over the {} batch(es) this run consumed", result.consumed_n)),
+        TriState::ran(true, result.consumed_digest.as_str()).with_detail(format!(
+            "ConsumedPrefix over the {} batch(es) this run consumed",
+            result.consumed_n
+        )),
     );
     m.insert(
         "train.projected_usd_at_cap".to_string(),
@@ -598,8 +689,9 @@ pub fn ft_metrics(result: &TrainResult, facts: &RunFacts<'_>) -> Result<BTreeMap
     );
     m.insert(
         "train.path".to_string(),
-        TriState::ran(true, facts.provider)
-            .with_detail("what this row ran on; compare rows only where this agrees or says why not"),
+        TriState::ran(true, facts.provider).with_detail(
+            "what this row ran on; compare rows only where this agrees or says why not",
+        ),
     );
     Ok(m)
 }
@@ -607,15 +699,25 @@ pub fn ft_metrics(result: &TrainResult, facts: &RunFacts<'_>) -> Result<BTreeMap
 /// The rows this crate may write go to `ledger/mac-ojas-*.jsonl` and nowhere else.
 pub fn check_ledger_path(path: &Path) -> Result<(), LedgerError> {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let parent = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
-    if !(name.starts_with("mac-ojas-") && name.ends_with(".jsonl") && name.len() > "mac-ojas-.jsonl".len()) {
+    let parent = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if !(name.starts_with("mac-ojas-")
+        && name.ends_with(".jsonl")
+        && name.len() > "mac-ojas-.jsonl".len())
+    {
         return refuse(format!(
             "{}: the Rust trainer writes only ledger/mac-ojas-*.jsonl, never a campaign ledger",
             path.display()
         ));
     }
     if parent != "ledger" {
-        return refuse(format!("{}: the file must sit in a directory named `ledger`", path.display()));
+        return refuse(format!(
+            "{}: the file must sit in a directory named `ledger`",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -630,7 +732,12 @@ fn raw_lines(bytes: &[u8]) -> Vec<&[u8]> {
 
 /// `Ledger.append` for the Rust trainer's `ft` row: only into `ledger/mac-ojas-*.jsonl`
 /// ([`check_ledger_path`]), then [`append_line`].
-pub fn append(path: &Path, row: &FtRow, row_id: String, written_at: String) -> Result<Stamp, LedgerError> {
+pub fn append(
+    path: &Path,
+    row: &FtRow,
+    row_id: String,
+    written_at: String,
+) -> Result<Stamp, LedgerError> {
     check_ledger_path(path)?;
     append_line(path, row_id, written_at, |stamp| row.line(stamp))
 }
@@ -649,15 +756,27 @@ pub fn append_line(
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(ioe)?;
     }
-    let mut f = fs::File::options().create(true).append(true).read(true).open(path).map_err(ioe)?;
+    let mut f = fs::File::options()
+        .create(true)
+        .append(true)
+        .read(true)
+        .open(path)
+        .map_err(ioe)?;
     f.lock().map_err(ioe)?;
     let result = (|| {
         let mut bytes = Vec::new();
-        fs::File::open(path).and_then(|mut r| r.read_to_end(&mut bytes)).map_err(ioe)?;
+        fs::File::open(path)
+            .and_then(|mut r| r.read_to_end(&mut bytes))
+            .map_err(ioe)?;
         let lines = raw_lines(&bytes);
         let needle = format!("\"row_id\":\"{row_id}\"");
-        if lines.iter().any(|l| l.windows(needle.len()).any(|w| w == needle.as_bytes())) {
-            return refuse(format!("row_id {row_id} already present: the ledger is append-only"));
+        if lines
+            .iter()
+            .any(|l| l.windows(needle.len()).any(|w| w == needle.as_bytes()))
+        {
+            return refuse(format!(
+                "row_id {row_id} already present: the ledger is append-only"
+            ));
         }
         let stamp = Stamp {
             row_id: row_id.clone(),
@@ -685,7 +804,14 @@ pub fn uuid4() -> Result<String, LedgerError> {
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let h = hex(&b);
-    Ok(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
+    Ok(format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    ))
 }
 
 /// `datetime.now(UTC).isoformat()` for `t`: microseconds when non-zero, `+00:00`.
@@ -707,15 +833,25 @@ pub fn isoformat_utc(t: SystemTime) -> Result<String, LedgerError> {
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
     let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    let frac = if micros == 0 { String::new() } else { format!(".{micros:06}") };
-    Ok(format!("{year:04}-{month:02}-{day:02}T{hh:02}:{mm:02}:{ss:02}{frac}+00:00"))
+    let frac = if micros == 0 {
+        String::new()
+    } else {
+        format!(".{micros:06}")
+    };
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02}T{hh:02}:{mm:02}:{ss:02}{frac}+00:00"
+    ))
 }
 
 /// `_git_commit`: HEAD, with `-dirty` when the tree has any change (an unknown(...) string when
 /// git cannot answer, never a guess).
 pub fn git_commit(repo: &Path) -> String {
     let run = |args: &[&str]| -> Result<String, String> {
-        let out = Command::new("git").args(args).current_dir(repo).output().map_err(|e| e.to_string())?;
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .map_err(|e| e.to_string())?;
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
@@ -746,9 +882,13 @@ pub fn hostname() -> String {
 pub fn ojas_ledger_path(repo: &Path, lane: &str, date: &str) -> Result<PathBuf, LedgerError> {
     let ok = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
     if !ok(lane) || !ok(date) {
-        return refuse(format!("lane {lane:?} and date {date:?} must be [A-Za-z0-9-]+"));
+        return refuse(format!(
+            "lane {lane:?} and date {date:?} must be [A-Za-z0-9-]+"
+        ));
     }
-    let p = repo.join("ledger").join(format!("mac-ojas-{lane}-{date}.jsonl"));
+    let p = repo
+        .join("ledger")
+        .join(format!("mac-ojas-{lane}-{date}.jsonl"));
     check_ledger_path(&p)?;
     Ok(p)
 }
@@ -756,6 +896,12 @@ pub fn ojas_ledger_path(repo: &Path, lane: &str, date: &str) -> Result<PathBuf, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_metal_full_ft_row_is_never_labelled_master() {
+        assert_eq!(METAL_FULL_FT_OPTIMIZER_RECIPE, "f32");
+        assert_ne!(METAL_FULL_FT_OPTIMIZER_RECIPE, "master");
+    }
 
     #[test]
     fn only_mac_ojas_ledgers_are_writable() {
@@ -772,10 +918,20 @@ mod tests {
     #[test]
     fn isoformat_matches_pythons_layout() {
         let t = UNIX_EPOCH + std::time::Duration::new(1_790_000_000, 123_456_000);
-        assert_eq!(isoformat_utc(t).unwrap(), "2026-09-21T14:13:20.123456+00:00");
+        assert_eq!(
+            isoformat_utc(t).unwrap(),
+            "2026-09-21T14:13:20.123456+00:00"
+        );
         let whole = UNIX_EPOCH + std::time::Duration::new(1_790_000_000, 0);
-        assert_eq!(isoformat_utc(whole).unwrap(), "2026-09-21T14:13:20+00:00", "no fraction at 0 us");
-        assert_eq!(isoformat_utc(UNIX_EPOCH + std::time::Duration::new(951_782_400, 0)).unwrap(), "2000-02-29T00:00:00+00:00");
+        assert_eq!(
+            isoformat_utc(whole).unwrap(),
+            "2026-09-21T14:13:20+00:00",
+            "no fraction at 0 us"
+        );
+        assert_eq!(
+            isoformat_utc(UNIX_EPOCH + std::time::Duration::new(951_782_400, 0)).unwrap(),
+            "2000-02-29T00:00:00+00:00"
+        );
     }
 
     #[test]

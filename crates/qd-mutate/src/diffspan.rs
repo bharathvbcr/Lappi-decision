@@ -39,9 +39,7 @@ pub fn span_from_text_diff(before: &str, after: &str) -> Option<LineSpan> {
 
     let max_suffix = b.len().min(a.len()) - prefix;
     let mut suffix = 0usize;
-    while suffix < max_suffix
-        && b[b.len() - 1 - suffix] == a[a.len() - 1 - suffix]
-    {
+    while suffix < max_suffix && b[b.len() - 1 - suffix] == a[a.len() - 1 - suffix] {
         suffix += 1;
     }
 
@@ -148,13 +146,22 @@ impl std::fmt::Display for DiffRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DiffRefusal::TooManyLines { side, lines, cap } => {
-                write!(f, "the {side} text has {lines} lines, over the {cap}-line cap")
+                write!(
+                    f,
+                    "the {side} text has {lines} lines, over the {cap}-line cap"
+                )
             }
             DiffRefusal::EditDistanceOverCap { cap } => {
-                write!(f, "the minimal edit script is longer than the {cap}-line cap")
+                write!(
+                    f,
+                    "the minimal edit script is longer than the {cap}-line cap"
+                )
             }
             DiffRefusal::NoProgress => {
-                write!(f, "the middle-snake search split the problem without shrinking it")
+                write!(
+                    f,
+                    "the middle-snake search split the problem without shrinking it"
+                )
             }
         }
     }
@@ -443,7 +450,11 @@ enum Task {
 }
 
 /// A minimal line-level edit script from `old` to `new`, refused when its length exceeds `max_d`.
-pub(crate) fn edit_script(old: &[u32], new: &[u32], max_d: usize) -> Result<Vec<EditRun>, DiffRefusal> {
+pub(crate) fn edit_script(
+    old: &[u32],
+    new: &[u32],
+    max_d: usize,
+) -> Result<Vec<EditRun>, DiffRefusal> {
     // A search depth that finds every script of length <= max_d at the top level: the middle
     // snake of a D-path is met by iteration ceil(D/2), and the loop runs iterations 0..limit.
     let half_cap = max_d / 2 + 2;
@@ -501,7 +512,13 @@ pub(crate) fn edit_script(old: &[u32], new: &[u32], max_d: usize) -> Result<Vec<
                 len: o1 - o0,
             }));
         } else {
-            match bisect(&old[o0..o1], &new[n0..n1], half_cap, &mut forward, &mut reverse) {
+            match bisect(
+                &old[o0..o1],
+                &new[n0..n1],
+                half_cap,
+                &mut forward,
+                &mut reverse,
+            ) {
                 Bisect::Split(x, y) => {
                     if (x == 0 && y == 0) || (x == o1 - o0 && y == n1 - n0) {
                         return Err(DiffRefusal::NoProgress);
@@ -800,7 +817,11 @@ pub(crate) mod oracle {
                     };
                     let (os, ol) = parse(o)?;
                     let (ns, nl) = parse(n)?;
-                    let old_index = if ol == 0 { os } else { os.checked_sub(1).ok_or("old start 0")? };
+                    let old_index = if ol == 0 {
+                        os
+                    } else {
+                        os.checked_sub(1).ok_or("old start 0")?
+                    };
                     if old_index < at {
                         return Err(format!("hunk at old line {os} overlaps the previous one"));
                     }
@@ -815,7 +836,11 @@ pub(crate) mod oracle {
                 " " | "-" => {
                     let h = hunk.as_mut().ok_or("content before any header")?;
                     if old.get(at) != Some(&rest) {
-                        return Err(format!("line {:?} does not match before line {}", rest, at + 1));
+                        return Err(format!(
+                            "line {:?} does not match before line {}",
+                            rest,
+                            at + 1
+                        ));
                     }
                     at += 1;
                     h.1 += 1;
@@ -840,8 +865,8 @@ pub(crate) mod oracle {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::oracle::apply;
+    use super::*;
 
     #[test]
     fn identical_texts_have_no_span() {
@@ -874,7 +899,10 @@ mod tests {
 
     #[test]
     fn a_change_on_the_last_line_without_a_trailing_newline() {
-        assert_eq!(span_from_text_diff("a\nb", "a\nX"), Some(LineSpan::new(2, 2)));
+        assert_eq!(
+            span_from_text_diff("a\nb", "a\nX"),
+            Some(LineSpan::new(2, 2))
+        );
     }
 
     #[test]
@@ -1052,7 +1080,11 @@ mod tests {
         assert_eq!(d.hunks.len(), 2);
         assert_eq!(d.hunk_containing(LineSpan::new(5, 5)), Some(0));
         assert_eq!(d.hunk_containing(LineSpan::new(21, 21)), Some(1));
-        assert_eq!(d.hunk_containing(LineSpan::new(5, 21)), None, "straddles two hunks");
+        assert_eq!(
+            d.hunk_containing(LineSpan::new(5, 21)),
+            None,
+            "straddles two hunks"
+        );
         assert_eq!(d.hunk_containing(LineSpan::new(12, 12)), None, "in no hunk");
         assert_eq!(d.hunk_containing(LineSpan::new(0, 3)), None, "malformed");
     }
@@ -1079,7 +1111,9 @@ mod tests {
         // back. From the base, line 5 is unchanged -- only the commit's line 6 shows, right
         // beside it. Position would call that the edit; content does not.
         let base = join(&numbered(12)).replace("line 5\n", "a <= b\n");
-        let source = base.replace("a <= b\n", "a < b\n").replace("line 6\n", "line six\n");
+        let source = base
+            .replace("a <= b\n", "a < b\n")
+            .replace("line 6\n", "line six\n");
         let after = source.replace("a < b\n", "a <= b\n");
         let d = unified_multi_detailed(&base, &after, 3).expect("renders");
         assert!(d.text.contains("+line six"), "{}", d.text);
@@ -1098,7 +1132,8 @@ mod tests {
         let d = unified_multi_detailed(base, after, 3).expect("renders");
         assert!(d.shows_edit(base, source, after), "{}", d.text);
         // And when the base HAD the `else`, the removal itself is on the page.
-        let base_with_else = "def f():\n    if a:\n        run()\n    else:\n        warn()\n    return x\n";
+        let base_with_else =
+            "def f():\n    if a:\n        run()\n    else:\n        warn()\n    return x\n";
         let d = unified_multi_detailed(base_with_else, after, 3).expect("renders");
         assert!(d.text.contains("-    else:"), "{}", d.text);
         assert!(d.shows_edit(base_with_else, source, after), "{}", d.text);
@@ -1114,7 +1149,11 @@ mod tests {
         let source = "func f() error {\n\tlock()\n\tpayload()\n\treturn publish()\n}\n";
         let after = "func f() error {\n\treturn nil\n}\n";
         let d = unified_multi_detailed(base, after, 3).expect("renders");
-        assert!(!d.text.contains("+\treturn nil"), "aligned as context:\n{}", d.text);
+        assert!(
+            !d.text.contains("+\treturn nil"),
+            "aligned as context:\n{}",
+            d.text
+        );
         assert!(d.text.contains("-\tlock()"), "{}", d.text);
         assert!(d.shows_edit(base, source, after), "{}", d.text);
     }
@@ -1125,12 +1164,17 @@ mod tests {
         // and dropped the blank line after it; the edit removes the `else`. From the base, the
         // only change at the deletion point is that blank line.
         let base = "def f(n):\n    if a:\n        n = low(n)\n\n    try:\n        return m[n]\n";
-        let source =
-            "def f(n):\n    if a:\n        n = low(n)\n    else:\n        raise E()\n    try:\n        \
+        let source = "def f(n):\n    if a:\n        n = low(n)\n    else:\n        raise E()\n    try:\n        \
              return m[n]\n";
         let after = "def f(n):\n    if a:\n        n = low(n)\n    try:\n        return m[n]\n";
         let d = unified_multi_detailed(base, after, 3).expect("renders");
-        assert_eq!(d.text.lines().filter(|l| l.starts_with('-')).collect::<Vec<_>>(), ["-"]);
+        assert_eq!(
+            d.text
+                .lines()
+                .filter(|l| l.starts_with('-'))
+                .collect::<Vec<_>>(),
+            ["-"]
+        );
         assert!(!d.shows_edit(base, source, after), "{}", d.text);
         // A substantive change at the same point still counts: the commit also rewrote the line
         // the `else` follows, so the removal sits at the edge of code it changed. (A change two
@@ -1174,8 +1218,14 @@ mod tests {
     fn shows_edit_refuses_texts_the_diff_was_not_rendered_from() {
         let d = unified_multi_detailed("a\nb\n", "a\nX\n", 3).expect("renders");
         assert!(d.shows_edit("a\nb\n", "a\nb\n", "a\nX\n"));
-        assert!(!d.shows_edit("a\nb\nc\n", "a\nb\n", "a\nX\n"), "base has another length");
-        assert!(!d.shows_edit("a\nb\n", "a\nX\n", "a\nX\n"), "no edit at all");
+        assert!(
+            !d.shows_edit("a\nb\nc\n", "a\nb\n", "a\nX\n"),
+            "base has another length"
+        );
+        assert!(
+            !d.shows_edit("a\nb\n", "a\nX\n", "a\nX\n"),
+            "no edit at all"
+        );
     }
 
     /// Length of the longest common subsequence, by the textbook O(NM) table.
@@ -1206,7 +1256,10 @@ mod tests {
         for _ in 0..rng.random_range(0..6) {
             let at = rng.random_range(0..=out.len());
             match rng.random_range(0..3) {
-                0 => out.insert(at, alphabet[rng.random_range(0..alphabet.len())].to_string()),
+                0 => out.insert(
+                    at,
+                    alphabet[rng.random_range(0..alphabet.len())].to_string(),
+                ),
                 1 if at < out.len() => {
                     out.remove(at);
                 }
@@ -1291,13 +1344,23 @@ mod tests {
                 );
             }
             for pair in d.hunks.windows(2) {
-                let gap_old = pair[1].blocks[0].old_start - pair[0].blocks.last().expect("b").old_end;
-                assert!(gap_old > 2 * context, "case {case}: hunks {pair:?} should have merged");
-                assert!(pair[0].old_end <= pair[1].old_start, "case {case}: hunks overlap");
+                let gap_old =
+                    pair[1].blocks[0].old_start - pair[0].blocks.last().expect("b").old_end;
+                assert!(
+                    gap_old > 2 * context,
+                    "case {case}: hunks {pair:?} should have merged"
+                );
+                assert!(
+                    pair[0].old_end <= pair[1].old_start,
+                    "case {case}: hunks overlap"
+                );
             }
             for h in &d.hunks {
                 for pair in h.blocks.windows(2) {
-                    assert!(pair[1].old_start - pair[0].old_end <= 2 * context, "case {case}");
+                    assert!(
+                        pair[1].old_start - pair[0].old_end <= 2 * context,
+                        "case {case}"
+                    );
                 }
             }
             if d.hunks.len() >= 2 {

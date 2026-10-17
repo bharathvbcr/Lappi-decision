@@ -338,13 +338,16 @@ impl<'t> OpCtx<'t> {
                 .and_then(|p| p.named_child(0))
                 .map(|c| c.id() == node.id())
                 .unwrap_or(false);
-            occurrences.entry(name.to_string()).or_default().push(Occurrence {
-                start: node.start_byte(),
-                end: node.end_byte(),
-                kind: node.kind(),
-                parent_kind,
-                is_first_named_child,
-            });
+            occurrences
+                .entry(name.to_string())
+                .or_default()
+                .push(Occurrence {
+                    start: node.start_byte(),
+                    end: node.end_byte(),
+                    kind: node.kind(),
+                    parent_kind,
+                    is_first_named_child,
+                });
         }
 
         let mut boundary_ranges = Vec::new();
@@ -493,7 +496,10 @@ pub fn body_line_region(src: &str, interior: (usize, usize)) -> Option<(usize, u
 /// does for `} else { ... }` sitting after code — would swallow the trailing newline and join two
 /// lines that the mutation never touched. Both ends snap together here, or neither does.
 fn snap_if_line_owned(src: &str, start: usize, end: usize) -> (usize, usize) {
-    let line_start = src.get(..start).and_then(|t| t.rfind('\n')).map_or(0, |i| i + 1);
+    let line_start = src
+        .get(..start)
+        .and_then(|t| t.rfind('\n'))
+        .map_or(0, |i| i + 1);
     let prefix_is_blank = src
         .get(line_start..start)
         .map(|t| t.chars().all(|c| c == ' ' || c == '\t'))
@@ -550,7 +556,12 @@ fn stub_precondition(ctx: &OpCtx<'_>, body: &FunctionBody<'_>, op: OpId) -> Resu
 /// `fn one_line() -> u32 { 3 }` — whose only literal *is* the body — it would rewrite `3` to `3`.
 /// A no-op reaching the generator would be caught there, but only after being counted, and the
 /// place to decline a candidate is where the candidate is built.
-fn replace_body(ctx: &OpCtx<'_>, body: &FunctionBody<'_>, op: OpId, statement: &str) -> Option<Candidate> {
+fn replace_body(
+    ctx: &OpCtx<'_>,
+    body: &FunctionBody<'_>,
+    op: OpId,
+    statement: &str,
+) -> Option<Candidate> {
     match body_line_region(ctx.src, body.interior) {
         Some((start, end)) => {
             let indent = edit::indent_of_line(ctx.src, start);
@@ -597,7 +608,10 @@ fn stub_panic(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Vec<Candidate>
         .collect())
 }
 
-fn stub_default_return(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Vec<Candidate>, Refusal> {
+fn stub_default_return(
+    ctx: &OpCtx<'_>,
+    body: &FunctionBody<'_>,
+) -> Result<Vec<Candidate>, Refusal> {
     stub_precondition(ctx, body, OpId::StubDefaultReturn)?;
     let Some(statement) = ctx.language.default_return(body.return_type.as_deref()) else {
         return Err(Refusal::PreconditionUnmet {
@@ -731,7 +745,11 @@ fn off_by_one(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Vec<Candidate> {
             if let Some(c) = one(
                 OpId::LogicOffByOne,
                 format!("bound `{raw}` -> `{replacement}`"),
-                vec![Edit::replace(node.start_byte(), node.end_byte(), replacement)],
+                vec![Edit::replace(
+                    node.start_byte(),
+                    node.end_byte(),
+                    replacement,
+                )],
             ) {
                 out.push(c);
             }
@@ -795,7 +813,10 @@ fn drop_else(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Vec<Candidate> {
             let (start, end) = snap_if_line_owned(ctx.src, site.range.0, site.range.1);
             one(
                 OpId::LogicDropElse,
-                format!("else branch removed: `{}`", truncate(ctx.src.get(start..end)?)),
+                format!(
+                    "else branch removed: `{}`",
+                    truncate(ctx.src.get(start..end)?)
+                ),
                 vec![Edit::delete(start, end)],
             )
         })
@@ -838,7 +859,10 @@ fn swallow_error(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Vec<Candidate> {
                 site.range
             };
             let detail = if site.replacement.is_empty() {
-                format!("error check removed: `{}`", truncate(ctx.src.get(start..end)?))
+                format!(
+                    "error check removed: `{}`",
+                    truncate(ctx.src.get(start..end)?)
+                )
             } else {
                 format!(
                     "`{}` -> `{}`",
@@ -906,7 +930,11 @@ fn change_constant(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Vec<Candidate> {
             if let Some(c) = one(
                 OpId::LogicChangeConstant,
                 format!("constant `{raw}` -> `{replacement}`"),
-                vec![Edit::replace(node.start_byte(), node.end_byte(), replacement)],
+                vec![Edit::replace(
+                    node.start_byte(),
+                    node.end_byte(),
+                    replacement,
+                )],
             ) {
                 out.push(c);
             }
@@ -1008,7 +1036,10 @@ fn rename_local(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Vec<Candidate> {
                 .collect();
             if let Some(c) = one(
                 OpId::CosmeticRenameLocal,
-                format!("local `{name}` renamed to `{candidate_name}` at {} sites", sites.len()),
+                format!(
+                    "local `{name}` renamed to `{candidate_name}` at {} sites",
+                    sites.len()
+                ),
                 edits,
             ) {
                 out.push(c);
@@ -1062,11 +1093,15 @@ fn reformat(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Offered, Refusal
         if hunk_first_line < body_start_line || hunk_first_line > body_end_line {
             continue;
         }
-        let Some((start, end)) = line_byte_range(ctx.src, hunk.before_start, hunk.before_end) else {
+        let Some((start, end)) = line_byte_range(ctx.src, hunk.before_start, hunk.before_end)
+        else {
             continue;
         };
         let mut replacement = String::new();
-        for line in after_lines.get(hunk.after_start..hunk.after_end).unwrap_or_default() {
+        for line in after_lines
+            .get(hunk.after_start..hunk.after_end)
+            .unwrap_or_default()
+        {
             replacement.push_str(line);
             replacement.push('\n');
         }
@@ -1305,7 +1340,10 @@ fn decimal_value(raw: &str) -> Option<i64> {
         .char_indices()
         .take_while(|(_, c)| c.is_ascii_digit() || *c == '_')
         .count()..];
-    if rest.starts_with('x') || rest.starts_with('b') || rest.starts_with('o') || rest.starts_with('.')
+    if rest.starts_with('x')
+        || rest.starts_with('b')
+        || rest.starts_with('o')
+        || rest.starts_with('.')
     {
         return None;
     }
@@ -1459,7 +1497,7 @@ fn line_hunks(before: &[&str], after: &[&str]) -> Vec<Hunk> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{for_id, LangId};
+    use crate::lang::{LangId, for_id};
     use crate::parse::parse_bounded;
 
     /// Drive one operator over one file's first matching body, with no RNG in the way.
@@ -1727,7 +1765,9 @@ pub fn shadower(seed: usize) -> usize {
         // The operator must still be productive here, or the assertion above is vacuous: `a`, `b`
         // and `bump` are all renameable, and none of them is shadowed.
         assert!(
-            found.iter().any(|c| c.detail.starts_with("local `a` renamed")),
+            found
+                .iter()
+                .any(|c| c.detail.starts_with("local `a` renamed")),
             "the unshadowed locals should still be offered: {:?}",
             found.iter().map(|c| &c.detail).collect::<Vec<_>>()
         );
@@ -1746,7 +1786,9 @@ pub fn guard(mutex: Mutex) -> usize {
         let found = candidates_for(LangId::Rust, src, "guard", OpId::CosmeticRenameLocal)
             .expect("the operator runs");
         assert!(
-            found.iter().all(|c| !c.detail.starts_with("local `lock` renamed")),
+            found
+                .iter()
+                .all(|c| !c.detail.starts_with("local `lock` renamed")),
             "a field access with the same name was in scope: {:?}",
             found.iter().map(|c| &c.detail).collect::<Vec<_>>()
         );
@@ -1829,8 +1871,7 @@ func f(a int) int {
             applied.text
         );
         let language = for_id(LangId::Go);
-        parse_bounded(&language.grammar(), &applied.text)
-            .expect("the result must still be Go");
+        parse_bounded(&language.grammar(), &applied.text).expect("the result must still be Go");
     }
 
     #[test]
@@ -1948,7 +1989,11 @@ func f(a int) int {
         assert_eq!(decimal_value("10"), Some(10));
         assert_eq!(decimal_value("1_000"), Some(1000));
         assert_eq!(decimal_value("10u32"), Some(10));
-        assert_eq!(decimal_value("0xFF"), None, "a base change is not this operator");
+        assert_eq!(
+            decimal_value("0xFF"),
+            None,
+            "a base change is not this operator"
+        );
         assert_eq!(decimal_value("0b1010"), None);
         assert_eq!(decimal_value("1.5"), None);
         assert_eq!(decimal_value("abc"), None);
@@ -1997,7 +2042,11 @@ func f(a int) int {
         let before = vec!["a", "b", "c", "d", "e"];
         let after = vec!["a", "B", "c", "d", "E"];
         let hunks = line_hunks(&before, &after);
-        assert_eq!(hunks.len(), 2, "two separate edits, not one hunk covering both");
+        assert_eq!(
+            hunks.len(),
+            2,
+            "two separate edits, not one hunk covering both"
+        );
         assert_eq!(hunks[0].before_start, 1);
         assert_eq!(hunks[0].before_end, 2);
         assert_eq!(hunks[1].before_start, 4);
@@ -2031,10 +2080,22 @@ func f(a int) int {
 
         let line = "    let result = compute(first_argument, second_argument, third_argument);";
         let at = wrap_point(line).expect("a top-level comma exists");
-        assert!(line[..at].ends_with(", "), "wrapped at {at}: {:?}", &line[..at]);
+        assert!(
+            line[..at].ends_with(", "),
+            "wrapped at {at}: {:?}",
+            &line[..at]
+        );
 
-        assert_eq!(wrap_point("    // a, b, c"), None, "the commas are in a comment");
+        assert_eq!(
+            wrap_point("    // a, b, c"),
+            None,
+            "the commas are in a comment"
+        );
         assert_eq!(wrap_point("let x = 1;"), None);
-        assert_eq!(wrap_point("a, b"), None, "a comma outside any bracket is not a wrap point");
+        assert_eq!(
+            wrap_point("a, b"),
+            None,
+            "a comma outside any bracket is not a wrap point"
+        );
     }
 }

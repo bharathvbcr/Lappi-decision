@@ -31,7 +31,7 @@ from qd_train.data_access import assert_path_not_held_out
 
 REPO = Path(__file__).resolve().parents[2]
 OPEN_JEV = "ZefanCai/Open-Jev-v1.1"
-APPLIED = {"allocation": {"state": "applied", "detail": "stress suite"}}
+APPLIED = {"tool": "qd-prep allocate", "allocation": {"state": "applied", "detail": "stress suite"}}
 
 
 def _line(**over: object) -> dict[str, object]:
@@ -56,6 +56,13 @@ def _write_pool(root: Path, lines: list[dict[str, object]], **manifest: object) 
         "examples_sha256": hashlib.sha256(body).hexdigest(),
     }
     doc.update(manifest)
+    if doc.get("tool") == "qd-prep allocate" and isinstance(doc.get("allocation"), dict):
+        # What `qd-prep allocate` binds an applied pool to
+        # (qd_data.decisions._check_allocate_binding).
+        config_sha = hashlib.sha256(b"fixture config").hexdigest()
+        doc["inputs"] = {"config": config_sha}
+        doc["allocation"] = {**doc["allocation"], "rows_sha256": doc["examples_sha256"],
+                             "config_sha256": config_sha}
     (root / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
     return root
 
@@ -158,15 +165,18 @@ def test_s7_no_test_shares_a_temp_path_keyed_only_on_the_pid() -> None:
 @pytest.mark.parametrize(
     "over",
     [
-        # A synth pool's row, as `qd-prep synth` writes it: its source is not registered.
-        {"id": "synth-email:email.category:0", "source_id": "lappi/synth-email",
-         "family_id": "email.category", "stratum": "email.category/category",
+        # A synth pool's row whose source is not registered. `lappi/synth-email` was the example
+        # here until 7385e9d registered it (with the other v6 sources, on Fable's v6 ruling), so
+        # the example is a synth source no ruling has registered.
+        {"id": "synth-fax:fax.category:0", "source_id": "lappi/synth-fax",
+         "family_id": "fax.category", "stratum": "fax.category/category",
          "licence": "synthetic-by-rule", "slot_name": "category"},
         # A registered source naming a family it does not own.
         {"family_id": "email.category", "stratum": "email.category/category"},
-        # A converted pool's row: When2Call's family, not registered as a decision family.
-        {"id": "convert:when2call:0", "source_id": "nvidia/When2Call",
-         "family_id": "when2call.tool_select", "stratum": "when2call.tool_select/x"},
+        # A converted pool's row whose source is not registered. When2Call was the example here
+        # until 7385e9d registered it and its family (Fable's v6 ruling).
+        {"id": "convert:unregistered:0", "source_id": "example/NotRegistered",
+         "family_id": "unregistered.tool_select", "stratum": "unregistered.tool_select/x"},
     ],
 )
 def test_s10_a_pool_row_of_an_unregistered_family_is_refused(
@@ -176,8 +186,12 @@ def test_s10_a_pool_row_of_an_unregistered_family_is_refused(
         load_decision_pool(_write_pool(tmp_path / "pool", [_line(**over)], **APPLIED))
 
 
+# `synthetic-by-rule`, `odc-by-1.0` and `oanc` were refused here until 7385e9d allowed them (the
+# human's ruling of 2026-10-08), so they are no longer examples of an unregistered id; their
+# neighbouring spellings, which no ruling covers, are.
 @pytest.mark.parametrize(
-    "licence", ["synthetic-by-rule", "odc-by-1.0", "oanc", "NOASSERTION", "unknown", ""]
+    "licence",
+    ["synthetic-by-rule-2", "odc-by-2.0", "oanc-nc", "NOASSERTION", "unknown", ""],
 )
 def test_s10_an_unregistered_licence_id_is_refused_before_the_row_is_built(
     tmp_path: Path, licence: str

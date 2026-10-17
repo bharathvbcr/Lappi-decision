@@ -1,0 +1,18 @@
+{
+  "tool": "tools/ckpt_average.py",
+  "resumable": false,
+  "n_inputs": 1,
+  "vocab_size": 81,
+  "ft_row_ids": [
+    "tiny-fixture-row"
+  ],
+  "prompt_format": 2,
+  "safetensors_sha256": "3e3903567e10672ab5cf4f3e4e175cd7fa562938487ed0acab802ed693d357bb",
+  "n_tensors": 32,
+  "span_head_source": {
+    "mode": "seed",
+    "seed": 0,
+    "input": "tiny-seed0.ckpt",
+    "payload_digest": "f15a9cba48fc7a12c9b66b1db0995af68020d3c7d93ab83e366727038e185e03"
+  }
+}

@@ -2,19 +2,19 @@
  "what": "F's per-parameter AdamW table on the Qwen3.5-2B names: layerwise_param_groups + build_optimizer as QwenDecisionStep calls them, read off the built optimizer",
  "generator": {
   "script": "tools/qd_train_oracle_optimizer_table.py",
-  "script_sha256": "0cf0f7db1b473381fbc8a0ac01608b96492f5ff007b34af80ef21f24e41bde67",
+  "script_sha256": "69c4eec6e1d6f593f6bfa0ab535680d0ecd8ef4bb2628c646a71ec903a0ac87b",
   "argv": [
    "--snapshot",
    "/Users/bharath/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
    "--out",
-   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/optimizer-table-2b.json",
+   "crates/qd-train/tests/fixtures/optimizer-table-2b.json",
    "--config-out",
-   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/qwen35-2b-config.json"
+   "crates/qd-train/tests/fixtures/qwen35-2b-config.json"
   ],
-  "python": "3.14.7",
+  "python": "3.14.8",
   "torch": "2.12.1",
-  "transformers": "5.12.1",
-  "git_head": "7ae109b0e8e625fcbb762d42a0cf63aa3d27be4e"
+  "transformers": "5.19.0",
+  "git_head": "c34dc0b9b4f33f813987630939d17b914462227e"
  },
  "snapshot": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
  "config": {

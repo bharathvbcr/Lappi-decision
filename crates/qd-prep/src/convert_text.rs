@@ -2,13 +2,13 @@
 //!
 //! **MNLI** (`nyu-mll/multi_nli` train). The licence filter is per row: genre `fiction` includes
 //! CC-BY-SA-3.0 text and is refused (`licence_fiction_genre`); the four other genres are the
-//! Open ANC's text, stamped `oanc` (pending registration in `qd_data.licences`). A genre outside
+//! Open ANC's text, stamped `oanc` (registered in `qd_data.licences`, 2026-10-08). A genre outside
 //! the five is refused (`unknown_genre`): its licence cannot be stated. Labels map 0/1/2 to
 //! entailment/neutral/contradiction (the card's `class_label` names); anything else is refused.
 //! `group_key` is `promptID`, so the hypotheses written for one premise never straddle the split;
 //! the stratum carries the genre so one can be capped or refused later without a rebuild.
 //!
-//! **SciRepEval `search`** (ODC-BY 1.0, stamped `odc-by-1.0`, pending registration; the
+//! **SciRepEval `search`** (ODC-BY 1.0, stamped `odc-by-1.0`, registered 2026-10-08; the
 //! attribution is in every manifest). Each row is a query with ten candidates scored 0..4 by
 //! relevance; measured 2026-10-06 on one row group, 903 of 1,000 queries have exactly one
 //! positive. v1's negatives are the same query's score-0 candidates. **Capped at read time**: a
@@ -145,8 +145,8 @@ pub fn build_mnli(
         name: "mnli",
         licence_notes: BTreeMap::from([(
             MNLI,
-            crate::convert_licence::pending_note("oanc")
-                .expect("oanc is pending")
+            crate::convert_licence::note("oanc")
+                .expect("oanc has a note")
                 .to_owned()
                 + "; attribution: Williams, Nangia and Bowman, MultiNLI, NAACL 2018",
         )]),
@@ -362,8 +362,8 @@ pub fn build_scirepeval(
         name: "scirepeval",
         licence_notes: BTreeMap::from([(
             SCIREPEVAL,
-            crate::convert_licence::pending_note("odc-by-1.0")
-                .expect("odc-by-1.0 is pending")
+            crate::convert_licence::note("odc-by-1.0")
+                .expect("odc-by-1.0 has a note")
                 .to_owned(),
         )]),
         caps: json!({

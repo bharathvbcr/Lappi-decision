@@ -46,18 +46,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::backend::DecisionBackend;
 use crate::calibration::CalibrationTable;
-use crate::reference::{ReferenceBackend, REFERENCE_FEATURE_DIM};
+use crate::reference::{REFERENCE_FEATURE_DIM, ReferenceBackend};
 use crate::refusal::{BackendError, HashKind, Refusal};
 use crate::registry::{HeadMatrix, HeadRegistry, RegisteredHead};
 use crate::render::RenderCaps;
 use crate::runtime::Runtime;
 use crate::schema::{
-    AnswerEnvelope, ConformalSet, Response, SlotAnswer, SlotValue, SpanValue,
-    SUPPORTED_SCHEMA_VERSIONS,
+    AnswerEnvelope, ConformalSet, Response, SUPPORTED_SCHEMA_VERSIONS, SlotAnswer, SlotValue,
+    SpanValue,
 };
 use crate::wire::{self};
 
@@ -209,7 +209,9 @@ fn answered(
     let bytes = serde_json::to_vec(&wire_request).map_err(|e| format!("{file}: {e}"))?;
     let parsed = wire::parse_line(&bytes).map_err(|e| format!("{file}: request refused: {e}"))?;
     let wire::Incoming::Request(decision) = parsed else {
-        return Err(format!("{file}: the fixture request parsed as a control op"));
+        return Err(format!(
+            "{file}: the fixture request parsed as a control op"
+        ));
     };
     let response = runtime.answer(&decision, None);
     if !matches!(response, Response::Ok(_)) {
@@ -445,7 +447,10 @@ pub fn all_refusals() -> Vec<Refusal> {
             cap: crate::schema::MAX_SLOT_NAME_BYTES,
             actual: crate::schema::MAX_SLOT_NAME_BYTES + 1,
         },
-        Refusal::TooManySlots { cap: 32, actual: 33 },
+        Refusal::TooManySlots {
+            cap: 32,
+            actual: 33,
+        },
         Refusal::BinsOutOfRange {
             slot: "severity".into(),
             min: 2,
@@ -637,7 +642,12 @@ fn discriminator(refusal: &Refusal) -> Option<&'static str> {
 /// nothing, so a variant with several samples should carry a [`discriminator`]. The counter stays
 /// so that adding one without a discriminator produces a clashing-but-distinct file rather than
 /// one sample silently overwriting the other.
-fn unique(prefix: &str, kind: &str, disc: Option<&str>, seen: &mut BTreeMap<String, usize>) -> String {
+fn unique(
+    prefix: &str,
+    kind: &str,
+    disc: Option<&str>,
+    seen: &mut BTreeMap<String, usize>,
+) -> String {
     let base = match disc {
         Some(disc) => format!("{prefix}-{kind}-{disc}"),
         None => format!("{prefix}-{kind}"),
@@ -878,7 +888,11 @@ mod tests {
         ("answer-score-only.json", true, &[("severity", Answered)]),
         ("answer-span-only.json", true, &[("evidence", Answered)]),
         ("answer-max-options.json", true, &[("verdict", Abstained)]),
-        ("answer-registered-route.json", true, &[("verdict", Abstained)]),
+        (
+            "answer-registered-route.json",
+            true,
+            &[("verdict", Abstained)],
+        ),
         (
             "answer-all-slots-abstained.json",
             true,
@@ -928,15 +942,27 @@ mod tests {
             let Response::Ok(envelope) = &fixture.response else {
                 panic!("{} is not an answer", fixture.file);
             };
-            assert_eq!(envelope.degraded, *degraded, "{}: envelope degraded", fixture.file);
+            assert_eq!(
+                envelope.degraded, *degraded,
+                "{}: envelope degraded",
+                fixture.file
+            );
             let got: Vec<(&str, Shape)> = envelope
                 .slots
                 .iter()
                 .map(|(name, answer)| {
-                    assert_eq!(answer.degraded, *degraded, "{}: {name} degraded", fixture.file);
+                    assert_eq!(
+                        answer.degraded, *degraded,
+                        "{}: {name} degraded",
+                        fixture.file
+                    );
                     match &answer.value {
                         Some(value) => {
-                            assert!(!answer.noul, "{}: {name} has a value and noul", fixture.file);
+                            assert!(
+                                !answer.noul,
+                                "{}: {name} has a value and noul",
+                                fixture.file
+                            );
                             assert!(
                                 value_matches_slot(name, value),
                                 "{}: {name} answered with {value:?}",
@@ -945,7 +971,11 @@ mod tests {
                             (name.as_str(), Answered)
                         }
                         None => {
-                            assert!(answer.noul, "{}: {name} has no value and no noul", fixture.file);
+                            assert!(
+                                answer.noul,
+                                "{}: {name} has no value and no noul",
+                                fixture.file
+                            );
                             (name.as_str(), Abstained)
                         }
                     }

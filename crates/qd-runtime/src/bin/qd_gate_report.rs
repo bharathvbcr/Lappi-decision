@@ -804,14 +804,20 @@ fn selective_risk_checks(
             continue;
         }
         let Some(answer) = answers.get(row_id) else {
-            return Err(format!("row {row_id} is in the in-distribution bound with no answer"));
+            return Err(format!(
+                "row {row_id} is in the in-distribution bound with no answer"
+            ));
         };
         entry.push(*answer);
     }
     for (family, rows) in &by_family {
         for tau in SELECTIVE_RISK_GRID {
             let name = format!("selective_risk.family.{family}.p_top_ge_{tau:.2}");
-            let answered: Vec<bool> = rows.iter().filter(|(p, _)| *p >= tau).map(|r| r.1).collect();
+            let answered: Vec<bool> = rows
+                .iter()
+                .filter(|(p, _)| *p >= tau)
+                .map(|r| r.1)
+                .collect();
             if answered.is_empty() {
                 if let Some(r) = checks.ran_state("metrics", &name) {
                     return Err(format!(

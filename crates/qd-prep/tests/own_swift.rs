@@ -225,6 +225,40 @@ fn held_out_repositories_are_never_read_and_only_committed_swift_of_train_repos_
 }
 
 #[test]
+fn the_pool_manifest_names_its_source_and_licence_and_pins_a_per_file_sha256_list() {
+    let s = scratch("source-licence");
+    let (manifest, _) = fixture(&s);
+    let out = s.join("pool");
+    let o = own_swift(&manifest, &out);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let m = read_json(&out.join("manifest.json"));
+    assert_eq!(m["source_id"], "bharathvbcr/own-repositories");
+    assert_eq!(m["licence"], "owner-granted");
+    let files_bytes = fs::read(out.join("files.jsonl")).unwrap();
+    assert_eq!(
+        m["files"]["sha256"],
+        qd_prep::sha256::sha256_hex(&files_bytes)
+    );
+    let recs = pool_lines(&out);
+    assert_eq!(m["files"]["count"], recs.len());
+    let files: Vec<Value> = String::from_utf8(files_bytes)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(files.len(), recs.len());
+    for (f, r) in files.iter().zip(&recs) {
+        assert_eq!(f["repo"], r["repo"]);
+        assert_eq!(f["path"], r["path"]);
+        assert_eq!(
+            f["sha256"],
+            qd_prep::sha256::sha256_hex(r["source"].as_str().unwrap().as_bytes())
+        );
+        assert_eq!(f.as_object().unwrap().len(), 3, "repo, path, sha256");
+    }
+}
+
+#[test]
 fn a_manifest_that_calls_a_held_out_repository_train_is_refused() {
     let s = scratch("tampered");
     let (manifest, mut m) = fixture(&s);

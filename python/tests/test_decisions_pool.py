@@ -66,8 +66,9 @@ def _row(**over: object) -> TypedDecisionRow:
 
 
 def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source() -> None:
-    # v5's 15, then v6's 10 (registered 2026-10-08 with the human's licence rulings of that day).
-    assert len(DECISION_FAMILIES) == 25
+    # v5's 15, then v6's 10 (registered 2026-10-08 with the human's licence rulings of that day),
+    # then the two caller families (2026-10-12, docs/caller-contract.md section 4).
+    assert len(DECISION_FAMILIES) == 27
     for family_id, source_id, description in DECISION_FAMILIES:
         family = task_family_by_id(family_id)
         assert family.source_id == source_id
@@ -77,7 +78,7 @@ def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source(
         assert dict(source.pinned_splits) == {"train": "train", "val": "val"}
         assert source.licence_policy.licence_id in {
             "cc-by-4.0", "apache-2.0", "mit", "cc-by-sa-3.0", "cc-by-sa-4.0",
-            "oanc", "odc-by-1.0", "synthetic-by-rule",
+            "oanc", "odc-by-1.0", "synthetic-by-rule", "owner-granted",
         }
         assert source.licence_policy.tier is LicenceTier.ALLOW
 
@@ -267,6 +268,13 @@ def _write_pool(root: Path, lines: list[dict[str, object]], **manifest: object) 
         "text_bytes_by_family": families,
     }
     doc.update(manifest)
+    if doc.get("tool") == "qd-prep allocate" and isinstance(doc.get("allocation"), dict):
+        # What `qd-prep allocate` binds an applied pool to
+        # (qd_data.decisions._check_allocate_binding).
+        config_sha = hashlib.sha256(b"fixture config").hexdigest()
+        doc["inputs"] = {"config": config_sha}
+        doc["allocation"] = {**doc["allocation"], "rows_sha256": doc["examples_sha256"],
+                             "config_sha256": config_sha}
     (root / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
     return root
 
@@ -332,6 +340,9 @@ _V6_ROWS: tuple[tuple[str, str, str, str], ...] = (
     ("jarvis.field_fill", "lappi/synth-jarvis", "synthetic-by-rule", "profile_entry"),
     ("jarvis.step_risk", "lappi/synth-jarvis", "synthetic-by-rule", "policy_requirement"),
     ("apps.tool_select", "lappi/synth-tools", "synthetic-by-rule", "action"),
+    # The caller families (card ft-2d0a5e4b27e), as their builders write them.
+    ("gitpulse.commit_type", "lappi/own-commits", "owner-granted", "commit_type"),
+    ("devtype.route", "lappi/synth-route", "synthetic-by-rule", "route"),
 )
 
 

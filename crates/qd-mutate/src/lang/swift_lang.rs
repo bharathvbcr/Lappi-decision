@@ -65,7 +65,9 @@ fn is_type_kind(kind: &str) -> bool {
 /// failure to resolve — so `Some("Void")`, not `None`.
 fn return_type_of(decl: Node<'_>, src: &str) -> Option<String> {
     let children = all_children(decl);
-    let arrow = children.iter().position(|c| !c.is_named() && text(*c, src) == "->");
+    let arrow = children
+        .iter()
+        .position(|c| !c.is_named() && text(*c, src) == "->");
     match arrow {
         Some(i) => children
             .iter()
@@ -243,7 +245,9 @@ impl Language for Swift {
             if node.kind() != "try_expression" {
                 return;
             }
-            let Some(op) = all_children(node).into_iter().find(|c| c.kind() == "try_operator")
+            let Some(op) = all_children(node)
+                .into_iter()
+                .find(|c| c.kind() == "try_operator")
             else {
                 return;
             };
@@ -496,7 +500,8 @@ impl Language for Swift {
 fn is_integer_type(ty: &str) -> bool {
     matches!(
         ty,
-        "Int" | "Int8"
+        "Int"
+            | "Int8"
             | "Int16"
             | "Int32"
             | "Int64"

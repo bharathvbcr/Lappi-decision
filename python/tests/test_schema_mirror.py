@@ -47,6 +47,8 @@ TORCH_GATED: frozenset[str] = frozenset(
         "qd_train.byte_train",
         "qd_train.fused_ce",
         "qd_train.heads",
+        # The LoRA reference arm: nn.Module subclasses, so torch at scope like heads/backbone.
+        "qd_train.lora",
     }
 )
 

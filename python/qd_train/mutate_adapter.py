@@ -72,10 +72,12 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Iterator, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from qd_data.caller_records import assert_no_caller_records, jsonl_lines
 from qd_data.config import DataConfig
 
 from .byte_context import EncodedContext, SpanOutsideWindow, encode_context, line_starts
@@ -468,8 +470,9 @@ def read_example_objects(
         MalformedExample: a line that is not JSON, named by line number.
     """
     assert_path_not_held_out(Path(path), config=config, repo_root=Path(repo_root))
+    assert_no_caller_records(path)
     rows: list[dict[str, Any]] = []
-    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for lineno, line in enumerate(jsonl_lines(path), 1):
         if not line.strip():
             continue
         try:
@@ -503,7 +506,8 @@ def read_examples(
             or any of its segments is a held-out marker.
     """
     assert_path_not_held_out(Path(path), config=config, repo_root=Path(repo_root))
-    with path.open(encoding="utf-8") as fh:
+    assert_no_caller_records(path)
+    with closing(jsonl_lines(path)) as fh:
         for lineno, line in enumerate(fh, 1):
             line = line.strip()
             if not line:

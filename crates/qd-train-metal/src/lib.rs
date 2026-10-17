@@ -16,14 +16,17 @@
 //! opens a Metal runtime is `#[ignore]` and named `gpu_*` (`tests/gpu_tiny.rs`); `cargo test`
 //! never touches the GPU.
 //!
-//! **What it cannot run yet.** F's recipe trains decoder layers 0-7 at 0.1x the learning rate
-//! (`--lower-layers-n 8 --lower-layers-lr-scale 0.1`). tessl's `Qwen35Model::adamw_step` takes
-//! one learning rate for every tensor, so a per-entry scale is refused at the command line, by
-//! qd-train's loop and by ojas-qwen35's plan check -- never folded into one rate or split into
-//! two updates. Until tessl's per-entry `lr_scale` lands, a run of this binary is the
-//! single-group optimizer, recorded as such (`optimizer_groups: "single"`), and is not rung (d).
+//! **The layer-wise split.** F's recipe trains decoder layers 0-7 at 0.1x the learning rate
+//! (`--lower-layers-n 8 --lower-layers-lr-scale 0.1`). ojas-qwen35's `adamw_step` takes a plan
+//! of per-entry learning-rate scales (tessl's `adamw_step_scaled`), so the provider passes the
+//! loop's own `lr_scale` vector through whole ([`provider::build_plan`]); the run is recorded
+//! `optimizer_groups: "two"` with `lower_layers_n` and `lower_lr_scale` in the recipe. Without
+//! the flags it is the single-group optimizer (`"single"`), which is not rung (d). The GPU
+//! parity tests of the split (`tests/gpu_rung_b.rs`) are `#[ignore]` and have not been run
+//! against this path.
 
 pub mod args;
+pub mod pin;
 pub mod remap;
 
 #[cfg(target_os = "macos")]

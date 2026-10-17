@@ -90,7 +90,9 @@ impl Allowlist {
             );
         }
         if let Some((lo, hi)) = self.invisible_format_ranges.iter().find(|(lo, hi)| lo > hi) {
-            return Err(format!("invisible-format range {lo:#x}..{hi:#x} is backwards"));
+            return Err(format!(
+                "invisible-format range {lo:#x}..{hi:#x} is backwards"
+            ));
         }
         for (what, sha) in [
             ("squad", &self.squad.sha256),

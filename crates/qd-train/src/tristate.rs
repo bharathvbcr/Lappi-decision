@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn the_writer_emits_what_python_writes_and_the_parser_reads_it_back() {
-        use crate::pyjson::{dumps, CANONICAL};
+        use crate::pyjson::{CANONICAL, dumps};
         let r = TriState::ran(true, 3).with_coverage(3, 4).with_detail("d");
         let v = r.to_json("f").unwrap();
         assert_eq!(
@@ -350,11 +350,26 @@ mod tests {
         assert_eq!(parse_tristate(&v, "f").unwrap(), r);
         // A null value is omitted, as `Ran(value=None)` omits it.
         let bare = TriState::ran(false, Value::Null).to_json("f").unwrap();
-        assert_eq!(dumps(&bare, CANONICAL).unwrap(), "{\"passed\":false,\"state\":\"ran\"}");
-        assert!(TriState::ran(true, 1).with_coverage(3, 2).to_json("f").is_err());
-        assert!(TriState::NotRun { reason: " ".into() }.to_json("f").is_err());
+        assert_eq!(
+            dumps(&bare, CANONICAL).unwrap(),
+            "{\"passed\":false,\"state\":\"ran\"}"
+        );
+        assert!(
+            TriState::ran(true, 1)
+                .with_coverage(3, 2)
+                .to_json("f")
+                .is_err()
+        );
+        assert!(
+            TriState::NotRun { reason: " ".into() }
+                .to_json("f")
+                .is_err()
+        );
         let nr = TriState::not_run("why").to_json("f").unwrap();
-        assert_eq!(dumps(&nr, CANONICAL).unwrap(), "{\"reason\":\"why\",\"state\":\"not_run\"}");
+        assert_eq!(
+            dumps(&nr, CANONICAL).unwrap(),
+            "{\"reason\":\"why\",\"state\":\"not_run\"}"
+        );
     }
 
     #[test]

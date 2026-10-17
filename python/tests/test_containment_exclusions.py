@@ -168,14 +168,26 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       d65616af... build (build/char-v4/out-new, compared with char-v2's compare.py), 30 of 33
       files are byte-identical, every manifest included, and the three shard headers differ
       only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
-      shard_hash that covers them. Differing binary files: 0."""
+      shard_hash that covers them. Differing binary files: 0.
+    * qd_data fingerprints since that pin, with specials taken from the named map rather
+      than all_special_ids -> ff39da60...: against the recovered 82e412c4 build
+      (qd-campaign v5-decisions-data-2026-10-03/char-v4/out-v4), 30 of 33 files are
+      byte-identical, every manifest and every remap included. The three shard headers
+      differ only in code_fingerprint and shard_hash. caller_records.py is new in the
+      fingerprint. These changed: config.py, decisions.py, dedupe.py, defect_class.py,
+      general.py, licences.py, loaders.py, minhash.py, mixture.py, sources.py, split.py.
+      Differing binary files: 0. The gap from 82e412c4 to a 5.18/5.19 rebuild (5958841b)
+      was remap.json special_ids only: transformers 5.17's Qwen2Tokenizer reported the
+      eight named tokens, and Qwen3_5Tokenizer's all_special_ids adds <|im_start|>,
+      <|im_end|>, the object-ref, box and quad markers, and <|vision_pad|>. The remap
+      records special_tokens_map, which is those eight ids on 5.17, 5.18 and 5.19."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "82e412c41fadf0b47965b9d0b4b4d3d25f54785be12dd53601c14a27e79e4287"
+        "ff39da60528d170b1f190ef1f80161b096114e2787ba013048fcca9bfb3537d7"
     )
 
 
