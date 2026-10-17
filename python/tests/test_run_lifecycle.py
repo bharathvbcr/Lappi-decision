@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+
 from qd_train import ledger as ledger_module
 from qd_train.ledger import (
     LIFECYCLE_STARTED_ROW,
@@ -236,7 +237,8 @@ def test_reconcile_never_writes_under_a_live_pid_however_overdue(tmp_path) -> No
     recorder.__enter__()
     try:
         orphans = ledger_module.find_orphan_started_rows(
-            ledger.rows(include_started=True), datetime.now(UTC) + timedelta(days=1), ledger_module.process_liveness)
+            ledger.rows(include_started=True), datetime.now(UTC) + timedelta(days=1),
+            ledger_module.process_liveness)
         assert [o.verdict for o in orphans] == ["in_flight"]
         assert "recycled pid" in orphans[0].why
     finally:
@@ -280,7 +282,8 @@ def test_a_started_row_a_terminal_row_names_is_not_an_orphan(tmp_path) -> None:
     with _recorder(ledger):
         pass
     assert ledger_module.find_orphan_started_rows(
-        ledger.rows(include_started=True), datetime.now(UTC) + timedelta(days=30), lambda pid, host: False) == []
+        ledger.rows(include_started=True), datetime.now(UTC) + timedelta(days=30),
+        lambda pid, host: False) == []
 
 
 # ---------------------------------------------------------------------------

@@ -2404,6 +2404,7 @@ class RunRecorder:
         entry_point: str | os.PathLike[str] | None = None,
         registration_id: str | None = None,
         run_cap_s: float | None = None,
+        decision_record_path: str | os.PathLike[str] | None = None,
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
@@ -2464,7 +2465,8 @@ class RunRecorder:
         # preregistration it belongs to. Stated here, validated here, because the row they
         # land on is written before any work and cannot be corrected after.
         if run_cap_s is not None and not (math.isfinite(run_cap_s) and run_cap_s > 0):
-            raise ValueError(f"run_cap_s must be a positive finite number of seconds, got {run_cap_s!r}")
+            raise ValueError(
+                f"run_cap_s must be a positive finite number of seconds, got {run_cap_s!r}")
         self.run_cap_s: float | None = (
             run_cap_s if run_cap_s is not None
             else (None if cost is None else float(cost.cap.cap_s))
@@ -2474,6 +2476,11 @@ class RunRecorder:
             else os.environ.get(REGISTRATION_ID_ENV) or None
         )
         self.started_row: LedgerRow | None = None
+        #: The decision record a ft/eval row is stamped as launched under; the repo's own
+        #: unless the caller names the record it is judged under.
+        self.decision_record_path = (
+            None if decision_record_path is None else Path(decision_record_path)
+        )
 
         self.metrics: dict[str, TriState] = {}
         self.controls: dict[str, TriState] = {}
@@ -2611,7 +2618,7 @@ class RunRecorder:
             # The decision record this run is launched under, read now and not at the end: the
             # ordering gate (`decision_record_before_results`) asks whether that record was
             # committed before the results, and "now" is the last moment that is certainly so.
-            for name, state in decision_record_evidence().items():
+            for name, state in decision_record_evidence(self.decision_record_path).items():
                 self.metric(name, state)
         if self.entry_point is not None:
             # First, before the handlers are even installed. A digest computed here is on
@@ -3502,7 +3509,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # A verified chain says nothing about runs that began and left no end: those are the
     # rows a SIGKILL never wrote. Gone ones FAIL this gate until `reconcile` records them;
     # ones that cannot be checked from here are NotRun, never a pass.
-    orphans = find_orphan_started_rows(ledger.rows(include_started=True), datetime.now(UTC), process_liveness)
+    orphans = find_orphan_started_rows(
+        ledger.rows(include_started=True), datetime.now(UTC), process_liveness)
     gone = [o for o in orphans if o.verdict == "gone"]
     unknown = [o for o in orphans if o.verdict == "unverifiable"]
     for o in orphans:
