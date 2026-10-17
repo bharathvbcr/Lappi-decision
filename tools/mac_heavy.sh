@@ -28,8 +28,18 @@
 # job under this lock; AUDIT/mac-stability-2026-10-02/report.md). JetsamEvent reports showed
 # single test processes at 36-120 GiB resident on this 64 GiB Mac.
 # - Memory cap. The job's whole process tree (children and grandchildren) is summed every
-#   $MAC_HEAVY_RSS_POLL_S (default 2) seconds. Above $MAC_HEAVY_MAX_RSS_MB (default 32768) the
-#   tree gets SIGTERM, then SIGKILL after 10 s, and the script exits 70.
+#   $MAC_HEAVY_RSS_POLL_S (default 2) seconds. Above $MAC_HEAVY_MAX_RSS_MB the tree gets SIGTERM,
+#   then SIGKILL after 10 s, and the script exits 70. The cap must sit BELOW memguard's
+#   per-process kill threshold (a user LaunchAgent that SIGTERMs any process whose
+#   ri_phys_footprint passes it, and leaves no log): memguard's threshold is read from its source
+#   of truth, `-cap-gib` in $MAC_HEAVY_MEMGUARD_PLIST (default
+#   ~/Library/LaunchAgents/com.bharath.memguard.plist), falling back to the flag default in
+#   ~/Code/devtools/memguard/main.go. The default cap is that threshold minus 4 GiB (footprint
+#   counts Metal bytes that RSS does not); an explicit cap at or above it is refused (exit 64).
+#   With no memguard installed the default is 28672 MiB.
+# - External SIGTERM. A job that ends by SIGTERM (status 143) that this script did not stop is
+#   reported as "external SIGTERM -- likely memguard" and exits 79: not success, not the job's own
+#   failure, not the RSS-cap exit 70.
 # - Busy machine. After taking the lock, it waits while the 1-minute load average exceeds
 #   $MAC_HEAVY_MAX_LOAD (default 12) or the process count exceeds $MAC_HEAVY_MAX_PROCS (default
 #   2500). If that does not clear within the wait budget, it exits 76 and the job never runs.
@@ -52,7 +62,32 @@ LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/build/mac-hea
 MAX_WAIT=${MAC_HEAVY_MAX_WAIT_S:-14400}
 MIN_FREE_GB=${MAC_HEAVY_MIN_FREE_GB:-15}
 POLL=${MAC_HEAVY_POLL_S:-20}
-MAX_RSS_MB=${MAC_HEAVY_MAX_RSS_MB-32768}
+MEMGUARD_PLIST=${MAC_HEAVY_MEMGUARD_PLIST:-$HOME/Library/LaunchAgents/com.bharath.memguard.plist}
+MEMGUARD_MAIN=${MAC_HEAVY_MEMGUARD_MAIN:-$HOME/Code/devtools/memguard/main.go}
+# memguard's per-process threshold in GiB: "" when no memguard is installed, "?" when it is
+# installed but the number cannot be read (that refuses to start: a cap cannot be proved below it).
+memguard_cap_gib() {
+  local v=""
+  if [ -r "$MEMGUARD_PLIST" ]; then
+    v=$(tr '\n' ' ' < "$MEMGUARD_PLIST" | sed -n 's/.*<string>-cap-gib<\/string> *<string>\([0-9.][0-9.]*\)<\/string>.*/\1/p')
+    if [ -z "$v" ] && [ -r "$MEMGUARD_MAIN" ]; then
+      v=$(sed -n 's/.*"cap-gib", *\([0-9.][0-9.]*\).*/\1/p' "$MEMGUARD_MAIN" | head -1)
+    fi
+    [ -n "$v" ] || v="?"
+  fi
+  echo "$v"
+}
+MG_GIB=$(memguard_cap_gib)
+case "$MG_GIB" in
+  ''|0|0.0) MG_MB=0; DEFAULT_RSS_MB=28672 ;;
+  '?') echo "mac_heavy: memguard is installed ($MEMGUARD_PLIST) but its -cap-gib cannot be read; cannot prove the RSS cap sits below it; '$LABEL' did NOT run" >&2; exit 64 ;;
+  *)
+    MG_MB=$(awk -v g="$MG_GIB" 'BEGIN { printf "%d", g * 1024 }')
+    DEFAULT_RSS_MB=$((MG_MB - 4096))
+    [ "$DEFAULT_RSS_MB" -gt 0 ] || DEFAULT_RSS_MB=$((MG_MB / 2))
+    ;;
+esac
+MAX_RSS_MB=${MAC_HEAVY_MAX_RSS_MB-$DEFAULT_RSS_MB}
 RSS_POLL=${MAC_HEAVY_RSS_POLL_S-2}
 MAX_LOAD=${MAC_HEAVY_MAX_LOAD-12}
 MAX_PROCS=${MAC_HEAVY_MAX_PROCS-2500}
@@ -62,6 +97,10 @@ for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_RSS_MB" "$RSS_POLL" "$MAX_LOAD
   esac
 done
 [ "$POLL" -ge 1 ] || POLL=1
+if [ "$MG_MB" -gt 0 ] && [ "$MAX_RSS_MB" -ge "$MG_MB" ]; then
+  echo "mac_heavy: RSS cap ${MAX_RSS_MB} MiB is not below memguard's per-process threshold ${MG_MB} MiB (-cap-gib $MG_GIB in $MEMGUARD_PLIST); memguard would SIGTERM first and leave no log; '$LABEL' did NOT run" >&2
+  exit 64
+fi
 [ "$RSS_POLL" -ge 1 ] || RSS_POLL=1
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -199,6 +238,7 @@ echo "mac_heavy: $(now) '$LABEL' holds the lock (waited ${waited}s; load $load, 
 "$@" &
 JOB=$!
 cap_kb=$((MAX_RSS_MB * 1024))
+echo "mac_heavy: RSS cap ${MAX_RSS_MB} MiB (memguard per-process threshold: ${MG_MB} MiB, 0 = none)" >&2
 while kill -0 "$JOB" 2>/dev/null; do
   rss_kb=$(tree_rss_kb "$JOB")
   if [ "${rss_kb:-0}" -gt "$cap_kb" ]; then
@@ -214,5 +254,9 @@ done
 wait "$JOB"
 rc=$?
 JOB=""
+if [ "$rc" -eq 143 ]; then
+  echo "mac_heavy: $(now) '$LABEL' was ended by an external SIGTERM -- likely memguard (per-process threshold ${MG_MB} MiB; it leaves no log); this script did not stop it and its own RSS cap never fired. Exit 79: not a success and not an ordinary failure; the result does not count" >&2
+  exit 79
+fi
 echo "mac_heavy: $(now) '$LABEL' finished with exit $rc" >&2
 exit "$rc"

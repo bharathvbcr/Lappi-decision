@@ -176,3 +176,58 @@ def test_stopping_the_wrapper_stops_the_job_tree_and_releases_the_lock(tmp_path:
         assert time.monotonic() < deadline, "the job outlived its wrapper"
         time.sleep(0.2)
     assert not lock.exists()
+
+
+# memguard binds first (CLAUDE.md): it SIGTERMs any single process over its -cap-gib threshold
+# and leaves no log, so mac_heavy's cap must sit below that threshold, read from memguard's plist.
+
+
+def _plist(tmp_path: Path, gib: str) -> Path:
+    plist = tmp_path / "memguard.plist"
+    plist.write_text(
+        "<plist><dict><key>ProgramArguments</key><array>\n"
+        "<string>/x/memguard</string>\n"
+        f"<string>-cap-gib</string><string>{gib}</string>\n"
+        "<string>-floor-gib</string><string>2</string>\n"
+        "</array></dict></plist>\n"
+    )
+    return plist
+
+
+def test_default_cap_sits_below_memguards_threshold_read_from_its_plist(tmp_path: Path) -> None:
+    proc = _run(tmp_path / "lock.d", "t", "true", MAC_HEAVY_MEMGUARD_PLIST=str(_plist(tmp_path, "16")))
+    assert proc.returncode == 0, proc.stderr
+    # 16 GiB threshold -> 12 GiB default cap, not the old 32768 MiB.
+    assert "RSS cap 12288 MiB (memguard per-process threshold: 16384 MiB" in proc.stderr
+
+
+def test_an_rss_cap_at_or_above_memguards_threshold_is_refused(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    plist = str(_plist(tmp_path, "32"))
+    for cap in ("32768", "40000"):
+        proc = _run(lock, "t", "touch", str(marker), MAC_HEAVY_MEMGUARD_PLIST=plist, MAC_HEAVY_MAX_RSS_MB=cap)
+        assert proc.returncode == 64, proc.stderr
+        assert "memguard" in proc.stderr and "did NOT run" in proc.stderr
+    assert not marker.exists()
+    assert not lock.exists()
+
+
+def test_an_unreadable_memguard_threshold_refuses_rather_than_guessing(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.plist"
+    bad.write_text("<plist><dict></dict></plist>\n")
+    proc = _run(
+        tmp_path / "lock.d", "t", "true",
+        MAC_HEAVY_MEMGUARD_PLIST=str(bad), MAC_HEAVY_MEMGUARD_MAIN=str(tmp_path / "nope.go"),
+    )
+    assert proc.returncode == 64
+    assert "cannot be read" in proc.stderr
+
+
+def test_a_job_ended_by_an_external_sigterm_gets_a_distinct_exit_and_message(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    proc = _run(lock, "t", "bash", "-c", "kill -TERM $$; sleep 5", MAC_HEAVY_MEMGUARD_PLIST=str(_plist(tmp_path, "32")))
+    assert proc.returncode == 79, proc.stderr
+    assert "external SIGTERM -- likely memguard" in proc.stderr
+    assert "finished with exit" not in proc.stderr
+    assert not lock.exists()
