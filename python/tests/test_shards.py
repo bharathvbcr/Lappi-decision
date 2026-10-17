@@ -183,7 +183,7 @@ def snapshot(tmp_path: Path) -> Snapshot:
 
 
 def _snapshot(tmp_path: Path, *, families: Sequence[str] | None = None) -> Snapshot:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(small_corpus(24), config=config, families=families)
     report = dedupe(list(mixture.rows), config=config)
     split_report = split(report, config=config)
@@ -1213,7 +1213,7 @@ def test_the_order_is_the_same_in_a_second_process(
         "from pathlib import Path\n"
         "from qd_data.config import DataConfig\n"
         "from qd_train.shards import ShardReader\n"
-        f"r = ShardReader(Path({str(out)!r}), config=DataConfig(), "
+        f"r = ShardReader(Path({str(out)!r}), config=DataConfig.legacy_v5(), "
         f"repo_root=Path({str(snap.root)!r}))\n"
         "h = hashlib.sha256()\n"
         f"for b in r.batches(batch_tokens={width * 4}, seed=7, epoch=0):\n"

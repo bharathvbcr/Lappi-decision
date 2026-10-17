@@ -95,7 +95,7 @@ def _slice(
 
 def _load(tmp_path: Path, corpus: Path, download: Path) -> pipeline.ReportOnlySlice:
     return pipeline.load_report_only_slice(
-        corpus, download_root=download, config=DataConfig(), repo_root=tmp_path,
+        corpus, download_root=download, config=DataConfig.legacy_v5(), repo_root=tmp_path,
         base_max_rows=100,
     )
 

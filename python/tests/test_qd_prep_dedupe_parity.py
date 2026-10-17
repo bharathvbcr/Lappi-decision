@@ -155,7 +155,7 @@ def _case(name: str, rows: list[DataRow], config: DataConfig, max_pairs: int) ->
 def build_fixture() -> dict[str, Any]:
     """The fixture, from the reference alone."""
     rows = fixture_rows()
-    v5, v6 = DataConfig(), DataConfig().with_v6_dedupe_rules()
+    v5, v6 = DataConfig.legacy_v5(), DataConfig()
     hasher = MinHasher(num_perm=v5.num_perm, seed=v5.seed)
     return {
         "generated_by": "python/tests/test_qd_prep_dedupe_parity.py::build_fixture",
@@ -276,7 +276,7 @@ def _corpus_rows() -> list[DataRow]:
 def test_qd_prep_dedupe_reproduces_the_reference_on_a_mixture(
     qd_prep_bin: Path, tmp_path: Path, rules: str, max_pairs: int
 ) -> None:
-    config = DataConfig() if rules == "v5" else DataConfig().with_v6_dedupe_rules()
+    config = DataConfig.legacy_v5() if rules == "v5" else DataConfig()
     rows = _corpus_rows()
     want = _case(f"{rules}-{max_pairs}", rows, config, max_pairs)
     assert want["expect"]["clusters"], "the corpus must exercise a duplicate"

@@ -84,7 +84,7 @@ from qd_train.exclusions import (  # noqa: E402
 from qd_train.replay import ReplayRefusal, decontaminate, word_ngrams  # noqa: E402
 from qd_train.tristate import Ran  # noqa: E402
 
-CONFIG = DataConfig()
+CONFIG = DataConfig.legacy_v5()
 CORPUS = {"fixture": "template-strip"}
 DOMAINS = ClincDomainMap(domains={
     "banking": ("account_balance", "pay_bill", "transfer"),

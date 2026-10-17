@@ -30,7 +30,7 @@ from qd_data.loaders import ClincRow
 from qd_data.mixture import RowRefused, clinc_keys, rewrite_clinc
 from qd_data.split import assign_repo
 
-CONFIG = DataConfig()
+CONFIG = DataConfig.legacy_v5()
 
 DOMAINS = {
     "banking": ("transfer", "balance", "freeze_account"),

@@ -34,37 +34,95 @@ pub fn read_targets(
     let mut out = Vec::new();
     let mut digests = BTreeMap::new();
     for (name, path) in given {
-        let mut rows = Vec::new();
-        // An id names one row: the scan reports exclusions by id, so a repeated one would make
-        // two rows indistinguishable in the record. Refused with both line numbers.
-        let mut first_line: BTreeMap<String, usize> = BTreeMap::new();
-        let got = decisions::for_lines(path, decisions::Role::Reference, |n, r| {
-            let what = format!("{name}:{n}");
-            let id = decisions::get_str(&r, "id", &what)?.to_owned();
-            if let Some(first) = first_line.insert(id.clone(), n) {
-                return Err(format!(
-                    "{}:{n}: target set {name}: id {id:?} repeats line {first}",
-                    path.display()
-                ));
-            }
-            rows.push((id, decisions::get_str(&r, "text", &what)?.to_owned()));
-            Ok(())
-        })?;
+        let (set, got) = read_target_file(name, path)?;
         decisions::check_pin(
             path,
             &got.sha256,
             &pins[name],
             &format!("the config (target {name})"),
         )?;
-        if rows.is_empty() {
-            return Err(format!(
-                "target set {name} is empty: a scan against nothing is not a check"
-            ));
-        }
         decisions::record_input(&mut digests, format!("target/{name}"), got);
-        out.push((name.clone(), rows));
+        out.push(set);
     }
     Ok((out, digests))
+}
+
+/// One target set read as `{"id", "text"}` JSONL, with the file's sha256 and line facts. The one
+/// reader every caller shares (`read_targets` pins the sha against the config's; `qd-train-data`
+/// reports it). A repeated id and an empty set are refused: a scan against nothing is not a
+/// check, and an id names one row, since the scan reports exclusions by id.
+pub fn read_target_file(
+    name: &str,
+    path: &std::path::Path,
+) -> Result<(TargetSet, decisions::Lines), String> {
+    let mut rows = Vec::new();
+    // Refused with both line numbers.
+    let mut first_line: BTreeMap<String, usize> = BTreeMap::new();
+    let got = decisions::for_lines(path, decisions::Role::Reference, |n, r| {
+        let what = format!("{name}:{n}");
+        let id = decisions::get_str(&r, "id", &what)?.to_owned();
+        if let Some(first) = first_line.insert(id.clone(), n) {
+            return Err(format!(
+                "{}:{n}: target set {name}: id {id:?} repeats line {first}",
+                path.display()
+            ));
+        }
+        rows.push((id, decisions::get_str(&r, "text", &what)?.to_owned()));
+        Ok(())
+    })?;
+    if rows.is_empty() {
+        return Err(format!(
+            "target set {name} is empty: a scan against nothing is not a check"
+        ));
+    }
+    Ok(((name.to_owned(), rows), got))
+}
+
+/// One row of an `examples.jsonl` as the scan reads it: what the model is shown, which is
+/// [`decisions::Candidate::text`] (the rendered context, then every option, one per line).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExampleText {
+    pub id: String,
+    pub source_id: String,
+    pub family_id: String,
+    pub text: String,
+}
+
+/// Every row of an `examples.jsonl` (`example_json`'s shape), none dropped: a row that cannot be
+/// read refuses the file, because a dropped row is an unscanned row. Returns the file's sha256
+/// and line facts beside the rows.
+pub fn read_example_texts(
+    path: &std::path::Path,
+) -> Result<(Vec<ExampleText>, decisions::Lines), String> {
+    let mut rows = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let got = decisions::for_lines(path, decisions::Role::Reference, |n, r| {
+        let what = format!("{}:{n}", path.display());
+        let id = decisions::get_str(&r, "id", &what)?.to_owned();
+        if !seen.insert(id.clone()) {
+            return Err(format!("{what}: id {id:?} repeats an earlier line"));
+        }
+        let mut text = decisions::get_str(&r, "context", &what)?.to_owned();
+        let options = r
+            .get("options")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("{what}: \"options\" is not a list"))?;
+        for o in options {
+            text.push('\n');
+            text.push_str(o.as_str().ok_or_else(|| format!("{what}: an option is not a string"))?);
+        }
+        rows.push(ExampleText {
+            id,
+            source_id: decisions::get_str(&r, "source_id", &what)?.to_owned(),
+            family_id: decisions::get_str(&r, "family_id", &what)?.to_owned(),
+            text,
+        });
+        Ok(())
+    })?;
+    if rows.is_empty() {
+        return Err(format!("{}: no rows: a scan of nothing is not a check", path.display()));
+    }
+    Ok((rows, got))
 }
 
 /// The rows that survived the scan, the containment record and the manifest's account of it.
@@ -77,6 +135,26 @@ pub struct Scanned<'c> {
 /// Scan `candidates` against every target set by word n-gram containment (the scan
 /// `qd-prep decisions` runs) and drop every hit. Refuses when nothing survives.
 pub fn decontaminate<'c>(
+    ngram_n: u32,
+    threshold: f64,
+    tool: &Value,
+    candidate_set: &str,
+    candidates: &'c [Candidate],
+    targets: &[TargetSet],
+    threads: usize,
+) -> Result<Scanned<'c>, String> {
+    let scanned = scan(ngram_n, threshold, tool, candidate_set, candidates, targets, threads)?;
+    if scanned.clean.is_empty() {
+        return Err("no row survived decontamination: a pool of nothing is refused".into());
+    }
+    Ok(scanned)
+}
+
+/// [`decontaminate`] without the refusal of a pool nothing survived. A producer cannot use a
+/// pool of nothing, but a guard asking "is any benchmark item in this train set" must be able to
+/// say *every row is one*; that is a finding, not an unrunnable scan. Everything else, the
+/// positive control included, is the same.
+pub fn scan<'c>(
     ngram_n: u32,
     threshold: f64,
     tool: &Value,
@@ -122,9 +200,6 @@ pub fn decontaminate<'c>(
         .iter()
         .filter(|c| !excluded.contains(c.id.as_str()))
         .collect();
-    if clean.is_empty() {
-        return Err("no row survived decontamination: a pool of nothing is refused".into());
-    }
     let report = json!({
         "n": ngram_n, "threshold": threshold,
         "excluded_by_target": hit.iter().map(|(k, v)| (k.clone(), json!(v.len())))

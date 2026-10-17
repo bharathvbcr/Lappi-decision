@@ -72,7 +72,7 @@ def test_every_rewritten_row_renders_and_round_trips_through_the_wire() -> None:
     one hand-built request renders the same both ways; every row the pipeline
     actually produces must.
     """
-    mixture = build_mixture(small_corpus(12), config=DataConfig())
+    mixture = build_mixture(small_corpus(12), config=DataConfig.legacy_v5())
     assert mixture.rows
     for row in mixture.rows:
         training = render(row.request, seed=None)
@@ -83,7 +83,7 @@ def test_every_rewritten_row_renders_and_round_trips_through_the_wire() -> None:
 def test_every_family_uses_exactly_one_slot_of_its_declared_kind() -> None:
     # 24 rows: `intent.classification` needs 15 distractor intents in the pull, so a
     # smaller corpus legitimately produces none of that family.
-    mixture = build_mixture(small_corpus(24), config=DataConfig())
+    mixture = build_mixture(small_corpus(24), config=DataConfig.legacy_v5())
     expected = {
         "code.commit_intent": ChoiceSlot,
         "code.language_id": ChoiceSlot,
@@ -102,7 +102,7 @@ def test_every_family_uses_exactly_one_slot_of_its_declared_kind() -> None:
 
 
 def test_no_choice_slot_exceeds_the_letter_slice() -> None:
-    mixture = build_mixture(small_corpus(20), config=DataConfig())
+    mixture = build_mixture(small_corpus(20), config=DataConfig.legacy_v5())
     for row in mixture.rows:
         slot = row.request.slots[0]
         if isinstance(slot, ChoiceSlot):
@@ -115,7 +115,7 @@ def test_no_choice_slot_exceeds_the_letter_slice() -> None:
 def test_a_non_commercial_dataset_is_refused_at_load_naming_its_licence() -> None:
     """``facebook/anli`` is ``cc-by-nc-4.0``: disqualifying, not an edge case."""
     with pytest.raises(LicenceRefused) as excinfo:
-        build_mixture({"facebook/anli": []}, config=DataConfig())
+        build_mixture({"facebook/anli": []}, config=DataConfig.legacy_v5())
     assert excinfo.value.actual == "cc-by-nc-4.0"
     assert "cc-by-nc-4.0" in str(excinfo.value)
     assert excinfo.value.check == "licence_allowlist"
@@ -133,7 +133,7 @@ def test_an_unresolved_licence_is_refused_at_load_naming_it(
     source_id: str, licence: str
 ) -> None:
     with pytest.raises(LicenceRefused) as excinfo:
-        build_mixture({source_id: []}, config=DataConfig())
+        build_mixture({source_id: []}, config=DataConfig.legacy_v5())
     assert excinfo.value.actual == licence
     assert licence in str(excinfo.value)
 
@@ -147,14 +147,14 @@ def test_an_unreachable_source_is_refused_as_unreachable_not_as_unlicensed(
     """Gated and script-only need a human action; a bad licence is closed. The two
     must not report the same way."""
     with pytest.raises(SourceUnavailableRefusal) as excinfo:
-        build_mixture({source_id: []}, config=DataConfig())
+        build_mixture({source_id: []}, config=DataConfig.legacy_v5())
     assert excinfo.value.check == "source_reachable"
 
 
 def test_an_agpl_row_inside_an_mit_dataset_is_refused_and_counted() -> None:
     """``bigcode/commitpackft`` is ``mit``; three of its 13 per-row values are not
     permissive. A dataset-level check alone puts AGPL code in the pool."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = [
         commitpackft_row(0, licence="mit"),
         commitpackft_row(1, licence="agpl-3.0"),
@@ -194,7 +194,7 @@ def test_a_non_commercial_licence_cannot_be_admitted_by_configuration() -> None:
 
 
 def test_per_row_licence_and_host_reach_the_model_card_fields() -> None:
-    mixture = build_mixture(small_corpus(6), config=DataConfig())
+    mixture = build_mixture(small_corpus(6), config=DataConfig.legacy_v5())
     assert mixture.host_histogram == {"huggingface": len(mixture.rows)}
     assert set(mixture.licence_histogram) == {"mit", "cc-by-3.0", "cc-by-sa-4.0"}
     # ShareAlike must survive to the manifest: a model card that omits it is wrong.
@@ -206,7 +206,7 @@ def test_per_row_licence_and_host_reach_the_model_card_fields() -> None:
 
 
 def test_clinc_out_of_scope_becomes_an_abstention_not_a_class() -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     row = rewrite_clinc(
         clinc_row(0, force_oos=True), family_id="intent.classification", index=0,
         config=config, intent_vocabulary=INTENT_VOCABULARY,
@@ -222,7 +222,7 @@ def test_clinc_out_of_scope_becomes_an_abstention_not_a_class() -> None:
 def test_squad_unanswerable_becomes_an_abstention_on_the_span_slot() -> None:
     row = rewrite_squad(
         squad_row(0, force_impossible=True), family_id="qa.answer_span", index=0,
-        config=DataConfig(),
+        config=DataConfig.legacy_v5(),
     )
     assert row.gold[0].is_noul is True
     assert row.gold[0].value is None
@@ -232,7 +232,7 @@ def test_an_answerable_span_points_at_the_line_holding_the_answer() -> None:
     """A span label off by one is invisible in class accuracy and teaches the pointer
     head to point one line off, systematically."""
     raw = squad_row(3, force_impossible=False)
-    row = rewrite_squad(raw, family_id="qa.answer_span", index=0, config=DataConfig())
+    row = rewrite_squad(raw, family_id="qa.answer_span", index=0, config=DataConfig.legacy_v5())
     start, end = row.gold[0].value  # type: ignore[misc]
     context_lines = row.request.context.decode("utf-8").split("\n")
     assert start == end
@@ -255,7 +255,7 @@ def test_a_language_outside_the_closed_option_set_is_refused_with_a_reason_code(
     with pytest.raises(RowRefused) as excinfo:
         rewrite_commitpackft(
             commitpackft_row(1, lang="Brainfuck"), family_id="code.language_id",
-            index=0, config=DataConfig(), decoy_message="other",
+            index=0, config=DataConfig.legacy_v5(), decoy_message="other",
         )
     assert excinfo.value.reason_code == "lang_not_in_option_set"
 
@@ -269,7 +269,7 @@ def test_a_no_op_change_is_refused_rather_than_scored() -> None:
     )
     with pytest.raises(RowRefused) as excinfo:
         rewrite_commitpackft(
-            unchanged, family_id="code.change_scope", index=0, config=DataConfig(),
+            unchanged, family_id="code.change_scope", index=0, config=DataConfig.legacy_v5(),
         )
     assert excinfo.value.reason_code == "no_changed_lines"
 
@@ -278,7 +278,7 @@ def test_commit_intent_without_a_decoy_is_refused_not_labelled_constant() -> Non
     with pytest.raises(RowRefused) as excinfo:
         rewrite_commitpackft(
             commitpackft_row(1), family_id="code.commit_intent", index=0,
-            config=DataConfig(), decoy_message=None,
+            config=DataConfig.legacy_v5(), decoy_message=None,
         )
     assert excinfo.value.reason_code == "no_decoy_available"
 
@@ -287,7 +287,7 @@ def test_a_pull_too_small_for_the_intent_option_set_refuses_visibly() -> None:
     """A sharp edge worth a test: ``intent.classification`` asks over 16 intents, so
     a pull with fewer than 16 distinct in-scope intents produces **none** of that
     family. That must appear as a counted refusal, not as a quietly absent family."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(
         {"clinc/clinc_oos": [clinc_row(i) for i in range(6)]}, config=config
     )
@@ -307,7 +307,7 @@ def test_refusal_counts_reach_the_result_rather_than_disappearing() -> None:
     the result, and ``n``/``n_total`` carrying built against attempted -- is
     unchanged, and is asserted here on a partial refusal, which is the general case.
     """
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = [commitpackft_row(i) for i in range(5)] + [
         commitpackft_row(50 + i, lang="Brainfuck") for i in range(5)
     ]
@@ -324,7 +324,7 @@ def test_commit_intent_labels_are_not_constant() -> None:
     happen; the decoy construction must produce both labels."""
     mixture = build_mixture(
         {"bigcode/commitpackft": [commitpackft_row(i) for i in range(40)]},
-        config=DataConfig(),
+        config=DataConfig.legacy_v5(),
     )
     labels = {r.gold[0].value for r in _by_family(mixture.rows, "code.commit_intent")}
     assert labels == {"yes", "no"}
@@ -333,7 +333,7 @@ def test_commit_intent_labels_are_not_constant() -> None:
 def test_change_scope_bins_are_fixed_not_quantiles_of_the_sample() -> None:
     """Quantile edges would make the same commit carry a different ordinal in two
     runs, and ``data_snapshot_hash`` would move for an unchanged corpus."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     small = build_mixture(
         {"bigcode/commitpackft": [commitpackft_row(i) for i in range(4)]}, config=config
     )
@@ -354,7 +354,7 @@ def test_change_scope_bins_are_fixed_not_quantiles_of_the_sample() -> None:
 
 
 def test_an_empty_mixture_is_not_run_not_a_clean_pass() -> None:
-    mixture = build_mixture({"bigcode/commitpackft": []}, config=DataConfig())
+    mixture = build_mixture({"bigcode/commitpackft": []}, config=DataConfig.legacy_v5())
     assert isinstance(mixture.status, NotRun)
     assert "no rows survived" in mixture.status.reason
 
@@ -363,7 +363,7 @@ def test_a_capped_read_makes_the_mixture_not_run() -> None:
     """*Never present a capped sample as complete coverage.*"""
     mixture = build_mixture(
         {"bigcode/commitpackft": [commitpackft_row(i) for i in range(4)]},
-        config=DataConfig(),
+        config=DataConfig.legacy_v5(),
         capped_sources=["bigcode/commitpackft"],
     )
     assert mixture.rows
@@ -402,7 +402,7 @@ def test_a_family_wiped_out_by_out_of_set_langs_is_not_run_not_a_clean_pass() ->
     ``qd_train.data_access.open_training_data`` branches only on ``NotRun``.
     """
     rows = [commitpackft_row(i, lang="Brainfuck") for i in range(5)]
-    mixture = build_mixture({"bigcode/commitpackft": rows}, config=DataConfig())
+    mixture = build_mixture({"bigcode/commitpackft": rows}, config=DataConfig.legacy_v5())
 
     assert not _by_family(mixture.rows, "code.language_id")
     assert mixture.rows, "the other two families still build; this is not an empty mixture"
@@ -426,7 +426,7 @@ def test_per_family_coverage_carries_built_and_attempted_not_just_a_source_total
     """
     good = [commitpackft_row(i) for i in range(5)]
     bad = [commitpackft_row(100 + i, lang="Brainfuck") for i in range(3)]
-    mixture = build_mixture({"bigcode/commitpackft": good + bad}, config=DataConfig())
+    mixture = build_mixture({"bigcode/commitpackft": good + bad}, config=DataConfig.legacy_v5())
 
     coverage = mixture.family_coverage["code.language_id"]
     assert isinstance(coverage, Ran)
@@ -447,7 +447,7 @@ def test_per_family_coverage_carries_built_and_attempted_not_just_a_source_total
 def test_family_coverage_survives_into_the_json_the_manifest_carries() -> None:
     mixture = build_mixture(
         {"bigcode/commitpackft": [commitpackft_row(i) for i in range(4)]},
-        config=DataConfig(),
+        config=DataConfig.legacy_v5(),
     )
     blob = mixture.to_json()["family_coverage"]
     assert set(blob) == {"code.commit_intent", "code.language_id", "code.change_scope"}
@@ -471,7 +471,7 @@ def test_the_lang_check_is_exact_so_a_case_variant_is_refused_not_bucketed() -> 
         with pytest.raises(RowRefused) as excinfo:
             rewrite_commitpackft(
                 commitpackft_row(1, lang=variant), family_id="code.language_id",
-                index=0, config=DataConfig(),
+                index=0, config=DataConfig.legacy_v5(),
             )
         assert excinfo.value.reason_code == "lang_not_in_option_set"
         assert excinfo.value.actual == variant
@@ -479,7 +479,7 @@ def test_the_lang_check_is_exact_so_a_case_variant_is_refused_not_bucketed() -> 
     # ... and the exact spelling is what reaches the gold answer.
     row = rewrite_commitpackft(
         commitpackft_row(1, lang="Python"), family_id="code.language_id",
-        index=0, config=DataConfig(),
+        index=0, config=DataConfig.legacy_v5(),
     )
     assert row.gold[0].value == "Python"
 
@@ -507,12 +507,12 @@ def test_a_bidi_override_in_a_commit_message_is_refused_and_counted() -> None:
     )
     with pytest.raises(RowRefused) as excinfo:
         rewrite_commitpackft(
-            poisoned, family_id="code.language_id", index=0, config=DataConfig(),
+            poisoned, family_id="code.language_id", index=0, config=DataConfig.legacy_v5(),
         )
     assert excinfo.value.reason_code == "invisible_format_characters"
     assert "U+202E" in str(excinfo.value.actual)
 
-    mixture = build_mixture({"bigcode/commitpackft": [poisoned]}, config=DataConfig())
+    mixture = build_mixture({"bigcode/commitpackft": [poisoned]}, config=DataConfig.legacy_v5())
     assert mixture.refusals["bigcode/commitpackft"]["invisible_format_characters"] >= 1
     assert not mixture.rows
 
@@ -549,7 +549,7 @@ def test_the_whole_invisible_class_is_refused_not_only_the_named_overrides(
     )
     with pytest.raises(RowRefused) as excinfo:
         rewrite_commitpackft(
-            poisoned, family_id="code.change_scope", index=0, config=DataConfig(),
+            poisoned, family_id="code.change_scope", index=0, config=DataConfig.legacy_v5(),
         )
     assert excinfo.value.reason_code == "invisible_format_characters", name
 
@@ -568,7 +568,7 @@ def test_an_invisible_character_in_an_option_is_refused_at_the_one_funnel() -> N
     )
     with pytest.raises(RowRefused) as excinfo:
         rewrite_clinc(
-            poisoned, family_id="intent.classification", index=0, config=DataConfig(),
+            poisoned, family_id="intent.classification", index=0, config=DataConfig.legacy_v5(),
             intent_vocabulary=(*INTENT_VOCABULARY, poisoned_intent),
         )
     assert excinfo.value.reason_code == "invisible_format_characters"
@@ -582,7 +582,7 @@ def test_an_invisible_character_in_a_repo_name_is_refused_before_the_manifest() 
     with pytest.raises(RowRefused) as excinfo:
         rewrite_commitpackft(
             commitpackft_row(3, repo="org/re‭po"), family_id="code.change_scope",
-            index=0, config=DataConfig(),
+            index=0, config=DataConfig.legacy_v5(),
         )
     assert excinfo.value.reason_code == "invisible_format_characters"
     assert "repo_key" in str(excinfo.value.actual)
@@ -601,7 +601,7 @@ def test_ordinary_non_ascii_text_is_not_swept_up_by_the_invisible_check() -> Non
             subject=row.subject, message=row.message, lang="Python", licence=row.licence,
         )
         built = rewrite_commitpackft(
-            fine, family_id="code.language_id", index=0, config=DataConfig(),
+            fine, family_id="code.language_id", index=0, config=DataConfig.legacy_v5(),
         )
         assert body.strip() in built.request.context.decode("utf-8")
 
@@ -667,7 +667,7 @@ def test_two_rows_with_one_prompt_and_two_golds_are_both_dropped_and_counted() -
     group is named, so which rows collided is still legible.
     """
     mixture = build_mixture(
-        {"rajpurkar/squad_v2": _both_contradictory_pairs()}, config=DataConfig()
+        {"rajpurkar/squad_v2": _both_contradictory_pairs()}, config=DataConfig.legacy_v5()
     )
     assert mixture.rows == (), "no row of a contradictory prompt survives"
     assert mixture.refusals["rajpurkar/squad_v2"] == {CONTRADICTORY_PROMPT: 4}
@@ -712,7 +712,7 @@ def test_a_three_row_group_loses_all_three_rather_than_keeping_the_majority() ->
     )
     keep = squad_row(7, family="qa.answer_span")
     mixture = build_mixture(
-        {"rajpurkar/squad_v2": [*pair, third, keep]}, config=DataConfig(),
+        {"rajpurkar/squad_v2": [*pair, third, keep]}, config=DataConfig.legacy_v5(),
         families=["qa.answer_span"],
     )
     assert [r.row_id for r in mixture.rows] == [f"squad:qa.answer_span:{keep.qid}"]
@@ -743,7 +743,7 @@ def test_one_clinc_utterance_under_two_intents_is_dropped() -> None:
     other = next(i for i in domain_of if domain_of[i] != domain_of[rows[0].intent])
     twin = ClincRow(utterance=rows[0].utterance, intent=other, is_oos=False)
     mixture = build_mixture(
-        {"clinc/clinc_oos": [*rows, twin]}, config=DataConfig(),
+        {"clinc/clinc_oos": [*rows, twin]}, config=DataConfig.legacy_v5(),
         families=[CLINC_DOMAIN_FAMILY], clinc_domain_map=ClincDomainMap(domains=domains),
     )
     assert len(mixture.rows) == len(rows) + 1 - 2
@@ -762,7 +762,7 @@ def test_the_dropped_groups_reach_the_manifest_and_the_rest_reaches_training(
     corpus, over one pair). Now the pair is dropped before the split, the corpus opens,
     no split holds either row, and the manifest names the groups and the count.
     """
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     # A corpus rich enough that every *other* stage reports a clean `Ran` -- a
     # vendored pair for the cross-repo dedupe check, all three sources for the split
     # -- so the refusal under test is attributable to this check and not to a
@@ -839,7 +839,7 @@ def test_an_unanswerable_row_beside_an_answerable_one_is_not_refused() -> None:
         ),
     ]
     mixture = build_mixture(
-        {"rajpurkar/squad_v2": rows}, config=DataConfig(), families=["qa.answer_span"]
+        {"rajpurkar/squad_v2": rows}, config=DataConfig.legacy_v5(), families=["qa.answer_span"]
     )
 
     assert not mixture.contradictions
@@ -871,7 +871,7 @@ def test_two_identical_rows_with_the_same_gold_are_a_duplicate_not_a_contradicti
         for i in range(2)
     ]
     mixture = build_mixture(
-        {"rajpurkar/squad_v2": rows}, config=DataConfig(), families=["qa.answer_span"]
+        {"rajpurkar/squad_v2": rows}, config=DataConfig.legacy_v5(), families=["qa.answer_span"]
     )
     assert not mixture.contradictions
     assert isinstance(mixture.status, Ran) and mixture.status.passed
@@ -892,7 +892,7 @@ def test_a_contradiction_is_found_on_the_letter_channel_too() -> None:
         subject=a.subject, message=a.message, lang="Rust", licence=a.licence,
     )
     mixture = build_mixture(
-        {"bigcode/commitpackft": [a, b]}, config=DataConfig(),
+        {"bigcode/commitpackft": [a, b]}, config=DataConfig.legacy_v5(),
         families=["code.language_id"],
     )
     assert mixture.rows == (), "both rows of the language pair are dropped (2026-09-29)"
@@ -912,7 +912,7 @@ def test_the_consistency_pass_is_bounded_and_says_so_rather_than_grinding() -> N
     """
     mixture = build_mixture(
         {"rajpurkar/squad_v2": _both_contradictory_pairs()},
-        config=DataConfig(), max_consistency_rows=1,
+        config=DataConfig.legacy_v5(), max_consistency_rows=1,
     )
     consistency = mixture.prompt_consistency
     assert isinstance(consistency, NotRun)
@@ -936,7 +936,8 @@ def test_a_row_that_cannot_be_rendered_is_counted_not_silently_skipped() -> None
     big = "x" * (DEFAULT_CAPS.max_context_bytes + 1)
     rows = [commitpackft_row(0), commitpackft_row(1, body=big)]
     mixture = build_mixture(
-        {"bigcode/commitpackft": rows}, config=DataConfig(), families=["code.language_id"],
+        {"bigcode/commitpackft": rows}, config=DataConfig.legacy_v5(),
+        families=["code.language_id"],
     )
     assert len(mixture.rows) == 2, "the over-cap row is built; render is what refuses it"
 
@@ -971,7 +972,7 @@ def test_the_letter_channels_report_their_abstention_supply() -> None:
             for i in range(6)
         ],
     }
-    mixture = build_mixture(no_clinc, config=DataConfig())
+    mixture = build_mixture(no_clinc, config=DataConfig.legacy_v5())
     abstention = mixture.abstention
     assert set(abstention) == {"choice", "score", "span"}
 
@@ -1002,7 +1003,7 @@ def test_clinc_is_the_only_letter_family_that_abstains_without_a_separate_corpus
     from its own families however large it is. ``code.defect_class`` abstains on its
     class only over the separately loaded noul corpus, which this corpus does not hold.
     """
-    mixture = build_mixture(small_corpus(18), config=DataConfig())
+    mixture = build_mixture(small_corpus(18), config=DataConfig.legacy_v5())
     letter_noul = {
         r.family_id
         for r in mixture.rows
@@ -1058,7 +1059,7 @@ def test_a_named_group_shows_both_sides_of_the_disagreement_and_bounds_its_paylo
         *(answerable(i) for i in range(1, 12)),
     ]
     mixture = build_mixture(
-        {"rajpurkar/squad_v2": rows}, config=DataConfig(), families=["qa.answer_span"],
+        {"rajpurkar/squad_v2": rows}, config=DataConfig.legacy_v5(), families=["qa.answer_span"],
     )
     (group,) = mixture.contradictions
 

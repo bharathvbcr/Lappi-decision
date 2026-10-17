@@ -42,7 +42,7 @@ def _csqa(i: int) -> CsqaRow:
 
 
 def test_mmlu_and_csqa_build_and_mmlu_lands_where_its_upstream_split_pins_it() -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     corpus = {
         "cais/mmlu": [_mmlu(i, s) for s in ("test", "dev", "validation") for i in range(20)],
         "tau/commonsense_qa": [_csqa(i) for i in range(20)],
@@ -65,17 +65,19 @@ def test_two_stage_clinc_builds_with_a_map_and_fails_closed_without() -> None:
     q = len(vocab) // 4
     dm = ClincDomainMap(domains={f"d{k}": tuple(vocab[k * q:(k + 1) * q]) for k in range(4)})
     rows = small_corpus(24)["clinc/clinc_oos"]
-    ok = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig(), clinc_domain_map=dm)
+    ok = build_mixture(
+        {"clinc/clinc_oos": rows}, config=DataConfig.legacy_v5(), clinc_domain_map=dm
+    )
     assert ok.status.passed is True, ok.status
     assert any(isinstance(r, ClincRow) and r.is_oos for r in rows)
     assert ok.family_coverage[CLINC_DOMAIN_FAMILY].value == len(rows)
     assert ok.family_coverage[CLINC_WITHIN_DOMAIN_FAMILY].value == len(rows)
     # Without a map the two-stage families are not requested by default...
-    default = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig())
+    default = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig.legacy_v5())
     assert default.status.passed is True, default.status
     assert CLINC_DOMAIN_FAMILY not in default.family_coverage
     # ...and asking for them explicitly without one fails closed.
-    bad = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig(),
+    bad = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig.legacy_v5(),
                         families=[CLINC_DOMAIN_FAMILY, "intent.in_scope"])
     assert type(bad.status).__name__ == "NotRun"
     assert "no_clinc_domain_map" in bad.status.reason
@@ -95,7 +97,7 @@ def test_real_clinc_validation_builds_both_stages_with_the_real_map() -> None:
     raws, capped = read_jsonl(_CLINC / "validation.jsonl", limit=10_000, max_row_bytes=4096)
     assert not capped
     rows = [parse_clinc(r, index=i, label_names=names) for i, r in enumerate(raws)]
-    m = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig(),
+    m = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig.legacy_v5(),
                       clinc_domain_map=load_clinc_domains(_DOMAINS),
                       families=[CLINC_DOMAIN_FAMILY, CLINC_WITHIN_DOMAIN_FAMILY])
     assert m.status.passed is True, m.status
@@ -113,7 +115,7 @@ def test_mmlu_and_csqa_refusals_are_counted_by_reason() -> None:
         CsqaRow(qid="t1", question="unlabelled?", concept="k", labels=("A", "B"),
                 texts=("x", "y"), answer_key="", upstream_split="train")
     ]
-    m = build_mixture(corpus, config=DataConfig())
+    m = build_mixture(corpus, config=DataConfig.legacy_v5())
     assert m.status.passed is True, m.status
     assert m.family_coverage[MMLU_FAMILY].value == 20
     assert m.family_coverage[CSQA_FAMILY].value == 20
@@ -125,7 +127,7 @@ def test_unknown_raw_row_type_names_every_row_type_dispatch_accepts() -> None:
     with pytest.raises(RowRefused) as refused:
         _dispatch(
             object(),  # type: ignore[arg-type]
-            family_id=MMLU_FAMILY, index=0, config=DataConfig(),
+            family_id=MMLU_FAMILY, index=0, config=DataConfig.legacy_v5(),
             intent_vocabulary=(), messages=(),
         )
     assert refused.value.reason_code == "unknown_raw_row_type"

@@ -2300,24 +2300,19 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     digests.insert("config".to_owned(), sha256_hex(&config_bytes));
     let (targets, target_digests) = read_targets(&cfg, inputs)?;
     digests.extend(target_digests);
-    let request_bytes = containment_request(&cfg, &candidates, &targets);
-    let request = containment::parse(&request_bytes)?;
-    let found = request.scan(threads)?;
-    let mut hit: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    for p in &found.pairs {
-        let scan = request.scans[p.scan];
-        let key = request.sets[scan.source][p.source_row].key;
-        hit.entry(request.set_names[scan.target])
-            .or_default()
-            .insert(key);
-    }
-    let excluded: BTreeSet<&str> = hit.values().flatten().copied().collect();
-    let written = request.render(&found);
-    let clean: Vec<Candidate> = candidates
-        .iter()
-        .filter(|c| !excluded.contains(c.id.as_str()))
-        .cloned()
-        .collect();
+    // The pool seam's scan, so this build is positive-controlled like every other producer's:
+    // a scan whose targets cannot match is refused here, not reported as zero exclusions (M15).
+    let scanned = crate::pool::decontaminate(
+        cfg.ngram_n,
+        cfg.containment_threshold,
+        &json!({"tool": "qd-prep decisions", "seed": cfg.seed}),
+        "decision-candidates",
+        &candidates,
+        &targets,
+        threads,
+    )?;
+    let clean: Vec<Candidate> = scanned.clean.iter().map(|c| (*c).clone()).collect();
+    let written = scanned.written;
 
     let mut noul_gold_available: BTreeMap<&str, usize> = BTreeMap::new();
     let mut avail: BTreeMap<String, Avail> = BTreeMap::new();
@@ -2339,21 +2334,12 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
             json!({"questions": t.questions, "candidates": t.candidates, "refused": t.refused}),
         );
     }
-    let decontam = json!({
-        "n": cfg.ngram_n, "threshold": cfg.containment_threshold,
-        "excluded_by_target": hit.iter().map(|(k, v)| ((*k).to_owned(), json!(v.len()))).collect::<serde_json::Map<_, _>>(),
-        "excluded_total": excluded.len(),
-        // A row shorter than n words has no n-grams: a candidate that short cannot be matched,
-        // a target that short cannot be found. Named, so an unscanned row is not read as clean.
-        "rows_too_short_by_set": request
-            .set_names
-            .iter()
-            .zip(&found.sets)
-            .map(|(name, s)| ((*name).to_owned(), json!({"rows": s.rows, "too_short": s.too_short})))
-            .collect::<serde_json::Map<_, _>>(),
-        "splitter_checks": "not run here: qd_data.split runs identity and near-duplicate disjointness over the built mixture",
-        "in_corpus_scan": "tools/containment_scan.py over the built mixture (train vs val and held-out)",
-    });
+    // The seam's record (n, threshold, exclusions by target, positive control, rows too short to
+    // match: an unscanned row is named, never read as clean) plus what this producer leaves to
+    // later tools.
+    let mut decontam = scanned.report;
+    decontam["splitter_checks"] = json!("not run here: qd_data.split runs identity and near-duplicate disjointness over the built mixture");
+    decontam["in_corpus_scan"] = json!("tools/containment_scan.py over the built mixture (train vs val and held-out)");
     let avail_json: serde_json::Map<String, Value> = avail
         .iter()
         .map(|(k, a)| (k.clone(), json!({"train": a.train, "val": a.val})))

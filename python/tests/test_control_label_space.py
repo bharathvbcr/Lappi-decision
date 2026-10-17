@@ -72,7 +72,7 @@ def _mmlu_raw(i: int) -> MmluRow:
 
 
 def _csqa_docs(n_train: int, n_val: int) -> tuple[list[RequestDoc], list[RequestDoc]]:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(
         {"tau/commonsense_qa": [_csqa_raw(i) for i in range(n_train + n_val)]}, config=config
     )
@@ -141,7 +141,7 @@ def _general_docs() -> list[RequestDoc]:
     vocab = sorted(set(INTENT_VOCABULARY))
     q = len(vocab) // 4
     domains = ClincDomainMap(domains={f"d{k}": tuple(vocab[k * q:(k + 1) * q]) for k in range(4)})
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(
         {
             "tau/commonsense_qa": [_csqa_raw(i) for i in range(40)],

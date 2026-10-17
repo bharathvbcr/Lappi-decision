@@ -93,6 +93,7 @@ __all__ = [
     "COMPOSED_SCHEMA",
     "CONTEXT_HEADER_LINES",
     "CONTRAST_TWIN_FAMILIES",
+    "CORPUS_MANIFEST_NAME",
     "DEFECT_CLASSES",
     "DEFECT_FAMILY_ID",
     "DEFECT_SOURCE_ID",
@@ -131,6 +132,7 @@ __all__ = [
     "DefectRow",
     "NoulLoad",
     "OwnProseStrike",
+    "check_examples_manifest",
     "composite_digest",
     "diff_line_span",
     "load_defect_rows",
@@ -481,6 +483,48 @@ def _check_sha(path: Path, expected: str, *, recorded_in: Path) -> None:
             f"{path} hashes to {actual} but {recorded_in} records {expected}: the file "
             "changed after it was recorded, so which rows it holds cannot be stated"
         )
+
+
+#: The manifest a corpus's examples file is written beside.
+CORPUS_MANIFEST_NAME = "manifest.json"
+
+
+def check_examples_manifest(examples_path: Path, manifest_path: Path | None = None) -> bool:
+    """Refuse an examples file whose bytes are not the ones its manifest recorded.
+
+    The one check every reader of a pre-generated corpus shares (``read_example_objects``, and
+    through it every rung-0 tool): ``manifest_path`` if given, else the ``manifest.json`` beside
+    ``examples_path``. A manifest that exists must record ``examples_sha256`` and the file must
+    hash to it, else :class:`DefectCorpusError`; a manifest named explicitly and absent is
+    refused too. Returns True when a manifest was checked and False when none was named and none
+    sits beside the file, which is the one case where nothing could disagree: the caller sees the
+    difference and no check that could not run reports as one that passed.
+
+    Mistake M18: ``tools/rung0_real_run.py`` took ``--examples`` and ``--manifest-in``
+    independently and read the manifest's ``data_snapshot_hash`` while hashing nothing, so a
+    manifest could describe a different corpus than the rows trained on."""
+    explicit = manifest_path is not None
+    manifest_path = (
+        Path(manifest_path) if explicit else Path(examples_path).parent / CORPUS_MANIFEST_NAME
+    )
+    if not manifest_path.is_file():
+        if explicit:
+            raise DefectCorpusError(
+                f"{manifest_path} does not exist; the corpus cannot be verified"
+            )
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DefectCorpusError(f"{manifest_path} is not readable JSON: {exc}") from exc
+    recorded = manifest.get("examples_sha256") if isinstance(manifest, dict) else None
+    if not isinstance(recorded, str) or not recorded:
+        raise DefectCorpusError(
+            f"{manifest_path} records no examples_sha256, so {examples_path} cannot be "
+            "checked against it"
+        )
+    _check_sha(Path(examples_path), recorded, recorded_in=manifest_path)
+    return True
 
 
 def diff_line_span(diff: bytes, *, start_line: int, end_line: int) -> tuple[int, int]:

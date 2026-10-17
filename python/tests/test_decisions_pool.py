@@ -97,7 +97,7 @@ def test_arc_pool_rows_are_admitted_only_through_the_pool_config() -> None:
     and ``pool_data_config`` admits it with the human's recorded call, and nothing else."""
     rows = {ARC: [_arc_row(i) for i in range(3)]}
     with pytest.raises(LicenceRefused, match="opt-in: 'allenai/ai2_arc' is off by default"):
-        build_mixture(rows, config=DataConfig(), families=["arc.science"])
+        build_mixture(rows, config=DataConfig.legacy_v5(), families=["arc.science"])
     config = pool_data_config()
     assert config.licence.admitted_sources_by_human == DECISION_POOL_OPT_INS == {
         ARC: DECISION_POOL_OPT_INS[ARC]
@@ -116,10 +116,10 @@ def test_arc_pool_rows_are_admitted_only_through_the_pool_config() -> None:
 def test_the_pool_config_carries_the_measured_candidate_bound() -> None:
     """Every tool that reads the pool gets its bound from ``pool_data_config`` (Fable,
     RULING.md "(A)"); a build without a pool keeps the default, so its manifests do not move."""
-    assert DataConfig().max_candidate_pairs == DEFAULT_MAX_CANDIDATE_PAIRS == 5_000_000
+    assert DataConfig.legacy_v5().max_candidate_pairs == DEFAULT_MAX_CANDIDATE_PAIRS == 5_000_000
     assert pool_data_config().max_candidate_pairs == POOL_MAX_CANDIDATE_PAIRS == 12_500_000
     assert pool_data_config(pool_data_config()) == pool_data_config(), "idempotent"
-    named = dataclasses.replace(DataConfig(), max_candidate_pairs=7)
+    named = dataclasses.replace(DataConfig.legacy_v5(), max_candidate_pairs=7)
     assert pool_data_config(named).max_candidate_pairs == 7, "a caller's own bound wins"
 
 
@@ -167,7 +167,8 @@ def test_boolq_and_vitaminc_are_admitted_pool_sources_not_opt_in() -> None:
     refused_sources, so it would move every no-pool data_snapshot_hash."""
     for source_id in ("google/boolq", "tals/vitaminc"):
         source = source_by_id(source_id)
-        assert not source.opt_in_note and not source.admission_refusals(DataConfig().licence)
+        licence = DataConfig.legacy_v5().licence
+        assert not source.opt_in_note and not source.admission_refusals(licence)
     assert "[U]" in source_by_id("tals/vitaminc").evidence, "the canary GUID is unverified"
 
 
@@ -185,7 +186,9 @@ def test_option_refusals_agree_with_rust_on_the_shared_fixture() -> None:
 
 def test_a_pool_row_becomes_a_pinned_choice_row_with_its_question_in_the_context() -> None:
     raw = _row(split="val")
-    row = rewrite_typed_decision(raw, family_id="openjev.policy", index=0, config=DataConfig())
+    row = rewrite_typed_decision(
+        raw, family_id="openjev.policy", index=0, config=DataConfig.legacy_v5()
+    )
     assert row.request.context == raw.context.encode("utf-8")
     assert row.request.question == task_family_by_id("openjev.policy").description
     (slot,) = row.request.slots
@@ -199,7 +202,9 @@ def test_a_pool_row_becomes_a_pinned_choice_row_with_its_question_in_the_context
 
 def test_open_jev_abstain_gold_is_noul() -> None:
     raw = _row(gold_option=None, gold_noul=True)
-    row = rewrite_typed_decision(raw, family_id="openjev.policy", index=0, config=DataConfig())
+    row = rewrite_typed_decision(
+        raw, family_id="openjev.policy", index=0, config=DataConfig.legacy_v5()
+    )
     assert row.gold[0].is_noul and row.gold[0].value is None
 
 
@@ -211,14 +216,14 @@ def test_a_source_without_per_row_licences_refuses_a_row_naming_another() -> Non
     )
     with pytest.raises(RowRefused) as exc:
         rewrite_typed_decision(raw, family_id="procedural.decisions", index=0,
-                               config=DataConfig())
+                               config=DataConfig.legacy_v5())
     assert exc.value.reason_code == "licence_differs_from_source"
 
 
 def test_a_non_commercial_row_licence_is_refused() -> None:
     with pytest.raises(LicenceRefused):
         rewrite_typed_decision(_row(licence="cc-by-nc-4.0"), family_id="openjev.policy",
-                               index=0, config=DataConfig())
+                               index=0, config=DataConfig.legacy_v5())
 
 
 @pytest.mark.parametrize(
@@ -245,7 +250,7 @@ def test_build_mixture_routes_each_pool_row_to_its_own_family_only() -> None:
              stratum="openjev.evidence/yesno", options=("yes", "no"), gold_option="no")
         for i in range(2)
     ]
-    mixture = build_mixture({OPEN_JEV: rows}, config=DataConfig(),
+    mixture = build_mixture({OPEN_JEV: rows}, config=DataConfig.legacy_v5(),
                             families=["openjev.policy", "openjev.evidence"])
     built = sorted((r.family_id, r.row_id) for r in mixture.rows)
     assert [f for f, _ in built] == ["openjev.evidence"] * 2 + ["openjev.policy"] * 3
@@ -429,7 +434,7 @@ def test_a_build_with_the_pool_names_the_pool_sources_it_read() -> None:
     from qd_data.manifest import build_manifests
     from qd_data.split import split
 
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     corpus = {**small_corpus(24), OPEN_JEV: [
         _row(example_id=f"openjev:p{i}", group_key=f"p{i}",
              context=f"Which candidate satisfies requirement {i}?\n\n{{\"n\": {i}}}")
@@ -458,7 +463,9 @@ def _pool_val_lines() -> list[dict[str, object]]:
 def _pool_val_identities(pool: Path) -> list[str]:
     loaded = load_decision_pool(pool)
     return sorted(
-        rewrite_typed_decision(r, family_id=r.family_id, index=i, config=DataConfig()).identity_key
+        rewrite_typed_decision(
+            r, family_id=r.family_id, index=i, config=DataConfig.legacy_v5()
+        ).identity_key
         for rows in loaded.raw.values() for i, r in enumerate(rows) if r.split == "val"
     )
 

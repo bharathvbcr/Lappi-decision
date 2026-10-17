@@ -1,5 +1,6 @@
 """``tools/real_ft_run.py`` under Fable's v6 ruling (``AUDIT/v6-rulings-2026-10-08/
-fable-v6-data-design-ruling.md``): R2's ``--v6-data-rules`` rebuild and R7's shared span head.
+fable-v6-data-design-ruling.md``): R2's default-v6 rebuild (``--legacy-v5-data-rules`` for v5)
+and R7's shared span head.
 
 * R2. ``--v6-data-rules`` rebuilds the shard set's rows under the pipeline's own
   ``data_rules`` (both v6 rules), names its corpus as the pipeline does (``name_corpus``), and
@@ -47,7 +48,7 @@ from qd_train import exclusions  # noqa: E402
 from qd_train.containment_strip import STRIP_RULE, STRIP_VERSION  # noqa: E402
 from qd_train.exclusions import ATTESTATION_NAME, ExclusionRefusal  # noqa: E402
 
-V5 = DataConfig()
+V5 = DataConfig.legacy_v5()
 V6 = pipeline.data_rules(V5, v6=True)
 FIXTURES = REPO / "crates" / "qd-train" / "tests" / "fixtures"
 H64_FILE = FIXTURES / "span-head-init-seed0-h64.safetensors"
@@ -88,7 +89,7 @@ def test_a_set_built_under_the_other_rules_is_refused(
     tmp_path: Path, built: DataConfig, rebuilt: DataConfig
 ) -> None:
     _manifest(tmp_path, built.fingerprint())
-    with pytest.raises(SystemExit, match="--v6-data-rules must be given here exactly when"):
+    with pytest.raises(SystemExit, match="--legacy-v5-data-rules must be given here exactly when"):
         _facts(tmp_path, rebuilt)
 
 
@@ -102,7 +103,7 @@ class _Reached(Exception):
     pass
 
 
-@pytest.mark.parametrize(("extra", "want"), [([], V5), (["--v6-data-rules"], V6)])
+@pytest.mark.parametrize(("extra", "want"), [([], V6), (["--legacy-v5-data-rules"], V5)])
 def test_the_flag_reaches_the_corpus_check_and_the_rebuild(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: list[str], want: DataConfig
 ) -> None:

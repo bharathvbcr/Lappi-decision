@@ -1050,6 +1050,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--ledger", type=Path, required=True, help="where the eval row is")
     parser.add_argument(
+        "--legacy-v5-data-rules", action="store_true",
+        help="rebuild the split under v5's data rules, ONLY to fit a control on an already-"
+             "pinned v5 set. Without it the rebuild is under v6's (the default), through "
+             "real_tokenizer_pipeline.data_rules",
+    )
+    parser.add_argument(
         "--eval-row", default=None,
         help=(
             "the eval row's id (a prefix is ok). Default: the eval_row_id the verdicts file "
@@ -1246,7 +1252,9 @@ def main(argv: list[str] | None = None) -> int:
     # control that cannot be fitted is refused while that costs nothing.
     engine = native.prep_binary()
 
-    config = DataConfig()
+    from real_tokenizer_pipeline import data_rules
+
+    config = data_rules(DataConfig(), v6=not args.legacy_v5_data_rules)
     # One set of keywords for the rebuild and for the split cache's key, so what is keyed is what
     # is rebuilt: real_ft_run.main's own form.
     rebuild = functools.partial(

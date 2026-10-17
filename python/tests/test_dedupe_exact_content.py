@@ -100,7 +100,7 @@ def _distinct_problems(n: int, *, policy: str | None = EXACT_CONTENT) -> list[Da
 
 def test_minhash_merges_distinct_problems_that_share_prose_when_unmarked() -> None:
     """The defect the ruling scopes out, shown on the unmarked path, which stays as it was."""
-    report = dedupe(_distinct_problems(6, policy=None), config=DataConfig())
+    report = dedupe(_distinct_problems(6, policy=None), config=DataConfig.legacy_v5())
     assert isinstance(report.status, Ran)
     assert len(report.kept) < 6, "MinHash pairs these: the facts are a few shingles of ~100"
 
@@ -109,7 +109,7 @@ def test_minhash_merges_distinct_problems_that_share_prose_when_unmarked() -> No
 
 
 def test_marked_distinct_problems_all_survive() -> None:
-    report = dedupe(_distinct_problems(6), config=DataConfig())
+    report = dedupe(_distinct_problems(6), config=DataConfig.legacy_v5())
     assert isinstance(report.status, Ran)
     assert len(report.kept) == 6
     assert report.n_dropped_rows == 0
@@ -124,7 +124,7 @@ def test_marked_rows_with_one_digest_are_one_problem_in_any_repo() -> None:
         _row("b1", repo="scene/2", text=text_b),
         _row("b2", repo="scene/9", text=text_b),  # another repo, same content
     ]
-    report = dedupe(rows, config=DataConfig())
+    report = dedupe(rows, config=DataConfig.legacy_v5())
     assert isinstance(report.status, Ran)
     assert sorted(r.row_id for r in report.kept) == ["a1", "b1"]
     assert report.dropped_row_ids == frozenset({"a2", "b2"})
@@ -142,13 +142,14 @@ def _twins_train_key_first() -> list[DataRow]:
 
 def test_the_v5_rule_drops_the_val_copy_of_identical_content_when_train_sorts_first() -> None:
     """Characterization, kept under the default config: v5's recorded knock-out."""
-    assert [r.row_id for r in dedupe(_twins_train_key_first(), config=DataConfig()).kept] == ["t"]
+    kept = dedupe(_twins_train_key_first(), config=DataConfig.legacy_v5()).kept
+    assert [r.row_id for r in kept] == ["t"]
 
 
 def test_the_v6_rule_keeps_the_val_copy_of_identical_content_in_any_order() -> None:
     """GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND-2026-10-03 on the exact-content path, where
     v5's knock-out actually happened (test_pre_dedupe_drops)."""
-    config = DataConfig().with_v6_dedupe_rules()
+    config = DataConfig()
     rows = _twins_train_key_first()
     for order in (rows, rows[::-1]):
         report = dedupe(order, config=config)
@@ -166,11 +167,11 @@ def test_a_scoped_copy_outranking_the_searched_owner_of_its_text_is_refused_unde
     text = f"{PROSE} {_facts(5)}"
     rows = [_row("owner", repo="scene/train", text=text, policy=None, pinned="train"),
             _row("scoped", repo="scene/val", text=text, pinned="val")]
-    assert [r.row_id for r in dedupe(rows, config=DataConfig()).kept] == ["owner"]
+    assert [r.row_id for r in dedupe(rows, config=DataConfig.legacy_v5()).kept] == ["owner"]
     with pytest.raises(ValueError, match="already decided"):
-        dedupe(rows, config=DataConfig().with_v6_dedupe_rules())
+        dedupe(rows, config=DataConfig())
     lower = [dataclasses.replace(rows[0], metadata={PINNED_SPLIT_KEY: "val"}), rows[1]]
-    assert [r.row_id for r in dedupe(lower, config=DataConfig().with_v6_dedupe_rules()).kept] == [
+    assert [r.row_id for r in dedupe(lower, config=DataConfig()).kept] == [
         "owner"
     ], "an owner at least as protected keeps its text, as in v5"
 
@@ -178,7 +179,7 @@ def test_a_scoped_copy_outranking_the_searched_owner_of_its_text_is_refused_unde
 def test_which_identical_row_survives_does_not_depend_on_input_order() -> None:
     text = f"{PROSE} {_facts(3)}"
     rows = [_row(f"x{i}", repo=f"scene/{i}", text=text) for i in range(4)]
-    kept = [dedupe(list(o), config=DataConfig()).kept for o in (rows, rows[::-1])]
+    kept = [dedupe(list(o), config=DataConfig.legacy_v5()).kept for o in (rows, rows[::-1])]
     assert [r.row_id for r in kept[0]] == [r.row_id for r in kept[1]]
     assert len(kept[0]) == 1
 
@@ -187,10 +188,10 @@ def test_marked_rows_never_enter_the_candidate_search() -> None:
     """The bound the pool hit: 40 shared-prose rows overflow a bound of 3 pairs when banded."""
     rows = _distinct_problems(40)
     unmarked = dedupe(
-        _distinct_problems(40, policy=None), config=DataConfig(), max_candidate_pairs=3
+        _distinct_problems(40, policy=None), config=DataConfig.legacy_v5(), max_candidate_pairs=3
     )
     assert isinstance(unmarked.status, NotRun), "characterization: banded, they overflow"
-    report = dedupe(rows, config=DataConfig(), max_candidate_pairs=3)
+    report = dedupe(rows, config=DataConfig.legacy_v5(), max_candidate_pairs=3)
     assert isinstance(report.status, Ran)
     assert report.n_candidate_pairs == 0
     assert len(report.kept) == 40
@@ -200,7 +201,7 @@ def test_an_unknown_policy_is_refused_naming_the_row() -> None:
     rows = _distinct_problems(2)
     bad = dataclasses.replace(rows[1], metadata={NEAR_DUPLICATE_POLICY_KEY: "fuzzy"})
     with pytest.raises(ValueError, match=r"r1.*fuzzy"):
-        dedupe([rows[0], bad], config=DataConfig())
+        dedupe([rows[0], bad], config=DataConfig.legacy_v5())
 
 
 def test_the_report_names_the_scoped_families_with_both_row_counts() -> None:
@@ -210,7 +211,7 @@ def test_the_report_names_the_scoped_families_with_both_row_counts() -> None:
              policy=None)
         for i in range(2)
     ]
-    report = dedupe(marked + plain, config=DataConfig())
+    report = dedupe(marked + plain, config=DataConfig.legacy_v5())
     body = report.to_json()
     scope = body["near_duplicate_scope"]
     assert scope["exact_content_rows_by_family"] == {"openjev.policy": 3}
@@ -222,7 +223,7 @@ def test_the_report_names_the_scoped_families_with_both_row_counts() -> None:
 
 def test_a_corpus_with_no_marked_row_reports_exactly_as_before() -> None:
     """No key appears for an unscoped corpus, so its manifests stay byte-identical."""
-    body = dedupe(_distinct_problems(4, policy=None), config=DataConfig()).to_json()
+    body = dedupe(_distinct_problems(4, policy=None), config=DataConfig.legacy_v5()).to_json()
     assert "near_duplicate_scope" not in body
     assert "exact_content_clusters" not in body
 
@@ -248,7 +249,7 @@ def _split_rows() -> list[DataRow]:
 
 
 def test_split_near_duplicate_search_covers_only_unmarked_rows_and_says_so() -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     report = split(dedupe(_split_rows(), config=config), config=config)
     nd = report.near_duplicate_disjoint
     assert isinstance(nd, Ran)
@@ -260,7 +261,7 @@ def test_split_near_duplicate_search_covers_only_unmarked_rows_and_says_so() -> 
 
 def test_split_content_digest_check_catches_identical_content_across_splits() -> None:
     """Independent of dedupe: a dedupe that let a duplicate through is caught here."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = _split_rows()
     leaked = _row("leak", repo="scene/leak", text=rows[0].dedupe_text, pinned="val")
     good = dedupe(rows, config=config)
@@ -274,7 +275,7 @@ def test_split_content_digest_check_catches_identical_content_across_splits() ->
 
 
 def test_split_of_an_unscoped_corpus_reports_exactly_as_before() -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = [r for r in _split_rows() if NEAR_DUPLICATE_POLICY_KEY not in r.metadata]
     body = split(dedupe(rows, config=config), config=config).to_json()
     assert "exact_content_disjoint" not in body
@@ -285,10 +286,10 @@ def test_split_of_an_unscoped_corpus_reports_exactly_as_before() -> None:
 
 def test_dedupe_and_split_read_the_configs_bound() -> None:
     """A build raises the bound once, in its config; neither search keeps a literal of its own."""
-    tight = dataclasses.replace(DataConfig(), max_candidate_pairs=3)
+    tight = dataclasses.replace(DataConfig.legacy_v5(), max_candidate_pairs=3)
     rows = _distinct_problems(40, policy=None)
     assert isinstance(dedupe(rows, config=tight).status, NotRun)
-    assert isinstance(dedupe(rows, config=DataConfig()).status, Ran)
+    assert isinstance(dedupe(rows, config=DataConfig.legacy_v5()).status, Ran)
 
     # The split's re-derivation over rows dedupe kept: unmarked, mutually near (J ~0.95), all in
     # one repo so dedupe keeps them as within-repo pairs, pinned to both sides so the split's
@@ -298,26 +299,26 @@ def test_dedupe_and_split_read_the_configs_bound() -> None:
              pinned="train" if i % 2 else "val")
         for i in range(12)
     ]
-    kept = dedupe(near, config=DataConfig())
+    kept = dedupe(near, config=DataConfig.legacy_v5())
     assert len(kept.kept) == 12, "one repo: within-repo pairs are kept"
-    assert isinstance(split(kept, config=DataConfig()).near_duplicate_disjoint, Ran)
+    assert isinstance(split(kept, config=DataConfig.legacy_v5()).near_duplicate_disjoint, Ran)
     assert isinstance(split(kept, config=tight).near_duplicate_disjoint, NotRun)
 
 
 def test_a_raised_bound_is_named_in_both_reports_and_the_default_is_not() -> None:
-    raised = dataclasses.replace(DataConfig(), max_candidate_pairs=7_000_000)
+    raised = dataclasses.replace(DataConfig.legacy_v5(), max_candidate_pairs=7_000_000)
     rows = _split_rows()
     d_raised = dedupe(rows, config=raised)
     s_raised = split(d_raised, config=raised)
     assert d_raised.to_json()["max_candidate_pairs"] == 7_000_000
     assert s_raised.to_json()["max_candidate_pairs"] == 7_000_000
-    d_default = dedupe(rows, config=DataConfig())
+    d_default = dedupe(rows, config=DataConfig.legacy_v5())
     assert "max_candidate_pairs" not in d_default.to_json()
-    assert "max_candidate_pairs" not in split(d_default, config=DataConfig()).to_json()
+    assert "max_candidate_pairs" not in split(d_default, config=DataConfig.legacy_v5()).to_json()
 
 
 def test_a_bound_below_one_is_refused() -> None:
     with pytest.raises(ValueError, match="max_candidate_pairs"):
-        dataclasses.replace(DataConfig(), max_candidate_pairs=0)
+        dataclasses.replace(DataConfig.legacy_v5(), max_candidate_pairs=0)
     with pytest.raises(ValueError, match="max_candidate_pairs"):
-        dedupe(_distinct_problems(2), config=DataConfig(), max_candidate_pairs=0)
+        dedupe(_distinct_problems(2), config=DataConfig.legacy_v5(), max_candidate_pairs=0)

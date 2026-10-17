@@ -141,7 +141,7 @@ def test_real_signatures_band_like_the_reference_at_every_bound(
 def test_v6_dedupe_and_split_decide_identically_inside_the_native_block(qd_prep: Path) -> None:
     """The prefilter reaches qd-prep lsh through ``native_minhash`` (a QDPLSIN2 request), and
     every v6 dedupe and split decision is the reference's."""
-    config = DataConfig().with_v6_dedupe_rules()
+    config = DataConfig()
     rows = _corpus_rows()
     want = dedupe(list(rows), config=config)
     want_split = split(want, config=config)

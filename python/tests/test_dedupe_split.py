@@ -60,7 +60,7 @@ def _row(
 
 
 def _pipeline(corpus: dict[str, list[object]], config: DataConfig | None = None):
-    config = config or DataConfig()
+    config = config or DataConfig.legacy_v5()
     mixture = build_mixture(corpus, config=config)
     report = dedupe(list(mixture.rows), config=config)
     return mixture, report, split(report, config=config)
@@ -75,7 +75,7 @@ def test_the_three_families_of_one_source_row_are_one_content_unit() -> None:
     One commitpackft row becomes a commit-intent, a language-id and a change-scope
     example from the same file. Comparing *examples* makes those exact duplicates.
     """
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(
         {"bigcode/commitpackft": [commitpackft_row(i) for i in range(6)]}, config=config
     )
@@ -91,7 +91,7 @@ def test_the_three_families_of_one_source_row_are_one_content_unit() -> None:
 def test_many_squad_questions_on_one_passage_all_survive() -> None:
     """Several SQuAD questions share a passage and sit near 0.85 Jaccard by
     construction. Comparing passages alone would keep one question in six."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = [squad_row(i, force_impossible=False) for i in range(6)]
     same_passage = [
         type(rows[0])(
@@ -116,7 +116,7 @@ def test_many_squad_questions_on_one_passage_all_survive() -> None:
 def test_a_vendored_copy_in_a_second_repo_is_removed_before_splitting() -> None:
     """``docs/hardening.md``: *vendored trees, forks and copied files put the same
     code in two repos*. Repo-level splitting alone cannot separate them."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     a, b = vendored_pair()
     mixture = build_mixture(
         {"bigcode/commitpackft": [a, b, commitpackft_row(50), commitpackft_row(51)]},
@@ -135,7 +135,7 @@ def test_a_vendored_copy_in_a_second_repo_is_removed_before_splitting() -> None:
 def test_within_repo_near_duplicates_are_counted_and_kept() -> None:
     """Same repo means same side of the split, so dropping them removes data without
     removing a leak -- and for SQuAD it would remove almost everything."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     shared = code_body("dup", lines=30)
     rows = [
         commitpackft_row(1, repo="org/one", body=shared, path="x.py"),
@@ -149,7 +149,7 @@ def test_within_repo_near_duplicates_are_counted_and_kept() -> None:
 
 
 def test_dedupe_of_an_empty_corpus_is_not_run_not_a_clean_pass() -> None:
-    report = dedupe([], config=DataConfig())
+    report = dedupe([], config=DataConfig.legacy_v5())
     assert isinstance(report.status, NotRun)
     assert "zero rows" in report.status.reason
 
@@ -157,7 +157,7 @@ def test_dedupe_of_an_empty_corpus_is_not_run_not_a_clean_pass() -> None:
 def test_duplicate_row_ids_are_refused() -> None:
     row = _row("dup", repo="org/a", text=code_body("a"))
     with pytest.raises(ValueError, match="duplicate row_id"):
-        dedupe([row, row], config=DataConfig())
+        dedupe([row, row], config=DataConfig.legacy_v5())
 
 
 def test_a_truncated_candidate_search_is_not_run_not_a_clean_dedupe() -> None:
@@ -166,14 +166,14 @@ def test_a_truncated_candidate_search_is_not_run_not_a_clean_dedupe() -> None:
     rows = [
         _row(f"r{i:03d}", repo=f"org/repo{i}", text=text, path=f"f{i}.py") for i in range(30)
     ]
-    report = dedupe(rows, config=DataConfig(), max_candidate_pairs=5)
+    report = dedupe(rows, config=DataConfig.legacy_v5(), max_candidate_pairs=5)
     assert isinstance(report.status, NotRun)
     assert "hit its bound" in report.status.reason
 
 
 def _v6() -> DataConfig:
     """The v6 dedupe rules (split-aware keep, LSH agreement prefilter) on the default config."""
-    return DataConfig().with_v6_dedupe_rules()
+    return DataConfig()
 
 
 def _repos_by_split(config: DataConfig, prefix: str) -> dict[str, list[str]]:
@@ -242,7 +242,7 @@ def test_a_unit_holding_a_held_out_family_row_outranks_a_val_twin() -> None:
 def test_the_v5_rule_keeps_the_lexicographically_smallest_unit_whatever_the_input_order() -> None:
     """v5's recorded rule, which the default config still applies so a v5 rebuild re-derives v5's
     rows: the smallest key survives, train or not (test_pre_dedupe_drops pins its knock-out)."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     text = code_body("same", lines=40)
     by_split = _repos_by_split(config, "org/k")
     train, val = by_split["train"][0], by_split["val"][-1]
@@ -267,7 +267,7 @@ def test_a_unit_whose_rows_disagree_on_their_repo_split_is_refused_under_the_v6_
     ]
     with pytest.raises(ValueError, match="holds rows in repo splits"):
         dedupe(rows, config=_v6())
-    assert len(dedupe(rows, config=DataConfig()).kept) == 2, "v5's rule never asked"
+    assert len(dedupe(rows, config=DataConfig.legacy_v5()).kept) == 2, "v5's rule never asked"
 
 
 def test_the_v6_rules_reach_the_fingerprint_and_v5_fingerprints_as_it_did() -> None:
@@ -276,9 +276,10 @@ def test_the_v6_rules_reach_the_fingerprint_and_v5_fingerprints_as_it_did() -> N
     config must not hash like a v5 one."""
     v5_keys = {"seed", "held_out_families", "dedupe_threshold", "shingle_size", "num_perm",
                "train_fraction", "val_fraction", "admitted_by_human"}
-    assert set(DataConfig().fingerprint()) == v5_keys
+    assert set(DataConfig.legacy_v5().fingerprint()) == v5_keys
     v6 = _v6().fingerprint()
-    assert set(v6) - v5_keys == {"dedupe_keep_rule", "lsh_min_agreement_permille"}
+    assert set(v6) - v5_keys == {"dedupe_keep_rule", "lsh_min_agreement_permille",
+                                 "benchmark_eval_splits_are_targets"}
     assert (v6["dedupe_keep_rule"], v6["lsh_min_agreement_permille"]) == ("split_priority", 650)
     for bad in ({"dedupe_keep_rule": "newest"}, {"lsh_min_agreement_permille": 1001},
                 {"lsh_min_agreement_permille": True}):
@@ -297,7 +298,7 @@ def test_a_vendored_copy_is_still_removed_under_the_v6_prefilter() -> None:
     assert report.n_dropped_units == 1 and report.n_cross_repo_pairs >= 1
     blob = report.to_json()
     assert blob["lsh_min_agreement_permille"] == 650
-    v5 = dedupe(list(mixture.rows), config=DataConfig())
+    v5 = dedupe(list(mixture.rows), config=DataConfig.legacy_v5())
     assert 0.0 < v5.lsh_recall_at_threshold - report.lsh_recall_at_threshold < 1e-4
     assert isinstance(report.status, Ran) and "LSH prefilter" in report.status.detail
     split_report = split(report, config=config)
@@ -352,7 +353,7 @@ def test_no_function_identity_appears_in_two_repo_splits() -> None:
 
 
 def test_held_out_families_appear_in_no_training_shard() -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     _, _, report = _pipeline(small_corpus(24), config)
     training = [a for a in report.assignments if a.split in TRAINING_SPLITS]
     assert training, "the fixture must produce training rows or the test is vacuous"
@@ -364,7 +365,7 @@ def test_held_out_families_appear_in_no_training_shard() -> None:
 def test_a_held_out_family_cannot_be_rescued_by_a_train_repo_hash() -> None:
     """The family holdout and the repo holdout are different mechanisms. A row whose
     repo hashes to ``train`` still goes to the held-out shard if its family is out."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     _, _, report = _pipeline(small_corpus(24), config)
     overridden = [
         a
@@ -391,7 +392,7 @@ def test_no_near_duplicate_pair_spans_a_repo_split() -> None:
 
 def test_a_not_run_dedupe_makes_the_split_not_run() -> None:
     """``aggregate`` refuses to be more confident than its least-informed input."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     text = code_body("same", lines=40)
     rows = [
         _row(f"r{i:03d}", repo=f"org/repo{i}", text=text, path=f"f{i}.py") for i in range(30)
@@ -405,7 +406,7 @@ def test_a_not_run_dedupe_makes_the_split_not_run() -> None:
 
 def test_a_single_row_corpus_reports_the_leak_check_as_not_run() -> None:
     """With one row there is no pair to cross a boundary; that is not evidence."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     report = dedupe([_row("only", repo="org/a", text=code_body("a"))], config=config)
     split_report = split(report, config=config)
     assert isinstance(split_report.near_duplicate_disjoint, NotRun)
@@ -419,7 +420,7 @@ def test_a_cross_split_near_duplicate_is_caught_if_dedupe_is_bypassed() -> None:
     cross-repo duplicate -- i.e. simulating a dedupe that missed one. The check must
     fail, not pass, or a bug in dedupe would report itself as a clean split.
     """
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     text = code_body("leaky", lines=40)
     # Find two repo keys that land in different repo splits.
     pairs = [
@@ -456,7 +457,7 @@ def test_a_cross_split_near_duplicate_is_caught_if_dedupe_is_bypassed() -> None:
 def test_clinc_utterances_of_one_intent_never_straddle_a_split() -> None:
     """CLINC has no repository, so the intent label is the split unit -- otherwise
     ~100 near-paraphrases per intent would sit on both sides."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     _, _, report = _pipeline(
         {"clinc/clinc_oos": [clinc_row(i) for i in range(40)]}, config
     )
@@ -482,7 +483,7 @@ def test_the_dedupe_report_states_its_recall_bound_rather_than_implying_complete
     dimension the claim is about. Both numbers now live in the pair dimension, and
     the bound itself is in the JSON that reaches the manifest.
     """
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(small_corpus(24), config=config)
     report = dedupe(list(mixture.rows), config=config)
 
@@ -513,7 +514,7 @@ def test_the_dedupe_report_states_its_recall_bound_rather_than_implying_complete
 def test_the_reported_bound_is_the_one_the_banding_actually_used() -> None:
     """Derived from ``band_config``, so it cannot drift from the configuration that
     produced the candidate list -- a stored copy could."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(small_corpus(12), config=config)
     report = dedupe(list(mixture.rows), config=config)
     assert report.lsh_recall_at_threshold == report.band_config.recall_at_threshold
@@ -528,7 +529,7 @@ def test_a_truncated_pair_search_is_still_not_run_not_a_thinner_bound() -> None:
     rows = [
         _row(f"r{i:03d}", repo=f"org/repo{i}", text=text, path=f"f{i}.py") for i in range(30)
     ]
-    report = dedupe(rows, config=DataConfig(), max_candidate_pairs=5)
+    report = dedupe(rows, config=DataConfig.legacy_v5(), max_candidate_pairs=5)
     assert isinstance(report.status, NotRun)
     assert "hit its bound" in report.status.reason
     # The bound is still reportable -- it is a property of the banding, not of the

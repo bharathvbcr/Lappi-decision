@@ -1,7 +1,8 @@
-"""``--v6-data-rules`` on ``tools/real_tokenizer_pipeline.py`` (Fable's v6 ruling R1 and R2,
+"""v6 data rules (default; ``--legacy-v5-data-rules`` names v5) on
+``tools/real_tokenizer_pipeline.py`` (Fable's v6 ruling R1 and R2,
 ``AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md``).
 
-* R2: one flag applies ``DataConfig.with_v6_benchmark_targets()`` and ``with_v6_dedupe_rules()``
+* R2: v6 is the default and ``--legacy-v5-data-rules`` names v5; both rules are applied
   through one owner (``data_rules``), which ``real_ft_run``'s rebuild calls too; both rules reach
   the config fingerprint and the corpus name; absent the flag v5's fingerprint and corpus name
   are byte for byte what v5's manifests recorded. v5's 1,200 MMLU contrast rows move to CSQA
@@ -50,7 +51,7 @@ from qd_train import exclusions  # noqa: E402
 from qd_train.contrast import ContrastShortfall, apply_contrast, v6_contrast_spec  # noqa: E402
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
-V5 = DataConfig()
+V5 = DataConfig.legacy_v5()
 V6 = pipeline.data_rules(V5, v6=True)
 #: What every v5-era train manifest on this host records as ``config_fingerprint`` (read from
 #: ``~/qd-campaign/*/data/pool/train.json`` on 2026-10-08): the pin the flag's absence keeps.
@@ -67,14 +68,14 @@ V5_CONTRAST = ContrastSpec(per_family={MMLU_FAMILY: 1200, CSQA_FAMILY: 800}, see
 
 
 def test_without_the_flag_the_config_is_v5s_own_and_fingerprints_as_v5s_manifests() -> None:
-    assert pipeline.data_rules(V5, v6=False) is V5
+    assert pipeline.data_rules(V5, v6=False) == V5
     assert json.loads(json.dumps(pipeline.data_rules(V5, v6=False).fingerprint())) == (
         V5_FINGERPRINT
     )
 
 
 def test_the_flag_applies_both_v6_rules_and_both_reach_the_fingerprint() -> None:
-    assert V5.with_v6_benchmark_targets().with_v6_dedupe_rules() == V6
+    assert V5.with_rules(v6=True) == V6 == DataConfig()
     assert V6.benchmark_eval_splits_are_targets
     assert V6.dedupe_keep_rule == DEDUPE_KEEP_SPLIT_PRIORITY
     assert V6.lsh_min_agreement_permille == V6_LSH_MIN_AGREEMENT_PERMILLE
@@ -91,10 +92,6 @@ def test_the_corpus_name_moves_only_under_v6_rules(monkeypatch: pytest.MonkeyPat
     identity = {"rev": "r"}
     # v5: exactly containment_corpus's name, so every v5 attestation still matches.
     assert pipeline.name_corpus(identity, config=V5) == {"rev": "r", "q": 1}
-    # The benchmark re-pin alone: the one key tools/containment_scan.py writes for it.
-    assert pipeline.name_corpus(identity, config=V5.with_v6_benchmark_targets()) == {
-        "rev": "r", "q": 1, "benchmark_eval_splits_are_targets": True,
-    }
     assert pipeline.name_corpus(identity, config=V6) == {
         "rev": "r", "q": 1, "benchmark_eval_splits_are_targets": True,
         "dedupe_keep_rule": DEDUPE_KEEP_SPLIT_PRIORITY,
@@ -112,10 +109,10 @@ def test_the_flag_reaches_run_only_when_given(
         raise SystemExit(0)
 
     monkeypatch.setattr(pipeline, "run", stop)
-    for extra in ([], ["--v6-data-rules"]):
+    for extra in ([], ["--legacy-v5-data-rules"]):
         with pytest.raises(SystemExit):
             pipeline.main(["--out", str(tmp_path), *extra])
-    assert [kw["v6_data_rules"] for kw in seen] == [False, True]
+    assert [kw["v6_data_rules"] for kw in seen] == [True, False]
 
 
 # --- R2: the contrast rows move from MMLU to CSQA under v6 only -----------------------------

@@ -528,6 +528,25 @@ pub struct SetReport {
 pub struct Found {
     pub pairs: Vec<Pair>,
     pub sets: Vec<SetReport>,
+    /// One planted-copy control per distinct target set, run before the scan (see
+    /// [`Request::scan`]). A scan with no control is refused, never returned.
+    pub controls: Vec<Control>,
+}
+
+/// Most rows one target set's planted-copy control plants. A control demonstrates that the
+/// scan *can* hit; it is not coverage, so it is bounded, and the count planted is reported.
+pub const CONTROL_MAX_ROWS: usize = 4096;
+
+/// What one target set's planted-copy control did: `planted` checkable target rows were planted
+/// as source rows under their own keys and `hit` of them were found as their own row.
+/// `planted == hit` for any control that did not refuse.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Control {
+    pub target_set: String,
+    pub rows: usize,
+    pub checkable: usize,
+    pub planted: usize,
+    pub hit: usize,
 }
 
 impl Request<'_> {
@@ -543,7 +562,104 @@ impl Request<'_> {
     }
 
     /// The complete pair list and every set's counts. Does not depend on `threads`.
+    ///
+    /// **The only public way to scan, and it is positive-controlled.** A zero hit count is what
+    /// a disjoint corpus reports, and also what a scan reports when its targets can never match
+    /// (every row under n words, a broken index): indistinguishable, which is the M15 failure
+    /// (GAP-SYNTH-POOLS-ZERO-EXCLUSION-NOT-POSITIVE-CONTROLLED-2026-10-06, repeated by
+    /// `qd-prep decisions` and `qd-prep containment`). So before the scan, every distinct target
+    /// set has up to [`CONTROL_MAX_ROWS`] of its checkable rows planted as source rows and
+    /// scanned against the set at this request's n and threshold; each planted copy must hit its
+    /// own row. A target set with no row, no checkable row, or a missed copy refuses the whole
+    /// scan. The unguarded scan is private to this module.
     pub fn scan(&self, threads: usize) -> Result<Found, String> {
+        let controls = self.positive_controls(threads)?;
+        let mut found = self.scan_unguarded(threads)?;
+        found.controls = controls;
+        Ok(found)
+    }
+
+    fn positive_controls(&self, threads: usize) -> Result<Vec<Control>, String> {
+        let mut targets: Vec<usize> = self.scans.iter().map(|s| s.target).collect();
+        targets.sort_unstable();
+        targets.dedup();
+        let mut out = Vec::with_capacity(targets.len());
+        for t in targets {
+            let name = self.set_names[t];
+            let rows = &self.sets[t];
+            if rows.is_empty() {
+                return Err(format!(
+                    "target set {name} has no rows: a scan against nothing is not a check"
+                ));
+            }
+            let grams = per_row(rows, self.n, threads)?;
+            let checkable: Vec<usize> =
+                (0..rows.len()).filter(|&i| !grams[i].is_empty()).collect();
+            if checkable.is_empty() {
+                return Err(format!(
+                    "target set {name}: none of its {} rows has {} words, so no source row can \
+                     ever match it and a planted copy of each was not found; a scan of it \
+                     reports zero hits whatever the corpus holds",
+                    rows.len(),
+                    self.n
+                ));
+            }
+            // An even stride over the checkable rows, so a long set is sampled across its whole
+            // key range rather than at its head.
+            let planted: Vec<Row<'_>> = if checkable.len() <= CONTROL_MAX_ROWS {
+                checkable.iter().map(|&i| rows[i].clone()).collect()
+            } else {
+                (0..CONTROL_MAX_ROWS)
+                    .map(|k| rows[checkable[k * checkable.len() / CONTROL_MAX_ROWS]].clone())
+                    .collect()
+            };
+            let control = Request {
+                n: self.n,
+                threshold: self.threshold,
+                corpus: self.corpus,
+                export: self.export,
+                same_family_not_enforced: Vec::new(),
+                checks: Vec::new(),
+                set_names: vec!["positive-control", name],
+                scans: vec![Scan { source: 0, target: 1, enforced: true }],
+                sets: vec![planted.clone(), rows.clone()],
+            };
+            let found = control.scan_unguarded(threads)?;
+            let mut hit: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+            for p in &found.pairs {
+                let copy = control.sets[0][p.source_row].key;
+                if copy == control.sets[1][p.target_row].key {
+                    hit.insert(copy);
+                }
+            }
+            if hit.len() != planted.len() {
+                let missed: Vec<&str> = planted
+                    .iter()
+                    .map(|r| r.key)
+                    .filter(|k| !hit.contains(k))
+                    .take(8)
+                    .collect();
+                return Err(format!(
+                    "target set {name}: {} of {} planted copies were not found by their own row \
+                     (n {}, threshold {}); first missed: {missed:?}",
+                    planted.len() - hit.len(),
+                    planted.len(),
+                    self.n,
+                    self.threshold
+                ));
+            }
+            out.push(Control {
+                target_set: name.to_owned(),
+                rows: rows.len(),
+                checkable: checkable.len(),
+                planted: planted.len(),
+                hit: hit.len(),
+            });
+        }
+        Ok(out)
+    }
+
+    fn scan_unguarded(&self, threads: usize) -> Result<Found, String> {
         let targets: Vec<usize> = {
             let mut t: Vec<usize> = self.scans.iter().map(|s| s.target).collect();
             t.sort_unstable();
@@ -628,7 +744,7 @@ impl Request<'_> {
                 digest: set_digest(rows),
             });
         }
-        Ok(Found { pairs, sets })
+        Ok(Found { pairs, sets, controls: Vec::new() })
     }
 }
 
@@ -1180,6 +1296,50 @@ mod tests {
         );
     }
 
+    /// M15. A target set whose every row is under n words can never be matched, so its scan
+    /// reports zero hits whatever the source holds. `scan_unguarded` is the pre-fix behaviour
+    /// (zero pairs, `Ok`); `scan` must refuse it instead.
+    #[test]
+    fn a_scan_whose_targets_cannot_match_is_refused_not_reported_as_zero_hits() {
+        let rows = [
+            (0, "s1", "sid-1", "fam.x", LONG_A),
+            (1, "t1", "tid-1", "fam.x", "too short"),
+            (1, "t2", "tid-2", "fam.x", "also short"),
+        ];
+        let buf = request(&["src", "tgt"], &[(0, 1, true)], &[], &rows);
+        let req = parse(&buf).expect("parses");
+        let blind = req.scan_unguarded(1).expect("the unguarded scan 'succeeds'");
+        assert!(blind.pairs.is_empty(), "zero hits, indistinguishable from a clean corpus");
+        let err = req.scan(1).expect_err("the guarded scan refuses");
+        assert!(err.contains("none of its 2 rows has 8 words"), "{err}");
+        assert!(run(&buf, 1).is_err(), "the CLI path goes through the same scan");
+    }
+
+    #[test]
+    fn a_controlled_scan_reports_what_it_planted_and_still_finds_a_real_hit() {
+        let rows = [
+            (0, "s1", "sid-1", "fam.x", LONG_A),
+            (1, "t1", "tid-1", "fam.x", LONG_A),
+            (1, "t2", "tid-2", "fam.x", LONG_B),
+            (1, "t3", "tid-3", "fam.x", "short"),
+        ];
+        let buf = request(&["src", "tgt"], &[(0, 1, true)], &[], &rows);
+        let found = parse(&buf).expect("parses").scan(1).expect("scans");
+        assert_eq!(found.pairs.len(), 1);
+        assert_eq!(
+            found.controls,
+            vec![Control { target_set: "tgt".into(), rows: 3, checkable: 2, planted: 2, hit: 2 }]
+        );
+    }
+
+    #[test]
+    fn an_empty_target_set_is_refused_by_the_scan_itself() {
+        let rows = [(0, "s1", "sid-1", "fam.x", LONG_A)];
+        let buf = request(&["src", "tgt"], &[(0, 1, true)], &[], &rows);
+        let err = parse(&buf).expect("parses").scan(1).expect_err("refuses");
+        assert!(err.contains("has no rows"), "{err}");
+    }
+
     #[test]
     fn the_answer_does_not_depend_on_the_thread_count() {
         let mut rows: Vec<(u32, String, String, String, String)> = Vec::new();
@@ -1245,8 +1405,14 @@ mod tests {
             (0, "t", "id", "f", LONG_A),
             (1, "v", "vid", "f", "too short"),
         ];
+        // Once reported "not clean" in the attestation; the positive control (M15) now refuses
+        // the scan outright, which is stronger: no attestation exists to be misread.
         assert!(
-            not_clean(&[("a", 2)], &short_target),
+            run(
+                &request(&["train", "val"], &[(0, 1, true)], &[("a", 2)], &short_target),
+                1
+            )
+            .is_err(),
             "nothing to compare against"
         );
     }

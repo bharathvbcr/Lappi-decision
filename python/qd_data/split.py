@@ -70,6 +70,7 @@ __all__ = [
     "SplitAssignment",
     "SplitReport",
     "assign_repo",
+    "composed_file_blocks",
     "content_disjoint_families",
     "planned_split",
     "repo_split_of",
@@ -242,6 +243,11 @@ class SplitReport:
     #: its content digest with a row on another side of the split: that ruling's leak
     #: definition. ``None`` when no row was scoped out, and then absent from every report.
     exact_content_disjoint: TriState | None = None
+    #: No file block of a composed (multi-file) row near-duplicates a file block of a row on
+    #: the other side of the repo split (:func:`_composed_file_near_duplicates`). ``None`` when
+    #: no row is composed, and then absent from every report, so a corpus without composed rows
+    #: reports, and hashes, as it did.
+    composed_file_near_duplicate_disjoint: TriState | None = None
     #: The near-duplicate re-derivation's candidate bound; reported only when it is not
     #: :data:`~qd_data.config.DEFAULT_MAX_CANDIDATE_PAIRS`, as dedupe's is.
     max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
@@ -272,6 +278,15 @@ class SplitReport:
                 **(
                     {"exact_content_disjoint": self.exact_content_disjoint}
                     if self.exact_content_disjoint is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "composed_file_near_duplicate_disjoint": (
+                            self.composed_file_near_duplicate_disjoint
+                        )
+                    }
+                    if self.composed_file_near_duplicate_disjoint is not None
                     else {}
                 ),
             },
@@ -306,6 +321,10 @@ class SplitReport:
         }
         if self.exact_content_disjoint is not None:
             body["exact_content_disjoint"] = self.exact_content_disjoint.to_json()
+        if self.composed_file_near_duplicate_disjoint is not None:
+            body["composed_file_near_duplicate_disjoint"] = (
+                self.composed_file_near_duplicate_disjoint.to_json()
+            )
         if self.max_candidate_pairs != DEFAULT_MAX_CANDIDATE_PAIRS:
             body["max_candidate_pairs"] = self.max_candidate_pairs
         body["status"] = self.status.to_json()
@@ -402,6 +421,12 @@ def split(
         content_disjoint_families=content_disjoint_families(rows),
         exact_content_disjoint=_exact_content_disjoint(
             rows, split_of={a.row_id: a.split for a in assignments}
+        ),
+        composed_file_near_duplicate_disjoint=_composed_file_near_duplicates(
+            rows,
+            repo_split_of={a.row_id: a.repo_split for a in assignments},
+            config=config,
+            max_candidate_pairs=bound,
         ),
         max_candidate_pairs=bound,
     )
@@ -528,6 +553,137 @@ def _held_out_families_absent(
     )
 
 
+def _crossing_near_duplicates(
+    texts: dict[str, str],
+    *,
+    split_of: dict[str, str],
+    config: DataConfig,
+    max_candidate_pairs: int,
+    only_pairs_touching: frozenset[str] | None = None,
+) -> tuple[set[tuple[str, str]], list[tuple[str, str]], list[tuple[str, str, float]]] | None:
+    """The one near-duplicate re-derivation both cross-split checks share: MinHash and band
+    ``texts`` (``{unit id: text}``), and return ``(candidate pairs, those crossing a split,
+    those confirmed at ``config.dedupe_threshold``)``, or ``None`` when the search hit its bound.
+    ``only_pairs_touching`` restricts the crossing pairs to those with an end in that set of
+    unit ids (the file-level check asks only about pairs with a composed side)."""
+    hasher = MinHasher(num_perm=config.num_perm, seed=config.seed)
+    sh = {uid: shingle(text, k=config.shingle_size).shingles for uid, text in texts.items()}
+    sigs = {uid: hasher.signature(s) for uid, s in sh.items()}
+    cands, truncated = candidate_pairs(
+        sigs, config=band_config_for(config), max_pairs=max_candidate_pairs
+    )
+    if truncated:
+        return None
+    crossing = [
+        (a, b)
+        for a, b in sorted(cands)
+        if split_of[a] != split_of[b]
+        and (only_pairs_touching is None or a in only_pairs_touching or b in only_pairs_touching)
+    ]
+    offenders = [
+        (a, b, j)
+        for a, b in crossing
+        if (j := exact_jaccard(sh[a], sh[b])) >= config.dedupe_threshold
+    ]
+    return cands, crossing, offenders
+
+
+#: The lines opening every file block of a multi-file diff: ``diff --git``, ``---``, ``+++``
+#: (``qd_data.defect_class.COMPOSED_FILE_HEADER_LINES``, which this must equal; a test pins it).
+_FILE_HEADER_LINES: Final[int] = 3
+_FILE_BLOCK_START: Final[str] = "diff --git "
+
+
+def composed_file_blocks(text: str) -> list[str]:
+    """The per-file blocks of a multi-file diff, their ``diff --git`` / ``---`` / ``+++`` header
+    lines and ``@@`` hunk headers dropped (the path and the line numbers are what two forks of
+    one file may differ in; the code is what they share). ``[]`` unless the text holds at least
+    two file blocks: one file is not composed, and whole-row dedupe already compares it."""
+    lines = text.split("\n")
+    starts = [i for i, line in enumerate(lines) if line.startswith(_FILE_BLOCK_START)]
+    if len(starts) < 2:
+        return []
+    blocks: list[str] = []
+    for begin, end in zip(starts, [*starts[1:], len(lines)], strict=True):
+        body = [
+            line for line in lines[begin + _FILE_HEADER_LINES : end] if not line.startswith("@@")
+        ]
+        joined = "\n".join(body)
+        if joined.strip():
+            blocks.append(joined)
+    return blocks
+
+
+def _composed_file_near_duplicates(
+    rows: tuple[DataRow, ...],
+    *,
+    repo_split_of: dict[str, str],
+    config: DataConfig,
+    max_candidate_pairs: int,
+) -> TriState | None:
+    """Assert no file of a composed row near-duplicates a file on the other side of a repo split.
+
+    A composed row holds 3 to 48 files of one split, so the whole-row checks never see a fork's
+    copy of one of them (``GAP-COMPOSE-NEAR-DUP-FILES-ACROSS-SPLITS-UNCHECKED``). Each composed
+    row's file blocks are units, as is every other row whole (a one-file diff is its own block),
+    and a pair is an offender when it crosses a repo split, has a composed end, and is at least
+    ``config.dedupe_threshold`` similar. Same derivation, bound and threshold as
+    :func:`_cross_split_near_duplicates`, whose search this shares. ``None`` when no row is
+    composed; ``NotRun`` when the search hit its bound, so a skipped scan never reads as clean.
+    """
+    texts: dict[str, str] = {}
+    split_of: dict[str, str] = {}
+    composed_units: set[str] = set()
+    owner: dict[str, str] = {}
+    for row in rows:
+        blocks = composed_file_blocks(row.dedupe_text)
+        units = (
+            [(f"{row.row_id}#file{i}", b) for i, b in enumerate(blocks)]
+            if blocks
+            else [(row.row_id, row.dedupe_text)]
+        )
+        for uid, text in units:
+            texts[uid] = text
+            split_of[uid] = repo_split_of[row.row_id]
+            owner[uid] = row.row_id
+            if blocks:
+                composed_units.add(uid)
+    if not composed_units:
+        return None
+    found = _crossing_near_duplicates(
+        texts,
+        split_of=split_of,
+        config=config,
+        max_candidate_pairs=max_candidate_pairs,
+        only_pairs_touching=frozenset(composed_units),
+    )
+    if found is None:
+        return NotRun(
+            reason=(
+                f"composed-file near-duplicate search hit its bound of {max_candidate_pairs} "
+                "candidate pairs; the absence of a crossing pair was not established"
+            )
+        )
+    cands, crossing, offenders = found
+    return Ran(
+        passed=not offenders,
+        value=len(offenders),
+        n=len(texts),
+        n_total=len(texts),
+        detail=(
+            f"signed {len(composed_units)} file blocks of composed rows and "
+            f"{len(texts) - len(composed_units)} other rows; {len(cands)} candidate pairs, "
+            f"{len(crossing)} of them crossing a repo "
+            f"split with a composed end, none confirmed at threshold {config.dedupe_threshold}"
+            if not offenders
+            else "a composed row's file near-duplicates a file across a repo split: "
+            + ", ".join(
+                f"{owner[a]}~{owner[b]} ({a}~{b}, J={j:.3f})" for a, b, j in offenders[:5]
+            )
+        ),
+    )
+
+
 def _cross_split_near_duplicates(
     rows: tuple[DataRow, ...],
     *,
@@ -574,24 +730,21 @@ def _cross_split_near_duplicates(
                 "this is not evidence that the split separates near-duplicates"
             )
         )
-    hasher = MinHasher(num_perm=config.num_perm, seed=config.seed)
     band_config = band_config_for(config)
-    sh = {r.row_id: shingle(r.dedupe_text, k=config.shingle_size).shingles for r in rows}
-    sigs = {rid: hasher.signature(s) for rid, s in sh.items()}
-    cands, truncated = candidate_pairs(sigs, config=band_config, max_pairs=max_candidate_pairs)
-    if truncated:
+    found = _crossing_near_duplicates(
+        {r.row_id: r.dedupe_text for r in rows},
+        split_of=repo_split_of,
+        config=config,
+        max_candidate_pairs=max_candidate_pairs,
+    )
+    if found is None:
         return NotRun(
             reason=(
                 f"cross-split near-duplicate search hit its bound of {max_candidate_pairs} "
                 "candidate pairs; the absence of a crossing pair was not established"
             )
         )
-    crossing = [(a, b) for a, b in sorted(cands) if repo_split_of[a] != repo_split_of[b]]
-    offenders = [
-        (a, b, j)
-        for a, b in crossing
-        if (j := exact_jaccard(sh[a], sh[b])) >= config.dedupe_threshold
-    ]
+    cands, crossing, offenders = found
     # Coverage is the rows scanned, not the pairs found: reporting n=0/n_total=0 when
     # LSH proposes no candidate would make a complete scan of a clean corpus read
     # like a check that examined nothing.

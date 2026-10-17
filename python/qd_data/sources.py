@@ -65,7 +65,7 @@ PINNED_SPLIT_KEY: Final[str] = "pinned_split"
 #: upstream evaluation splits a build under ``DataConfig.benchmark_eval_splits_are_targets``
 #: never reads as rows. The Decision Index scores MMLU's test split (14,042) and CLINC150+OOS's
 #: test split (5,500); MMLU's dev split is its few-shot exemplar set. Each is a decontamination
-#: target of the in-corpus scan instead (``tools/containment_scan.py --v6-benchmark-targets``,
+#: target of the in-corpus scan instead (``tools/containment_scan.py``, v6 by default,
 #: target sets ``<prefix>-<split>`` below). A v5 build ignores this table: v5 pins MMLU test and
 #: dev to train and splits CLINC test by intent, and v5 rebuilds must re-derive v5's rows.
 BENCHMARK_TARGET_SPLITS: Final[dict[str, tuple[str, ...]]] = {
