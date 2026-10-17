@@ -5,3 +5,4 @@
 //! implementation rather than two that could drift.
 
 pub mod pin;
+pub mod prereg_bind;
