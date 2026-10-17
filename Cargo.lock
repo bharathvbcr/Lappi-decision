@@ -796,6 +796,7 @@ dependencies = [
  "anyhow",
  "clap",
  "libloading",
+ "qd-prep",
  "serde",
  "serde_json",
  "sha2",
