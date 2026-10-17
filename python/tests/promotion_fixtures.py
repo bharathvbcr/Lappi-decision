@@ -49,6 +49,11 @@ AS_BUILT: Final[dict[str, dict[str, object]]] = {
         "status": "open",
         "value": "pooled: every family's letter rows, not_run when any task's control did not run"},
     "shuffled_label_seeds": {"status": "open", "value": "every seed: the control on every row"},
+    # Added 2026-10-17: as built, neither ruling gate exists.
+    "span_beats_null": {"status": "open", "value": "not applied: the span gates compare against "
+                        "the uniform-over-candidates rate only"},
+    "decision_record_before_results": {"status": "open", "value": "not applied: no ordering "
+                                       "between a decision record and the results it judges"},
 }
 
 #: F's score-val decode (f4feac15, b45406b5, c962cdd9): every eligible val row decoded.
@@ -65,6 +70,12 @@ def write_record(directory: Path, *, base: str = "as_built",
     patch = json.loads(RESPEC_PATCH.read_text(encoding="utf-8"))["decisions"]
     for name, entry in patch.items():
         record["decisions"].setdefault(name, entry)
+    # The two gates ruled in on 2026-10-17 bind families written on or after `binding_from`.
+    # A test about the other gates builds rows stamped "now", which a real clock will one day
+    # put past the committed date; so a fixture record binds them in the far future unless the
+    # test is about them and says otherwise (`changes`).
+    for name in ("span_beats_null", "decision_record_before_results"):
+        record["decisions"][name]["binding_from"] = "9999-12-31"
     if base == "as_built":
         for name, fields in AS_BUILT.items():
             record["decisions"][name].update(
