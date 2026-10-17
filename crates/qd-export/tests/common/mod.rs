@@ -301,6 +301,49 @@ pub fn build(
     }
 }
 
+/// Point `req` at `table_path` with a fit report in which every entry's check ran and passed, and
+/// shapes declaring each fixture family's first choice entry (and span, when the table has one).
+/// The gate itself is tested in `calibration_gate.rs`; this is for tests of everything else.
+pub fn calibrate(req: &mut ExportRequest, dir: &Path, table_path: &Path) {
+    let families: Vec<String> = TRAINED_FAMILIES.iter().map(|f| (*f).to_string()).collect();
+    let (report_path, shapes_path) = gate_files(dir, table_path, &families);
+    req.calibration = Some(table_path.to_path_buf());
+    req.calibration_report = Some(report_path);
+    req.trained_slot_shapes = Some(shapes_path);
+    req.uncalibrated_reason = None;
+}
+
+/// The passing fit report and the slot-shape declaration for `families` over the table at `table_path`.
+pub fn gate_files(dir: &Path, table_path: &Path, families: &[String]) -> (PathBuf, PathBuf) {
+    let bytes = std::fs::read(table_path).unwrap();
+    let doc: Value = serde_json::from_slice(&bytes).unwrap();
+    let letters = doc["letters"].as_object().expect("letters");
+    let ran = json!({"state": "ran", "value": 0.01, "passed": true, "threshold": 0.05});
+    let entries: serde_json::Map<String, Value> = letters
+        .keys()
+        .map(|k| (k.clone(), json!({"scored": {"ece_after": ran.clone()}})))
+        .collect();
+    let has_span = !doc["span"].is_null();
+    let report = json!({
+        "ece": {"threshold": 0.05},
+        "entries": entries,
+        "span": if has_span { json!({"fitted": true, "scored": {"ece_after": ran.clone()}}) } else { json!({"fitted": false}) },
+        "tables": [{"sha256": qd_runtime::hex(&qd_runtime::sha256(&bytes))}],
+    });
+    let first = letters.keys().find(|k| k.starts_with("choice:")).expect("a choice entry").clone();
+    let mut one = vec![json!(first)];
+    if has_span {
+        one.push(json!("span"));
+    }
+    let shapes: serde_json::Map<String, Value> =
+        families.iter().map(|f| (f.clone(), Value::Array(vec![Value::Array(one.clone())]))).collect();
+    let report_path = dir.join("fit-report.json");
+    let shapes_path = dir.join("slot-shapes.json");
+    std::fs::write(&report_path, report.to_string()).unwrap();
+    std::fs::write(&shapes_path, Value::Object(shapes).to_string()).unwrap();
+    (report_path, shapes_path)
+}
+
 pub fn standard() -> Fixture {
     build(&standard_tensors(), &tiny_config(), |_| {})
 }
@@ -314,6 +357,10 @@ impl Fixture {
             tokenizer_sha256: tokenizer_sha256(&self.snapshot),
             expect_vocab_size: VOCAB,
             calibration: None,
+            calibration_report: None,
+            trained_slot_shapes: None,
+            exclude_families: Vec::new(),
+            uncalibrated_reason: Some("test fixture: this export is not served".to_string()),
             train_manifest: self.train_manifest.clone(),
             allow_extra: Vec::new(),
             averaged_head_preregistration: None,

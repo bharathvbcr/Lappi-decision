@@ -15,7 +15,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use qd_export::{AllowedExtra, ExportRequest, RefusalKind, export};
+use qd_export::{AllowedExtra, ExcludedFamily, ExportRequest, RefusalKind, export};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -49,6 +49,26 @@ struct Cli {
     /// A calibration table (qd_runtime CalibrationTable JSON) to pass through, hash-recorded.
     #[arg(long, value_name = "PATH")]
     calibration: Option<PathBuf>,
+
+    /// The fit's own report for that table (qd-calib-fit report.json). Required with --calibration:
+    /// the export is refused unless every declared (family, slot shape) has an entry whose recorded
+    /// check ran and passed.
+    #[arg(long, value_name = "PATH")]
+    calibration_report: Option<PathBuf>,
+
+    /// JSON {family: ["choice:5", "span"]}: the slot shapes each trained family was trained on.
+    /// Required with --calibration.
+    #[arg(long, value_name = "PATH")]
+    trained_slot_shapes: Option<PathBuf>,
+
+    /// Do not admit a trained family, with the reason (recorded in the manifest). The only way
+    /// past the calibration gate for a family. Repeatable.
+    #[arg(long, value_name = "FAMILY=REASON", value_parser = ExcludedFamily::parse)]
+    exclude_family: Vec<ExcludedFamily>,
+
+    /// Why this release has no table. Required, and only allowed, without --calibration.
+    #[arg(long, value_name = "TEXT")]
+    uncalibrated_reason: Option<String>,
 
     /// The train split's data manifest the tower was trained from (python/qd_data/manifest.py,
     /// split "train"; data/pool/train.json for v4). Its family set is recorded as
@@ -90,6 +110,10 @@ fn main() -> ExitCode {
         tokenizer_sha256: cli.tokenizer_sha256,
         expect_vocab_size: cli.expect_vocab_size,
         calibration: cli.calibration,
+        calibration_report: cli.calibration_report,
+        trained_slot_shapes: cli.trained_slot_shapes,
+        exclude_families: cli.exclude_family,
+        uncalibrated_reason: cli.uncalibrated_reason,
         train_manifest: cli.train_manifest,
         allow_extra: cli.allow_extra,
         averaged_head_preregistration: cli.averaged_head_preregistration,

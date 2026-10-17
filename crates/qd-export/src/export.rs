@@ -61,6 +61,8 @@ pub fn d17_row_letters() -> String {
         .collect()
 }
 
+use crate::calibration_gate::{self, ExcludedFamily, GateRecord};
+
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
 /// three are what `transformers`' tokenizer loads beside it. All four are in the Qwen3.5-2B-Base
@@ -112,6 +114,18 @@ pub struct ExportRequest {
     /// must all say this.
     pub expect_vocab_size: usize,
     pub calibration: Option<PathBuf>,
+    /// The fit's own report for that table (`qd-calib-fit`'s `report.json`). Required with
+    /// `calibration`: it holds the recorded calibration check the gate reads.
+    pub calibration_report: Option<PathBuf>,
+    /// `{family: ["choice:5", "span"]}`: the slot shapes each trained family was trained on.
+    /// Required with `calibration`.
+    pub trained_slot_shapes: Option<PathBuf>,
+    /// Trained families deliberately not admitted, each with a recorded reason. Removed from
+    /// `trained_families`; the only way past the calibration gate for a family.
+    pub exclude_families: Vec<ExcludedFamily>,
+    /// Required, and only allowed, when `calibration` is `None`: why this release has no table.
+    /// Recorded as `calibration_absent_reason`. The runtime refuses such a release at load.
+    pub uncalibrated_reason: Option<String>,
     /// The train split's data manifest the tower was trained from
     /// (`python/qd_data/manifest.py`, `split: "train"`). The release records its family set as
     /// `trained_families`, and the runtime refuses every other task (Fable's pipeline ruling,
@@ -749,7 +763,13 @@ struct Plan {
     dtype_counts: BTreeMap<&'static str, usize>,
     tokenizer: Vec<(&'static str, Vec<u8>)>,
     calibration: Option<(PathBuf, Vec<u8>, CalibrationTable)>,
+    /// The gate's findings; `None` exactly when the release has no table.
+    gate: Option<GateRecord>,
+    uncalibrated_reason: Option<String>,
     train: TrainManifest,
+    /// `train.families()` minus the exclusions: what `trained_families` records.
+    admitted: Vec<String>,
+    excluded: Vec<ExcludedFamily>,
 }
 
 fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
@@ -813,8 +833,60 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         None => None,
     };
 
-    // What the tower was trained on.
+    // What the tower was trained on, and what of it is admitted.
     let train = read_train_manifest(&req.train_manifest)?;
+    let all_families = train.families();
+    let mut excluded_names = BTreeSet::new();
+    for ex in &req.exclude_families {
+        if !all_families.contains(&ex.family) {
+            return Err(refuse(
+                RefusalKind::TrainManifest,
+                format!("--exclude-family {:?}: not a family the train manifest holds", ex.family),
+            ));
+        }
+        if qd_runtime::is_blank(&ex.reason) || !excluded_names.insert(ex.family.as_str()) {
+            return Err(refuse(
+                RefusalKind::TrainManifest,
+                format!("--exclude-family {:?}: needs one non-blank reason", ex.family),
+            ));
+        }
+    }
+    let admitted: Vec<String> = all_families.iter().filter(|f| !excluded_names.contains(f.as_str())).cloned().collect();
+    validate_trained_families(&admitted).map_err(|detail| {
+        refuse(RefusalKind::TrainManifest, format!("after the exclusions no release can be recorded: {detail}"))
+    })?;
+
+    // The calibration gate: a table is shown calibrated for every admitted (family, shape), or
+    // the release states why it has none.
+    let gate = match (&calibration, &req.calibration_report, &req.trained_slot_shapes, &req.uncalibrated_reason) {
+        (Some((_, bytes, table)), Some(report), Some(shapes), None) => {
+            Some(calibration_gate::check(bytes, table, report, shapes, &all_families, &admitted)?)
+        }
+        (Some(_), report, shapes, None) => {
+            let missing = [(report.is_none(), "--calibration-report"), (shapes.is_none(), "--trained-slot-shapes")]
+                .iter()
+                .filter(|(m, _)| *m)
+                .map(|(_, n)| *n)
+                .collect::<Vec<_>>()
+                .join(" and ");
+            return Err(refuse(
+                RefusalKind::Calibration,
+                format!(
+                    "a calibration table needs {missing}: without the fit's recorded checks and the trained slot shapes nothing shows every trained (family, slot) is calibrated and passing"
+                ),
+            ));
+        }
+        (Some(_), _, _, Some(_)) => {
+            return Err(refuse(RefusalKind::Calibration, "--uncalibrated-reason is for a release with no --calibration"));
+        }
+        (None, None, None, Some(reason)) if !qd_runtime::is_blank(reason) => None,
+        (None, ..) => {
+            return Err(refuse(
+                RefusalKind::Calibration,
+                "no --calibration: a release with no table has no calibration entries and the runtime refuses it at load. Pass --calibration with --calibration-report and --trained-slot-shapes, or state why with --uncalibrated-reason (and no report or shapes)",
+            ));
+        }
+    };
 
     // The source manifest, against the source's header.
     let manifest_path = req.source_manifest.clone().unwrap_or_else(|| {
@@ -1086,7 +1158,11 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         dtype_counts,
         tokenizer,
         calibration,
+        gate,
+        uncalibrated_reason: req.uncalibrated_reason.clone(),
         train,
+        admitted,
+        excluded: req.exclude_families.clone(),
     })
 }
 
@@ -1331,12 +1407,14 @@ fn write_release(
                 "file_sha256": sha,
                 "name": table.name,
                 "table_hash": table.hash(),
+                "gate": plan.gate.as_ref().map(|g| g.block.clone()),
             }))
         }
+        // The runtime reads a null `calibration` as "no table"; the reason is recorded beside it.
         None => None,
     };
     let calibration_hash = plan.calibration.as_ref().map(|(_, _, t)| t.hash());
-    let trained_families = plan.train.families();
+    let trained_families = plan.admitted.clone();
 
     let mut manifest = json!({
         "format": MANIFEST_FORMAT,
@@ -1431,6 +1509,14 @@ fn write_release(
     // The task families the tower was trained on: `qd_runtime::admission` refuses every other
     // task as `task_not_trained` (Fable's pipeline ruling, item 4).
     manifest[TRAINED_FAMILIES_KEY] = Value::from(trained_families.clone());
+    // Read by `qd-release-check`; the runtime reads only `trained_families`.
+    manifest["excluded_families"] = plan.excluded.iter().map(|e| json!({"family": e.family, "reason": e.reason})).collect::<Vec<_>>().into();
+    if let Some(g) = &plan.gate {
+        manifest["trained_slot_shapes"] = json!(g.shapes);
+    }
+    if let Some(reason) = &plan.uncalibrated_reason {
+        manifest["calibration_absent_reason"] = Value::from(reason.clone());
+    }
     let text = serde_json::to_string_pretty(&manifest)
         .map_err(|e| refuse(RefusalKind::Io, e.to_string()))?
         + "\n";

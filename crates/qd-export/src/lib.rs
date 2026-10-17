@@ -26,6 +26,7 @@
 //! | [`ensemble`] | N released towers and the ensemble's table -> one `qd-ensemble.v1` directory |
 
 pub mod bf16;
+pub mod calibration_gate;
 pub mod ensemble;
 pub mod export;
 pub mod layout;
@@ -33,5 +34,6 @@ pub mod refusal;
 pub mod safetensors;
 
 pub use ensemble::{EnsembleRequest, EnsembleSummary, export_ensemble};
+pub use calibration_gate::ExcludedFamily;
 pub use export::{AllowedExtra, ExportRequest, ExportSummary, export};
 pub use refusal::{Refusal, RefusalKind};

@@ -72,7 +72,7 @@ fn export_with(table: Option<&CalibrationTable>) -> (common::Fixture, ExportSumm
     if let Some(table) = table {
         let path = fx.dir.0.join("table.json");
         std::fs::write(&path, serde_json::to_vec_pretty(table).unwrap()).unwrap();
-        req.calibration = Some(path);
+        common::calibrate(&mut req, &fx.dir.0, &path);
     }
     let summary = export(&req).expect("the standard fixture exports");
     let manifest = release_manifest(&fx.out);
@@ -153,7 +153,7 @@ fn a_checkpoint_that_states_no_prompt_format_is_stamped_1_and_refused_not_mislab
     let mut req = fx.request();
     let path = fx.dir.0.join("table.json");
     std::fs::write(&path, serde_json::to_vec_pretty(&fitted_table()).unwrap()).unwrap();
-    req.calibration = Some(path);
+    common::calibrate(&mut req, &fx.dir.0, &path);
     export(&req).expect("a v4 checkpoint still exports");
     let manifest = release_manifest(&fx.out);
     assert_eq!(manifest["format"], json!("qd-release.v2"));
