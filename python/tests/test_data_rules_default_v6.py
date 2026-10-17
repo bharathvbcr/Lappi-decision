@@ -81,7 +81,9 @@ def test_the_pipeline_builds_v6_unless_legacy_v5_is_named() -> None:
     assert inspect.signature(pipeline.run).parameters["v6_data_rules"].default is True
 
 
-def test_the_pipeline_cli_makes_v5_an_explicit_named_flag(capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_pipeline_cli_makes_v5_an_explicit_named_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     with pytest.raises(SystemExit):
         pipeline.main(["--help"])
     help_text = capsys.readouterr().out

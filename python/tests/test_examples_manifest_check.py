@@ -40,7 +40,9 @@ def _sha(path: Path) -> str:
 
 
 def _read(examples: Path, tmp: Path, **kw: object) -> list[dict[str, object]]:
-    return read_example_objects(examples, config=DataConfig(), repo_root=tmp, **kw)  # type: ignore[arg-type]
+    return read_example_objects(  # type: ignore[arg-type]
+        examples, config=DataConfig(), repo_root=tmp, **kw
+    )
 
 
 def test_a_matching_manifest_is_read(tmp_path: Path) -> None:

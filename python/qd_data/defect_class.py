@@ -504,10 +504,14 @@ def check_examples_manifest(examples_path: Path, manifest_path: Path | None = No
     independently and read the manifest's ``data_snapshot_hash`` while hashing nothing, so a
     manifest could describe a different corpus than the rows trained on."""
     explicit = manifest_path is not None
-    manifest_path = Path(manifest_path) if explicit else Path(examples_path).parent / CORPUS_MANIFEST_NAME
+    manifest_path = (
+        Path(manifest_path) if explicit else Path(examples_path).parent / CORPUS_MANIFEST_NAME
+    )
     if not manifest_path.is_file():
         if explicit:
-            raise DefectCorpusError(f"{manifest_path} does not exist; the corpus cannot be verified")
+            raise DefectCorpusError(
+                f"{manifest_path} does not exist; the corpus cannot be verified"
+            )
         return False
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
