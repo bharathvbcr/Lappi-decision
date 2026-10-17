@@ -3123,19 +3123,21 @@ DEFECT_TOKEN_SHARE_FLOOR: Final[float] = 0.558
 V6_EMPTY_TRAIN_FAMILY: Final[str] = "knowledge.multiple_choice"
 
 
-def data_rules(config: DataConfig, *, v6: bool) -> DataConfig:
-    """``config`` under ``--v6-data-rules`` when ``v6``, else ``config`` itself: the one owner of
-    what that flag means, for the pipeline's build and ``real_ft_run``'s rebuild of it alike
-    (R2): ``DataConfig.with_v6_benchmark_targets()`` and ``with_v6_dedupe_rules()``, both in
-    the config fingerprint and so in every manifest and ``data_snapshot_hash``."""
-    return config.with_v6_benchmark_targets().with_v6_dedupe_rules() if v6 else config
+def data_rules(config: DataConfig, *, v6: bool = True) -> DataConfig:
+    """``config`` under v6's data rules (the default) or, with ``v6=False``, v5's: **the one
+    seam every rebuilder and driver calls** for which rule set a build or rebuild runs under, the
+    pipeline's build and ``real_ft_run``'s rebuild of it alike. Delegates to
+    :meth:`DataConfig.with_rules`. Both rule sets are in the config fingerprint and so in every
+    manifest and ``data_snapshot_hash``. ``v6=False`` is only for reproducing an already-pinned
+    v5 artifact (``--legacy-v5-data-rules``); the human ruled on 2026-10-17 that v6 is the
+    default (mistakes M6/M7/M8)."""
+    return config.with_rules(v6=v6)
 
 
 def name_corpus(identity: Mapping[str, object], *, config: DataConfig) -> dict[str, object]:
     """``containment_corpus(identity)`` plus the :data:`V6_CORPUS_KEYS` ``config`` fingerprints:
-    nothing under v5's config, so every v5 attestation still matches; under
-    ``with_v6_benchmark_targets()`` alone exactly the key ``tools/containment_scan.py
-    --v6-benchmark-targets`` writes. The build and ``ft_splits`` both name their corpus here."""
+    nothing under :meth:`DataConfig.legacy_v5`, so every v5 attestation still matches; under the
+    v6 default exactly the keys ``tools/containment_scan.py`` writes. The build and ``ft_splits`` both name their corpus here."""
     # Resolved at call time, as ft_splits' own import of it always was.
     from qd_train import exclusions as exclusions_module
 
@@ -3249,7 +3251,7 @@ def run(
     pre_dedupe_drops: Path | None = None,
     dedupe_report_out: Path | None = None,
     spancheck_in_qd_prep: bool = False,
-    v6_data_rules: bool = False,
+    v6_data_rules: bool = True,
 ) -> Measured:
     """Build, measure and write one shard set, and return what was measured.
 
@@ -3282,14 +3284,15 @@ def run(
     the reference, so the sets are the reference's byte for byte, and the ``native_spancheck``
     metric records the binary's sha256. Without it nothing here changes.
 
-    With ``v6_data_rules`` (``--v6-data-rules``, Fable's v6 ruling R2) the config is
+    ``v6_data_rules`` is True by default (``--legacy-v5-data-rules`` makes it False, to reproduce
+    an already-pinned v5 set; human ruling 2026-10-17). With it (Fable's v6 ruling R2) the config is
     :func:`data_rules`'s v6 one: MMLU and CLINC evaluation splits are targets, never rows, and
     dedupe keeps by split priority behind the LSH prefilter; both are in the config fingerprint,
     the corpus name (:func:`name_corpus`) and ``data_snapshot_hash``. The build refuses unless
     the train split holds no ``knowledge.multiple_choice`` row and ``code.defect_class`` holds at
     least :data:`DEFECT_TOKEN_SHARE_FLOOR` of the written train tokens (R1); v5's MMLU contrast
-    quota moves to CSQA (``qd_train.contrast.v6_contrast_spec``). Without it the share is still
-    measured and recorded, never enforced, and nothing else here changes.
+    quota moves to CSQA (``qd_train.contrast.v6_contrast_spec``). Under the legacy v5 rules the
+    share is still measured and recorded, never enforced, and nothing else here changes.
     """
     if dedupe_report_out is not None and dedupe_report_out.exists():
         raise SystemExit(f"--dedupe-report-out {dedupe_report_out} exists; it is written once")
@@ -3617,13 +3620,13 @@ def run(
         )
         if mmlu_train:
             raise SystemExit(
-                f"--v6-data-rules: {mmlu_train} {V6_EMPTY_TRAIN_FAMILY} row(s) in the train "
+                f"v6 data rules: {mmlu_train} {V6_EMPTY_TRAIN_FAMILY} row(s) in the train "
                 "split; v6 trains on none (Fable R2: MMLU at zero). Refusing to write a shard set"
             )
         extra_metrics["v6_knowledge_multiple_choice_train_rows"] = Ran(
             passed=True, value=0, n=0,
             n_total=len(split_report.rows_by_split.get("train", ())),
-            detail=f"{V6_EMPTY_TRAIN_FAMILY} train rows under --v6-data-rules (Fable R2: zero)",
+            detail=f"{V6_EMPTY_TRAIN_FAMILY} train rows under the v6 data rules (Fable R2: zero)",
         )
     exclusions_sha256 = "" if exclusions is None else exclusions.sha256
     if exclusions is not None:
@@ -3774,7 +3777,7 @@ def run(
         # Before any shard is written (R1): a share that failed, or could not be measured, is
         # not a v6 shard set.
         raise SystemExit(
-            f"--v6-data-rules: defect_token_share {json.dumps(defect_share.to_json())}; "
+            f"v6 data rules: defect_token_share {json.dumps(defect_share.to_json())}; "
             f"train tokens by family {json.dumps(tokens_by_family.to_json())}. Refusing to "
             "write a shard set (Fable R1)"
         )
@@ -4475,14 +4478,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--v6-data-rules", action="store_true",
+        "--legacy-v5-data-rules", action="store_true",
         help=(
-            "build under v6's data rules (Fable's v6 ruling R2): DataConfig."
-            "with_v6_benchmark_targets() and with_v6_dedupe_rules(), both in the config "
-            "fingerprint and the recipe; refuses unless the train split holds no "
-            "knowledge.multiple_choice row and code.defect_class is at least "
-            f"{DEFECT_TOKEN_SHARE_FLOOR} of the written train tokens (R1). real_ft_run.py takes "
-            "the same flag to rebuild the set"
+            "build under v5's data rules, ONLY to reproduce an already-pinned v5 shard set. "
+            "Without it the build is under v6's (Fable's v6 ruling R2; the default since the "
+            "human's 2026-10-17 ruling): DataConfig.legacy_v5() is what this selects, v6's "
+            "rules are in the config fingerprint and the recipe, and the build refuses unless "
+            "the train split holds no knowledge.multiple_choice row and code.defect_class is "
+            f"at least {DEFECT_TOKEN_SHARE_FLOOR} of the written train tokens (R1). "
+            "real_ft_run.py takes the same flag to rebuild a v5 set"
         ),
     )
     parser.add_argument(
@@ -4542,7 +4546,7 @@ def main(argv: list[str] | None = None) -> int:
         "pre_dedupe_drops": args.pre_dedupe_drops,
         "dedupe_report_out": args.dedupe_report_out,
         "spancheck_in_qd_prep": args.spancheck_in_qd_prep,
-        "v6_data_rules": args.v6_data_rules,
+        "v6_data_rules": not args.legacy_v5_data_rules,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -4654,8 +4658,9 @@ def main(argv: list[str] | None = None) -> int:
         # corpus remap and hashed without this key, so a trimmed set still hashes as before
         # and a full-vocabulary set can never share its recipe_hash.
         recipe["vocab"] = VOCAB_FULL
-    if args.v6_data_rules:
-        # Only when used: it decides which rows exist and which survive dedupe.
+    if not args.legacy_v5_data_rules:
+        # Only under v6 (the default): it decides which rows exist and which survive dedupe.
+        # A legacy v5 build records no key, so its recipe_hash is what v5's was.
         recipe["v6_data_rules"] = True
     # It decides which rows exist (the contradictory-prompt drop runs only under it).
     recipe["max_consistency_rows"] = PIPELINE_MAX_CONSISTENCY_ROWS

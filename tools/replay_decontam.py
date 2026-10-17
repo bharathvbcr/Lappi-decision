@@ -234,6 +234,12 @@ def main(argv: list[str] | None = None) -> int:
              "with each sequence's row_id, slot and identity_key, to this file: what the "
              "pipeline's --replay-exclude reads. The attestation is unchanged by it",
     )
+    parser.add_argument(
+        "--legacy-v5-data-rules", action="store_true",
+        help="rebuild under v5's data rules, ONLY to scan an already-pinned v5 set. Without it "
+             "the rebuild is under v6's (the default since the human's 2026-10-17 ruling), "
+             "through real_tokenizer_pipeline.data_rules",
+    )
     args = parser.parse_args(argv)
     for path in (args.attestation_out, args.hits_out):
         if path is not None and path.exists():
@@ -241,7 +247,9 @@ def main(argv: list[str] | None = None) -> int:
 
     from real_ft_run import check_defect_source, ft_splits, replay_corpus_identity
 
-    config = DataConfig()
+    from real_tokenizer_pipeline import data_rules
+
+    config = data_rules(DataConfig(), v6=not args.legacy_v5_data_rules)
     rev = resolve_rev(REPO, args.rev)
     check_defect_source(args.out, defect_class=args.defect_class)
     splits = ft_splits(

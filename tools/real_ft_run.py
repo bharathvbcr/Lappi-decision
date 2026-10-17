@@ -4920,8 +4920,8 @@ def corpus_facts(
       the second would add rows the shards never held. Which pool is the right one is the
       ``data_snapshot_hash`` pairing's question, answered by ``pair_labels``.
     * ``config`` is the rebuild's: the manifest's ``config_fingerprint`` must equal its
-      ``fingerprint()``. A set built under the pipeline's ``--v6-data-rules`` is refused
-      without ``--v6-data-rules`` here, and a v5 set with it; a manifest with no fingerprint
+      ``fingerprint()``. A set built under the pipeline's default v6 rules is refused
+      with ``--legacy-v5-data-rules`` here, and a v5 set without it; a manifest with no fingerprint
       cannot say which, and is refused too.
     """
     path = out / TRAIN_MANIFEST
@@ -4949,7 +4949,7 @@ def corpus_facts(
         raise SystemExit(
             f"{path}: built under config fingerprint keys {differ} = "
             f"{ {k: built_under.get(k) for k in differ} }, and this rebuild runs under "
-            f"{ {k: rebuilt_under.get(k) for k in differ} }. The pipeline's --v6-data-rules "
+            f"{ {k: rebuilt_under.get(k) for k in differ} }. The pipeline's --legacy-v5-data-rules "
             "must be given here exactly when the set was built with it, or the rebuild is "
             "another row set"
         )
@@ -11115,12 +11115,13 @@ def main(argv: list[str] | None = None) -> int:
         help="as the pipeline's --general-max-rows: the same per-file bound; default its default",
     )
     parser.add_argument(
-        "--v6-data-rules", action="store_true",
+        "--legacy-v5-data-rules", action="store_true",
         help=(
-            "the shard set was built with tools/real_tokenizer_pipeline.py --v6-data-rules: "
-            "rebuild its rows under the same DataConfig (with_v6_benchmark_targets and "
-            "with_v6_dedupe_rules, real_tokenizer_pipeline.data_rules). Refused when the train "
-            "manifest's config_fingerprint disagrees, either way. The suites keep DataConfig()"
+            "the shard set is a v5 set, built with tools/real_tokenizer_pipeline.py "
+            "--legacy-v5-data-rules: rebuild its rows under v5's rules (real_tokenizer_pipeline."
+            "data_rules(config, v6=False)). Without it the rebuild is under v6's, the default. "
+            "Refused when the train manifest's config_fingerprint disagrees, either way. The "
+            "suites are pinned v5 artifacts and keep DataConfig.legacy_v5()"
         ),
     )
     parser.add_argument(
@@ -11986,7 +11987,10 @@ def main(argv: list[str] | None = None) -> int:
         # no".
         torch.use_deterministic_algorithms(True)
 
-    config = DataConfig()
+    # Explicit legacy: the suites below (OOD prose, needle, gates) and the reader's config are
+    # already-pinned v5 artifacts, and rule 2 forbids moving them. Only the rebuild of the shard
+    # set's rows follows the run's data rules (below).
+    config = DataConfig.legacy_v5()
     shard_dir = args.out / "shards" / "train"
     # Resolved once, and the same string is used for both halves below. --rev is what this
     # tool RECONSTRUCTS its labels at, so it is exactly the revision the shard set has to
@@ -12010,12 +12014,13 @@ def main(argv: list[str] | None = None) -> int:
     # Before the rebuild, which on the full defect corpus is minutes of work: what the
     # manifest says about the corpus decides both whether this rebuild can match it and,
     # below, which of this run's rows are quick.
-    # The config the shard set's rows were built under: the pipeline's --v6-data-rules is
-    # applied here by the pipeline's own data_rules, to the rebuild alone. The suites below
-    # (OOD prose, needle, gates) keep DataConfig(), so a v6 run reads v5's suites.
+    # The config the shard set's rows were built under: v6's rules unless --legacy-v5-data-rules,
+    # applied here by the pipeline's own data_rules (the one seam), to the rebuild alone. The
+    # suites below (OOD prose, needle, gates) keep the legacy v5 config, so a v6 run reads v5's
+    # suites.
     import real_tokenizer_pipeline as pipeline
 
-    rebuild_config = pipeline.data_rules(config, v6=args.v6_data_rules)
+    rebuild_config = pipeline.data_rules(config, v6=not args.legacy_v5_data_rules)
     corpus = corpus_facts(
         args.out, data_snapshot_hash=reader.header.data_snapshot_hash,
         repo_history=args.repo_history, commitpackft=args.commitpackft,

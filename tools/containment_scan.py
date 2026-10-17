@@ -27,7 +27,8 @@ what it removed and the per-set ``key_ii_blind`` keys are in the attestation's
   ``--target NAME=FILE`` takes a ``{"id", "text"}`` JSONL set in the format ``qd-prep decisions
   --target`` reads (the jevjudge pairs -- RM-Bench, RewardBench 2, JudgeBench -- are one such
   set, so the code families are scanned against them too, not only the decision pool), and
-  ``--v6-benchmark-targets`` builds under ``DataConfig.with_v6_benchmark_targets()`` and adds
+  the default v6 data rules (``DataConfig()``; ``--legacy-v5-data-rules`` names v5, only to scan
+  an already-pinned v5 set) build under ``benchmark_eval_splits_are_targets`` and add
   MMLU test and dev and CLINC test (``qd_data.sources.BENCHMARK_TARGET_SPLITS``), read from the
   sha-checked ``--general-record`` caches. ``train`` against each is enforced; ``val`` against
   each is report-only. Target texts are not template-stripped: they are external text, not
@@ -45,7 +46,7 @@ Usage (the corpus flags exactly as the pipeline was given them)::
         [--defect-class DIR --defect-download DIR --defect-max-rows N --defect-noul DIR] \\
         [--general-record FILE --general-max-rows N] [--decisions-pool DIR] \\
         [--request-out FILE] [--threads N] \\
-        [--target NAME=FILE ...] [--v6-benchmark-targets] \\
+        [--target NAME=FILE ...] [--legacy-v5-data-rules] \\
         [--no-template-strip]
 
 ``--no-template-strip`` is for measurement only (the pre-strip definition, to report rates
@@ -159,7 +160,11 @@ def mmlu_target_text(row: MmluRow) -> tuple[str, bool]:
     from qd_data.general import MMLU_FAMILY, rewrite_mmlu
 
     try:
-        built = rewrite_mmlu(row, family_id=MMLU_FAMILY, index=0, config=DataConfig())
+        # Explicit legacy: v6 refuses a test or dev item as a row (it is a target), and this
+        # builds exactly such an item, to scan as the row it would have been under v5.
+        built = rewrite_mmlu(
+            row, family_id=MMLU_FAMILY, index=0, config=DataConfig.legacy_v5()
+        )
         rendered = render(built.request, seed=None)
     except QdRefusal:
         return "\n".join((row.question.strip(), *(c.strip() for c in row.choices))), True
@@ -304,7 +309,7 @@ def _rendered(rows: Iterable[DataRow]) -> tuple[list[PartsRow], dict[str, str]]:
 
 
 def check_benchmark_sources_built(report: SplitReport, record: Path) -> None:
-    """Under ``--v6-benchmark-targets``, refuse a corpus in which a ``BENCHMARK_TARGET_SPLITS``
+    """Under the v6 data rules, refuse a corpus in which a ``BENCHMARK_TARGET_SPLITS``
     source the record supplies built no row at all. v6 refuses a CLINC row whose upstream split
     is unstated, and ``real_tokenizer_pipeline.general_rows`` does not yet pass ``split_name`` to
     ``parse_clinc``, so until it does every CLINC row is refused and the scan would attest a
@@ -319,7 +324,7 @@ def check_benchmark_sources_built(report: SplitReport, record: Path) -> None:
     missing = sorted(supplied - built)
     if missing:
         raise SystemExit(
-            f"--v6-benchmark-targets: {missing} supplied by {record} built no row. For "
+            f"v6 data rules: {missing} supplied by {record} built no row. For "
             "clinc/clinc_oos this is every row refused upstream_split_unstated: "
             "real_tokenizer_pipeline.general_rows must call parse_clinc(..., "
             "split_name=split_name) before a v6 build can read CLINC"
@@ -574,10 +579,10 @@ def main(argv: list[str] | None = None) -> int:
              "pairs that qd-prep decisions --target jevjudge=FILE reads are one",
     )
     parser.add_argument(
-        "--v6-benchmark-targets", action="store_true",
-        help="build under DataConfig.with_v6_benchmark_targets() (MMLU test/dev and CLINC test "
-             "are not rows) and scan against those splits, read from --general-record, as "
-             "targets mmlu-test, mmlu-dev and clinc-test; the corpus names the opt-in",
+        "--legacy-v5-data-rules", action="store_true",
+        help="rebuild under v5's data rules, ONLY to scan an already-pinned v5 set. Without it "
+             "the rebuild is under v6's (the default since the human's 2026-10-17 ruling), "
+             "through real_tokenizer_pipeline.data_rules",
     )
     parser.add_argument("--no-repo-history", dest="repo_history", action="store_false")
     parser.add_argument("--threads", type=int, default=None)
@@ -611,17 +616,20 @@ def main(argv: list[str] | None = None) -> int:
         if not sep or not file:
             raise SystemExit(f"--target {spec!r}: expected NAME=FILE")
         targets.append(read_target_file(name, Path(file)))
-    if args.v6_benchmark_targets:
+    v6 = not args.legacy_v5_data_rules
+    if v6:
         if args.general_record is None:
-            raise SystemExit("--v6-benchmark-targets reads the benchmark splits from "
-                             "--general-record; without it there is nothing to scan against")
+            raise SystemExit("v6 data rules (the default) scan the benchmark splits (MMLU "
+                             "test/dev, CLINC test) as targets, read from --general-record; "
+                             "without it there is nothing to scan against. Give it, or "
+                             "--legacy-v5-data-rules to scan an already-pinned v5 set")
         targets.extend(benchmark_target_sets(args.general_record))
 
     from real_ft_run import ft_split_report, replay_corpus_identity
 
-    config = DataConfig()
-    if args.v6_benchmark_targets:
-        config = config.with_v6_benchmark_targets()
+    from real_tokenizer_pipeline import data_rules
+
+    config = data_rules(DataConfig(), v6=v6)
     rev = resolve_rev(REPO, args.rev)
     started = time.monotonic()
     report = ft_split_report(
@@ -633,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
         pre_dedupe_drops=args.pre_dedupe_drops,
     )
     built = time.monotonic()
-    if args.v6_benchmark_targets:
+    if v6:
         check_benchmark_sources_built(report, args.general_record)
     sets, strip = scan_sets(report, config=config, template_strip=args.template_strip,
                             targets=targets)
@@ -680,5 +688,35 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if attestation["clean"] is True else 1
 
 
+def export_benchmark_targets(record: Path, out_dir: Path) -> int:
+    """Write the v6 benchmark target sets of a fetch record as ``NAME.jsonl`` (``{"id", "text"}``
+    per line, :func:`read_target_file`'s format), and print each file's sha256. These are the
+    files ``qd-train-data --target NAME=FILE`` reads, so the guard and this scan name the same
+    targets. Refuses an existing ``out_dir``."""
+    if out_dir.exists():
+        raise SystemExit(f"{out_dir} already exists; refusing to overwrite it")
+    sets = benchmark_target_sets(record)
+    out_dir.mkdir(parents=True)
+    for target in sets:
+        body = "".join(
+            json.dumps({"id": i, "text": t}, ensure_ascii=False) + "\n" for i, t in target.rows
+        ).encode("utf-8")
+        path = out_dir / f"{target.name}.jsonl"
+        path.write_bytes(body)
+        print(f"{path} rows={len(target.rows)} sha256 {hashlib.sha256(body).hexdigest()} "
+              f"source_sha256 {target.sha256} raw_fallback={target.raw_fallback}")
+    return 0
+
+
+def main_export(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="containment_scan.py export-benchmark-targets")
+    parser.add_argument("--general-record", type=Path, required=True)
+    parser.add_argument("--out-dir", type=Path, required=True)
+    args = parser.parse_args(argv)
+    return export_benchmark_targets(args.general_record, args.out_dir)
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["export-benchmark-targets"]:
+        raise SystemExit(main_export(sys.argv[2:]))
     raise SystemExit(main())

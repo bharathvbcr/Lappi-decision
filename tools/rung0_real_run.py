@@ -1742,8 +1742,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # run uses -- a corpus under data/heldout/ was read, split and trained on with no
         # refusal (measured 2026-09-22). The module docstring above claimed read_examples
         # enforced it; it does, and nothing called it.
+        # --manifest-in is checked against these bytes by the reader itself (M18): the two used
+        # to be taken independently, and a manifest could describe another corpus.
         examples = read_example_objects(
-            args.examples, config=DataConfig(), repo_root=REPO
+            args.examples, config=DataConfig(), repo_root=REPO, manifest=args.manifest_in
         )
         manifest = json.loads(args.manifest_in.read_text(encoding="utf-8"))
         if not examples:

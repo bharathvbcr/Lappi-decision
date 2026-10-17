@@ -4,7 +4,7 @@ GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-
 MMLU's test and dev splits to train (``qd_data.sources`` ``cais/mmlu``) and reads CLINC's test
 split as rows, split by intent, so the Decision Index's MMLU and CLINC150 panels score Lappi on
 items it trained on. v6 reads neither as rows: under
-``DataConfig.with_v6_benchmark_targets()`` those upstream splits are refused, counted, and become
+the default (v6) ``DataConfig()`` those upstream splits are refused, counted, and become
 decontamination targets of the in-corpus scan (``tools/containment_scan.py``), which also takes
 any ``{"id", "text"}`` target set -- the jevjudge pairs among them -- with ``--target``.
 
@@ -94,7 +94,7 @@ def _target_identities(files: dict[str, dict[str, list[object]]]) -> set[str]:
     v5 = build_mixture(
         {"cais/mmlu": [r for s in TARGET_SPLITS["cais/mmlu"]
                        for r in files["cais/mmlu"][s]]},
-        config=DataConfig(),
+        config=DataConfig.legacy_v5(),
     )
     out |= {r.identity_key for r in v5.rows}
     for raw in files["clinc/clinc_oos"]["test"]:
@@ -117,7 +117,7 @@ def test_v5_trains_on_rows_read_from_the_benchmark_test_files() -> None:
         "clinc/clinc_oos": [_clinc_v5(r) for rows in files["clinc/clinc_oos"].values()
                             for r in rows],  # type: ignore[arg-type]
     }
-    _mixture, by_split = _rows_by_split(raw, DataConfig())
+    _mixture, by_split = _rows_by_split(raw, DataConfig.legacy_v5())
     train = {r.identity_key for r in by_split["train"]}
     targets = _target_identities(files)
     from_targets = train & targets
@@ -139,7 +139,7 @@ def _v6_raw(files: dict[str, dict[str, list[object]]]) -> dict[str, list[object]
 
 def test_v6_no_row_identity_key_derives_from_a_benchmark_test_file() -> None:
     files = _files()
-    config = DataConfig().with_v6_benchmark_targets()
+    config = DataConfig()
     mixture, by_split = _rows_by_split(_v6_raw(files), config)
     targets = _target_identities(files)
     every = {r.identity_key for rows in by_split.values() for r in rows}
@@ -166,20 +166,21 @@ def test_v6_refuses_a_clinc_row_whose_upstream_split_is_unstated() -> None:
     """Fail closed: a row that cannot say which file it came from may be a test row."""
     files = _files()
     raw = {"clinc/clinc_oos": [_clinc_v5(r) for r in files["clinc/clinc_oos"]["train"]]}
-    v5 = build_mixture(raw, config=DataConfig())  # type: ignore[arg-type]
+    v5 = build_mixture(raw, config=DataConfig.legacy_v5())  # type: ignore[arg-type]
     assert "upstream_split_unstated" not in v5.refusals["clinc/clinc_oos"]
-    v6 = build_mixture(raw, config=DataConfig().with_v6_benchmark_targets())  # type: ignore[arg-type]
+    v6 = build_mixture(raw, config=DataConfig())  # type: ignore[arg-type]
     assert not v6.rows
     assert v6.refusals["clinc/clinc_oos"]["upstream_split_unstated"] == 120 * 2
 
 
 def test_the_v6_opt_in_is_in_the_fingerprint_only_when_set() -> None:
-    v5 = DataConfig()
+    v5 = DataConfig.legacy_v5()
     assert "benchmark_eval_splits_are_targets" not in v5.fingerprint()
-    v6 = v5.with_v6_benchmark_targets()
+    v6 = DataConfig()
     assert v6.fingerprint()["benchmark_eval_splits_are_targets"] is True
     assert {k: v for k, v in v6.fingerprint().items()
-            if k != "benchmark_eval_splits_are_targets"} == v5.fingerprint()
+            if k not in ("benchmark_eval_splits_are_targets", "dedupe_keep_rule",
+                         "lsh_min_agreement_permille")} == v5.fingerprint()
     with pytest.raises(TypeError):
         DataConfig(benchmark_eval_splits_are_targets=1)  # type: ignore[arg-type]
 
@@ -201,7 +202,7 @@ def _report_and_rows():
 
     rng = random.Random(7)
     rows = _mmlu(rng, "validation", 6) + _mmlu(rng, "test", 30)
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture({"cais/mmlu": rows}, config=config)
     report: SplitReport = split(dedupe(list(mixture.rows), config=config), config=config)
     return report, rows
@@ -216,7 +217,7 @@ def test_without_targets_the_scan_request_is_the_bytes_it_was() -> None:
     from containment_scan import scan_sets, scan_specs
 
     report, _rows = _report_and_rows()
-    sets, _strip = scan_sets(report, config=DataConfig())
+    sets, _strip = scan_sets(report, config=DataConfig.legacy_v5())
     got = hashlib.sha256(_request_bytes(sets, scan_specs(sets), report)).hexdigest()
     assert got == PINNED_REQUEST_SHA256
 
@@ -246,7 +247,7 @@ def test_a_target_set_excludes_the_train_row_that_copies_a_benchmark_item(
     )
     tset = read_target_file("jevjudge", target)
     assert tset.sha256 == hashlib.sha256(target.read_bytes()).hexdigest()
-    sets, _strip = scan_sets(report, config=DataConfig(), targets=(tset,))
+    sets, _strip = scan_sets(report, config=DataConfig.legacy_v5(), targets=(tset,))
     names = [s.name for s in sets]
     assert names[-1] == f"{TARGET_PREFIX}jevjudge"
     specs = scan_specs(sets)
@@ -347,7 +348,7 @@ def test_a_short_mmlu_item_copied_into_train_is_found_by_its_target_text(
     assert text.splitlines() == [item.question, *item.choices]
     rng = random.Random(11)
     rows = [item, *_mmlu(rng, "validation", 6), *_mmlu(rng, "test", 20)]
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     report = split(dedupe(list(build_mixture({"cais/mmlu": rows}, config=config).rows),
                           config=config), config=config)
     victim = next(r for r in report.rows_by_split["train"]
@@ -374,7 +375,7 @@ def test_a_v6_scan_refuses_a_corpus_where_a_benchmark_source_built_nothing(
         {"dataset": "cais/mmlu", "jsonl": str(tmp_path / "test.jsonl")},
         {"dataset": "clinc/clinc_oos", "jsonl": str(tmp_path / "train.jsonl")},
     ]), encoding="utf-8")
-    config = DataConfig().with_v6_benchmark_targets()
+    config = DataConfig()
     unstated = {
         "cais/mmlu": [r for rows in files["cais/mmlu"].values() for r in rows],
         "clinc/clinc_oos": [_clinc_v5(r) for r in files["clinc/clinc_oos"]["train"]],

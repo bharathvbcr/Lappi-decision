@@ -443,7 +443,7 @@ def parse_example(obj: dict[str, Any]) -> MutateExample:
 
 
 def read_example_objects(
-    path: Path, *, config: DataConfig, repo_root: Path
+    path: Path, *, config: DataConfig, repo_root: Path, manifest: Path | None = None
 ) -> list[dict[str, Any]]:
     """Every row of a pre-generated corpus as a raw object, through the same door.
 
@@ -471,6 +471,15 @@ def read_example_objects(
     """
     assert_path_not_held_out(Path(path), config=config, repo_root=Path(repo_root))
     assert_no_caller_records(path)
+    # The manifest and the rows must be one corpus: ``manifest`` if given, else the
+    # ``manifest.json`` beside the file (qd_data.defect_class.check_examples_manifest, the one
+    # owner of the check; M18). Imported here because defect_class imports this module.
+    from qd_data.defect_class import DefectCorpusError, check_examples_manifest
+
+    try:
+        check_examples_manifest(Path(path), manifest)
+    except DefectCorpusError as exc:
+        raise MalformedExample(str(exc)) from exc
     rows: list[dict[str, Any]] = []
     for lineno, line in enumerate(jsonl_lines(path), 1):
         if not line.strip():

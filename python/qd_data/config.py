@@ -43,7 +43,7 @@ SPLITS: Final[tuple[str, ...]] = ("train", "val", "heldout")
 #: v5's keep rule: the lexicographically smallest unit key of a near-duplicate component
 #: survives, whatever its split, so a train copy whose key sorts first removes its val twin
 #: (GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND-2026-10-03; v5 worked around it with a
-#: named pre-dedupe drop list). The default, so a v5 rebuild re-derives v5's rows and hashes.
+#: named pre-dedupe drop list). Legacy: only :meth:`DataConfig.legacy_v5` selects it.
 DEDUPE_KEEP_LEXICAL: Final[str] = "lexical"
 #: v6's keep rule: the unit its split protects most survives -- held-out, then val, then train
 #: (:data:`SPLITS` order) -- and only among equals the smallest key.
@@ -121,20 +121,24 @@ class DataConfig:
     #: search that completes finds the same pairs under any bound, so it does not change the
     #: data. A search that hits it reports ``NotRun``, and the build refuses.
     max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
-    #: Which unit of a near-duplicate component survives (:data:`DEDUPE_KEEP_RULES`). In
-    #: :meth:`fingerprint` only when it is not v5's, so a v5 config hashes as it always did.
-    dedupe_keep_rule: str = DEDUPE_KEEP_LEXICAL
-    #: The LSH agreement prefilter, per mille of the banded signature; 0 is v5's (none). In
-    #: :meth:`fingerprint` only when set: it can drop a confirmed pair whose estimate fell under
-    #: it, so unlike the bound it can change the data.
-    lsh_min_agreement_permille: int = 0
+    #: Which unit of a near-duplicate component survives (:data:`DEDUPE_KEEP_RULES`). v6's
+    #: split-aware rule by default. In :meth:`fingerprint` only when it is not v5's, so a
+    #: :meth:`legacy_v5` config hashes as v5's pinned manifests recorded it.
+    dedupe_keep_rule: str = DEDUPE_KEEP_SPLIT_PRIORITY
+    #: The LSH agreement prefilter, per mille of the banded signature; v6's by default, 0 is
+    #: v5's (none). In :meth:`fingerprint` only when set: it can drop a confirmed pair whose
+    #: estimate fell under it, so unlike the bound it can change the data.
+    lsh_min_agreement_permille: int = V6_LSH_MIN_AGREEMENT_PERMILLE
 
     metadata: dict[str, str] = field(default_factory=dict)
-    #: v6's benchmark re-pin (:meth:`with_v6_benchmark_targets`): the upstream evaluation splits
-    #: in ``qd_data.sources.BENCHMARK_TARGET_SPLITS`` are never rows, only decontamination
-    #: targets. False is v5's (MMLU test and dev train, CLINC test is split by intent); in
-    #: :meth:`fingerprint` only when set, so a v5 config hashes as it always did.
-    benchmark_eval_splits_are_targets: bool = False
+    #: v6's benchmark re-pin (data-clean plan section 3 item 6;
+    #: GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03),
+    #: the default: the upstream evaluation splits in ``qd_data.sources.BENCHMARK_TARGET_SPLITS``
+    #: (MMLU test and dev, CLINC test) are refused as rows (``benchmark_eval_split_is_a_target``)
+    #: and scanned as targets, never trained on. False is v5's (they train; CLINC test is split
+    #: by intent), which is how the v5r shards came to hold benchmark test items. In
+    #: :meth:`fingerprint` only when set, so a :meth:`legacy_v5` config hashes as v5's did.
+    benchmark_eval_splits_are_targets: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.seed, int) or isinstance(self.seed, bool):
@@ -225,14 +229,6 @@ class DataConfig:
     def is_held_out_family(self, family_id: str) -> bool:
         return family_id in set(self.held_out_families)
 
-    def with_v6_dedupe_rules(self) -> DataConfig:
-        """This config under v6's dedupe rules: the split-aware keep and the LSH prefilter."""
-        return replace(
-            self,
-            dedupe_keep_rule=DEDUPE_KEEP_SPLIT_PRIORITY,
-            lsh_min_agreement_permille=V6_LSH_MIN_AGREEMENT_PERMILLE,
-        )
-
     def fingerprint(self) -> dict[str, object]:
         """The config fields that change the data. Feeds ``data_snapshot_hash``.
 
@@ -256,9 +252,30 @@ class DataConfig:
             body["benchmark_eval_splits_are_targets"] = True
         return body
 
-    def with_v6_benchmark_targets(self) -> DataConfig:
-        """This config under v6's benchmark re-pin (data-clean plan section 3 item 6;
-        GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03):
-        MMLU test and dev and CLINC test are refused as rows (``benchmark_eval_split_is_a_target``)
-        and scanned as targets by ``tools/containment_scan.py --v6-benchmark-targets``."""
-        return replace(self, benchmark_eval_splits_are_targets=True)
+    def with_rules(self, *, v6: bool) -> DataConfig:
+        """This config under v6's data rules (``v6=True``: the split-aware dedupe keep, the LSH
+        prefilter, MMLU and CLINC evaluation splits as targets) or v5's (``v6=False``). The one
+        owner of what the two rule sets are; ``real_tokenizer_pipeline.data_rules`` and
+        :meth:`legacy_v5` delegate here."""
+        if v6:
+            return replace(
+                self,
+                dedupe_keep_rule=DEDUPE_KEEP_SPLIT_PRIORITY,
+                lsh_min_agreement_permille=V6_LSH_MIN_AGREEMENT_PERMILLE,
+                benchmark_eval_splits_are_targets=True,
+            )
+        return replace(
+            self,
+            dedupe_keep_rule=DEDUPE_KEEP_LEXICAL,
+            lsh_min_agreement_permille=0,
+            benchmark_eval_splits_are_targets=False,
+        )
+
+    @classmethod
+    def legacy_v5(cls) -> DataConfig:
+        """v5's data rules, by name. **Only for a caller that must reproduce or verify an
+        already-pinned v5 artifact** (a v5 shard set's manifest, a v5 attestation, v5's suites),
+        and each such caller says so where it calls this. These rules let MMLU and CLINC test
+        items into training rows (v5r), so nothing new is built under them: ``DataConfig()`` is
+        v6 (human ruling 2026-10-17, mistakes M6/M7/M8)."""
+        return cls().with_rules(v6=False)
