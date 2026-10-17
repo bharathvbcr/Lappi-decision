@@ -5,3 +5,5 @@
 //! implementation rather than two that could drift.
 
 pub mod pin;
+pub mod release_check;
+pub mod cite;
