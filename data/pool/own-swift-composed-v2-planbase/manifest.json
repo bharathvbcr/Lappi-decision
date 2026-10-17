@@ -1,0 +1,290 @@
+{
+  "tool_version": "0.1.0",
+  "seed": 20261008,
+  "seed_derivation": "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || record.id))",
+  "pool": {
+    "path": "data/pool/own-swift-pool-v1.jsonl",
+    "sha256": "fd8cc9269d7916a379b40dc26fd8a888ae23cb14288470fa787be8c17466baa3",
+    "records": 1396,
+    "by_language": {
+      "swift": 1396
+    }
+  },
+  "examples_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "totals": {
+    "examples": 0,
+    "mutated": 13647,
+    "clean": 0,
+    "silent_stubs": 2206,
+    "span_disagreements": 0,
+    "outside_hunk": 0,
+    "examples_without_hunk_constraint": 13647,
+    "mutation_did_not_parse": 175
+  },
+  "diff": {
+    "renderer": "multi_hunk",
+    "context": 3,
+    "hunks_per_diff": {
+      "1": 13647
+    },
+    "hunks_per_diff_by_class": {
+      "cosmetic": {
+        "1": 3726
+      },
+      "logic": {
+        "1": 4462
+      },
+      "stub": {
+        "1": 5459
+      }
+    },
+    "mutated_without_prior": 13647,
+    "clean_without_prior": 0
+  },
+  "languages": [
+    {
+      "language": "rust",
+      "formatter": {
+        "state": "found",
+        "program": "rustfmt",
+        "path": "/Users/bharath/.cargo/bin/rustfmt"
+      },
+      "restricted_operators": {},
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "go",
+      "formatter": {
+        "state": "found",
+        "program": "gofmt",
+        "path": "/opt/homebrew/bin/gofmt"
+      },
+      "restricted_operators": {
+        "cosmetic.wrap_line": "go terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "python",
+      "formatter": {
+        "state": "unusable",
+        "program": "black",
+        "path": "/Users/bharath/.local/bin/black",
+        "detail": "ran on the smoke input, exited zero and formatted it correctly, but announced that its own equivalence check did not run: Warning: Python 3.14 cannot parse code formatted for Python 3.15. To fix this: run Black with Python 3.15, set --target-version to py314, or use --fast to skip the safety check. Black's safety check verifies equivalence by parsing the AST, which fails when the running Python is older than the target version.. `cosmetic` claims a formatter verified the rewrite preserves behaviour, and this one says it did not verify anything, so it is not a formatter this run can make that claim with"
+      },
+      "restricted_operators": {
+        "cosmetic.reformat": "no usable formatter for python on this machine (unusable)",
+        "cosmetic.reorder_imports": "Python imports execute in order; a circular-import workaround depends on it",
+        "cosmetic.wrap_line": "python terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "typescript",
+      "formatter": {
+        "state": "not_found",
+        "program": "prettier",
+        "detail": "not on PATH"
+      },
+      "restricted_operators": {
+        "cosmetic.reformat": "no usable formatter for typescript on this machine (not_found)",
+        "cosmetic.reorder_imports": "an ES module is evaluated when it is imported, in source order; a check confined to one file cannot rule out an interaction between two module bodies",
+        "cosmetic.wrap_line": "typescript terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "swift",
+      "formatter": {
+        "state": "found",
+        "program": "swift-format",
+        "path": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-format"
+      },
+      "restricted_operators": {
+        "cosmetic.wrap_line": "swift terminates statements at line ends"
+      },
+      "files_seen": 1396,
+      "files_refused": 132,
+      "bodies_seen": 15545,
+      "bodies_nested": 186,
+      "examples": 13647,
+      "operators": {
+        "cosmetic.edit_comment": {
+          "sites_found": 37020,
+          "emitted": 463,
+          "refused": {},
+          "declined": {
+            "over_candidate_cap": 2705
+          }
+        },
+        "cosmetic.reformat": {
+          "sites_found": 8048,
+          "emitted": 984,
+          "refused": {
+            "cosmetic_not_preserving": 5,
+            "precondition_unmet": 1109
+          },
+          "declined": {
+            "not_layout_only": 8108
+          }
+        },
+        "cosmetic.rename_local": {
+          "sites_found": 86147,
+          "emitted": 655,
+          "refused": {
+            "needle_split_across_hunks": 134
+          },
+          "declined": {
+            "over_candidate_cap": 5713
+          }
+        },
+        "cosmetic.reorder_imports": {
+          "sites_found": 20857,
+          "emitted": 1624,
+          "refused": {},
+          "declined": {}
+        },
+        "cosmetic.wrap_line": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "cosmetic_not_preserving": 13969
+          },
+          "declined": {}
+        },
+        "logic.change_constant": {
+          "sites_found": 95413,
+          "emitted": 2703,
+          "refused": {
+            "mutation_did_not_parse": 1
+          },
+          "declined": {
+            "over_candidate_cap": 12929
+          }
+        },
+        "logic.drop_await_or_lock": {
+          "sites_found": 2446,
+          "emitted": 292,
+          "refused": {
+            "mutation_did_not_parse": 5
+          },
+          "declined": {}
+        },
+        "logic.drop_else": {
+          "sites_found": 856,
+          "emitted": 79,
+          "refused": {},
+          "declined": {}
+        },
+        "logic.negate_condition": {
+          "sites_found": 4604,
+          "emitted": 331,
+          "refused": {
+            "mutation_did_not_parse": 169
+          },
+          "declined": {}
+        },
+        "logic.off_by_one": {
+          "sites_found": 3064,
+          "emitted": 152,
+          "refused": {},
+          "declined": {}
+        },
+        "logic.swallow_error": {
+          "sites_found": 5810,
+          "emitted": 695,
+          "refused": {},
+          "declined": {}
+        },
+        "logic.swap_args": {
+          "sites_found": 646,
+          "emitted": 65,
+          "refused": {
+            "needle_split_across_hunks": 1
+          },
+          "declined": {}
+        },
+        "logic.widen_comparison": {
+          "sites_found": 1535,
+          "emitted": 145,
+          "refused": {},
+          "declined": {}
+        },
+        "stub.default_return": {
+          "sites_found": 3100,
+          "emitted": 1134,
+          "refused": {
+            "precondition_unmet": 10869
+          },
+          "declined": {}
+        },
+        "stub.early_return": {
+          "sites_found": 2942,
+          "emitted": 932,
+          "refused": {
+            "precondition_unmet": 11027
+          },
+          "declined": {}
+        },
+        "stub.hardcoded": {
+          "sites_found": 2077,
+          "emitted": 140,
+          "refused": {
+            "precondition_unmet": 13316
+          },
+          "declined": {
+            "over_candidate_cap": 19
+          }
+        },
+        "stub.panic": {
+          "sites_found": 27816,
+          "emitted": 3253,
+          "refused": {
+            "precondition_unmet": 61
+          },
+          "declined": {}
+        }
+      },
+      "refusals": {
+        "cosmetic_not_preserving": 13974,
+        "mutation_did_not_parse": 175,
+        "needle_split_across_hunks": 135,
+        "no_function_body": 62,
+        "parse_errors": 70,
+        "precondition_unmet": 36382
+      }
+    }
+  ],
+  "refusals": {
+    "cosmetic_not_preserving": 13974,
+    "mutation_did_not_parse": 175,
+    "needle_split_across_hunks": 135,
+    "no_function_body": 62,
+    "parse_errors": 70,
+    "precondition_unmet": 36382
+  }
+}
