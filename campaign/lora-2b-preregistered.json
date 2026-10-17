@@ -253,6 +253,19 @@
       "why": "The measured LoRA rates (ojas bench/results/2026-10-17-lora-step: 2B T=2,048 335.915 tok/s, T=9,638 261.607 tok/s) reverse the parenthetical's premise, which held for the full-gradient rows: under LoRA the T=2,048 row is the faster one. The slowest measured rate is the one that keeps the row registered, since a run that hits its cap stops at WallClockCap with fewer steps than n and is then not a registered row (crates/qd-train/src/trainer.rs:697, :1130). Fable's ruling of 2026-10-17 (option (a); read-only plan reconstruction projects N = 153 to 132 for the bucket mix, not binding).",
       "decided_by": "Fable, 2026-10-17 (AUDIT/lora-2b-audit2-2026-10-17/fable-amendment1-rate.md), under the owner's standing delegation of open decisions; the owner said 'merge all' to the question that included writing N into amendment 1",
       "pending_before_step_0": []
+    },
+    {
+      "n": 3,
+      "recorded": "2026-10-17, after Lappi c324c49, before any LoRA-2B result exists anywhere (RIPGREP_CONFIG_PATH= rg -uu -i 'optimizer_recipe.{0,10}lora|lora-2b' over ledger/: no match; the only 'lora' text in ledger/ is the lora.py source fingerprint in arm-b-shards-2026-10-13.jsonl)",
+      "what": "data.train_shard and data.val_shard (the v5r shard set, train 108082545a66ec3e..., val a485e7f7056d22b9...) are withdrawn as this registration's data. LoRA-2B trains and is scored on a shard set rebuilt under the v6 data rules (benchmark targets and dedupe rules, real_tokenizer_pipeline.data_rules with v6 on). data.shape's other terms (width-bucketed rows, --batch-order seed, the refused training widths) are unchanged. The new paths, shard hashes, sequence and token counts and max_width are NOT fixed by this amendment: they are pending_before_step_0, to be written by a later amendment after the rebuild and before step 0. Until then no LoRA-2B run is a registered row. Step 0 additionally requires the train shard set to pass the no-benchmark-targets-in-train check (qd-train-data, positive-controlled containment against the v6 benchmark targets, exit 0) and the run inputs to pass qd-prereg-bind against this file; a NOT_RUN from either refuses step 0 as a FAILED would. If the rebuild changes the width distribution, the step count n of amendment 2 is re-derived by amendment 2's own rule in the same later amendment. No gate, threshold, seed count, held-out set or recipe value changes. The two gates the human added on 2026-10-17 (span head beats the random '+'-line null; decision record committed before the results it judges) bind from the next registration on, and this registration predates them. The row stays quick and cannot promote, so they do not bind it.",
+      "why": "The v5r train shards contain MMLU test/dev and CLINC test items (GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA), and the v5 dedupe keep rule can drop an eval row (GAP-QD-DATA-DEDUPE-KEEP-RULE-LEXICAL-SPLIT-BLIND). The human ruled that a 'no benchmark targets in train' guard refuses LoRA-2B as preregistered on v5r, and that the run is rebuilt on v6-rule data.",
+      "decided_by": "the human, 2026-10-17 (AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md, committed 6b0ab85, Q1: 'Refuse; rebuild on v6 (Recommended)')",
+      "pending_before_step_0": [
+        "data.train_shard and data.val_shard: path, shard_hash, sequences, tokens, max_width of the v6-rule rebuild",
+        "data.remap_hash for the rebuilt set",
+        "qd-train-data on the rebuilt train shard set: exit 0 (PASS), output recorded",
+        "recipe.steps n re-derived under amendment 2's rule if the width distribution changed"
+      ]
     }
   ],
   "amendments_rule": "An amendment made after any LoRA-2B result has been read is void. A change before that is a commit that says what changed and why, and leaves the original text in the history.",
