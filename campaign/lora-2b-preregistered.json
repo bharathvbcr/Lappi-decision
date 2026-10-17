@@ -127,19 +127,19 @@
         "binds": "the approved window, not a step count: N is derived, not chosen",
         "window": "the approved 3-6 h Mac window (AUDIT/lora-2b-2026-10-09/human-decisions.md, D4+D8); its 6 h upper bound is the figure, of which 80% is usable: 0.8 x 21,600 s = 17,280 s",
         "tokens_per_step": 35403,
-        "rule": "N = the largest integer N <= 400 such that N x 35,403 / tokens_per_s <= 17,280 s, where tokens_per_s is the measured LoRA rate of the row named in tokens_per_s_row (at the run's bucket mix, or the T=2,048 rate as the conservative figure)",
+        "rule": "N = the largest integer N <= 400 such that N x 35,403 / tokens_per_s <= 17,280 s, where tokens_per_s is the measured LoRA rate of the row named in tokens_per_s_row (the slowest measured LoRA rate among the 2B rows of that result set, i.e. the row that gives the smallest N; no row measures the run's bucket mix, and the T=2,048 row is the faster of the two, not the conservative one)",
         "cap": 400,
         "floor": "none: a quick run's job is the mechanics and a scored row; if N is small the owner may instead extend the window (owner item, not exercised here)",
-        "warmup_steps": "max(1, N // 20)",
+        "warmup_steps": "max(1, N // 20) = 6 (N = 127)",
         "schedule": "linear warmup then cosine over N to min_lr 0 (recipe.schedule unchanged)",
         "tokens_per_s_row": {
           "source": "ft-2bbced18 criterion 7's measured LoRA tokens/s row (the tape-lora arm in ojas ojas-qwen35/tests/gpu_memory_rows.rs; rows under ojas bench/results/)",
-          "row_id": null,
-          "tokens_per_s": null,
-          "rate_choice": null
+          "row_id": "ojas@4da214b:bench/results/2026-10-17-lora-step/rows.jsonl#L4",
+          "tokens_per_s": 261.607027,
+          "rate_choice": "T=9,638 row (ojas@4da214b:bench/results/2026-10-17-lora-step/rows.jsonl#L4; tape-lora arm, 2B-Base b1485b2f, LoRA r16/alpha16 on 150 sites, bf16 base, checkpointing on, 28 GiB budget; tokens/s = 9,637 positions / mean of 3 timed steps after one warmup step, 36.84 s). Chosen as the slowest measured LoRA rate: the T=2,048 row (#L3, 335.915 tok/s) is the faster one, so the rule's parenthetical as first written named the wrong row; corrected by amendments[2]. No row measures the run's bucket mix; a read-only reconstruction of the v5r train plan (12,176 batches, 33,670 mean padded tokens per step, 54% of batches narrower than 2,048) with per-token wall interpolated linearly between the two rows projects N = 153, falling to 132 with 0.5 s of unmeasured per-launch overhead; 127 is the measured floor. N = 127 gives 17,186 s at the measured rate against the 17,280 s budget and 21,600 s bound. The arm scores every position through the fused tied head with the same ids each step; the real step adds D17, the span head, data loading and padding, none measured here."
         },
-        "n": null,
-        "status": "PENDING: n, tokens_per_s_row.row_id, tokens_per_s and rate_choice are null until the row exists. They are written here, before step 0 and before any LoRA-2B result is read, by a further pre-result amendment under amendments_rule, and copied into the reduced-2B ledger row. A reduced-2B row whose step count differs from the n written here, or that names no row id, is not a LoRA-2B-registered row."
+        "n": 127,
+        "status": "FIXED by amendments[2] on 2026-10-17 before step 0: n = 127, row ojas@4da214b:bench/results/2026-10-17-lora-step/rows.jsonl#L4, 261.607027 tok/s. A reduced-2B row whose step count differs from 127, or that names no row id, is not a LoRA-2B-registered row."
       }
     }
   },
@@ -245,6 +245,14 @@
         "recipe.steps.mac_steps_rule.tokens_per_s_row.tokens_per_s",
         "recipe.steps.mac_steps_rule.tokens_per_s_row.rate_choice"
       ]
+    },
+    {
+      "n": 2,
+      "recorded": "2026-10-17, after Lappi dac3b21 and ojas 4da214b, before any LoRA-2B result exists anywhere (rg -uu over ledger/ for optimizer_recipe lora or lora-2b: no match)",
+      "what": "recipe.steps.mac_steps_rule's pending values fixed before step 0: n = 127; tokens_per_s_row.row_id = ojas@4da214b:bench/results/2026-10-17-lora-step/rows.jsonl#L4; tokens_per_s = 261.607027 (the row's own field); rate_choice written; warmup_steps max(1, N // 20) = 6; status FIXED. The rule's parenthetical '(at the run's bucket mix, or the T=2,048 rate as the conservative figure)' is replaced by '(the slowest measured LoRA rate among the 2B rows of that result set, i.e. the row that gives the smallest N; no row measures the run's bucket mix, and the T=2,048 row is the faster of the two, not the conservative one)'; rule, cap, floor, window, tokens_per_step and schedule otherwise verbatim. One step at 261.607 tok/s is 135.33 s; 127 steps are 17,186 s (4.77 h), inside the 17,280 s budget (80% of 6 h). No gate, threshold, seed count, held-out set, val set or width changes; the row stays quick and cannot promote; the 0.8B smoke is unchanged.",
+      "why": "The measured LoRA rates (ojas bench/results/2026-10-17-lora-step: 2B T=2,048 335.915 tok/s, T=9,638 261.607 tok/s) reverse the parenthetical's premise, which held for the full-gradient rows: under LoRA the T=2,048 row is the faster one. The slowest measured rate is the one that keeps the row registered, since a run that hits its cap stops at WallClockCap with fewer steps than n and is then not a registered row (crates/qd-train/src/trainer.rs:697, :1130). Fable's ruling of 2026-10-17 (option (a); read-only plan reconstruction projects N = 153 to 132 for the bucket mix, not binding).",
+      "decided_by": "Fable, 2026-10-17 (AUDIT/lora-2b-audit2-2026-10-17/fable-amendment1-rate.md), under the owner's standing delegation of open decisions; the owner said 'merge all' to the question that included writing N into amendment 1",
+      "pending_before_step_0": []
     }
   ],
   "amendments_rule": "An amendment made after any LoRA-2B result has been read is void. A change before that is a commit that says what changed and why, and leaves the original text in the history.",
