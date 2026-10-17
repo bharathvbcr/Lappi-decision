@@ -360,7 +360,7 @@ def test_the_option_row_changes_nothing_the_ledger_joins_or_promotion_reads(
     """Eval row + the letter control's row, then + the per-option row: every gate and control
     the unit is judged by joins to the same state, and promotion's reasons are the same but
     for the unit's label naming one more row."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(
         {"tau/commonsense_qa": [_csqa_raw(i) for i in range(80)],
          "bigcode/commitpackft": [commitpackft_row(i) for i in range(80)]},

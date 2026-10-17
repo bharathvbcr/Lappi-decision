@@ -1017,7 +1017,7 @@ def option_dests(tree: ast.AST) -> dict[str, set[str]]:
 def split_rebuild_flags() -> set[str]:
     """The command-line flags ``tools/real_ft_run.py``'s ``main`` feeds its split rebuild: the
     keywords of its one ``ft_split_rows`` call (which forwards each to ``ft_splits``), mapped to
-    the options whose dest they are. ``config`` is checked to be ``DataConfig()`` with no
+    the options whose dest they are. ``config`` is checked to be ``DataConfig.legacy_v5()`` with no
     arguments, so no argv reaches the rebuild through it.
 
     The call is either ``ft_split_rows(...)`` or ``functools.partial(ft_split_rows, ...)``: since
@@ -1049,7 +1049,7 @@ def split_rebuild_flags() -> set[str]:
         if isinstance(n, ast.Assign)
         and any(isinstance(t, ast.Name) and t.id == "config" for t in n.targets)
     ]
-    assert len(configs) == 1 and ast.unparse(configs[0]) == "DataConfig()", [
+    assert len(configs) == 1 and ast.unparse(configs[0]) == "DataConfig.legacy_v5()", [
         ast.unparse(c) for c in configs
     ]
     dests = option_dests(tree)

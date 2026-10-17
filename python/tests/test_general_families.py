@@ -60,7 +60,7 @@ from qd_data.sources import (
 )
 from qd_data.split import split
 
-CONFIG = DataConfig()
+CONFIG = DataConfig.legacy_v5()
 
 
 def mmlu_raw(i: int, **over: object) -> dict[str, object]:

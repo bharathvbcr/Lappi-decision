@@ -53,7 +53,7 @@ from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, apply_exclusi
 from qd_train.shards import write_shards
 from qd_train.tristate import NotRun, Ran
 
-CONFIG = DataConfig()
+CONFIG = DataConfig.legacy_v5()
 REPO = Path(__file__).resolve().parents[2]
 #: A train header written before ``contrast_rows`` existed (tracked fixture).
 V4_ERA_HEADER = REPO / "crates/qd-train/tests/fixtures/shards-tiny/shards/train/header.json"

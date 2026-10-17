@@ -27,7 +27,7 @@ from qd_train.tristate import NotRun, Ran
 
 
 def _snapshot(config: DataConfig | None = None, n: int = 24, **kwargs: object):
-    config = config or DataConfig()
+    config = config or DataConfig.legacy_v5()
     corpus = kwargs.pop("corpus", None) or small_corpus(n)
     mixture = build_mixture(corpus, config=config, **kwargs)  # type: ignore[arg-type]
     report = dedupe(list(mixture.rows), config=config)

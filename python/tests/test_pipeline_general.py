@@ -133,7 +133,7 @@ def test_a_row_count_the_record_does_not_state_stops_the_run(tmp_path: Path) -> 
 
 
 def test_the_replay_slice_leaves_the_gold_train_split_and_nothing_else_moves() -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = [
         MmluRow(subject=f"s{i % 7}", question=f"What follows {i}?",
                 choices=(str(i), str(i + 1), str(i + 2), str(i + 3)), answer_index=0,
@@ -158,7 +158,7 @@ def test_the_replay_slice_leaves_the_gold_train_split_and_nothing_else_moves() -
 
 
 def _mmlu_report() -> Any:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = [
         MmluRow(subject=f"s{i % 7}", question=f"What follows {i}?",
                 choices=(str(i), str(i + 1), str(i + 2), str(i + 3)), answer_index=0,

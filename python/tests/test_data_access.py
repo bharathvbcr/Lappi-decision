@@ -38,7 +38,7 @@ from qd_train.tristate import NotRun, Ran
 @pytest.fixture
 def snapshot(tmp_path: Path) -> tuple[Path, DataConfig, dict[str, Path]]:
     """A written snapshot: train, val and heldout manifests under a repo root."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(small_corpus(24), config=config)
     report = dedupe(list(mixture.rows), config=config)
     split_report = split(report, config=config)
@@ -102,7 +102,7 @@ def test_no_held_out_family_identifier_appears_in_a_training_shard(
 
 
 def test_a_path_under_a_configured_held_out_root_is_refused(tmp_path: Path) -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     target = tmp_path / "data" / "heldout" / "shard.json"
     with pytest.raises(HeldOutViolation):
         assert_path_not_held_out(target, config=config, repo_root=tmp_path)
@@ -110,14 +110,14 @@ def test_a_path_under_a_configured_held_out_root_is_refused(tmp_path: Path) -> N
 
 def test_a_traversal_back_into_the_held_out_root_is_refused(tmp_path: Path) -> None:
     """Resolved paths, not string prefixes: ``pool/../heldout/x`` is held-out data."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     sneaky = tmp_path / "data" / "pool" / ".." / "heldout" / "shard.json"
     with pytest.raises(HeldOutViolation):
         assert_path_not_held_out(sneaky, config=config, repo_root=tmp_path)
 
 
 def test_a_symlink_into_the_held_out_root_is_refused(tmp_path: Path) -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     real = tmp_path / "data" / "heldout"
     real.mkdir(parents=True)
     (real / "shard.json").write_text("{}", encoding="utf-8")
@@ -133,7 +133,7 @@ def test_the_check_fires_on_a_path_that_does_not_exist(tmp_path: Path) -> None:
     with pytest.raises(HeldOutViolation):
         assert_path_not_held_out(
             tmp_path / "data" / "heldout" / "never-created.json",
-            config=DataConfig(), repo_root=tmp_path,
+            config=DataConfig.legacy_v5(), repo_root=tmp_path,
         )
 
 
@@ -150,7 +150,7 @@ def test_a_held_out_marker_anywhere_in_the_path_is_refused(
     tmp_path: Path, marker: str
 ) -> None:
     """Renaming the directory out of ``data/`` does not launder it."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     target = tmp_path / "scratch" / marker / "shard.json"
     with pytest.raises(HeldOutViolation) as excinfo:
         assert_path_not_held_out(target, config=config, repo_root=tmp_path)
@@ -160,7 +160,7 @@ def test_a_held_out_marker_anywhere_in_the_path_is_refused(
 def test_marker_matching_is_segment_exact_not_substring(tmp_path: Path) -> None:
     """``withheld_outputs`` is not a holdout. A substring check would refuse it, the
     trainer would see no data, and the run would look fine."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     fine = tmp_path / "data" / "withheld_outputs" / "shard.json"
     assert_path_not_held_out(fine, config=config, repo_root=tmp_path)
 
@@ -202,7 +202,7 @@ def test_a_shard_built_with_a_different_holdout_is_refused(
 def test_a_train_manifest_carrying_a_held_out_family_is_refused(tmp_path: Path) -> None:
     """The layer that catches a corpus built with the wrong config rather than a file
     in the wrong place. Constructed by relabelling one entry's split."""
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(small_corpus(24), config=config)
     report = dedupe(list(mixture.rows), config=config)
     split_report = split(report, config=config)
@@ -246,7 +246,7 @@ def test_a_train_manifest_carrying_a_held_out_family_is_refused(tmp_path: Path) 
 
 
 def test_training_on_an_unverified_snapshot_is_refused_by_default(tmp_path: Path) -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(
         small_corpus(24), config=config, capped_sources=["bigcode/commitpackft"]
     )
@@ -281,7 +281,7 @@ def test_training_on_a_snapshot_that_ran_and_failed_is_refused(tmp_path: Path) -
     check that could not run, not a general one; a caller reaching for it to get past a
     failed gate is the thing rule 2 forbids, reached from the other side.
     """
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(
         small_corpus(24), config=config, capped_sources=["bigcode/commitpackft"]
     )
@@ -328,13 +328,13 @@ def test_an_edited_manifest_is_refused_by_the_training_door(
 
 def test_the_path_report_over_zero_paths_is_not_run(tmp_path: Path) -> None:
     """*"We checked no paths" must not read as "no path was held out".*"""
-    report = held_out_check_report([], config=DataConfig(), repo_root=tmp_path)
+    report = held_out_check_report([], config=DataConfig.legacy_v5(), repo_root=tmp_path)
     assert isinstance(report, NotRun)
     assert "zero paths" in report.reason
 
 
 def test_the_path_report_fails_when_any_path_is_held_out(tmp_path: Path) -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     report = held_out_check_report(
         [tmp_path / "data" / "pool" / "a.json", tmp_path / "data" / "heldout" / "b.json"],
         config=config, repo_root=tmp_path,

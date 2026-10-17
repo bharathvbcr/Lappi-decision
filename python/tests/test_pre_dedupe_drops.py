@@ -76,7 +76,7 @@ def _corpus() -> dict[str, list[object]]:
 
 
 def _rows():
-    return build_mixture(_corpus(), config=DataConfig()).rows
+    return build_mixture(_corpus(), config=DataConfig.legacy_v5()).rows
 
 
 def _write(path: Path, keys: list[str]) -> Path:
@@ -89,7 +89,7 @@ def _knockers(rows) -> tuple[list[str], list[str]]:
     kept in their place."""
     from qd_data.dedupe import content_unit_key
 
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     report = dedupe(list(rows), config=config)
     by_unit = {content_unit_key(r): r for r in rows}
     clusters = [(c.kept_unit_key, c.dropped_unit_keys) for c in report.clusters] + [
@@ -109,7 +109,7 @@ def _knockers(rows) -> tuple[list[str], list[str]]:
 
 
 def test_split_before_dedupe_is_splits_own_assignment_row_for_row() -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     report = dedupe(list(_rows()), config=config)
     got = split(report, config=config)
     assigned = {a.row_id: a.split for a in got.assignments}
@@ -122,7 +122,7 @@ def test_split_before_dedupe_is_splits_own_assignment_row_for_row() -> None:
 def test_a_val_row_knocked_out_by_its_train_twin_survives_when_the_twin_leaves_first(
     tmp_path: Path,
 ) -> None:
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     rows = _rows()
     twins, lost = _knockers(rows)
     # The defect, reproduced: dedupe keeps the train twin and the val row is in no split.
@@ -149,7 +149,7 @@ def test_a_val_row_knocked_out_by_its_train_twin_survives_when_the_twin_leaves_f
 
 def test_without_a_list_the_rows_are_the_rows() -> None:
     rows = _rows()
-    kept, drops, dropped = drop_before_dedupe(rows, None, config=DataConfig())
+    kept, drops, dropped = drop_before_dedupe(rows, None, config=DataConfig.legacy_v5())
     assert kept == tuple(rows) and drops is None and dropped == ()
     assert pre_dedupe_drops_identity(None) == {}
 
@@ -158,12 +158,12 @@ def test_a_list_naming_a_val_row_is_refused_before_any_row_moves(tmp_path: Path)
     rows = _rows()
     _twins, lost = _knockers(rows)
     with pytest.raises(ExclusionRefusal, match="would be split out of train"):
-        drop_before_dedupe(rows, _write(tmp_path / "d.txt", lost[:1]), config=DataConfig())
+        drop_before_dedupe(rows, _write(tmp_path / "d.txt", lost[:1]), config=DataConfig.legacy_v5())
 
 
 def test_a_list_naming_no_row_or_malformed_is_refused(tmp_path: Path) -> None:
     rows = _rows()
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     with pytest.raises(ExclusionRefusal, match="name no row of this corpus"):
         drop_before_dedupe(rows, _write(tmp_path / "a.txt", ["no-such-key"]), config=config)
     with pytest.raises(ExclusionRefusal, match="byte-sorted and unique"):
@@ -230,7 +230,7 @@ def test_the_pipeline_and_the_trainers_rebuild_drop_the_same_rows_and_keep_the_v
     loaded = load_decision_pool(pool)
     built = {
         r.group_key: rewrite_typed_decision(r, family_id=r.family_id, index=i,
-                                            config=DataConfig())
+                                            config=DataConfig.legacy_v5())
         for rows in loaded.raw.values() for i, r in enumerate(rows)
     }
     keys = {g: row.identity_key for g, row in built.items()}
@@ -266,7 +266,7 @@ def test_the_pipeline_and_the_trainers_rebuild_drop_the_same_rows_and_keep_the_v
         "the fixture did not reproduce the knock-out"
     )
     assert built["v0"].row_id in _manifest_ids(tmp_path / "dropped" / val)
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     splits = rft.ft_splits(commitpackft=None, max_pairs=3, rev=rev, config=config,
                            decisions_pool=pool, pre_dedupe_drops=listed)
     for name, rel in (("train", "data/pool/train.json"), ("val", val),
