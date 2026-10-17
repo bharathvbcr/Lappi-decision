@@ -12,7 +12,7 @@
 //! * the fit's own report (`qd-calib-fit`'s `report.json`): its `tables[].sha256` must be this
 //!   table's file hash, its `ece.threshold` must be [`ECE_THRESHOLD`] (the registered constant,
 //!   not a number read from the report), and `entries[KEY].scored.ece_after` is the recorded check;
-//! * the slot shapes each trained family was trained on, `{family: ["choice:5", "span"]}`. No
+//! * the slot shapes each trained family was trained on, `{family: [["choice:5", "span"], ["choice:7"]]}`: one array per trained request shape, so choice and span trained together are declared together. No
 //!   tracked registry of these exists (the train manifest records families, not slots), so the
 //!   operator declares them; a trained family with no declaration is refused.
 //!
@@ -55,7 +55,7 @@ impl ExcludedFamily {
 /// What the gate established, for the manifest.
 pub(crate) struct GateRecord {
     /// Declared shapes of the admitted families only.
-    pub shapes: BTreeMap<String, Vec<String>>,
+    pub shapes: BTreeMap<String, Vec<Vec<String>>>,
     /// The `calibration.gate` block.
     pub block: Value,
 }
@@ -162,7 +162,7 @@ pub(crate) fn check(
         .unwrap_or_default();
     let has_span = table_doc.get("span").is_some_and(|s| !s.is_null());
 
-    let mut shapes: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut shapes: BTreeMap<String, Vec<Vec<String>>> = BTreeMap::new();
     let mut checked: BTreeMap<String, Value> = BTreeMap::new();
     for family in admitted {
         let keys = declared
@@ -178,8 +178,13 @@ pub(crate) fn check(
                     ),
                 )
             })?;
-        let mut mine = Vec::with_capacity(keys.len());
-        for key in keys {
+        let mut mine: Vec<Vec<String>> = Vec::with_capacity(keys.len());
+        for shape in keys {
+            let slots = shape.as_array().filter(|s| !s.is_empty()).ok_or_else(|| {
+                refuse(k, format!("{family}: each declared shape is a non-empty array of slot keys (one trained request), got {shape}"))
+            })?;
+            let mut this: Vec<String> = Vec::with_capacity(slots.len());
+        for key in slots {
             let key = key
                 .as_str()
                 .filter(|s| is_shape_key(s))
@@ -202,7 +207,10 @@ pub(crate) fn check(
                 let v = check_ece(&format!("{family}/{key}"), ece)?;
                 checked.insert(key.to_string(), json!(v));
             }
-            mine.push(key.to_string());
+            this.push(key.to_string());
+        }
+            this.sort();
+            mine.push(this);
         }
         shapes.insert(family.clone(), mine);
     }

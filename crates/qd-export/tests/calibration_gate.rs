@@ -76,7 +76,7 @@ fn shapes(c: &Case, doc: &Value) -> PathBuf {
 }
 
 fn default_shapes() -> Value {
-    json!({"code.defect_class": ["choice:5", "span"], "devcouncil.verdict": ["choice:5"]})
+    json!({"code.defect_class": [["choice:5", "span"]], "devcouncil.verdict": [["choice:5"]]})
 }
 
 fn run(c: &Case, report: Option<&Value>, shapes: Option<&Value>, extra: &[&str]) -> Output {
@@ -133,7 +133,7 @@ fn a_table_with_no_declared_slot_shapes_is_refused() {
 fn a_failing_recorded_check_is_refused_and_names_the_entry() {
     let c = case(true);
     let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", ran(0.079))], true, ECE_THRESHOLD);
-    let shapes = json!({"code.defect_class": ["choice:16", "span"], "devcouncil.verdict": ["choice:5"]});
+    let shapes = json!({"code.defect_class": [["choice:16", "span"]], "devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&r), Some(&shapes), &[]);
     refused(&c, &out, "choice:16");
     assert!(String::from_utf8_lossy(&out.stderr).contains("passed=false"));
@@ -143,7 +143,7 @@ fn a_failing_recorded_check_is_refused_and_names_the_entry() {
 fn a_check_that_could_not_run_is_not_a_check_that_passed() {
     let c = case(true);
     let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", not_run())], true, ECE_THRESHOLD);
-    let shapes = json!({"code.defect_class": ["choice:16", "span"], "devcouncil.verdict": ["choice:5"]});
+    let shapes = json!({"code.defect_class": [["choice:16", "span"]], "devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&r), Some(&shapes), &[]);
     refused(&c, &out, "not_run");
 }
@@ -160,7 +160,7 @@ fn a_family_whose_trained_span_slot_has_no_entry_is_refused() {
 #[test]
 fn a_shape_the_table_has_no_entry_for_is_refused() {
     let c = case(true);
-    let shapes = json!({"code.defect_class": ["choice:7", "span"], "devcouncil.verdict": ["choice:5"]});
+    let shapes = json!({"code.defect_class": [["choice:7", "span"]], "devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&all_passing(&c)), Some(&shapes), &[]);
     refused(&c, &out, "choice:7");
 }
@@ -168,7 +168,7 @@ fn a_shape_the_table_has_no_entry_for_is_refused() {
 #[test]
 fn a_trained_family_with_no_declared_shapes_is_refused() {
     let c = case(true);
-    let shapes = json!({"devcouncil.verdict": ["choice:5"]});
+    let shapes = json!({"devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&all_passing(&c)), Some(&shapes), &[]);
     refused(&c, &out, "code.defect_class");
 }
@@ -214,7 +214,7 @@ fn an_explicit_exclusion_is_the_way_past_and_is_recorded() {
     let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
     assert_eq!(m["trained_families"], json!(["devcouncil.verdict"]));
     assert_eq!(m["excluded_families"], json!([{"family": "code.defect_class", "reason": reason}]));
-    assert_eq!(m["trained_slot_shapes"], json!({"devcouncil.verdict": ["choice:5"]}));
+    assert_eq!(m["trained_slot_shapes"], json!({"devcouncil.verdict": [["choice:5"]]}));
 }
 
 #[test]

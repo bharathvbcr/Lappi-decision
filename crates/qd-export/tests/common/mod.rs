@@ -331,12 +331,12 @@ pub fn gate_files(dir: &Path, table_path: &Path, families: &[String]) -> (PathBu
         "tables": [{"sha256": qd_runtime::hex(&qd_runtime::sha256(&bytes))}],
     });
     let first = letters.keys().find(|k| k.starts_with("choice:")).expect("a choice entry").clone();
-    let mut mine = vec![json!(first)];
+    let mut one = vec![json!(first)];
     if has_span {
-        mine.push(json!("span"));
+        one.push(json!("span"));
     }
     let shapes: serde_json::Map<String, Value> =
-        families.iter().map(|f| (f.clone(), Value::Array(mine.clone()))).collect();
+        families.iter().map(|f| (f.clone(), Value::Array(vec![Value::Array(one.clone())]))).collect();
     let report_path = dir.join("fit-report.json");
     let shapes_path = dir.join("slot-shapes.json");
     std::fs::write(&report_path, report.to_string()).unwrap();
