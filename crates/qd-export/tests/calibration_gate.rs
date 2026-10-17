@@ -53,7 +53,7 @@ fn report(table_sha: &str, ece_by_key: &[(&str, Value)], span_fitted: bool, thre
     json!({
         "ece": {"bins": 15, "min_samples": 100, "threshold": threshold},
         "entries": entries,
-        "span": if span_fitted { json!({"fitted": true, "ece_after": ran(0.02)}) } else { json!({"fitted": false}) },
+        "span": if span_fitted { json!({"fitted": true, "scored": {"ece_after": ran(0.02)}}) } else { json!({"fitted": false}) },
         "tables": [{"file": "table.json", "sha256": table_sha}],
     })
 }
@@ -155,6 +155,18 @@ fn a_family_whose_trained_span_slot_has_no_entry_is_refused() {
     let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
     refused(&c, &out, "code.defect_class");
     assert!(String::from_utf8_lossy(&out.stderr).contains("span"));
+}
+
+/// What qd-calib-fit writes for a fitted span entry today (`summarise_spans`): no ECE. A check the
+/// fit did not record is not one that passed.
+#[test]
+fn a_fitted_span_entry_with_no_recorded_check_is_refused() {
+    let c = case(true);
+    let mut r = all_passing(&c);
+    r["span"] = json!({"fitted": true, "rows": 7238, "scored": {"n_scored": 7238, "answered_precision": 0.8}});
+    let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
+    refused(&c, &out, "code.defect_class/span");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("records no ece_after"));
 }
 
 #[test]

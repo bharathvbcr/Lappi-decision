@@ -197,7 +197,7 @@ pub(crate) fn check(
                 if !fitted {
                     return Err(refuse(k, format!("{family}: span has an entry in the table but the report says span.fitted is not true")));
                 }
-                let v = check_ece(&format!("{family}/span"), report.pointer("/span/ece_after"))?;
+                let v = check_ece(&format!("{family}/span"), report.pointer("/span/scored/ece_after"))?;
                 checked.insert("span".to_string(), json!(v));
             } else {
                 if !letters.contains(key) {

@@ -327,7 +327,7 @@ pub fn gate_files(dir: &Path, table_path: &Path, families: &[String]) -> (PathBu
     let report = json!({
         "ece": {"threshold": 0.05},
         "entries": entries,
-        "span": if has_span { json!({"fitted": true, "ece_after": ran.clone()}) } else { json!({"fitted": false}) },
+        "span": if has_span { json!({"fitted": true, "scored": {"ece_after": ran.clone()}}) } else { json!({"fitted": false}) },
         "tables": [{"sha256": qd_runtime::hex(&qd_runtime::sha256(&bytes))}],
     });
     let first = letters.keys().find(|k| k.starts_with("choice:")).expect("a choice entry").clone();
