@@ -945,8 +945,10 @@ def ledger_lines(path: Path) -> int:
 
 
 def rows_since(path: Path, start: int) -> list[LedgerRow]:
-    rows = Ledger(path).rows() if path.exists() else []
-    return rows[start:]
+    # `start` is a LINE count (`ledger_lines`), and a run now writes a `started` line before its
+    # terminal one, so index the lines and then keep the rows that report results.
+    rows = Ledger(path).rows(include_started=True) if path.exists() else []
+    return [r for r in rows[start:] if r.status != "started"]
 
 
 def event(state: dict[str, Any], text: str) -> None:

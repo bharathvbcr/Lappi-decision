@@ -1064,5 +1064,8 @@ def test_a_reader_unit_gets_the_ft_row_id_its_arm_wrote(
                                                              "{ft_row_id:arm}")]}]
     cd.main(["--config", str(config(env, phases))])
     rows = [json.loads(ln) for ln in env["ledger"].read_text().splitlines()]
+    # A run is a `started` line then its terminal row (docs/ledger-schema.md, "Run lifecycle");
+    # the reader is handed the row that reports the result, not the lifecycle marker.
+    rows = [r for r in rows if r["status"] != "started"]
     lines = env["count"].read_text().splitlines()
     assert lines[1].split() == ["reader", "--x", rows[0]["row_id"]]
