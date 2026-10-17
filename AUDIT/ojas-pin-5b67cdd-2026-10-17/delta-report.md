@@ -138,5 +138,5 @@ ojas, and was not rebuilt here.
   at 42f1d52 with one dirty tracked file during the runs above [V `git status`]. The runs' results hold for
   that tree, not for a pinned tessl.
 - The ojas working tree had one modified tracked file (`.gitignore`) and untracked reports during the build
-  [V `git status --short`]; the pin compares `HEAD` only, as GAP-LAPPI-PINS-NO-OJAS-SHA's residual says.
+  [V `git status --short`]; the pin compares `HEAD` only, as GAP-LAPPI-PINS-NO-OJAS-SHA-2026-10-13's residual says.
 - No GPU memory or tokens/s row was produced; nothing here measures the LoRA step.
