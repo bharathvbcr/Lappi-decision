@@ -178,7 +178,16 @@ def test_the_record_in_the_repo_holds_the_delegated_decisions():
         d = decisions.decisions[name]
         assert d.decided_on == "2026-10-08"
         assert "promotion-respec-proposal-2026-10-05.md" in (d.decision_ref or "")
-    for name in (n for n in REQUIRED_DECISIONS if n not in RESPEC_DECISIONS):
+    # The two gates ruled in on 2026-10-17 (human-ruling-2026-10-17.md, Q2), binding from the
+    # next registration: their own date and ruling, and a binding day after the ruling.
+    for name in ("span_beats_null", "decision_record_before_results"):
+        d = decisions.decisions[name]
+        assert d.decided_on == "2026-10-17"
+        assert "human-ruling-2026-10-17.md" in (d.decision_ref or "")
+        assert d.binding_from is not None and d.binding_from.isoformat() > d.decided_on
+    ruling_gates = {"span_beats_null", "decision_record_before_results"}
+    for name in (n for n in REQUIRED_DECISIONS
+                 if n not in RESPEC_DECISIONS and n not in ruling_gates):
         d = decisions.decisions[name]
         assert d.decided_on == "2026-10-03"
         assert "For decisions ask fable and proceed with them" in (d.decided_by or "")

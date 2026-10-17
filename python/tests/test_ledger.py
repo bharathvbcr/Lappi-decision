@@ -1572,8 +1572,17 @@ def test_the_repositorys_own_ledgers_are_checked_not_assumed() -> None:
     accident"). Counting both made the recommended fix register as the disease: the
     overnight run wrote its own ledger by construction and the count went to two.
 
-    The teeth are unchanged. A new divergence is non-root, so it still takes this past one.
+    The teeth are unchanged. A new divergence is non-root, so it is not in KNOWN and fails here.
+
+    The second known one is `runs.main-gates-2026-10-15.jsonl`, forked from `runs.jsonl` after
+    feae39e0 and kept as its own file on purpose (commit 171b9c6, rows d7e6cc75 and 7016657c).
+    Each is named by the predecessor it diverges after, so a third divergence, or either of
+    these turning into something else, still fails.
     """
+    known = {
+        "364b7d12": "gh200-2026-09-20.jsonl vs runs.jsonl at row 157",
+        "feae39e0": "runs.main-gates-2026-10-15.jsonl vs runs.jsonl (171b9c6)",
+    }
     ledger_dir = REPO / "ledger"
     paths = sorted(ledger_dir.glob("*.jsonl"))
     assert len(paths) >= 2, f"expected at least two ledger files in {ledger_dir}, got {paths}"
@@ -1581,10 +1590,10 @@ def test_the_repositorys_own_ledgers_are_checked_not_assumed() -> None:
         Ledger(path).verify_chain()
 
     forks = find_forks(paths)
-    diverged = [f for f in forks if not f.is_root]
-    assert len(diverged) == 1, (
-        "expected exactly the known row-157 divergence, got: "
-        f"{[f.describe() for f in diverged]}"
+    diverged = [f.describe() for f in forks if not f.is_root]
+    unknown = [d for d in diverged if not any(f"after {p}" in d for p in known)]
+    assert not unknown and len(diverged) == len(known), (
+        f"expected exactly the known divergences {known}, got: {diverged}"
     )
     roots = [f for f in forks if f.is_root]
     assert len(roots) <= 1, (

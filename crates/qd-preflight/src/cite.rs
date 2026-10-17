@@ -551,7 +551,7 @@ mod tests {
             "Qwen3.5-2B-Base snapshot b1485b2f",
             "see src/main.rs:123 and lines 5-8",
             "an H100 box, 8xH100, choice-16, v0.1 preview",
-            "the [docs](docs/schema-api.md) and GAP-FOO-BAR-2026-10-06",
+            concat!("the [docs](docs/schema-api.md) and GAP", "-FOO-BAR-2026-10-06"),
             "[V: AUDIT/x-2026-10-18/0.5/notes.md] only",
             "23 families, 15 entries",
         ] {
