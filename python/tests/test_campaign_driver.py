@@ -625,6 +625,8 @@ def test_only_one_process_finalizes(env: dict[str, Path]) -> None:
         assert not (cfg.sync_dir).exists()
     finally:
         holder.kill()
+        # Reap it: until then its pid is a zombie that still exists, and the lock reads as held.
+        holder.wait(timeout=10)
     # A lock whose holder is dead is broken, not obeyed forever.
     assert cd.acquire_lock(cfg)
 
