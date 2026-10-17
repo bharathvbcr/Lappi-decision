@@ -3137,7 +3137,8 @@ def data_rules(config: DataConfig, *, v6: bool = True) -> DataConfig:
 def name_corpus(identity: Mapping[str, object], *, config: DataConfig) -> dict[str, object]:
     """``containment_corpus(identity)`` plus the :data:`V6_CORPUS_KEYS` ``config`` fingerprints:
     nothing under :meth:`DataConfig.legacy_v5`, so every v5 attestation still matches; under the
-    v6 default exactly the keys ``tools/containment_scan.py`` writes. The build and ``ft_splits`` both name their corpus here."""
+    v6 default exactly the keys ``tools/containment_scan.py`` writes. The build and ``ft_splits``
+    both name their corpus here."""
     # Resolved at call time, as ft_splits' own import of it always was.
     from qd_train import exclusions as exclusions_module
 

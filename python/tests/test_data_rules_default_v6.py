@@ -20,8 +20,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-import real_tokenizer_pipeline as pipeline  # noqa: E402
-from qd_data.config import (  # noqa: E402
+import real_tokenizer_pipeline as pipeline
+
+from qd_data.config import (
     DEDUPE_KEEP_LEXICAL,
     DEDUPE_KEEP_SPLIT_PRIORITY,
     V6_LSH_MIN_AGREEMENT_PERMILLE,

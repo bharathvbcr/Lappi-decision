@@ -158,7 +158,9 @@ def test_a_list_naming_a_val_row_is_refused_before_any_row_moves(tmp_path: Path)
     rows = _rows()
     _twins, lost = _knockers(rows)
     with pytest.raises(ExclusionRefusal, match="would be split out of train"):
-        drop_before_dedupe(rows, _write(tmp_path / "d.txt", lost[:1]), config=DataConfig.legacy_v5())
+        drop_before_dedupe(
+            rows, _write(tmp_path / "d.txt", lost[:1]), config=DataConfig.legacy_v5()
+        )
 
 
 def test_a_list_naming_no_row_or_malformed_is_refused(tmp_path: Path) -> None:

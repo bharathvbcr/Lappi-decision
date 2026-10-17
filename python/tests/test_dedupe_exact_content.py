@@ -142,7 +142,8 @@ def _twins_train_key_first() -> list[DataRow]:
 
 def test_the_v5_rule_drops_the_val_copy_of_identical_content_when_train_sorts_first() -> None:
     """Characterization, kept under the default config: v5's recorded knock-out."""
-    assert [r.row_id for r in dedupe(_twins_train_key_first(), config=DataConfig.legacy_v5()).kept] == ["t"]
+    kept = dedupe(_twins_train_key_first(), config=DataConfig.legacy_v5()).kept
+    assert [r.row_id for r in kept] == ["t"]
 
 
 def test_the_v6_rule_keeps_the_val_copy_of_identical_content_in_any_order() -> None:

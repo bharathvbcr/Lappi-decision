@@ -936,7 +936,8 @@ def test_a_row_that_cannot_be_rendered_is_counted_not_silently_skipped() -> None
     big = "x" * (DEFAULT_CAPS.max_context_bytes + 1)
     rows = [commitpackft_row(0), commitpackft_row(1, body=big)]
     mixture = build_mixture(
-        {"bigcode/commitpackft": rows}, config=DataConfig.legacy_v5(), families=["code.language_id"],
+        {"bigcode/commitpackft": rows}, config=DataConfig.legacy_v5(),
+        families=["code.language_id"],
     )
     assert len(mixture.rows) == 2, "the over-cap row is built; render is what refuses it"
 

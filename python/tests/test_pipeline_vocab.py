@@ -160,11 +160,15 @@ def test_the_recipe_tells_a_full_set_from_a_trimmed_one(
         "max_consistency_rows": pipeline.PIPELINE_MAX_CONSISTENCY_ROWS,
     }
 
+    # The recipe a v5 build wrote carries no data-rules key; v6 (the default) adds one. This test
+    # is about the vocab key, so it pins the legacy v5 recipe it was written against.
+    LEGACY = ["--legacy-v5-data-rules"]
+
     def digest(recipe: dict[str, Any]) -> str:
         return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
 
-    corpus = _recipe_hash(monkeypatch, tmp_path, ["--vocab", "corpus"])
-    full = _recipe_hash(monkeypatch, tmp_path, [])
+    corpus = _recipe_hash(monkeypatch, tmp_path, [*LEGACY, "--vocab", "corpus"])
+    full = _recipe_hash(monkeypatch, tmp_path, LEGACY)
     # A trimmed set hashes exactly as every row written before the flag did.
     assert corpus == digest(before)
     assert full == digest({**before, "vocab": "full"})

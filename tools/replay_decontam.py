@@ -246,7 +246,6 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{path} already exists; refusing to overwrite it")
 
     from real_ft_run import check_defect_source, ft_splits, replay_corpus_identity
-
     from real_tokenizer_pipeline import data_rules
 
     config = data_rules(DataConfig(), v6=not args.legacy_v5_data_rules)

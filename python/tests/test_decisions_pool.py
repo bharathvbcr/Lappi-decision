@@ -167,7 +167,8 @@ def test_boolq_and_vitaminc_are_admitted_pool_sources_not_opt_in() -> None:
     refused_sources, so it would move every no-pool data_snapshot_hash."""
     for source_id in ("google/boolq", "tals/vitaminc"):
         source = source_by_id(source_id)
-        assert not source.opt_in_note and not source.admission_refusals(DataConfig.legacy_v5().licence)
+        licence = DataConfig.legacy_v5().licence
+        assert not source.opt_in_note and not source.admission_refusals(licence)
     assert "[U]" in source_by_id("tals/vitaminc").evidence, "the canary GUID is unverified"
 
 
@@ -185,7 +186,9 @@ def test_option_refusals_agree_with_rust_on_the_shared_fixture() -> None:
 
 def test_a_pool_row_becomes_a_pinned_choice_row_with_its_question_in_the_context() -> None:
     raw = _row(split="val")
-    row = rewrite_typed_decision(raw, family_id="openjev.policy", index=0, config=DataConfig.legacy_v5())
+    row = rewrite_typed_decision(
+        raw, family_id="openjev.policy", index=0, config=DataConfig.legacy_v5()
+    )
     assert row.request.context == raw.context.encode("utf-8")
     assert row.request.question == task_family_by_id("openjev.policy").description
     (slot,) = row.request.slots
@@ -199,7 +202,9 @@ def test_a_pool_row_becomes_a_pinned_choice_row_with_its_question_in_the_context
 
 def test_open_jev_abstain_gold_is_noul() -> None:
     raw = _row(gold_option=None, gold_noul=True)
-    row = rewrite_typed_decision(raw, family_id="openjev.policy", index=0, config=DataConfig.legacy_v5())
+    row = rewrite_typed_decision(
+        raw, family_id="openjev.policy", index=0, config=DataConfig.legacy_v5()
+    )
     assert row.gold[0].is_noul and row.gold[0].value is None
 
 
@@ -458,7 +463,9 @@ def _pool_val_lines() -> list[dict[str, object]]:
 def _pool_val_identities(pool: Path) -> list[str]:
     loaded = load_decision_pool(pool)
     return sorted(
-        rewrite_typed_decision(r, family_id=r.family_id, index=i, config=DataConfig.legacy_v5()).identity_key
+        rewrite_typed_decision(
+            r, family_id=r.family_id, index=i, config=DataConfig.legacy_v5()
+        ).identity_key
         for rows in loaded.raw.values() for i, r in enumerate(rows) if r.split == "val"
     )
 

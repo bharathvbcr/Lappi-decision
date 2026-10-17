@@ -626,7 +626,6 @@ def main(argv: list[str] | None = None) -> int:
         targets.extend(benchmark_target_sets(args.general_record))
 
     from real_ft_run import ft_split_report, replay_corpus_identity
-
     from real_tokenizer_pipeline import data_rules
 
     config = data_rules(DataConfig(), v6=v6)

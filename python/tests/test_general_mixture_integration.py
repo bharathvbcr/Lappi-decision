@@ -65,7 +65,9 @@ def test_two_stage_clinc_builds_with_a_map_and_fails_closed_without() -> None:
     q = len(vocab) // 4
     dm = ClincDomainMap(domains={f"d{k}": tuple(vocab[k * q:(k + 1) * q]) for k in range(4)})
     rows = small_corpus(24)["clinc/clinc_oos"]
-    ok = build_mixture({"clinc/clinc_oos": rows}, config=DataConfig.legacy_v5(), clinc_domain_map=dm)
+    ok = build_mixture(
+        {"clinc/clinc_oos": rows}, config=DataConfig.legacy_v5(), clinc_domain_map=dm
+    )
     assert ok.status.passed is True, ok.status
     assert any(isinstance(r, ClincRow) and r.is_oos for r in rows)
     assert ok.family_coverage[CLINC_DOMAIN_FAMILY].value == len(rows)

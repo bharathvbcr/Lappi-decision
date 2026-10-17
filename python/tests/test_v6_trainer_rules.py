@@ -1,5 +1,6 @@
 """``tools/real_ft_run.py`` under Fable's v6 ruling (``AUDIT/v6-rulings-2026-10-08/
-fable-v6-data-design-ruling.md``): R2's default-v6 rebuild (``--legacy-v5-data-rules`` for v5) and R7's shared span head.
+fable-v6-data-design-ruling.md``): R2's default-v6 rebuild (``--legacy-v5-data-rules`` for v5)
+and R7's shared span head.
 
 * R2. ``--v6-data-rules`` rebuilds the shard set's rows under the pipeline's own
   ``data_rules`` (both v6 rules), names its corpus as the pipeline does (``name_corpus``), and

@@ -1,4 +1,5 @@
-"""v6 data rules (default; ``--legacy-v5-data-rules`` names v5) on ``tools/real_tokenizer_pipeline.py`` (Fable's v6 ruling R1 and R2,
+"""v6 data rules (default; ``--legacy-v5-data-rules`` names v5) on
+``tools/real_tokenizer_pipeline.py`` (Fable's v6 ruling R1 and R2,
 ``AUDIT/v6-rulings-2026-10-08/fable-v6-data-design-ruling.md``).
 
 * R2: v6 is the default and ``--legacy-v5-data-rules`` names v5; both rules are applied

@@ -672,7 +672,8 @@ def _composed_file_near_duplicates(
         n_total=len(texts),
         detail=(
             f"signed {len(composed_units)} file blocks of composed rows and "
-            f"{len(texts) - len(composed_units)} other rows; {len(cands)} candidate pairs, {len(crossing)} of them crossing a repo "
+            f"{len(texts) - len(composed_units)} other rows; {len(cands)} candidate pairs, "
+            f"{len(crossing)} of them crossing a repo "
             f"split with a composed end, none confirmed at threshold {config.dedupe_threshold}"
             if not offenders
             else "a composed row's file near-duplicates a file across a repo split: "

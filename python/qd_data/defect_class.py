@@ -88,13 +88,12 @@ from .sources import source_by_id
 from .split import SQUAD_TITLE_FAMILIES, assign_repo, squad_title_family, squad_title_repo_key
 
 __all__ = [
-    "CORPUS_MANIFEST_NAME",
-    "check_examples_manifest",
     "CHOICE_SLOT",
     "COMPOSED_FILE_HEADER_LINES",
     "COMPOSED_SCHEMA",
     "CONTEXT_HEADER_LINES",
     "CONTRAST_TWIN_FAMILIES",
+    "CORPUS_MANIFEST_NAME",
     "DEFECT_CLASSES",
     "DEFECT_FAMILY_ID",
     "DEFECT_SOURCE_ID",
@@ -133,6 +132,7 @@ __all__ = [
     "DefectRow",
     "NoulLoad",
     "OwnProseStrike",
+    "check_examples_manifest",
     "composite_digest",
     "diff_line_span",
     "load_defect_rows",
