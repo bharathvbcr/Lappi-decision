@@ -31,8 +31,10 @@
 #   RSS; a 3 GiB MPS allocation moved RSS +0.04 GiB and the footprint +3.06 GiB). The job's whole
 #   process tree (children and grandchildren) is summed every $MAC_HEAVY_RSS_POLL_S (default 2)
 #   seconds by tools/mac_footprint.py (stdlib ctypes, proc_pid_rusage). Above
-#   $MAC_HEAVY_MAX_FOOTPRINT_MB (default 53248 = 52 GiB: 64 GiB minus a 12 GiB floor for the OS,
-#   the harness and a second light session) the tree gets SIGTERM, then SIGKILL after 10 s, and the
+#   $MAC_HEAVY_MAX_FOOTPRINT_MB (default: memguard's per-process threshold minus 4 GiB, read from
+#   its plist's -cap-gib, so 28672 while that is 32; 53248 only when no memguard is installed; an
+#   explicit value at or above memguard's threshold is refused with exit 64, and an installed
+#   memguard whose threshold cannot be read is refused too) the tree gets SIGTERM, then SIGKILL after 10 s, and the
 #   script exits 70. Summing over a tree can double-count shared IOKit memory; a GPU job is one
 #   process and the cap is a safety bound, so over-counting is the side to err on. If the reader
 #   fails on 3 consecutive polls the job is stopped and the script exits 71 ("memory guard could
@@ -48,10 +50,11 @@
 #   and the plist) samples ri_phys_footprint of every process the user owns every 2 s and SIGTERMs any
 #   unprotected single process over 32 GiB, SIGKILL 10 s later; under critical memory pressure for 3
 #   consecutive samples it does the same to the largest process of 2 GiB or more. Per process, not per
-#   tree, so a 33 GiB job dies to memguard long before this 52 GiB tree cap. It posts a notification
+#   tree, which is why the cap above sits below it. It posts a notification
 #   and writes a JSON "terminate" line to ~/Library/Logs/memguard/memguard.log by its plist, but that
 #   directory does not exist on this Mac (checked 2026-10-17), so the kill leaves no log line here or
-#   there: the job ends with signal 15 and no footprint message from this script.
+#   there: the job ends with signal 15 and no footprint message from this script. That case (job
+#   status 143 that this script did not cause) exits 79, "external SIGTERM -- likely memguard".
 # - Busy machine. After taking the lock, it waits while the 1-minute load average exceeds
 #   $MAC_HEAVY_MAX_LOAD (default 12) or the process count exceeds $MAC_HEAVY_MAX_PROCS (default
 #   2500). If that does not clear within the wait budget, it exits 76 and the job never runs.
@@ -90,7 +93,31 @@ if [ -n "${MAC_HEAVY_MAX_RSS_MB+x}" ]; then
   echo "mac_heavy: MAC_HEAVY_MAX_RSS_MB is retired; the cap is now on phys_footprint, so use MAC_HEAVY_MAX_FOOTPRINT_MB (default 53248). Refusing rather than running uncapped" >&2
   exit 64
 fi
-MAX_FP_MB=${MAC_HEAVY_MAX_FOOTPRINT_MB-53248}
+# memguard binds first: its per-process threshold is read from its source of truth, `-cap-gib` in
+# its LaunchAgent plist (falling back to the flag default in its main.go), never copied here. "" =
+# no memguard installed; "?" = installed but unreadable, which refuses to start (a cap cannot be
+# proved below a number nobody could read).
+MEMGUARD_PLIST=${MAC_HEAVY_MEMGUARD_PLIST:-$HOME/Library/LaunchAgents/com.bharath.memguard.plist}
+MEMGUARD_MAIN=${MAC_HEAVY_MEMGUARD_MAIN:-$HOME/Code/devtools/memguard/main.go}
+MG_GIB=""
+if [ -r "$MEMGUARD_PLIST" ]; then
+  MG_GIB=$(tr '\n' ' ' < "$MEMGUARD_PLIST" | sed -n 's/.*<string>-cap-gib<\/string> *<string>\([0-9.][0-9.]*\)<\/string>.*/\1/p')
+  if [ -z "$MG_GIB" ] && [ -r "$MEMGUARD_MAIN" ]; then
+    MG_GIB=$(sed -n 's/.*"cap-gib", *\([0-9.][0-9.]*\).*/\1/p' "$MEMGUARD_MAIN" | head -1)
+  fi
+  [ -n "$MG_GIB" ] || MG_GIB="?"
+fi
+case "$MG_GIB" in
+  ''|0|0.0) MG_MB=0; DEFAULT_FP_MB=53248 ;;
+  '?') echo "mac_heavy: memguard is installed ($MEMGUARD_PLIST) but its -cap-gib cannot be read, so the footprint cap cannot be proved below it; '$LABEL' did NOT run" >&2; exit 64 ;;
+  *)
+    MG_MB=$(awk -v g="$MG_GIB" 'BEGIN { printf "%d", g * 1024 }')
+    # 4 GiB under memguard's threshold: its 2 s sampling and ours are not the same instants.
+    DEFAULT_FP_MB=$((MG_MB - 4096))
+    [ "$DEFAULT_FP_MB" -gt 0 ] || DEFAULT_FP_MB=$((MG_MB / 2))
+    ;;
+esac
+MAX_FP_MB=${MAC_HEAVY_MAX_FOOTPRINT_MB-$DEFAULT_FP_MB}
 FOOTPRINT_PY=$(dirname "$0")/mac_footprint.py
 RSS_POLL=${MAC_HEAVY_RSS_POLL_S-2}
 MAX_LOAD=${MAC_HEAVY_MAX_LOAD-12}
@@ -110,11 +137,11 @@ if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ] && [ "${MAC_HEAVY_TEST_HOOK:-}" != 1 ];
   echo "mac_heavy: MAC_HEAVY_FOOTPRINT_CMD replaces the memory guard and is honoured only for tests (MAC_HEAVY_TEST_HOOK=1); refusing rather than running unguarded" >&2
   exit 64
 fi
-[ "$POLL" -ge 1 ] || POLL=1
-if [ "$MG_MB" -gt 0 ] && [ "$MAX_RSS_MB" -ge "$MG_MB" ]; then
-  echo "mac_heavy: RSS cap ${MAX_RSS_MB} MiB is not below memguard's per-process threshold ${MG_MB} MiB (-cap-gib $MG_GIB in $MEMGUARD_PLIST); memguard would SIGTERM first and leave no log; '$LABEL' did NOT run" >&2
+if [ "$MG_MB" -gt 0 ] && [ "$MAX_FP_MB" -ge "$MG_MB" ]; then
+  echo "mac_heavy: footprint cap ${MAX_FP_MB} MiB is not below memguard's per-process threshold ${MG_MB} MiB (-cap-gib $MG_GIB in $MEMGUARD_PLIST); memguard would SIGTERM first and leave no log; '$LABEL' did NOT run" >&2
   exit 64
 fi
+[ "$POLL" -ge 1 ] || POLL=1
 [ "$RSS_POLL" -ge 1 ] || RSS_POLL=1
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -293,7 +320,7 @@ if [ -n "$left" ]; then
 fi
 JOB=""
 if [ "$rc" -eq 143 ]; then
-  echo "mac_heavy: $(now) '$LABEL' was ended by an external SIGTERM -- likely memguard (per-process threshold ${MG_MB} MiB; it leaves no log); this script did not stop it and its own RSS cap never fired. Exit 79: not a success and not an ordinary failure; the result does not count" >&2
+  echo "mac_heavy: $(now) '$LABEL' was ended by an external SIGTERM -- likely memguard (per-process threshold ${MG_MB} MiB, 0 = none installed; it leaves no log). This script did not stop it and its own footprint cap never fired. Exit 79: not a success and not an ordinary failure; the result does not count" >&2
   exit 79
 fi
 echo "mac_heavy: $(now) '$LABEL' finished with exit $rc" >&2
