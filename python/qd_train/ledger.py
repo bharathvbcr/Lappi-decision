@@ -43,6 +43,12 @@ from qd_data.fingerprint import code_fingerprint
 from .eval_harness import DEFAULT_MAX_CLASS_SHARE, permutation_consistency_state
 from .ood import OOD_CATEGORIES, ood_gate
 from .run_control import CostEstimate, WallClockCap
+from .span_null import (
+    SPAN_END_TOP1_METRIC,
+    SPAN_NULL_METRIC,
+    SPAN_START_TOP1_METRIC,
+    span_beats_null_state,
+)
 from .tristate import NotRun, Ran, TriState, aggregate, parse_tristate
 
 __all__ = [
@@ -59,6 +65,7 @@ __all__ = [
     "LedgerChainError",
     "LedgerForkError",
     "LedgerRow",
+    "OrphanStartedRow",
     "PromotionDecisions",
     "PromotionPopulation",
     "PromotionVerdict",
@@ -68,11 +75,13 @@ __all__ = [
     "SuiteFailure",
     "SuiteOutcome",
     "find_forks",
+    "find_orphan_started_rows",
     "load_promotion_decisions",
     "main",
     "parse_cargo_test_output",
     "parse_command",
     "parse_pytest_output",
+    "reconcile_orphan_started_rows",
     "record_build_run",
     "run_suite",
     "verify_no_fork",
@@ -89,7 +98,10 @@ RunKind = Literal[
     "eval", "calibration", "smoke", "throughput", "resume", "scale",
     "build",
 ]
-Status = Literal["completed", "killed", "failed"]
+#: ``started`` is the one non-terminal status: the row ``RunRecorder.__enter__`` appends before
+#: any work, so a run SIGKILLed past its own handlers still leaves evidence that it began.
+#: Every run ends in exactly one of the other three, which names the started row it ends.
+Status = Literal["started", "completed", "killed", "failed"]
 #: Who measured `LedgerRow.wall_clock_s`. "unrecorded" is for rows written before the field
 #: existed and is never chosen by a run: a row either states a source or predates the idea.
 WallClockSource = Literal["caller", "recorder", "unrecorded"]
@@ -161,6 +173,34 @@ REQUIRED_CONTROLS: tuple[str, ...] = (
     "transfer_gate",
 )
 
+#: The ``lifecycle.*`` metrics of the run-lifecycle protocol (docs/ledger-schema.md, "Run
+#: lifecycle"). A ``started`` row carries all six; every row that ends a run carries
+#: :data:`LIFECYCLE_STARTED_ROW`, the ``row_id`` of the started row it terminates.
+LIFECYCLE_RUN_ID: Final[str] = "lifecycle.run_id"
+LIFECYCLE_PID: Final[str] = "lifecycle.pid"
+LIFECYCLE_HOST: Final[str] = "lifecycle.host"
+LIFECYCLE_STARTED_AT: Final[str] = "lifecycle.started_at"
+LIFECYCLE_REGISTRATION: Final[str] = "lifecycle.registration_id"
+LIFECYCLE_CAP_S: Final[str] = "lifecycle.cap_s"
+LIFECYCLE_STARTED_ROW: Final[str] = "lifecycle.started_row_id"
+#: The instance rate the run was launched under (0.0 on a local device). It lets a reconciled
+#: ``killed`` row price the run's upper bound from the started row alone.
+LIFECYCLE_USD_PER_HOUR: Final[str] = "lifecycle.usd_per_hour"
+#: Written on a reconciled ``killed`` row: bounds on a run whose end nobody saw.
+LIFECYCLE_ELAPSED_UPPER_S: Final[str] = "lifecycle.elapsed_upper_bound_s"
+LIFECYCLE_COST_UPPER_USD: Final[str] = "lifecycle.cost_upper_bound_usd"
+#: The environment variable a launcher sets to name the preregistration a run belongs to, for
+#: tools that construct their own ``RunRecorder``.
+REGISTRATION_ID_ENV: Final[str] = "QD_REGISTRATION_ID"
+#: How long past its stated cap a run with a started row and no terminal row is given before
+#: it is read as gone even when its pid cannot be checked (another host). A run is killed at
+#: its cap by its own guard; this is the slack for the guard's grace and the final write.
+ORPHAN_GRACE_S: Final[float] = 900.0
+#: The reason on every ``killed`` row ``reconcile_orphan_started_rows`` writes.
+ORPHAN_REASON: Final[str] = (
+    "no terminal row; process gone — SIGKILL or external kill (memguard?)"
+)
+
 # The open promotion questions only a human may answer (rule 2), as DATA a human edits.
 # Nothing in code chooses a value here: the verdict reads the record and says what it read,
 # with the file's sha256, so "which population was this judged on" is never an inference.
@@ -178,7 +218,21 @@ REQUIRED_DECISIONS: tuple[str, ...] = (
     "transfer_gate_definition",
     "paired_margin_population",
     "shuffled_label_seeds",
+    "span_beats_null",
+    "decision_record_before_results",
 )
+#: The two gates the human ruled in on 2026-10-17 (AUDIT/harden-2026-10-17/
+#: human-ruling-2026-10-17.md, Q2). They are derived by the verdict, not written on a row's
+#: ``gates``, and bind families first written on or after their ``binding_from``.
+SPAN_BEATS_NULL: Final[str] = "span_beats_null"
+DECISION_RECORD_BEFORE_RESULTS: Final[str] = "decision_record_before_results"
+RULING_GATES: Final[tuple[str, ...]] = (SPAN_BEATS_NULL, DECISION_RECORD_BEFORE_RESULTS)
+#: The metrics a ft/eval row carries naming the decision record it was launched under.
+DECISION_RECORD_PATH: Final[str] = "decision_record.path"
+DECISION_RECORD_BLOB: Final[str] = "decision_record.blob"
+DECISION_RECORD_COMMIT: Final[str] = "decision_record.commit"
+#: Run kinds whose rows are results the record must precede.
+RESULT_RUN_KINDS: Final[frozenset[str]] = frozenset({"ft", "eval"})
 #: A decisions record is a page of JSON; anything larger is not one.
 MAX_DECISIONS_BYTES: Final[int] = 1 << 20
 
@@ -249,6 +303,10 @@ class HumanDecision:
     decision_ref: str | None
     #: ``promotion_population`` only: ``"all"`` or the family ids the population holds.
     families: str | tuple[str, ...] | None = None
+    #: The two ruling gates only (:data:`RULING_GATES`): the first day a family's earliest
+    #: ft/eval row may fall on for the gate to bind it. Earlier families report the gate
+    #: not_run, "predates the ruling", and are not refused on it.
+    binding_from: date | None = None
 
     def describe(self) -> str:
         return f"{self.name} ({self.gap}): {self.question}"
@@ -372,10 +430,22 @@ def _parse_decision(name: str, entry: object, where: str) -> HumanDecision:
                 f"{where}: an open question cannot carry a yes; set status to 'decided' "
                 "with who decided, when and where"
             )
+    binding_from: date | None = None
+    if name in RULING_GATES:
+        raw = entry.get("binding_from")
+        try:
+            binding_from = date.fromisoformat(raw) if isinstance(raw, str) else None
+        except ValueError:
+            binding_from = None
+        if binding_from is None:
+            raise DecisionsRecordError(
+                f"{where}: 'binding_from' must be a YYYY-MM-DD date, got {raw!r}; a ruling gate "
+                "that does not say from when it binds cannot be told from one that never does"
+            )
     return HumanDecision(
         name=name, question=question, gap=gap, status=str(status), value=value,
         source=source, decided_by=deciders["decided_by"], decided_on=deciders["decided_on"],
-        decision_ref=deciders["decision_ref"], families=families,
+        decision_ref=deciders["decision_ref"], families=families, binding_from=binding_from,
     )
 
 
@@ -1200,8 +1270,17 @@ class Ledger:
             return []
         return [ln for ln in data.split(b"\n") if ln.strip()]
 
-    def rows(self) -> list[LedgerRow]:
-        return [LedgerRow.from_json(json.loads(ln.decode("utf-8"))) for ln in self.raw_lines()]
+    def rows(self, *, include_started: bool = False) -> list[LedgerRow]:
+        """The ledger's rows, one per run result.
+
+        A ``started`` row is a run's lifecycle marker, not a result: it is what lets a SIGKILLed
+        run be found (:func:`reconcile_orphan_started_rows`), and a reader counting runs, rows
+        per seed or completed rows wants the rows that say how runs ended. They are left out
+        unless ``include_started`` asks for them; the writers and the lifecycle and promotion
+        readers do ask, so an orphan is never invisible to the code that must refuse on it.
+        """
+        parsed = [LedgerRow.from_json(json.loads(ln.decode("utf-8"))) for ln in self.raw_lines()]
+        return parsed if include_started else [r for r in parsed if r.status != "started"]
 
     def last_line_hash(self) -> str | None:
         lines = self.raw_lines()
@@ -1268,7 +1347,7 @@ class Ledger:
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         try:
             self._take_write_lock(fd, lock_timeout_s)
-            if any(r.row_id == row.row_id for r in self.rows()):
+            if any(r.row_id == row.row_id for r in self.rows(include_started=True)):
                 raise ValueError(f"row_id {row.row_id} already present: the ledger is append-only")
             row.prev_row_hash = self.last_line_hash()
             line = _canonical(row.to_json()).encode("utf-8")
@@ -1302,7 +1381,15 @@ class Ledger:
         read refuses: a verdict that cannot say which population it judged does not promote.
         """
         decisions, population, record_refusal = _read_decisions(decisions_path)
-        candidates = [r for r in self.rows() if r.protocol.hash_without_seed() == seed_family]
+        all_rows = self.rows(include_started=True)
+        # A started row some terminal row names is that run's beginning, not a second run: it
+        # drops out. One nothing names stays, and refuses (`_row_refusals`: not 'completed'),
+        # because a run that began and has no recorded end is exactly what must not promote.
+        ended = terminated_started_ids(all_rows)
+        candidates = [
+            r for r in all_rows
+            if r.protocol.hash_without_seed() == seed_family and r.row_id not in ended
+        ]
         ids = tuple(r.row_id for r in candidates)
         reasons: list[str] = []
 
@@ -1327,6 +1414,12 @@ class Ledger:
 
         unit_reasons, readings = _unit_refusals(units, decisions, across_seeds=True)
         reasons.extend(unit_reasons)
+        ruling_reasons, ruling_readings = _ruling_refusals(
+            candidates, [r for r in all_rows if r.protocol.hash_without_seed() == seed_family],
+            units, decisions,
+        )
+        reasons.extend(ruling_reasons)
+        readings = (*readings, *ruling_readings)
         reasons.extend(record_refusal)
 
         if reasons:
@@ -1404,7 +1497,7 @@ class Ledger:
         reasons: list[str] = list(_row_refusals(avg))
         pool: dict[str, LedgerRow] = {}
         for led in (self, *input_ledgers):
-            for r in led.rows():
+            for r in led.rows(include_started=True):
                 pool.setdefault(r.row_id, r)
         read_from = ", ".join(str(led.path) for led in (self, *input_ledgers))
         inputs: list[LedgerRow] = []
@@ -1459,6 +1552,14 @@ class Ledger:
         reasons.extend(join_refusals)
         unit_reasons, readings = _unit_refusals(units, decisions)
         reasons.extend(unit_reasons)
+        family = [avg, *supplements, *inputs]
+        started = [pool[str(v)] for r in family
+                   if (v := _metric_value(r, LIFECYCLE_STARTED_ROW)) is not None
+                   and str(v) in pool]
+        ruling_reasons, ruling_readings = _ruling_refusals(
+            family, [*family, *started], units, decisions)
+        reasons.extend(ruling_reasons)
+        readings = (*readings, *ruling_readings)
 
         reasons.extend(record_refusal)
         verdict_on_averages = ""
@@ -1535,7 +1636,12 @@ def _row_refusals(r: LedgerRow) -> list[str]:
     # Rule 8's "truncated schedule", derived rather than taken on trust. A run the
     # cap stopped did not finish its schedule, whatever `quick` says about it.
     termination = r.metrics.get("train.termination")
-    if termination is not None and termination.value == "wall_clock_cap":
+    if isinstance(termination, NotRun):
+        reasons.append(
+            f"{r.row_id}: train.termination did not run ({termination.reason}); a schedule "
+            "nobody can show finished is a truncated one under rule 8"
+        )
+    elif termination is not None and termination.value == "wall_clock_cap":
         reasons.append(
             f"{r.row_id}: train.termination is 'wall_clock_cap'; the wall-clock cap "
             "stopped this run before its schedule finished, which rule 8 calls a "
@@ -1578,9 +1684,10 @@ def _input_refusals(r: LedgerRow) -> list[str]:
             f"input {r.row_id} carries no train.termination; a run that does not say how it "
             "ended cannot be shown to have run its full schedule"
         )
-    elif termination.value != "steps_exhausted":
+    elif isinstance(termination, NotRun) or termination.value != "steps_exhausted":
         reasons.append(
-            f"input {r.row_id}: train.termination is {termination.value!r}, not "
+            f"input {r.row_id}: train.termination is "
+            f"{'not_run' if isinstance(termination, NotRun) else termination.value!r}, not "
             "'steps_exhausted'; it did not run its full schedule"
         )
     return reasons
@@ -1962,6 +2069,198 @@ def _unit_refusals(
     return reasons, tuple(readings)
 
 
+def _git_out(cwd: Path, *args: str) -> str | None:
+    """Stdout of ``git -C cwd args``, stripped; ``None`` when git cannot answer.
+
+    ``None`` and ``""`` are different answers (``status --porcelain`` is ``""`` when clean), so
+    a caller that needs "git could not be read" tests ``is None``.
+    """
+    try:
+        return subprocess.run(
+            ["git", "-C", str(cwd), *args],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def decision_record_evidence(path: Path | None = None) -> dict[str, TriState]:
+    """What a ft/eval row records about the decision record it is launched under.
+
+    Three tri-states: the record's repo-relative path, its git blob, and the commit that last
+    changed it, all read at ``HEAD`` -- and only when the working copy matches ``HEAD``. A
+    record with uncommitted edits, or one git cannot read, is ``not_run`` for all three: results
+    cannot be judged under a record that has not been committed.
+    """
+    target = Path(DEFAULT_DECISIONS_PATH if path is None else path).resolve()
+
+    def refused(why: str) -> dict[str, TriState]:
+        reason = f"decision record {target}: {why}"
+        return {n: NotRun(reason=reason)
+                for n in (DECISION_RECORD_PATH, DECISION_RECORD_BLOB, DECISION_RECORD_COMMIT)}
+
+    top = _git_out(target.parent, "rev-parse", "--show-toplevel")
+    if not top:
+        return refused("not inside a git work tree, so no commit can order it before results")
+    try:
+        rel = str(target.relative_to(Path(top).resolve()))
+    except ValueError:
+        return refused("is outside the work tree git reports")
+    dirty = _git_out(Path(top), "status", "--porcelain", "--", rel)
+    if dirty is None or dirty:
+        return refused("has uncommitted changes (or git could not say): results must be judged "
+                       "under a COMMITTED record")
+    blob = _git_out(Path(top), "rev-parse", f"HEAD:{rel}")
+    commit = _git_out(Path(top), "log", "-n1", "--format=%H", "HEAD", "--", rel)
+    if not blob or not commit:
+        return refused("git could not name its blob and commit at HEAD")
+    return {
+        DECISION_RECORD_PATH: Ran(passed=True, value=rel),
+        DECISION_RECORD_BLOB: Ran(passed=True, value=blob),
+        DECISION_RECORD_COMMIT: Ran(passed=True, value=commit),
+    }
+
+
+def _utc(stamp: str) -> datetime:
+    when = datetime.fromisoformat(stamp)
+    return when if when.tzinfo is not None else when.replace(tzinfo=UTC)
+
+
+def decision_record_before_results_state(
+    results: Sequence[LedgerRow], timeline: Sequence[LedgerRow], record_path: Path,
+) -> TriState:
+    """``decision_record_before_results``, from the ledger and git alone.
+
+    ``results`` are the family's ft/eval rows; ``timeline`` the family's rows including the
+    started rows that were superseded, whose earliest ``written_at`` is when the family's
+    first result could have existed. Each result row names the record it was launched under
+    (:func:`decision_record_evidence`). ``Ran`` and passed only when, for every record named:
+    git holds that blob at that commit, the commit's committer time is strictly before the
+    earliest row (whole seconds, so a commit made inside the same second does not pass), and the
+    record the verdict is reading is that same blob. ``Ran`` and failed when one of those is
+    contradicted; ``not_run`` when a row names no record or git cannot be read -- which blocks.
+
+    A committer date is whatever git was told; this orders the record before the results
+    against git's own history, which is what a reviewer can check, not against a trusted clock.
+    """
+    results = [r for r in results if r.run_kind in RESULT_RUN_KINDS]
+    if not results:
+        return NotRun(reason="the family has no ft/eval row to order a decision record before")
+    names = (DECISION_RECORD_PATH, DECISION_RECORD_BLOB, DECISION_RECORD_COMMIT)
+    unrecorded = [r for r in results if not all(isinstance(r.metrics.get(n), Ran) for n in names)]
+    if unrecorded:
+        first = next((s for r in unrecorded for n in names
+                      if isinstance(s := r.metrics.get(n), NotRun)), None)
+        return NotRun(reason=(
+            f"{len(unrecorded)} of {len(results)} ft/eval row(s) "
+            f"({', '.join(r.row_id[:8] for r in unrecorded[:5])}) do not record the decision "
+            "record they were launched under"
+            + (f": {first.reason}" if first is not None else "")
+        ))
+    claims = {
+        tuple(str(r.metrics[n].value) for n in names)  # type: ignore[union-attr]
+        for r in results
+    }
+    top = _git_out(record_path.resolve().parent, "rev-parse", "--show-toplevel")
+    if not top:
+        return NotRun(reason=f"{record_path} is not inside a git work tree; the record's "
+                      "commit time cannot be read")
+    repo = Path(top)
+    earliest = min(_utc(r.written_at) for r in timeline)
+    floor_s = int(earliest.timestamp())
+    current = _git_out(repo, "hash-object", str(record_path.resolve()))
+    if current is None:
+        return NotRun(reason=f"git could not hash the record at {record_path}")
+    for path, blob, commit in sorted(claims):
+        held = _git_out(repo, "rev-parse", f"{commit}:{path}")
+        stamp = _git_out(repo, "show", "-s", "--format=%ct", commit)
+        if not held or not stamp or not stamp.isdigit():
+            return NotRun(reason=f"git cannot read {path} at commit {commit[:12]}, which the "
+                          "rows name; the ordering cannot be checked")
+        if held != blob:
+            return Ran(passed=False, value=0, detail=(
+                f"rows say {path} was blob {blob[:12]} at {commit[:12]}, but that commit holds "
+                f"{held[:12]}: the rows misstate the record they were judged under"))
+        if int(stamp) >= floor_s:
+            return Ran(passed=False, value=0, detail=(
+                f"the decision record {path} was committed ({commit[:12]}, "
+                f"{datetime.fromtimestamp(int(stamp), UTC).isoformat()}) at or after the "
+                f"family's earliest row ({earliest.isoformat()}): a gate's record must be "
+                "committed before the results it judges"))
+        if current != blob:
+            return Ran(passed=False, value=0, detail=(
+                f"the record being read ({current[:12]}) is not the blob these rows were "
+                f"judged under ({blob[:12]}): it changed after the results"))
+    return Ran(passed=True, value=1, detail=(
+        f"{len(claims)} record version(s), each committed before the family's earliest row "
+        f"({earliest.isoformat()}) and unchanged since"))
+
+
+def _unit_metric(unit: Sequence[LedgerRow], name: str) -> TriState | None:
+    """A metric of one promotion unit: its eval row's own, else the first supplement's."""
+    for r in unit:
+        state = r.metrics.get(name)
+        if state is not None:
+            return state
+    return None
+
+
+def _ruling_refusals(
+    candidates: Sequence[LedgerRow], timeline: Sequence[LedgerRow],
+    units: Sequence[tuple[LedgerRow, list[LedgerRow]]], decisions: PromotionDecisions | None,
+) -> tuple[list[str], list[str]]:
+    """The two gates ruled in on 2026-10-17, as ``(refusals, readings)``.
+
+    A family binds when its earliest row is on or after the gate's ``binding_from``. An older
+    family reads the gate ``not_run`` -- "predates the <date> ruling" -- as a reading only: the
+    ruling binds from the next registration, so it is not a requirement on a family that
+    could not have known it. A bound family refuses on ``not_run`` exactly as it does for any
+    required gate.
+    """
+    reasons: list[str] = []
+    readings: list[str] = []
+    if decisions is None or not timeline:
+        return reasons, readings
+    earliest = min(_utc(r.written_at) for r in timeline)
+    for name in RULING_GATES:
+        d = decisions.decisions[name]
+        if d.status != "decided" or d.binding_from is None:
+            readings.append(f"gate {name!r}: not applied; the record leaves it open")
+            continue
+        if earliest.date() < d.binding_from:
+            readings.append(
+                f"gate {name!r}: not_run (predates the {d.decided_on} ruling: the family's "
+                f"earliest row is {earliest.date().isoformat()}, the gate binds from "
+                f"{d.binding_from.isoformat()}); not a requirement on this family"
+            )
+            continue
+        if name == DECISION_RECORD_BEFORE_RESULTS:
+            states = [(
+                "family",
+                decision_record_before_results_state(candidates, timeline, decisions.path),
+            )]
+        else:
+            states = [
+                (
+                    r.row_id + "".join(f" + {s.row_id}" for s in sups),
+                    span_beats_null_state(
+                        _unit_metric([r, *sups], SPAN_START_TOP1_METRIC),
+                        _unit_metric([r, *sups], SPAN_END_TOP1_METRIC),
+                        _unit_metric([r, *sups], SPAN_NULL_METRIC),
+                    ),
+                )
+                for r, sups in units
+            ]
+        for label, state in states:
+            readings.append(f"{label}: gate {name!r}: {_brief(state)}")
+            if isinstance(state, NotRun):
+                reasons.append(f"{label}: gate {name!r} did not run ({state.reason}); "
+                               "this blocks promotion")
+            elif not state.passed:
+                reasons.append(f"{label}: gate {name!r} ran and FAILED ({state.detail})")
+    return reasons, readings
+
+
 def _weakest_coverage(rows: Sequence[LedgerRow]) -> str:
     """The weakest stated coverage among the rows' gates and controls, for a PROMOTE."""
     stated = [
@@ -2103,6 +2402,9 @@ class RunRecorder:
         notes: str = "",
         recipe: Mapping[str, Any] | None = None,
         entry_point: str | os.PathLike[str] | None = None,
+        registration_id: str | None = None,
+        run_cap_s: float | None = None,
+        decision_record_path: str | os.PathLike[str] | None = None,
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
@@ -2157,6 +2459,28 @@ class RunRecorder:
         # nothing. The digest never depends on the outcome, so there was never a reason to
         # compute it late.
         self.entry_point = None if entry_point is None else Path(entry_point)
+
+        # What the `started` row says the run was entitled to: the cap it was launched under
+        # (the `CostEstimate`'s own cap unless the caller states another) and the
+        # preregistration it belongs to. Stated here, validated here, because the row they
+        # land on is written before any work and cannot be corrected after.
+        if run_cap_s is not None and not (math.isfinite(run_cap_s) and run_cap_s > 0):
+            raise ValueError(
+                f"run_cap_s must be a positive finite number of seconds, got {run_cap_s!r}")
+        self.run_cap_s: float | None = (
+            run_cap_s if run_cap_s is not None
+            else (None if cost is None else float(cost.cap.cap_s))
+        )
+        self.registration_id = (
+            registration_id if registration_id is not None
+            else os.environ.get(REGISTRATION_ID_ENV) or None
+        )
+        self.started_row: LedgerRow | None = None
+        #: The decision record a ft/eval row is stamped as launched under; the repo's own
+        #: unless the caller names the record it is judged under.
+        self.decision_record_path = (
+            None if decision_record_path is None else Path(decision_record_path)
+        )
 
         self.metrics: dict[str, TriState] = {}
         self.controls: dict[str, TriState] = {}
@@ -2277,6 +2601,25 @@ class RunRecorder:
 
     def __enter__(self) -> Self:
         self._t0 = time.monotonic()
+        # FIRST, before the digest and before the handlers: SIGKILL cannot be caught, so the
+        # signal path below can never be the whole answer to "a killed run writes a row".
+        # memguard SIGTERMs a process over 32 GiB and SIGKILLs it 10 s later; a run that was
+        # busy in a long native call never reaches `_on_signal`, and left nothing at all
+        # (GAP-MAC-A-SIGKILLED-RUN-LEAVES-NO-ROW). This row is what `reconcile_orphan_started_rows`
+        # finds. If it cannot be written the run does not start: a run that could not say
+        # it began could not say it ended either.
+        self.started_row = self.ledger.append(self._started_row())
+        self.metric(
+            LIFECYCLE_STARTED_ROW,
+            Ran(passed=True, value=self.started_row.row_id,
+                detail="the `started` row this row terminates"),
+        )
+        if self.run_kind in RESULT_RUN_KINDS:
+            # The decision record this run is launched under, read now and not at the end: the
+            # ordering gate (`decision_record_before_results`) asks whether that record was
+            # committed before the results, and "now" is the last moment that is certainly so.
+            for name, state in decision_record_evidence(self.decision_record_path).items():
+                self.metric(name, state)
         if self.entry_point is not None:
             # First, before the handlers are even installed. A digest computed here is on
             # the row whether the block completes, raises, or is killed mid-step.
@@ -2292,6 +2635,55 @@ class RunRecorder:
                 # Not on the main thread; the with-block's finally still writes a row.
                 pass
         return self
+
+    def _started_row(self) -> LedgerRow:
+        """The row appended before any work: who is running, since when, under what cap.
+
+        A row of its own status, ``started``, with the evidence in ``lifecycle.*`` metrics (so
+        the row schema is unchanged). It carries no gates or controls: it asserts nothing about
+        results, and promotion ignores it once a terminal row names it and refuses on it while
+        none does.
+        """
+        run_id = str(uuid.uuid4())
+        started_at = datetime.now(UTC).isoformat()
+
+        def stated(value: float | int | str | None, what: str) -> TriState:
+            if value is None:
+                return NotRun(reason=f"{what} was not supplied to this run's recorder")
+            return Ran(passed=True, value=value)
+
+        return LedgerRow(
+            row_id=str(uuid.uuid4()),
+            written_at=started_at,
+            prev_row_hash=None,  # set by Ledger.append
+            protocol=self.protocol,
+            run_kind=self.run_kind,
+            status="started",
+            quick=False,
+            quick_reason=None,
+            code_commit=_git_commit(self.repo),
+            env=self.env,
+            metrics={
+                LIFECYCLE_RUN_ID: Ran(passed=True, value=run_id),
+                LIFECYCLE_PID: Ran(passed=True, value=os.getpid()),
+                LIFECYCLE_HOST: Ran(passed=True, value=socket.gethostname()),
+                LIFECYCLE_STARTED_AT: Ran(passed=True, value=started_at),
+                LIFECYCLE_REGISTRATION: stated(self.registration_id, "a registration id"),
+                LIFECYCLE_CAP_S: stated(self.run_cap_s, "an intended cap"),
+                LIFECYCLE_USD_PER_HOUR: Ran(
+                    passed=True,
+                    value=0.0 if self.cost is None else self.cost.usd_per_hour,
+                ),
+            },
+            noul_rate=NotRun(reason="a started row measures nothing"),
+            controls={},
+            gates={},
+            wall_clock_s=0.0,
+            wall_clock_source="unrecorded",
+            cost_usd=0.0,
+            notes="started; no terminal row yet",
+            recipe=self.recipe,
+        )
 
     def __exit__(
         self,
@@ -2355,6 +2747,185 @@ class RunRecorder:
                 recipe=self.recipe,
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# Run lifecycle: a started row, a terminal row, and the reconciliation between them.
+#
+# `RunRecorder` writes a row on every exit a process can observe. SIGKILL is not one: it
+# cannot be caught, and memguard (which SIGTERMs a process over 32 GiB and SIGKILLs it 10 s
+# later, leaving no log) uses it. So the recorder writes a `started` row first, every row
+# that ends a run names it (`lifecycle.started_row_id`), and the ledger is therefore able to
+# say which runs began and never ended. `reconcile_orphan_started_rows` is the only writer of
+# the row for a run that cannot write its own.
+# ---------------------------------------------------------------------------
+
+#: ``(pid, host) -> alive``. ``None`` is "cannot tell" (a pid on another host): never read as
+#: alive and never as dead.
+Liveness = Callable[[int, str], bool | None]
+
+
+def process_liveness(pid: int, host: str) -> bool | None:
+    """Whether ``pid`` is alive on this host; ``None`` for a pid on any other host."""
+    if host != socket.gethostname():
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # it exists, and is somebody else's
+    return True
+
+
+def _metric_value(row: LedgerRow, name: str) -> float | int | str | None:
+    state = row.metrics.get(name)
+    return state.value if isinstance(state, Ran) else None
+
+
+def terminated_started_ids(rows: Sequence[LedgerRow]) -> frozenset[str]:
+    """The ``row_id`` of every started row that some other row names as the one it ends."""
+    return frozenset(
+        str(v)
+        for r in rows
+        if r.status != "started" and (v := _metric_value(r, LIFECYCLE_STARTED_ROW)) is not None
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanStartedRow:
+    """A ``started`` row with no terminal row, and what is known about the process."""
+
+    row: LedgerRow
+    pid: int | None
+    host: str | None
+    age_s: float
+    cap_s: float | None
+    #: ``"gone"`` (reconcile writes a killed row), ``"in_flight"`` (pid alive), or
+    #: ``"unverifiable"`` (another host, still inside its cap + grace).
+    verdict: str
+    why: str
+
+
+def find_orphan_started_rows(
+    rows: Sequence[LedgerRow], now: datetime, liveness: Liveness,
+    *, grace_s: float = ORPHAN_GRACE_S,
+) -> list[OrphanStartedRow]:
+    """Every started row nothing terminates, judged ``gone``, ``in_flight`` or ``unverifiable``.
+
+    ``gone`` is a dead pid on this host, or a pid that cannot be checked and a run older than
+    its stated cap plus ``grace_s``. A live pid is never ``gone`` however old: a recycled pid
+    would otherwise make a long-dead run read as running for ever, but writing a killed row
+    under a live process would be worse, so an overdue live pid says so in ``why`` and stays
+    ``in_flight`` for a human to read.
+    """
+    if grace_s < 0 or not math.isfinite(grace_s):
+        raise ValueError(f"grace_s must be a non-negative finite number, got {grace_s!r}")
+    done = terminated_started_ids(rows)
+    out: list[OrphanStartedRow] = []
+    for r in rows:
+        if r.status != "started" or r.row_id in done:
+            continue
+        raw_pid = _metric_value(r, LIFECYCLE_PID)
+        pid = int(raw_pid) if isinstance(raw_pid, int | float) and not isinstance(raw_pid, bool) \
+            else None
+        host = _metric_value(r, LIFECYCLE_HOST)
+        host = host if isinstance(host, str) else None
+        raw_cap = _metric_value(r, LIFECYCLE_CAP_S)
+        cap = float(raw_cap) if isinstance(raw_cap, int | float) else None
+        began = datetime.fromisoformat(r.written_at)
+        age = max(0.0, (now - began).total_seconds())
+        alive = None if pid is None or host is None else liveness(pid, host)
+        overdue = cap is not None and age > cap + grace_s
+        if alive is False:
+            verdict, why = "gone", f"pid {pid} on {host} is not running"
+        elif alive is True:
+            verdict = "in_flight"
+            why = f"pid {pid} on {host} is alive" + (
+                f", but {age:.0f}s old against a cap of {cap:g}s: a recycled pid, or an overdue run"
+                if overdue else ""
+            )
+        elif overdue:
+            verdict = "gone"
+            why = (f"pid {pid} on {host} cannot be checked from here and the run is "
+                   f"{age:.0f}s old against a cap of {cap:g}s (+{grace_s:g}s grace)")
+        else:
+            verdict = "unverifiable"
+            why = f"pid {pid} on {host} cannot be checked from here and the run is inside its cap"
+        out.append(OrphanStartedRow(r, pid, host, age, cap, verdict, why))
+    return out
+
+
+def _killed_row_for(orphan: OrphanStartedRow) -> LedgerRow:
+    """The terminal row for a run that could not write one: ``killed``, every gate not_run."""
+    started = orphan.row
+    unwritten = NotRun(reason=ORPHAN_REASON)
+    elapsed = orphan.age_s if orphan.cap_s is None else min(orphan.age_s, orphan.cap_s)
+    rate = _metric_value(started, LIFECYCLE_USD_PER_HOUR)
+    metrics: dict[str, TriState] = {
+        LIFECYCLE_STARTED_ROW: Ran(passed=True, value=started.row_id,
+                                   detail="the `started` row this row terminates"),
+        LIFECYCLE_ELAPSED_UPPER_S: Ran(
+            passed=True, value=elapsed,
+            detail="an UPPER bound on the run's duration (its end was not observed), not a "
+                   "measurement: the lesser of its age and its cap"),
+    }
+    if isinstance(rate, int | float):
+        metrics[LIFECYCLE_COST_UPPER_USD] = Ran(
+            passed=True, value=rate * elapsed / 3600.0,
+            detail="an UPPER bound on what the run cost, not a measurement; `cost_usd` on "
+                   "this row is 0.0 because nothing was measured")
+    return LedgerRow(
+        row_id=str(uuid.uuid4()),
+        written_at=datetime.now(UTC).isoformat(),
+        prev_row_hash=None,  # set by Ledger.append
+        protocol=started.protocol,
+        run_kind=started.run_kind,
+        status="killed",
+        quick=True,
+        quick_reason=ORPHAN_REASON,
+        code_commit=started.code_commit,
+        env=started.env,
+        metrics=metrics,
+        noul_rate=unwritten,
+        controls={c: unwritten for c in REQUIRED_CONTROLS},
+        gates={g: unwritten for g in REQUIRED_GATES},
+        wall_clock_s=0.0,
+        wall_clock_source="unrecorded",
+        cost_usd=0.0,
+        notes=f"{ORPHAN_REASON} | {orphan.why} | reconciled from started row {started.row_id}",
+        recipe=started.recipe,
+    )
+
+
+def reconcile_orphan_started_rows(
+    ledger: Ledger, now: datetime, liveness: Liveness = process_liveness,
+    *, grace_s: float = ORPHAN_GRACE_S,
+) -> list[LedgerRow]:
+    """Append a ``killed`` row for every started row whose process is gone; return them.
+
+    Append-only: nothing already written is touched, so the chain verifies after. Idempotent:
+    the killed row names the started row it terminates, so a second pass finds nothing. The
+    read-judge-append runs under a lock of its own beside the ledger, so two reconcilers
+    cannot both write one run's row. Only ``gone`` runs are written; ``in_flight`` and
+    ``unverifiable`` ones are left for :func:`find_orphan_started_rows` to report.
+    """
+    lock_path = ledger.path.with_name(ledger.path.name + ".reconcile.lock")
+    fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+    written: list[LedgerRow] = []
+    try:
+        ledger._take_write_lock(fd, 60.0)
+        for orphan in find_orphan_started_rows(
+            ledger.rows(include_started=True), now, liveness, grace_s=grace_s
+        ):
+            if orphan.verdict == "gone":
+                written.append(ledger.append(_killed_row_for(orphan)))
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    return written
+
 
 
 # ---------------------------------------------------------------------------
@@ -2935,12 +3506,39 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(f"CHAIN BROKEN in {ledger.path} ({count} line(s)): {exc}", file=sys.stderr)
         return 1
     print(f"chain verifies: {count} row(s) in {ledger.path}")
+    # A verified chain says nothing about runs that began and left no end: those are the
+    # rows a SIGKILL never wrote. Gone ones FAIL this gate until `reconcile` records them;
+    # ones that cannot be checked from here are NotRun, never a pass.
+    orphans = find_orphan_started_rows(
+        ledger.rows(include_started=True), datetime.now(UTC), process_liveness)
+    gone = [o for o in orphans if o.verdict == "gone"]
+    unknown = [o for o in orphans if o.verdict == "unverifiable"]
+    for o in orphans:
+        print(f"  started row {o.row.row_id} ({o.row.run_kind}, seed {o.row.protocol.seed}) "
+              f"has no terminal row: {o.verdict}: {o.why}", file=sys.stderr)
+    if gone:
+        print(f"ORPHANED RUNS in {ledger.path}: {len(gone)} started row(s) whose process is "
+              "gone and that no row terminates. Record them with "
+              f"`python -m qd_train.ledger reconcile --ledger {ledger.path}`.", file=sys.stderr)
+        return 1
+    if unknown:
+        print(f"NotRun: {len(unknown)} started row(s) cannot be checked from this host; "
+              "that is not a pass.", file=sys.stderr)
+        return EXIT_SUITE_NOT_RUN
+    return 0
+
+
+def _cmd_reconcile(args: argparse.Namespace) -> int:
+    written = reconcile_orphan_started_rows(Ledger(args.ledger), datetime.now(UTC))
+    for row in written:
+        print(row.row_id)
+    print(f"reconciled {len(written)} orphaned started row(s) in {args.ledger}", file=sys.stderr)
     return 0
 
 
 def _cmd_show(args: argparse.Namespace) -> int:
     ledger = Ledger(args.ledger)
-    for row in ledger.rows():
+    for row in ledger.rows(include_started=True):
         if row.row_id == args.row_id:
             print(json.dumps(row.to_json(), indent=2, sort_keys=True))
             return 0
@@ -3028,6 +3626,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "verify", parents=[common], help="recompute the hash chain and report the first break"
     )
     ver.set_defaults(func=_cmd_verify)
+
+    rec_orphans = sub.add_parser(
+        "reconcile", parents=[common],
+        help="append a killed row for every started row whose process is gone",
+    )
+    rec_orphans.set_defaults(func=_cmd_reconcile)
 
     show = sub.add_parser("show", parents=[common], help="print one row by id")
     show.add_argument("--row-id", required=True)

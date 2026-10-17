@@ -155,6 +155,10 @@ def _everything_decided(tmp_path: Path, *, average: bool = True) -> Path:
         transfer_gate_definition=RETIRED,
         paired_margin_population=MARGIN_RULE,
         shuffled_label_seeds=SHUFFLED_RULE,
+        # Decided, but bound in the far future by the fixture (promotion_fixtures.write_record):
+        # these tests are about the other gates; test_ruling_gates.py is about these two.
+        span_beats_null=_decided("yes"),
+        decision_record_before_results=_decided("yes"),
     )
 
 
@@ -273,7 +277,11 @@ def test_an_all_green_seed_family_still_promotes_exactly_as_before(tmp_path: Pat
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed(),
                                     decisions_path=_record(tmp_path))
     assert verdict.promoted, str(verdict)
-    assert verdict.readings == ()
+    # Since 2026-10-17 the verdict also says what it did with the two ruling gates (here: the
+    # record leaves them open). Those are the only readings; no other gate's reading moved.
+    assert verdict.readings, "the ruling gates must be reported, not silently skipped"
+    assert all("'span_beats_null'" in r or "'decision_record_before_results'" in r
+               for r in verdict.readings), verdict.readings
 
 
 # --------------------------------------------------------------------------

@@ -73,7 +73,10 @@ def _recorder(ledger: Ledger, **over) -> RunRecorder:
 
 
 def _rows(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    """The terminal rows. Since the run-lifecycle contract every run also writes a `started`
+    row first (test_run_lifecycle.py); these tests are about the row that ends the run."""
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return [r for r in rows if r["status"] != "started"]
 
 
 def _digest_of(row: dict) -> str | None:

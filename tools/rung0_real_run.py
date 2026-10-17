@@ -120,6 +120,7 @@ from qd_train.mutate_adapter import (  # noqa: E402
 )
 from qd_train.power import resolution_state  # noqa: E402
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap  # noqa: E402
+from qd_train.span_null import plus_line_null  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
 
 #: Extensions qd-mutate has a grammar for, and which this repository actually contains.
@@ -408,11 +409,6 @@ def filter_train_rows(
     return train_raw, ""
 
 
-#: The byte a unified diff marks an added line with. Named because `ids` holds byte values
-#: and a bare 43 at the comparison site is a magic number in the one place it matters.
-_PLUS: Final[int] = ord("+")
-
-
 def plus_line_chance(decisions: Sequence[object]) -> tuple[float, int, int]:
     """What "point at a uniformly random ADDED line" scores, over the same scored rows.
 
@@ -429,25 +425,17 @@ def plus_line_chance(decisions: Sequence[object]) -> tuple[float, int, int]:
     where the gold is often NOT an added line is one where this null is weak and the
     uniform rate is closer to right, and that has to be visible rather than averaged away.
     """
-    total = 0.0
-    pointing = 0
-    gold_is_added = 0
-    for d in decisions:
-        line = getattr(d, "gold_span_line", None)
-        if line is None:
-            continue
-        pointing += 1
-        context = d.context  # type: ignore[attr-defined]
-        # `ids` are byte values and `starts` index into them, which is the identity
-        # EncodedContext exists to preserve -- so the first byte of a line is ids[start]
-        # with no second mapping to keep in agreement.
-        ids, starts = context.ids, context.starts
-        added = sum(1 for s in starts if ids[s] == _PLUS)
-        if ids[starts[line]] != _PLUS:
-            continue
-        gold_is_added += 1
-        total += 1.0 / added  # at least 1: the gold line itself is one
-    return (total / pointing if pointing else 0.0), pointing, gold_is_added
+    # The arithmetic lives in `qd_train.span_null`, where the promotion gate reads the same
+    # definition. `ids` are byte values and `starts` index into them, which is the identity
+    # EncodedContext exists to preserve -- so the first byte of a line is ids[start] with no
+    # second mapping to keep in agreement, and `starts` is the span head's candidate set.
+    return plus_line_null(
+        (
+            [d.context.ids[s] for s in d.context.starts],  # type: ignore[attr-defined]
+            getattr(d, "gold_span_line", None),
+        )
+        for d in decisions
+    )
 
 
 def operator_and_sibling_rows(

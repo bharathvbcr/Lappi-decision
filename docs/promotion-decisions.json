@@ -84,6 +84,37 @@
       "decided_by": "the human, 2026-10-08, in the lead's session (v6prep lane), answering the re-spec question",
       "decided_on": "2026-10-08",
       "decision_ref": "HANDOFF/promotion-respec-proposal-2026-10-05.md; the human's answer recorded in the v6prep handoff of 2026-10-08"
+    },
+    "span_beats_null": {
+      "question": "Must the span head's top-1 beat the random-'+'-line null on the same rows before promotion?",
+      "gap": "GAP-THE-DIFF-MARKS-ITS-OWN-ANSWER-FOR-THE-SPAN-HEAD",
+      "status": "decided",
+      "value": "yes: span start top-1 and span end top-1 must each exceed the random-'+'-line null (per pointing row, gold lines among the candidate '+' lines over the candidate '+' lines; mean over rows) computed on the same pointing rows, both computed, else the gate is not_run and blocks promotion",
+      "binding_from": "2026-10-18",
+      "source": "AUDIT/span-in-diff.md: span start top-1 63.61% against 89.91% for pointing at a random added line, while the as-built gate (uniform over candidates, 8.4%) passed on all 8 seeds",
+      "decided_by": "the human, 2026-10-17, question Q2 (\"Enforce both as gates\"), recorded by session lappi-decision-72; entered here by lane L-ledger of the hardening pass",
+      "decided_on": "2026-10-17",
+      "decision_ref": "AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md, Q2: the span null is a gate that binds promotion from the next registration on. No existing threshold, seed count or held-out set moved (rule 2). Applied by python/qd_train/span_null.py and ledger.py _ruling_refusals; a family whose earliest row predates binding_from reads the gate not_run (predates the ruling) without being refused on it."
+    },
+    "decision_record_before_results": {
+      "question": "Must the decision record that defines a gate be committed before the first result it judges?",
+      "gap": "GAP-DECISION-RECORD-MAY-POSTDATE-THE-RESULTS-IT-JUDGES-2026-10-17",
+      "status": "decided",
+      "value": "yes: every ft/eval row records the record's path, git blob and commit; promotion requires that commit's time to precede the family's earliest row, git to hold that blob at that commit, and the record being read to be that blob; if git or the record cannot be read the gate is not_run and blocks promotion",
+      "binding_from": "2026-10-18",
+      "source": "AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md, Q2",
+      "decided_by": "the human, 2026-10-17, question Q2 (\"Enforce both as gates\"), recorded by session lappi-decision-72; entered here by lane L-ledger of the hardening pass",
+      "decided_on": "2026-10-17",
+      "decision_ref": "AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md, Q2: a gate's decision record is committed before the first result it judges, binding from the next registration on. Applied by ledger.py decision_record_before_results_state; rows are stamped by RunRecorder.__enter__."
     }
-  }
+  },
+  "amendments": [
+    {
+      "date": "2026-10-17",
+      "ruling": "AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md",
+      "adds": ["span_beats_null", "decision_record_before_results"],
+      "binding_from": "2026-10-18",
+      "changes_no_other_entry": true
+    }
+  ]
 }

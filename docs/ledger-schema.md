@@ -51,7 +51,7 @@ not a rounding choice.
 | `protocol_hash` | string | SHA-256 over the five components below, canonically serialized |
 | `protocol` | object | `{data_snapshot_hash, tokenizer_hash, backbone_commit, recipe_hash, seed}` |
 | `run_kind` | enum | `teacher` \| `lr_probe` \| `cpt` \| `prune_heal` \| `ft` \| `ablation` \| `eval` \| `calibration` \| `smoke` \| `throughput` \| `resume` \| `scale` \| `build` (see below) |
-| `status` | enum | `completed` \| `killed` \| `failed`. A killed run still writes a row |
+| `status` | enum | `started` \| `completed` \| `killed` \| `failed`. A killed run still writes a row. `started` is the lifecycle marker `RunRecorder.__enter__` appends first, never a result; see "Run lifecycle" |
 | `quick` | bool | true if <3 seeds, truncated schedule, or subsampled. **A `quick` row cannot promote anything**. Set by the caller; since 2026-09-29 `RunRecorder` also sets it on a `cpt`/`ft`/`prune_heal` row whose `train.termination` is not `steps_exhausted`, appending the reason (it never clears it). Seed count is judged per family by `promotion_verdict` (rule 3 below), since a one-seed-per-unit row cannot see its family |
 | `quick_reason` | string \| null | Required non-empty when `quick` is true |
 | `code_commit` | string | git HEAD of this repo at launch; `-dirty` suffix if the tree was dirty |
@@ -125,6 +125,45 @@ an aggregate hides exactly the failure it is meant to catch:
 
 A key that was not computed is present with `state: "not_run"` and a reason, or absent entirely.
 It is **never** present with a zero value.
+
+## Run lifecycle: a `started` row, a terminal row, and reconciliation
+
+SIGKILL cannot be caught. memguard SIGTERMs a process over 32 GiB and SIGKILLs it ten seconds
+later, with no log, so a run busy in a native call never reached the signal handler and left no
+row at all (`GAP-MAC-A-SIGKILLED-RUN-LEAVES-NO-ROW`,
+`GAP-A-KILLED-RUNG0-RUN-LEAVES-NO-ROW-AND-NO-COST`). The contract, from 2026-10-17:
+
+1. `RunRecorder.__enter__` appends a **`started` row** before any work: the run's protocol, and
+   `metrics` tri-states `lifecycle.run_id`, `lifecycle.pid`, `lifecycle.host`,
+   `lifecycle.started_at`, `lifecycle.registration_id` (the `registration_id` argument, else
+   `$QD_REGISTRATION_ID`, else `not_run`), `lifecycle.cap_s` (`run_cap_s`, else the
+   `CostEstimate`'s cap, else `not_run`) and `lifecycle.usd_per_hour`. It carries no gates or
+   controls and asserts nothing about results. If it cannot be written the run does not start.
+2. Every row that ends the run (`completed`, `failed`, or `killed` by a caught signal) carries
+   `lifecycle.started_row_id`, the `row_id` of the started row it ends. **A run is therefore two
+   lines: its started row, then exactly one terminal row.** `Ledger.rows()` returns only the
+   terminal rows (one per run, as before); `Ledger.rows(include_started=True)` and
+   `raw_lines()` return both, and a test that counts file lines counts both.
+3. `reconcile_orphan_started_rows(ledger, now, liveness)` (`python -m qd_train.ledger
+   reconcile --ledger PATH`) finds each started row no terminal row names and judges it:
+   `gone` (pid dead on this host; or pid uncheckable and older than its cap plus
+   `ORPHAN_GRACE_S`), `in_flight` (pid alive; never written, however overdue, because a live
+   process may still write its own row), or `unverifiable` (another host, inside its cap). For
+   each `gone` run it appends a `killed` row: `quick`, every gate and control `not_run` with
+   reason "no terminal row; process gone — SIGKILL or external kill (memguard?)", the started
+   row's protocol and recipe, `wall_clock_s` 0.0 with source `unrecorded`, and the **upper
+   bounds** `lifecycle.elapsed_upper_bound_s` and `lifecycle.cost_upper_bound_usd` (the lesser
+   of age and cap, priced at the recorded rate; not measurements, and `cost_usd` stays 0.0).
+   Append-only, chain preserved, idempotent (the killed row names the started row, so a second
+   pass finds nothing), and serialised by a lock beside the ledger.
+4. **Visible at `make gates`:** `qd_train.ledger verify` (the `ledger-verify` gate) exits 1 on a
+   `gone` orphan until it is reconciled, and exits `NotRun` (3) when an orphan cannot be
+   checked from this host. A verified chain with an orphan is not a clean ledger.
+5. Promotion ignores a started row some row ends and **refuses** on one nothing ends
+   (`status 'started'`, not `completed`).
+
+Not covered: a SIGKILL of a run that never constructs a `RunRecorder`, and a process whose
+pid is recycled (reported `in_flight`, overdue, for a human).
 
 ## `fla_present` is not cosmetic
 
@@ -379,6 +418,40 @@ question without all three of who/when/where, an `open` one with any of them set
 `average_may_promote` that says yes. A verdict whose record cannot be read refuses: it cannot
 say which population it judged. A ruling whose value the table above does not cover is
 `not_run` until the verdict learns to apply it. That is a code change with a fail-first test.
+
+### Two gates the human ruled in on 2026-10-17
+
+`AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md`, Q2. Both are entries in the decisions
+record (`span_beats_null`, `decision_record_before_results`), derived by the verdict from the
+ledger (not written on a row's `gates`), and **bind families whose earliest row is on or after
+the entry's `binding_from`** (2026-10-18, "the next registration"). A family that predates it
+reads each gate `not_run` with reason "predates the 2026-10-17 ruling" **as a reading only**:
+the ruling binds from the next registration, so it is not a requirement on a family that could
+not have known it. A bound family refuses on `not_run` exactly as on any required gate (rule 4),
+and on `ran` and failed. v5's family (earliest rows 2026-10-03) is therefore not refused on
+either gate; it is refused by `ood_abstain` as before.
+
+- **`span_beats_null`** (`python/qd_train/span_null.py`). For each pointing row,
+  `(# gold lines among the candidate + lines) / (# candidate + lines)`, averaged over the
+  pointing rows. The candidates are the span head's own: the context's line starts
+  (`BatchPlan.line_starts` = `decision.context.starts`), a candidate `+` line being one whose
+  first byte is `+`. `tools/rung0_real_run.py` writes it as
+  `val_span_pointing_added_line_chance` (`n` rows whose gold is an added line, `n_total`
+  pointing rows) beside `val_span_start_top1_over_chance` and `val_span_end_top1_over_chance`
+  (`n_total` pointing rows). The gate is `ran/passed` iff start and end top-1 each exceed the
+  null **on the same pointing rows**; `not_run` if any of the three is absent or did not run,
+  or their `n_total` differ. Rows from `tools/real_ft_run.py` do not carry the null (its span
+  decode does not keep the context bytes), so they read `not_run` and cannot promote once bound
+  (`GAP-FT-ROWS-CARRY-NO-SPAN-NULL-2026-10-17`).
+- **`decision_record_before_results`** (`ledger.py decision_record_before_results_state`).
+  `RunRecorder.__enter__` stamps every `ft`/`eval` row with `decision_record.path`,
+  `.blob` and `.commit` (the record at `HEAD`, only if its working copy is clean; otherwise all
+  three are `not_run`). The verdict checks, for each record the family's rows name: git holds
+  that blob at that commit; that commit's committer time, in whole seconds, is strictly before
+  the earliest row of the family (started rows included); and the record being read is that
+  blob. Contradiction fails the gate; a row naming no record, or git unreadable, is `not_run`.
+  It orders the record against git's history, not against a trusted clock: a committer date is
+  whatever git was told.
 
 ### The `avg` kind: one average of seeds
 

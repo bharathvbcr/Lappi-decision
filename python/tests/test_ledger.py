@@ -621,9 +621,11 @@ def test_editing_a_row_breaks_the_chain(tmp_path: Path):
             rec.gate("ece", Ran(passed=False, value=0.9))
     # Flip a failing gate to passing, exactly the tamper the chain exists to catch.
     lines = led.path.read_bytes().split(b"\n")
-    obj = json.loads(lines[0])
+    # Each run is a `started` line then its terminal line (docs/ledger-schema.md, "Run
+    # lifecycle"); the tamper is on the first run's terminal row, which carries the gate.
+    obj = json.loads(lines[1])
     obj["gates"]["ece"]["passed"] = True
-    lines[0] = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+    lines[1] = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
     led.path.write_bytes(b"\n".join(lines))
     with pytest.raises(LedgerChainError, match="History was edited"):
         led.verify_chain()
@@ -660,9 +662,12 @@ def test_protocol_hash_mismatch_is_detected(tmp_path: Path):
     with RunRecorder(led, protocol=_protocol(1), run_kind="eval", repo=REPO, env=_env(),
         wall_clock_s=None, cost=None):
         pass
-    obj = json.loads(led.path.read_bytes().strip())
+    started, terminal = led.path.read_bytes().strip().split(b"\n")
+    obj = json.loads(terminal)
     obj["protocol"]["seed"] = 99
-    led.path.write_bytes(json.dumps(obj, sort_keys=True, separators=(",", ":")).encode() + b"\n")
+    led.path.write_bytes(
+        started + b"\n"
+        + json.dumps(obj, sort_keys=True, separators=(",", ":")).encode() + b"\n")
     with pytest.raises(LedgerChainError, match="was edited"):
         led.verify_chain()
 
