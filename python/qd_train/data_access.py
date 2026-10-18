@@ -41,6 +41,7 @@ caller cannot mistake it for an abstention or for an empty dataset.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -171,6 +172,10 @@ class TrainingData:
     path: Path
     data_snapshot_hash: str
     checks: dict[str, TriState]
+    #: sha256 of the manifest file's bytes as :func:`open_training_data` read them -- what a
+    #: ledger row records as ``train_manifest_sha256``. ``data_snapshot_hash`` hashes the
+    #: manifest's re-derived content, so it cannot say which file was read.
+    manifest_file_sha256: str
 
     @property
     def n_rows(self) -> int:
@@ -181,9 +186,19 @@ class TrainingData:
             "path": str(self.path),
             "split": self.manifest.split,
             "data_snapshot_hash": self.data_snapshot_hash,
+            "manifest_file_sha256": self.manifest_file_sha256,
             "n_rows": self.n_rows,
             "checks": {k: v.to_json() for k, v in sorted(self.checks.items())},
         }
+
+
+def _file_sha256(path: Path) -> str:
+    """sha256 of a file's bytes, read in bounded chunks (a v4 train manifest is ~150 MB)."""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def open_training_data(
@@ -198,7 +213,14 @@ def open_training_data(
     """
     path = Path(path)
     assert_path_not_held_out(path, config=config, repo_root=repo_root)
+    file_sha256 = _file_sha256(path)
     manifest = Manifest.read(path)  # re-derives and checks data_snapshot_hash
+    if _file_sha256(path) != file_sha256:
+        raise HeldOutViolation(
+            expected="a manifest file unchanged while it was opened",
+            actual="its bytes changed between the hash and the read",
+            detail=f"{path}: refusing, so a recorded train_manifest_sha256 is the file read",
+        )
     assert_manifest_trainable(manifest, config=config, path=path)
 
     if isinstance(manifest.status, NotRun):
@@ -237,6 +259,7 @@ def open_training_data(
         manifest=manifest,
         path=path,
         data_snapshot_hash=manifest.snapshot_hash(),
+        manifest_file_sha256=file_sha256,
         checks={
             "path_not_held_out": Ran(
                 passed=True, value=str(path),

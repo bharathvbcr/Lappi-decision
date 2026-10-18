@@ -1,0 +1,63 @@
+{
+ "rule": "qd_train.ledger.Ledger.rows(include_started=False|True); chain = sha256 of the previous raw line (started rows included)",
+ "command": "PYTHONPATH=python .venv/bin/python tools/gen_ledger_schema_fixture.py --out crates/qd-train/tests/fixtures/ledger-schema",
+ "rows": [
+  [
+   "b652e5e1-683f-4138-aa3f-f5cd5d4b0563",
+   "completed"
+  ],
+  [
+   "b50e1f1c-730c-4bec-b115-48d4e1122378",
+   "killed"
+  ],
+  [
+   "00000000-0000-4000-8000-0000000000c5",
+   "completed"
+  ],
+  [
+   "00000000-0000-4000-8000-0000000000c6",
+   "completed"
+  ]
+ ],
+ "rows_include_started": [
+  [
+   "c626584a-dd26-4dd9-8ead-29919efdc3b8",
+   "started"
+  ],
+  [
+   "b652e5e1-683f-4138-aa3f-f5cd5d4b0563",
+   "completed"
+  ],
+  [
+   "3b58901f-12c0-4cac-af22-3825ef776565",
+   "started"
+  ],
+  [
+   "b50e1f1c-730c-4bec-b115-48d4e1122378",
+   "killed"
+  ],
+  [
+   "00000000-0000-4000-8000-0000000000c5",
+   "completed"
+  ],
+  [
+   "00000000-0000-4000-8000-0000000000c6",
+   "completed"
+  ]
+ ],
+ "raw_line_sha256": [
+  "56c5f9e72483136af51e7893b5f199ad2780ef680c6924ca752328d1875b766b",
+  "809b42b7ca115809bbad71b0552505cb7a488c92ad7a58d68057bb4635f39948",
+  "1a6c63d08b1d9d059637be95ff7bb9f825715d2aaf1ed13dbf21557966d1ed6a",
+  "c9402b4f2b9a4d7ff6c2ecee04ebca0ad05e2c80bb7589b43c5dc91face93a54",
+  "095e20e825c3bb2fcce69ea45b0fe76218ea06bfe904aa5a8101b162f4199988",
+  "6eb4c6689f3236b526e5eb9aeb9da87f45ccec3942dcf6be52dc843a9086349f"
+ ],
+ "val_without_train": {
+  "count": 1,
+  "families": {
+   "synth.general/access_route": 3
+  }
+ },
+ "train_manifest_sha256": "0baee0e28e3209d81470910344a74fd138381e0d17ca87a73f3a27bb9a06ede5"
+}
