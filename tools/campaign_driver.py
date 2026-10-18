@@ -26,7 +26,7 @@ when the Mac is asleep. Before anything starts it refuses:
   two units sharing a checkpoint dir, or a real-backbone ``real_ft_run.py`` unit that does
   not state its ``--optimizer``;
 * a ``real_ft_run.py`` unit without ``--wall-clock-cap-s``, or with one above its phase cap
-  (the trainer's 1800 s default would end a campaign phase at 30 minutes);
+  (the trainer has no default cap for a run that trains: it refuses unless the run is quick);
 * resuming a state file written under a different config (its digest is recorded).
 
 ## Getting the data home: the Mac pulls, and termination waits for it
@@ -441,10 +441,12 @@ def _num(raw: dict[str, Any], key: str, where: str) -> float:
 def _check_unit_cap(argv: tuple[str, ...], *, phase_cap: WallClockCap, where: str) -> None:
     """A ``real_ft_run.py`` unit states its own cap, and it fits inside its phase's.
 
-    The trainer's default cap is 30 minutes, which is right for a Mac smoke and silently
-    wrong for a campaign phase: a unit that leaves it out trains for 30 minutes, records
-    ``wall_clock_cap``, and every row it writes is quick. So the cap is required, and one
-    above the phase cap is refused -- the phase's process-group timeout would kill the unit
+    The trainer has no default cap for a run that trains (``WallClockCap.resolve``): without
+    ``--wall-clock-cap-s`` it refuses to start unless the run is ``--quick``, which gives it
+    the 1800 s ``QUICK_CAP_S`` and marks every row it writes quick. A campaign unit is a
+    registered run, so the driver requires the cap here, before anything launches, rather
+    than leaving a paid box to find the trainer's refusal after the phase began. A cap above
+    the phase cap is refused too -- the phase's process-group timeout would kill the unit
     first, and the trainer's own cap would never be what ended it. The cap is per arm per
     seed; a unit running several seeds or both arms can still outlast the phase, which the
     phase timeout bounds.
@@ -452,9 +454,9 @@ def _check_unit_cap(argv: tuple[str, ...], *, phase_cap: WallClockCap, where: st
     flag = "--wall-clock-cap-s"
     if flag not in argv:
         raise ConfigRefused(
-            f"{where}: real_ft_run.py without {flag}. Its default is 1800 s, which would stop "
-            f"a campaign phase at 30 minutes; state the cap, at most the phase's "
-            f"{phase_cap.cap_s:g} s"
+            f"{where}: real_ft_run.py without {flag}. It has no default cap for a run that "
+            f"trains (only --quick may omit it, and its rows are then quick); state the cap, "
+            f"at most the phase's {phase_cap.cap_s:g} s"
         )
     i = argv.index(flag)
     try:
@@ -1547,7 +1549,9 @@ def observe_gpu_count() -> int:
         proc = subprocess.run(list(NVIDIA_SMI_CMD), capture_output=True, text=True,
                               timeout=GPU_COUNT_TIMEOUT_S, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise GpuCountUnreadable(f"{' '.join(NVIDIA_SMI_CMD)}: {type(exc).__name__}: {exc}") from exc
+        raise GpuCountUnreadable(
+            f"{' '.join(NVIDIA_SMI_CMD)}: {type(exc).__name__}: {exc}"
+        ) from exc
     if proc.returncode != 0:
         raise GpuCountUnreadable(
             f"{' '.join(NVIDIA_SMI_CMD)} exited {proc.returncode}: {proc.stderr.strip()[:200]}"

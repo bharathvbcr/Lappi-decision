@@ -744,6 +744,22 @@ def tiny_master_checkpoints(
     )
 
 
+def average_masters_with_proof(tmp_path: Path, tiny: TinyCheckpoints, avg: Path) -> int:
+    """``ckpt_average --from masters`` over the tiny checkpoints, stating the proof it needs.
+
+    The three heads are averaged, so ``ckpt_average`` refuses unless ``--span-head-shared-init``
+    is backed by a ledger whose ft rows record one shared ``span_head_init`` (R7;
+    GAP-WEIGHT-AVERAGE-COLLAPSES-THE-SPAN-HEAD-2026-10-06). The proof is its own ledger, named
+    with ``tiny.ids``, so the scoring ledger these tests pass to ``real_ft_run`` is unchanged.
+    """
+    from test_ckpt_average_shared_init import shared_init_args
+
+    proof = shared_init_args(tmp_path, tiny.paths, ids=tiny.ids)
+    return ckpt_average.main(
+        [*map(str, tiny.paths), "--out", str(avg), "--from", "masters", *proof]
+    )
+
+
 def test_three_compensated_checkpoints_average_from_their_masters_and_score(
     tmp_path, monkeypatch
 ):
@@ -757,10 +773,7 @@ def test_three_compensated_checkpoints_average_from_their_masters_and_score(
 
     tiny = tiny_master_checkpoints(tmp_path, monkeypatch, recipe="kahan")
     avg = tmp_path / "avg" / "avg.safetensors"
-    assert ckpt_average.main(
-        [*map(str, tiny.paths), "--out", str(avg), "--from", "masters", "--ft-row-ids",
-         *tiny.ids]
-    ) == 0
+    assert average_masters_with_proof(tmp_path, tiny, avg) == 0
     manifest = json.loads(ckpt_average.manifest_path(avg).read_text(encoding="utf-8"))
     eval_ledger = tmp_path / "eval.jsonl"
     assert real_ft_run.main([
@@ -787,13 +800,9 @@ def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu
     from qd_train.ledger import Ledger
 
     tiny = tiny_master_checkpoints(tmp_path, monkeypatch)
-    out, snapshot, paths, ids, ft_ledger = (
-        tiny.out, tiny.snapshot, tiny.paths, tiny.ids, tiny.ft_ledger
-    )
+    out, snapshot, ids, ft_ledger = tiny.out, tiny.snapshot, tiny.ids, tiny.ft_ledger
     avg = tmp_path / "avg" / "avg.safetensors"
-    assert ckpt_average.main(
-        [*map(str, paths), "--out", str(avg), "--from", "masters", "--ft-row-ids", *ids]
-    ) == 0
+    assert average_masters_with_proof(tmp_path, tiny, avg) == 0
     manifest_file = ckpt_average.manifest_path(avg)
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
 
@@ -817,10 +826,13 @@ def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu
         "manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
         "source": "masters", "n_inputs": 3, "protocol_seed": SUITE_SEED,
         "suite_seed": SUITE_SEED,
-        # ruling 2g: every new average records how its span head was made.
-        "span_head_source": {"mode": "averaged", "seed": None, "input": None,
-                             "payload_digest": None},
+        # ruling 2g: every new average records how its span head was made. This one is
+        # averaged under --span-head-shared-init, so it also records the init the ledger proved
+        # (and across which ft rows); the row carries the manifest's block unchanged.
+        "span_head_source": manifest["span_head_source"],
     }
+    head = recipe["averaged"]["span_head_source"]
+    assert head["mode"] == "averaged" and head["init"]["proven_across"] == ids
     assert recipe["scored_checkpoint"] == f"avg.safetensors:{manifest['safetensors_sha256']}"
     assert recipe["score_dtype"] == "fp32"
     assert row.protocol.seed == SUITE_SEED

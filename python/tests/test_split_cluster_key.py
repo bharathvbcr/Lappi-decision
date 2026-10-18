@@ -16,8 +16,8 @@ from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
 from qd_data.rows import DataRow, GoldAnswer
 from qd_data.schema import ChoiceSlot, Request
-from qd_data.split import CLUSTER_KEY_METADATA, split
 from qd_data.sources import PINNED_SPLIT_KEY
+from qd_data.split import CLUSTER_KEY_METADATA, split
 from qd_train.tristate import Ran
 
 

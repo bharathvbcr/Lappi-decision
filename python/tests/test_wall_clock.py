@@ -21,12 +21,14 @@ import json
 import math
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import qd_train.ledger as ledger_module
 from qd_train.ledger import (
     Environment,
     Ledger,
@@ -98,7 +100,9 @@ def test_a_recorder_that_wraps_the_run_times_the_run(tmp_path: Path):
     assert led.rows()[0].wall_clock_s >= 0.05
 
 
-def test_a_recorder_entered_after_the_work_times_only_itself(tmp_path: Path):
+def test_a_recorder_entered_after_the_work_times_only_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """The defect, stated as a fact about the mechanism rather than a complaint.
 
     This is what every ``rung0_real_run.py`` row in the ledger was: the work happened
@@ -106,11 +110,17 @@ def test_a_recorder_entered_after_the_work_times_only_itself(tmp_path: Path):
     afterwards -- which is precisely why ``None`` cannot be the default. A caller that
     has not thought about it gets this, silently.
     """
+    # The recorder's clock is a fake one that only the "training" below moves. Entering the
+    # recorder appends a started row (a write and an fsync), which takes however long the
+    # machine makes it; a real-clock bound of 0.05 s on that failed under load without the
+    # recorder having timed anything but its own block.
+    now = [0.0]
+    monkeypatch.setattr(ledger_module, "time", types.SimpleNamespace(monotonic=lambda: now[0]))
     led = Ledger(tmp_path / "runs.jsonl")
-    time.sleep(0.05)  # "training", outside the block
+    now[0] += 0.05  # "training", outside the block
     with _recorder(led, wall_clock_s=None):
         pass
-    assert led.rows()[0].wall_clock_s < 0.05
+    assert led.rows()[0].wall_clock_s == 0.0
 
 
 # --------------------------------------------------------------------------
@@ -199,10 +209,13 @@ def test_a_row_written_before_this_field_existed_reads_back_unrecorded(tmp_path:
     led = Ledger(path)
     with _recorder(led, wall_clock_s=12.5):
         pass
-    raw = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    # The file holds the recorder's `started` row, then its terminal row: the terminal row is
+    # the one that says who timed the run, and the last line, so editing it breaks no chain.
+    lines = path.read_text(encoding="utf-8").splitlines()
+    raw = json.loads(lines[-1])
     assert raw["wall_clock_source"] == "caller"
     del raw["wall_clock_source"]
-    path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+    path.write_text("\n".join([*lines[:-1], json.dumps(raw)]) + "\n", encoding="utf-8")
 
     back = Ledger(path).rows()[0]
     assert back.wall_clock_source == "unrecorded"
@@ -220,9 +233,11 @@ def test_the_new_field_does_not_break_a_chain_written_without_it(tmp_path: Path)
     with _recorder(led, wall_clock_s=1.0):
         pass
     lines = path.read_text(encoding="utf-8").splitlines()
-    first = json.loads(lines[0])
+    # `lines` is the started row, then the terminal row; the terminal row is the one that
+    # carried the field, and as the last line it can lose it without breaking the chain.
+    first = json.loads(lines[-1])
     del first["wall_clock_source"]
-    path.write_text(json.dumps(first) + "\n", encoding="utf-8")
+    path.write_text("\n".join([*lines[:-1], json.dumps(first)]) + "\n", encoding="utf-8")
 
     # A second row appended now carries the field and chains onto the old-format line.
     with _recorder(Ledger(path), wall_clock_s=2.0):

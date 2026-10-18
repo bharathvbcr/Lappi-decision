@@ -48,6 +48,17 @@ LEDGER = REPO / "ledger"
 #: matched or exceeded -- and exceeding one means a row arrived without provenance, which
 #: is the event this file exists for. A file absent from this map may contribute NONE.
 KNOWN_WITHOUT_DIGEST = {
+    # 2026-10-18. The gate chain that branch consolidation kept whole as its own file when it
+    # forked from runs.jsonl after feae39e0 (171b9c6, GAP-LEDGER-FORK-MAIN-GATES-2026-10-15).
+    # Its 108 non-build rows (52 ft, 56 smoke: ft_toy_run, rung0_toy_run, real_ft_run,
+    # rung0_real_run and the real-tokenizer smoke) were written on a Mac between
+    # 2026-09-20T12:51Z and 2026-09-21T03:35Z, the day before `RunRecorder.__enter__` began
+    # recording `code_that_ran` (2c84587, 2026-09-22). None carries the metric, as the rows of
+    # that date in runs.jsonl do not. So they ARRIVED in this directory late, they did not
+    # arrive without provenance late: the writer is not defective, and this is the
+    # append-only ledger's record of what a pre-wiring run said. The file's 126 build rows
+    # are excluded by `_training_rows`, as everywhere.
+    "runs.main-gates-2026-10-15.jsonl": 108,
     # 2026-09-22. NOT a row that predates the wiring -- it came from a tool that had the
     # wiring and lost it on the way out. `rung0_real_run.py` recorded `code_that_ran` at
     # the END of its training block, and this run was killed by SIGTERM at its wall-clock
