@@ -841,34 +841,55 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         if !all_families.contains(&ex.family) {
             return Err(refuse(
                 RefusalKind::TrainManifest,
-                format!("--exclude-family {:?}: not a family the train manifest holds", ex.family),
+                format!(
+                    "--exclude-family {:?}: not a family the train manifest holds",
+                    ex.family
+                ),
             ));
         }
         if qd_runtime::is_blank(&ex.reason) || !excluded_names.insert(ex.family.as_str()) {
             return Err(refuse(
                 RefusalKind::TrainManifest,
-                format!("--exclude-family {:?}: needs one non-blank reason", ex.family),
+                format!(
+                    "--exclude-family {:?}: needs one non-blank reason",
+                    ex.family
+                ),
             ));
         }
     }
-    let admitted: Vec<String> = all_families.iter().filter(|f| !excluded_names.contains(f.as_str())).cloned().collect();
+    let admitted: Vec<String> = all_families
+        .iter()
+        .filter(|f| !excluded_names.contains(f.as_str()))
+        .cloned()
+        .collect();
     validate_trained_families(&admitted).map_err(|detail| {
-        refuse(RefusalKind::TrainManifest, format!("after the exclusions no release can be recorded: {detail}"))
+        refuse(
+            RefusalKind::TrainManifest,
+            format!("after the exclusions no release can be recorded: {detail}"),
+        )
     })?;
 
     // The calibration gate: a table is shown calibrated for every admitted (family, shape), or
     // the release states why it has none.
-    let gate = match (&calibration, &req.calibration_report, &req.trained_slot_shapes, &req.uncalibrated_reason) {
-        (Some((_, bytes, table)), Some(report), Some(shapes), None) => {
-            Some(calibration_gate::check(bytes, table, report, shapes, &all_families, &admitted)?)
-        }
+    let gate = match (
+        &calibration,
+        &req.calibration_report,
+        &req.trained_slot_shapes,
+        &req.uncalibrated_reason,
+    ) {
+        (Some((_, bytes, table)), Some(report), Some(shapes), None) => Some(
+            calibration_gate::check(bytes, table, report, shapes, &all_families, &admitted)?,
+        ),
         (Some(_), report, shapes, None) => {
-            let missing = [(report.is_none(), "--calibration-report"), (shapes.is_none(), "--trained-slot-shapes")]
-                .iter()
-                .filter(|(m, _)| *m)
-                .map(|(_, n)| *n)
-                .collect::<Vec<_>>()
-                .join(" and ");
+            let missing = [
+                (report.is_none(), "--calibration-report"),
+                (shapes.is_none(), "--trained-slot-shapes"),
+            ]
+            .iter()
+            .filter(|(m, _)| *m)
+            .map(|(_, n)| *n)
+            .collect::<Vec<_>>()
+            .join(" and ");
             return Err(refuse(
                 RefusalKind::Calibration,
                 format!(
@@ -877,7 +898,10 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
             ));
         }
         (Some(_), _, _, Some(_)) => {
-            return Err(refuse(RefusalKind::Calibration, "--uncalibrated-reason is for a release with no --calibration"));
+            return Err(refuse(
+                RefusalKind::Calibration,
+                "--uncalibrated-reason is for a release with no --calibration",
+            ));
         }
         (None, None, None, Some(reason)) if !qd_runtime::is_blank(reason) => None,
         (None, ..) => {
@@ -1510,7 +1534,12 @@ fn write_release(
     // task as `task_not_trained` (Fable's pipeline ruling, item 4).
     manifest[TRAINED_FAMILIES_KEY] = Value::from(trained_families.clone());
     // Read by `qd-release-check`; the runtime reads only `trained_families`.
-    manifest["excluded_families"] = plan.excluded.iter().map(|e| json!({"family": e.family, "reason": e.reason})).collect::<Vec<_>>().into();
+    manifest["excluded_families"] = plan
+        .excluded
+        .iter()
+        .map(|e| json!({"family": e.family, "reason": e.reason}))
+        .collect::<Vec<_>>()
+        .into();
     if let Some(g) = &plan.gate {
         manifest["trained_slot_shapes"] = json!(g.shapes);
     }

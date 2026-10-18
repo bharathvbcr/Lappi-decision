@@ -18,7 +18,7 @@ use std::sync::Arc;
 use common::{copy_dir, fixture, fixture_open, qd_data_dir, scratch};
 use qd_train::files::OsFiles;
 use qd_train::shards::{
-    ShardHeader, ShardReader, shard_code_fingerprint, shard_content_modules, code_fingerprint,
+    ShardHeader, ShardReader, code_fingerprint, shard_code_fingerprint, shard_content_modules,
 };
 use serde_json::{Value, json};
 
@@ -83,7 +83,9 @@ fn an_unknown_or_mistyped_version_is_refused_and_the_version_is_covered_by_the_h
         assert!(err.contains("code_fingerprint_version"), "{err}");
     }
     let mut raw = parse(PY_V2);
-    raw.as_object_mut().unwrap().remove("code_fingerprint_version");
+    raw.as_object_mut()
+        .unwrap()
+        .remove("code_fingerprint_version");
     let err = ShardHeader::from_json(&raw).expect_err("edited out");
     assert!(err.contains("modified after it was written"), "{err}");
 }

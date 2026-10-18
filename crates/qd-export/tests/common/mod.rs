@@ -330,13 +330,19 @@ pub fn gate_files(dir: &Path, table_path: &Path, families: &[String]) -> (PathBu
         "span": if has_span { json!({"fitted": true, "scored": {"ece_after": ran.clone()}}) } else { json!({"fitted": false}) },
         "tables": [{"sha256": qd_runtime::hex(&qd_runtime::sha256(&bytes))}],
     });
-    let first = letters.keys().find(|k| k.starts_with("choice:")).expect("a choice entry").clone();
+    let first = letters
+        .keys()
+        .find(|k| k.starts_with("choice:"))
+        .expect("a choice entry")
+        .clone();
     let mut one = vec![json!(first)];
     if has_span {
         one.push(json!("span"));
     }
-    let shapes: serde_json::Map<String, Value> =
-        families.iter().map(|f| (f.clone(), Value::Array(vec![Value::Array(one.clone())]))).collect();
+    let shapes: serde_json::Map<String, Value> = families
+        .iter()
+        .map(|f| (f.clone(), Value::Array(vec![Value::Array(one.clone())])))
+        .collect();
     let report_path = dir.join("fit-report.json");
     let shapes_path = dir.join("slot-shapes.json");
     std::fs::write(&report_path, report.to_string()).unwrap();

@@ -37,7 +37,6 @@ use qd_prep::pyunicode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-
 pub use crate::tristate::{TriState, aggregate};
 
 /// The exit code of a verdict that found a benchmark target in the train set.
@@ -87,12 +86,26 @@ pub struct Tier {
 impl Tier {
     fn ran(name: &'static str, hits: u64, ids: Vec<String>, detail: String) -> Self {
         let sample_ids = ids.into_iter().take(SAMPLE_IDS).collect();
-        let state = if hits == 0 { TriState::pass(detail) } else { TriState::fail(detail) };
-        Tier { name, state, hits, sample_ids }
+        let state = if hits == 0 {
+            TriState::pass(detail)
+        } else {
+            TriState::fail(detail)
+        };
+        Tier {
+            name,
+            state,
+            hits,
+            sample_ids,
+        }
     }
 
     fn not_run(name: &'static str, reason: impl Into<String>) -> Self {
-        Tier { name, state: TriState::not_run(reason), hits: 0, sample_ids: Vec::new() }
+        Tier {
+            name,
+            state: TriState::not_run(reason),
+            hits: 0,
+            sample_ids: Vec::new(),
+        }
     }
 }
 
@@ -198,7 +211,12 @@ fn read_manifest(set: &Path, explicit: Option<&Path>) -> Result<Vec<Entry>, Stri
             .parent()
             .and_then(Path::parent)
             .map(|root| root.join("data").join("pool").join("train.json"))
-            .ok_or_else(|| format!("{}: no parent to find data/pool/train.json from", set.display()))?,
+            .ok_or_else(|| {
+                format!(
+                    "{}: no parent to find data/pool/train.json from",
+                    set.display()
+                )
+            })?,
     };
     let manifest: Manifest = read_json(&manifest_path)?;
     if manifest.data_snapshot_hash != header.data_snapshot_hash {
@@ -221,15 +239,25 @@ fn read_manifest(set: &Path, explicit: Option<&Path>) -> Result<Vec<Entry>, Stri
     Ok(manifest
         .entries
         .into_iter()
-        .map(|e| Entry { id: e.row_id, source_id: e.source_id, family_id: e.family_id })
+        .map(|e| Entry {
+            id: e.row_id,
+            source_id: e.source_id,
+            family_id: e.family_id,
+        })
         .collect())
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
     let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let len = file.metadata().map_err(|e| format!("{}: {e}", path.display()))?.len();
+    let len = file
+        .metadata()
+        .map_err(|e| format!("{}: {e}", path.display()))?
+        .len();
     if len > MAX_MANIFEST_BYTES {
-        return Err(format!("{}: {len} bytes; the bound is {MAX_MANIFEST_BYTES}", path.display()));
+        return Err(format!(
+            "{}: {len} bytes; the bound is {MAX_MANIFEST_BYTES}",
+            path.display()
+        ));
     }
     serde_json::from_reader(BufReader::new(file)).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -238,7 +266,11 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
 /// utterance, as lowercase hex.
 pub fn clinc_digest(utterance: &str) -> Result<String, String> {
     let hasher = Keyed::new(&[], 8)?;
-    Ok(hasher.digest(utterance.trim().as_bytes()).iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .digest(utterance.trim().as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// The digest segment of a CLINC row id, `clinc:<family>:<digest>:<index>`.
@@ -266,7 +298,10 @@ fn tier_forbidden_family(entries: Option<&[Entry]>, why: &str, forbid: &[String]
     let Some(entries) = entries else {
         return Tier::not_run(name, why.to_owned());
     };
-    let hit: Vec<&Entry> = entries.iter().filter(|e| forbid.contains(&e.family_id)).collect();
+    let hit: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| forbid.contains(&e.family_id))
+        .collect();
     Tier::ran(
         name,
         hit.len() as u64,
@@ -295,7 +330,10 @@ fn tier_clinc_digest(
             by_digest.insert(clinc_digest(text)?);
         }
     }
-    let clinc: Vec<&Entry> = entries.iter().filter(|e| e.source_id == CLINC_SOURCE).collect();
+    let clinc: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| e.source_id == CLINC_SOURCE)
+        .collect();
     let hit: Vec<&Entry> = clinc
         .iter()
         .copied()
@@ -338,7 +376,10 @@ fn tier_ngram(
     if usable.is_empty() {
         return Tier::not_run(
             name,
-            format!("no target set has a row of {} or more words, so no n-gram scan can run", inputs.n),
+            format!(
+                "no target set has a row of {} or more words, so no n-gram scan can run",
+                inputs.n
+            ),
         );
     }
     let candidates: Vec<Candidate> = examples
@@ -437,7 +478,12 @@ fn tier_exact_short(
     };
     let short = short_targets(targets, n);
     if short.is_empty() {
-        return Tier::ran(name, 0, Vec::new(), format!("no target is shorter than {n} words"));
+        return Tier::ran(
+            name,
+            0,
+            Vec::new(),
+            format!("no target is shorter than {n} words"),
+        );
     }
     // The control: each (bounded) short target planted as a line of a synthetic example must be
     // found by the matcher, or a zero here would say nothing about the train set.
@@ -445,7 +491,9 @@ fn tier_exact_short(
     let planted: Vec<&String> = if keys.len() <= EXACT_CONTROL_MAX {
         keys
     } else {
-        (0..EXACT_CONTROL_MAX).map(|k| keys[k * keys.len() / EXACT_CONTROL_MAX]).collect()
+        (0..EXACT_CONTROL_MAX)
+            .map(|k| keys[k * keys.len() / EXACT_CONTROL_MAX])
+            .collect()
     };
     let missed: Vec<&&String> = planted
         .iter()
@@ -504,14 +552,20 @@ pub fn check(inputs: &Inputs) -> Verdict {
         }
     }
     if targets.is_empty() {
-        return not_run_verdict("no target set given: a check against nothing is not a check".into());
+        return not_run_verdict(
+            "no target set given: a check against nothing is not a check".into(),
+        );
     }
     let is_dir = inputs.train.is_dir();
     let mut entries: Option<Vec<Entry>> = None;
     let mut entries_why = String::new();
     let mut examples: Option<Vec<pool::ExampleText>> = None;
     let mut text_why = String::new();
-    let examples_path = if is_dir { inputs.examples.as_deref() } else { Some(inputs.train.as_path()) };
+    let examples_path = if is_dir {
+        inputs.examples.as_deref()
+    } else {
+        Some(inputs.train.as_path())
+    };
     match examples_path {
         Some(path) => match pool::read_example_texts(path) {
             Ok((rows, _)) => examples = Some(rows),
@@ -542,16 +596,28 @@ pub fn check(inputs: &Inputs) -> Verdict {
         entries_why = text_why.clone();
     }
 
-    let mut tiers = vec![tier_forbidden_family(entries.as_deref(), &entries_why, &inputs.forbid_families)];
+    let mut tiers = vec![tier_forbidden_family(
+        entries.as_deref(),
+        &entries_why,
+        &inputs.forbid_families,
+    )];
     tiers.push(
         tier_clinc_digest(entries.as_deref(), &entries_why, &targets)
             .unwrap_or_else(|reason| Tier::not_run("clinc_digest", reason)),
     );
     tiers.push(tier_ngram(examples.as_deref(), &text_why, &targets, inputs));
-    tiers.push(tier_exact_short(examples.as_deref(), &text_why, &targets, n));
+    tiers.push(tier_exact_short(
+        examples.as_deref(),
+        &text_why,
+        &targets,
+        n,
+    ));
 
     let exact_ran = tiers[3].state.did_run();
-    let mut coverage = Coverage { target_sets: targets.len(), ..Coverage::default() };
+    let mut coverage = Coverage {
+        target_sets: targets.len(),
+        ..Coverage::default()
+    };
     for (_, rows) in &targets {
         for (_, text) in rows {
             coverage.targets += 1;
@@ -564,7 +630,11 @@ pub fn check(inputs: &Inputs) -> Verdict {
     }
     coverage.unscanned = coverage.no_words
         + if exact_ran { 0 } else { coverage.short }
-        + if tiers[2].state.did_run() { 0 } else { coverage.ngram_scannable };
+        + if tiers[2].state.did_run() {
+            0
+        } else {
+            coverage.ngram_scannable
+        };
 
     let parts: Vec<(&str, TriState)> = tiers.iter().map(|t| (t.name, t.state.clone())).collect();
     let mut overall = aggregate("qd-train-data", &parts);
@@ -574,7 +644,12 @@ pub fn check(inputs: &Inputs) -> Verdict {
             coverage.unscanned, coverage.targets
         ));
     }
-    Verdict { tiers, coverage, overall, target_sha256 }
+    Verdict {
+        tiers,
+        coverage,
+        overall,
+        target_sha256,
+    }
 }
 
 fn not_run_verdict(reason: String) -> Verdict {
@@ -606,7 +681,11 @@ pub fn summary_lines(v: &Verdict) -> Vec<String> {
                 t.name,
                 if *passed { "PASS" } else { "FAILED" },
                 t.hits,
-                if t.sample_ids.is_empty() { String::new() } else { format!("sample={:?} ", t.sample_ids) },
+                if t.sample_ids.is_empty() {
+                    String::new()
+                } else {
+                    format!("sample={:?} ", t.sample_ids)
+                },
                 detail
             ),
             TriState::NotRun { reason } => format!("tier {}: NOT_RUN {reason}", t.name),
@@ -637,7 +716,8 @@ mod tests {
         dir
     }
 
-    const LONG: &str = "the quick brown fox jumps over the lazy dog and then runs far away into the forest";
+    const LONG: &str =
+        "the quick brown fox jumps over the lazy dog and then runs far away into the forest";
     const OTHER: &str = "a completely different sentence about compilers parsers and type checkers that \
                          shares nothing with the other one at all here today";
 
@@ -681,13 +761,24 @@ mod tests {
     }
 
     fn tier<'a>(v: &'a Verdict, name: &str) -> &'a Tier {
-        v.tiers.iter().find(|t| t.name == name).expect("tier present")
+        v.tiers
+            .iter()
+            .find(|t| t.name == name)
+            .expect("tier present")
     }
 
     #[test]
     fn a_clean_examples_file_passes_only_when_every_tier_ran() {
         let dir = tmp("clean");
-        let ex = write_examples(&dir, &[("r1", "x/y", "fam.a", "nothing like any benchmark item in here at all")]);
+        let ex = write_examples(
+            &dir,
+            &[(
+                "r1",
+                "x/y",
+                "fam.a",
+                "nothing like any benchmark item in here at all",
+            )],
+        );
         let v = check(&inputs(ex, write_targets(&dir)));
         assert!(v.overall.is_pass(), "{:?}", v.overall);
         assert_eq!(v.exit_code(), 0);
@@ -698,10 +789,18 @@ mod tests {
     #[test]
     fn a_copied_long_target_fails_and_names_the_row() {
         let dir = tmp("long");
-        let ex = write_examples(&dir, &[
-            ("r1", "x/y", "fam.a", "unrelated words only here for the first row of the file"),
-            ("r2", "x/y", "fam.a", LONG),
-        ]);
+        let ex = write_examples(
+            &dir,
+            &[
+                (
+                    "r1",
+                    "x/y",
+                    "fam.a",
+                    "unrelated words only here for the first row of the file",
+                ),
+                ("r2", "x/y", "fam.a", LONG),
+            ],
+        );
         let v = check(&inputs(ex, write_targets(&dir)));
         assert_eq!(v.exit_code(), EXIT_FAILED);
         assert_eq!(tier(&v, "ngram").sample_ids, vec!["r2".to_owned()]);
@@ -712,9 +811,15 @@ mod tests {
     #[test]
     fn a_short_target_is_caught_by_the_exact_tier_not_the_ngram_scan() {
         let dir = tmp("short");
-        let ex = write_examples(&dir, &[
-            ("r1", "x/y", "fam.a", "which intent is this\n\nSet a timer for TEN minutes!"),
-        ]);
+        let ex = write_examples(
+            &dir,
+            &[(
+                "r1",
+                "x/y",
+                "fam.a",
+                "which intent is this\n\nSet a timer for TEN minutes!",
+            )],
+        );
         let v = check(&inputs(ex, write_targets(&dir)));
         assert_eq!(v.exit_code(), EXIT_FAILED);
         assert_eq!(tier(&v, "ngram").hits, 0, "the n-gram scan is blind to it");
@@ -799,6 +904,9 @@ mod tests {
     #[test]
     fn clinc_digest_matches_python_blake2b_8_of_the_stripped_utterance() {
         // python3 -c "import hashlib; print(hashlib.blake2b(b'set a timer', digest_size=8).hexdigest())"
-        assert_eq!(clinc_digest(" set a timer ").expect("digest"), "eb804189f137d467");
+        assert_eq!(
+            clinc_digest(" set a timer ").expect("digest"),
+            "eb804189f137d467"
+        );
     }
 }

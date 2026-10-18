@@ -58,7 +58,11 @@ fn doc() -> Value {
 }
 
 fn u64s(v: &Value) -> Vec<u64> {
-    v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap()).collect()
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_u64().unwrap())
+        .collect()
 }
 
 fn f32s(v: &Value) -> Vec<f32> {
@@ -70,7 +74,10 @@ fn f64s(v: &Value) -> Vec<f64> {
 }
 
 fn bf16s(v: &Value) -> Vec<f32> {
-    u64s(v).iter().map(|&b| f32::from_bits((b as u32) << 16)).collect()
+    u64s(v)
+        .iter()
+        .map(|&b| f32::from_bits((b as u32) << 16))
+        .collect()
 }
 
 fn ids17(v: &Value) -> [u32; D17_ROWS] {
@@ -82,7 +89,10 @@ fn ids17(v: &Value) -> [u32; D17_ROWS] {
 fn rel_to_max(a: &[f32], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len());
     let scale = b.iter().fold(0.0f64, |m, x| m.max(x.abs()));
-    let diff = a.iter().zip(b).fold(0.0f64, |m, (x, y)| m.max((f64::from(*x) - y).abs()));
+    let diff = a
+        .iter()
+        .zip(b)
+        .fold(0.0f64, |m, (x, y)| m.max((f64::from(*x) - y).abs()));
     diff / scale.max(f64::MIN_POSITIVE)
 }
 
@@ -99,7 +109,8 @@ fn load_case(v: &Value) -> Case {
     let vocab = v["vocab"].as_u64().unwrap() as usize;
     let mut d17 = D17::from_embedding(&bf16s(&v["embed"]), vocab, hidden, ids17(&v["ids"]))
         .expect("the fixture's embedding and ids are valid");
-    d17.set_delta(&f32s(&v["delta"])).expect("the fixture's delta fits");
+    d17.set_delta(&f32s(&v["delta"]))
+        .expect("the fixture's delta fits");
     Case {
         d17,
         h: f32s(&v["h"]),
@@ -115,7 +126,11 @@ fn load_case(v: &Value) -> Case {
 fn loss_dh_dd17_and_logits_match_answer_row_delta_on_every_case() {
     let doc = doc();
     let cases = doc["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 5, "the generator writes five cases; none is dropped");
+    assert_eq!(
+        cases.len(),
+        5,
+        "the generator writes five cases; none is dropped"
+    );
     for raw in cases {
         let mut c = load_case(raw);
         let name = raw["name"].as_str().unwrap();
@@ -138,7 +153,10 @@ fn loss_dh_dd17_and_logits_match_answer_row_delta_on_every_case() {
         ] {
             let rel = rel_to_max(got, &want);
             println!("{name} {what}: rust vs float64 {rel:.3e}");
-            assert!(rel <= 1e-6, "{name} {what}: {rel:.3e} of max vs float64 exceeds 1e-6");
+            assert!(
+                rel <= 1e-6,
+                "{name} {what}: {rel:.3e} of max vs float64 exceeds 1e-6"
+            );
         }
 
         let torch_loss = f64::from(f32::from_bits(u64s(&c.v["loss"])[0] as u32));
@@ -154,7 +172,10 @@ fn loss_dh_dd17_and_logits_match_answer_row_delta_on_every_case() {
             let want: Vec<f64> = f32s(&c.v[key]).iter().map(|&x| f64::from(x)).collect();
             let rel = rel_to_max(got, &want);
             println!("{name} {what}: rust vs torch f32 {rel:.3e}");
-            assert!(rel <= 2e-5, "{name} {what}: {rel:.3e} of max vs torch f32 exceeds 2e-5");
+            assert!(
+                rel <= 2e-5,
+                "{name} {what}: {rel:.3e} of max vs torch f32 exceeds 2e-5"
+            );
         }
     }
 }
@@ -163,7 +184,12 @@ fn loss_dh_dd17_and_logits_match_answer_row_delta_on_every_case() {
 fn the_oracle_covers_n1_all_17_targets_and_repeated_targets() {
     let doc = doc();
     let by_name = |n: &str| -> Vec<u64> {
-        let c = doc["cases"].as_array().unwrap().iter().find(|c| c["name"] == n).unwrap();
+        let c = doc["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == n)
+            .unwrap();
         u64s(&c["target_rows"])
     };
     assert_eq!(by_name("n1").len(), 1);
@@ -221,7 +247,9 @@ fn a_zero_d17_gives_exactly_the_base_letter_row_logits() {
 // ---- 3. refusals ---------------------------------------------------------------------------
 
 fn small() -> (Vec<f32>, [u32; D17_ROWS]) {
-    let table: Vec<f32> = (0..40 * 4).map(|i| ((i * 7 % 13) as f32 - 6.0) * 0.1).collect();
+    let table: Vec<f32> = (0..40 * 4)
+        .map(|i| ((i * 7 % 13) as f32 - 6.0) * 0.1)
+        .collect();
     let ids: [u32; D17_ROWS] = std::array::from_fn(|k| (k * 2) as u32);
     (table, ids)
 }
@@ -233,8 +261,14 @@ fn a_target_outside_the_answer_rows_is_refused_not_skipped() {
     let h = vec![0.5f32; 8];
     // 1 is a vocabulary id but not an answer id; a skip would shrink N and lower the loss.
     let err = d.loss_and_grad(&h, &[2, 1], 0.5).unwrap_err();
-    assert!(matches!(err, D17Error::TargetNotAnswerRow { target: 1, .. }), "{err}");
-    assert!(d.grads()[0].is_none(), "a refused call leaves no gradient behind");
+    assert!(
+        matches!(err, D17Error::TargetNotAnswerRow { target: 1, .. }),
+        "{err}"
+    );
+    assert!(
+        d.grads()[0].is_none(),
+        "a refused call leaves no gradient behind"
+    );
 }
 
 #[test]
@@ -262,11 +296,23 @@ fn a_wrong_shape_is_refused_everywhere_it_can_enter() {
     ));
     assert!(D17::from_embedding(&table, 40, 0, ids).is_err());
     let mut d = D17::from_embedding(&table, 40, 4, ids).unwrap();
-    assert!(matches!(d.set_delta(&vec![0.0; 17 * 4 - 1]), Err(D17Error::Shape(_))));
-    assert!(matches!(d.set_delta(&vec![0.0; 17 * 5]), Err(D17Error::Shape(_))));
+    assert!(matches!(
+        d.set_delta(&vec![0.0; 17 * 4 - 1]),
+        Err(D17Error::Shape(_))
+    ));
+    assert!(matches!(
+        d.set_delta(&vec![0.0; 17 * 5]),
+        Err(D17Error::Shape(_))
+    ));
     assert!(matches!(d.logits(&[0.0; 5]), Err(D17Error::Shape(_))));
-    assert!(matches!(d.loss_and_grad(&[0.0; 8], &[0], 1.0), Err(D17Error::Shape(_))));
-    assert!(matches!(d.loss_and_grad(&[], &[], 1.0), Err(D17Error::Shape(_))));
+    assert!(matches!(
+        d.loss_and_grad(&[0.0; 8], &[0], 1.0),
+        Err(D17Error::Shape(_))
+    ));
+    assert!(matches!(
+        d.loss_and_grad(&[], &[], 1.0),
+        Err(D17Error::Shape(_))
+    ));
 }
 
 #[test]
@@ -275,7 +321,10 @@ fn non_finite_inputs_are_refused() {
     let mut d = D17::from_embedding(&table, 40, 4, ids).unwrap();
     let mut h = vec![0.5f32; 4];
     h[2] = f32::NAN;
-    assert!(matches!(d.loss_and_grad(&h, &[0], 1.0), Err(D17Error::NonFinite(_))));
+    assert!(matches!(
+        d.loss_and_grad(&h, &[0], 1.0),
+        Err(D17Error::NonFinite(_))
+    ));
     h[2] = f32::INFINITY;
     assert!(matches!(d.logits(&h), Err(D17Error::NonFinite(_))));
     let mut delta = vec![0.0f32; 17 * 4];
@@ -283,14 +332,26 @@ fn non_finite_inputs_are_refused() {
     assert!(matches!(d.set_delta(&delta), Err(D17Error::NonFinite(_))));
     // An optimizer that wrote a NaN through values_and_grads is caught at the next use.
     d.values_and_grads()[0].0[0] = f32::NAN;
-    assert!(matches!(d.loss_and_grad(&[0.5; 4], &[0], 1.0), Err(D17Error::NonFinite(_))));
+    assert!(matches!(
+        d.loss_and_grad(&[0.5; 4], &[0], 1.0),
+        Err(D17Error::NonFinite(_))
+    ));
     // A scale that is negative or NaN is refused.
     let mut ok = D17::from_embedding(&table, 40, 4, ids).unwrap();
-    assert!(matches!(ok.loss_and_grad(&[0.5; 4], &[0], -1.0), Err(D17Error::Scale(_))));
-    assert!(matches!(ok.loss_and_grad(&[0.5; 4], &[0], f32::NAN), Err(D17Error::Scale(_))));
+    assert!(matches!(
+        ok.loss_and_grad(&[0.5; 4], &[0], -1.0),
+        Err(D17Error::Scale(_))
+    ));
+    assert!(matches!(
+        ok.loss_and_grad(&[0.5; 4], &[0], f32::NAN),
+        Err(D17Error::Scale(_))
+    ));
     // A non-finite embedding row is refused at construction.
     table[ids[3] as usize * 4 + 1] = f32::NEG_INFINITY;
-    assert!(matches!(D17::from_embedding(&table, 40, 4, ids), Err(D17Error::NonFinite(_))));
+    assert!(matches!(
+        D17::from_embedding(&table, 40, 4, ids),
+        Err(D17Error::NonFinite(_))
+    ));
 }
 
 #[test]
@@ -304,10 +365,17 @@ fn the_answer_rows_are_read_by_tensor_name_from_a_checkpoint() {
             dtype: Dtype::F32,
             shape: vec![40, 4],
         },
-        PlannedTensor { name: "decoy".into(), dtype: Dtype::F32, shape: vec![2, 4] },
+        PlannedTensor {
+            name: "decoy".into(),
+            dtype: Dtype::F32,
+            shape: vec![2, 4],
+        },
     ];
     let mut w = Writer::create(&path, plan).unwrap();
-    for (name, values) in [("decoy", vec![9.0f32; 8]), ("model.embed_tokens.weight", table.clone())] {
+    for (name, values) in [
+        ("decoy", vec![9.0f32; 8]),
+        ("model.embed_tokens.weight", table.clone()),
+    ] {
         w.begin(name).unwrap();
         let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
         w.write(&bytes).unwrap();
@@ -319,7 +387,10 @@ fn the_answer_rows_are_read_by_tensor_name_from_a_checkpoint() {
     let want = D17::from_embedding(&table, 40, 4, ids).unwrap();
     assert_eq!(d.answer_rows(), want.answer_rows());
     assert!(
-        matches!(D17::from_safetensors(&path, "embed_tokens.weight", ids), Err(D17Error::Checkpoint(_))),
+        matches!(
+            D17::from_safetensors(&path, "embed_tokens.weight", ids),
+            Err(D17Error::Checkpoint(_))
+        ),
         "a missing name is refused, not guessed"
     );
     assert!(matches!(
@@ -336,7 +407,11 @@ const H: usize = 8;
 
 fn letter_row(tokens: Vec<u32>, position: u32) -> ToyRow {
     let target = tokens[position as usize + 1];
-    ToyRow { tokens, letter: Some(LetterTarget { position, target }), span: None }
+    ToyRow {
+        tokens,
+        letter: Some(LetterTarget { position, target }),
+        span: None,
+    }
 }
 
 /// Rows whose letter targets are answer ids `ids[k]`, with the answer row `k` chosen per row.
@@ -351,11 +426,18 @@ fn letter_batch(ids: &[u32; D17_ROWS], picks: &[usize]) -> ToyBatch {
         ];
         rows.push(letter_row(tokens, 2));
     }
-    ToyBatch { index: 0, bucket: 4, width: 4, rows }
+    ToyBatch {
+        index: 0,
+        bucket: 4,
+        width: 4,
+        rows,
+    }
 }
 
 fn objective(d17: D17) -> LetterSpanObjective<ToyBatch, ToySpanHead> {
-    LetterSpanObjective::new(ToySpanHead::new(H), 0.5).unwrap().with_d17(d17)
+    LetterSpanObjective::new(ToySpanHead::new(H), 0.5)
+        .unwrap()
+        .with_d17(d17)
 }
 
 /// Drive one planned batch through the provider exactly as the loop does.
@@ -376,11 +458,20 @@ fn drive(
             },
             hidden_at: &s.hidden_at,
         };
-        let mode = if i == 0 { BankMode::Overwrite } else { BankMode::Add };
-        let mut cb = |pos: &[u32], h: &[f32]| -> Result<Vec<f32>, qd_train::step::StepError> {
-            o.hidden_grad(i, pos, h, H).map_err(|e| qd_train::step::StepError::Contract(e.to_string()))
+        let mode = if i == 0 {
+            BankMode::Overwrite
+        } else {
+            BankMode::Add
         };
-        let ext: Option<&mut HiddenGrad<'_>> = if s.hidden_at.is_empty() { None } else { Some(&mut cb) };
+        let mut cb = |pos: &[u32], h: &[f32]| -> Result<Vec<f32>, qd_train::step::StepError> {
+            o.hidden_grad(i, pos, h, H)
+                .map_err(|e| qd_train::step::StepError::Contract(e.to_string()))
+        };
+        let ext: Option<&mut HiddenGrad<'_>> = if s.hidden_at.is_empty() {
+            None
+        } else {
+            Some(&mut cb)
+        };
         sums.push(p.accumulate(&job, mode, ext).unwrap());
     }
     o.close(&sums).unwrap()
@@ -397,9 +488,16 @@ fn the_full_vocabulary_ce_is_report_only_a_value_and_exactly_zero_gradient() {
     let b = letter_batch(&ids, &[0, 5, 16]);
     let mut o = objective(d17_from_provider(&p, ids));
     let plan = o.plan(&b).unwrap();
-    assert_eq!(plan.row_scale, 0.0, "the letter channel is report-only once D17 trains it");
+    assert_eq!(
+        plan.row_scale, 0.0,
+        "the letter channel is report-only once D17 trains it"
+    );
     for s in &plan.sequences {
-        assert_eq!(s.positions.len(), 1, "the full-vocabulary CE is still asked for");
+        assert_eq!(
+            s.positions.len(),
+            1,
+            "the full-vocabulary CE is still asked for"
+        );
         assert_eq!(s.hidden_at, s.positions, "and D17 reads the same position");
     }
 
@@ -407,13 +505,26 @@ fn the_full_vocabulary_ce_is_report_only_a_value_and_exactly_zero_gradient() {
     let s = &plan.sequences[0];
     let job = SequenceJob {
         tokens: &s.tokens,
-        rows: RowTargets { positions: &s.positions, targets: &s.targets, scale: 0.0 },
+        rows: RowTargets {
+            positions: &s.positions,
+            targets: &s.targets,
+            scale: 0.0,
+        },
         hidden_at: &[],
     };
     let value = p.accumulate(&job, BankMode::Overwrite, None).unwrap();
     assert!(value > 0.0 && value.is_finite(), "a report value: {value}");
-    assert_eq!(p.grad_sq_norm().unwrap(), 0.0, "scale 0 contributes no gradient");
-    assert!(p.grads().iter().flatten().all(|g| g.to_bits() == 0.0f32.to_bits()));
+    assert_eq!(
+        p.grad_sq_norm().unwrap(),
+        0.0,
+        "scale 0 contributes no gradient"
+    );
+    assert!(
+        p.grads()
+            .iter()
+            .flatten()
+            .all(|g| g.to_bits() == 0.0f32.to_bits())
+    );
 
     // Through the objective: the bank equals the bank of the same sequence with no CE rows.
     let mut p_a = ToyProvider::new(V, H, 1, 11).unwrap();
@@ -425,26 +536,47 @@ fn the_full_vocabulary_ce_is_report_only_a_value_and_exactly_zero_gradient() {
     for (i, s) in plan_b.sequences.iter().enumerate() {
         let job = SequenceJob {
             tokens: &s.tokens,
-            rows: RowTargets { positions: &[], targets: &[], scale: 0.0 },
+            rows: RowTargets {
+                positions: &[],
+                targets: &[],
+                scale: 0.0,
+            },
             hidden_at: &s.hidden_at,
         };
-        let mode = if i == 0 { BankMode::Overwrite } else { BankMode::Add };
+        let mode = if i == 0 {
+            BankMode::Overwrite
+        } else {
+            BankMode::Add
+        };
         let mut cb = |pos: &[u32], h: &[f32]| -> Result<Vec<f32>, qd_train::step::StepError> {
-            o_b.hidden_grad(i, pos, h, H).map_err(|e| qd_train::step::StepError::Contract(e.to_string()))
+            o_b.hidden_grad(i, pos, h, H)
+                .map_err(|e| qd_train::step::StepError::Contract(e.to_string()))
         };
         p_b.accumulate(&job, mode, Some(&mut cb)).unwrap();
     }
     for (a, b) in p_a.grads().iter().zip(p_b.grads()) {
-        let (a, b): (Vec<u32>, Vec<u32>) =
-            (a.iter().map(|x| x.to_bits()).collect(), b.iter().map(|x| x.to_bits()).collect());
+        let (a, b): (Vec<u32>, Vec<u32>) = (
+            a.iter().map(|x| x.to_bits()).collect(),
+            b.iter().map(|x| x.to_bits()).collect(),
+        );
         assert_eq!(a, b, "the scale-0 rows changed a gradient bit");
     }
 
     let channel = |name: &str| loss.channels.iter().find(|(n, _)| n == name).unwrap().1;
-    assert!(channel("letter") > 0.0, "the full-vocabulary CE is reported");
+    assert!(
+        channel("letter") > 0.0,
+        "the full-vocabulary CE is reported"
+    );
     assert!(channel("d17") > 0.0);
-    assert_eq!(loss.total, channel("d17"), "the total trains D17 only; the report is not in it");
-    assert!(o_a.host_ref().unwrap().grads().last().unwrap().is_some(), "D17 got a gradient");
+    assert_eq!(
+        loss.total,
+        channel("d17"),
+        "the total trains D17 only; the report is not in it"
+    );
+    assert!(
+        o_a.host_ref().unwrap().grads().last().unwrap().is_some(),
+        "D17 got a gradient"
+    );
 }
 
 #[test]
@@ -453,7 +585,13 @@ fn the_objective_d17_loss_is_the_mean_17_way_ce_and_its_entry_trails_the_head() 
     let mut p = ToyProvider::new(V, H, 1, 3).unwrap();
     let b = letter_batch(&ids, &[2, 2, 9, 16]);
     let mut o = objective(d17_from_provider(&p, ids));
-    let names: Vec<String> = o.host_ref().unwrap().entries().iter().map(|e| e.name.clone()).collect();
+    let names: Vec<String> = o
+        .host_ref()
+        .unwrap()
+        .entries()
+        .iter()
+        .map(|e| e.name.clone())
+        .collect();
     assert_eq!(names, ["pointer.weight", "abstain", "d17.delta"]);
     let loss = drive(&mut p, &mut o, &b);
 
@@ -478,20 +616,30 @@ fn a_letter_target_that_is_not_an_answer_id_refuses_the_batch() {
     let p = ToyProvider::new(V, H, 1, 3).unwrap();
     let mut b = letter_batch(&ids, &[0, 1]);
     b.rows[1].tokens[3] = 4; // an even id: not an answer row
-    b.rows[1].letter = Some(LetterTarget { position: 2, target: 4 });
+    b.rows[1].letter = Some(LetterTarget {
+        position: 2,
+        target: 4,
+    });
     let mut o = objective(d17_from_provider(&p, ids));
     // Refused at plan time, before any sequence runs, naming the row; never skipped.
     let err = o.plan(&b).unwrap_err();
-    assert!(matches!(&err, TrainError::Refused(m) if m.contains("row 1") && m.contains("answer row")), "{err}");
+    assert!(
+        matches!(&err, TrainError::Refused(m) if m.contains("row 1") && m.contains("answer row")),
+        "{err}"
+    );
     // Without D17 the same batch plans: the full-vocabulary channel has no such restriction.
-    let mut plain = LetterSpanObjective::<ToyBatch, ToySpanHead>::new(ToySpanHead::new(H), 0.5).unwrap();
+    let mut plain =
+        LetterSpanObjective::<ToyBatch, ToySpanHead>::new(ToySpanHead::new(H), 0.5).unwrap();
     assert!(plain.plan(&b).is_ok());
     // And a provider that hands the objective the wrong hidden width is refused.
     let good = letter_batch(&ids, &[0, 1]);
     let mut o2 = objective(d17_from_provider(&p, ids));
     o2.plan(&good).unwrap();
     let wide = vec![0.1f32; H + 1];
-    assert!(matches!(o2.hidden_grad(0, &[2], &wide, H + 1), Err(TrainError::Refused(_))));
+    assert!(matches!(
+        o2.hidden_grad(0, &[2], &wide, H + 1),
+        Err(TrainError::Refused(_))
+    ));
 }
 
 // ---- 5. coinciding positions ---------------------------------------------------------------
@@ -506,19 +654,34 @@ fn a_coinciding_span_and_d17_position_sums_the_hidden_gradient_once() {
     let span_pos = [1u32, 2, 4];
     let union = [1u32, 2, 4];
     let x: Vec<Vec<f32>> = p.hidden_states(&tokens);
-    let block = |pos: &[u32]| -> Vec<f32> { pos.iter().flat_map(|&q| x[q as usize].clone()).collect() };
+    let block =
+        |pos: &[u32]| -> Vec<f32> { pos.iter().flat_map(|&q| x[q as usize].clone()).collect() };
 
     let mut d17 = d17_from_provider(&p, ids);
-    let (_, dh_d17) = d17.loss_and_grad(&block(&d17_pos), &[ids[4]], 0.25).unwrap();
+    let (_, dh_d17) = d17
+        .loss_and_grad(&block(&d17_pos), &[ids[4]], 0.25)
+        .unwrap();
     let mut head = ToySpanHead::new(H);
-    let span = ToySpan { candidates: span_pos.to_vec(), start: 0, end: 1 };
-    let (_, dh_span) = head.loss_and_grad(&span, &span_pos, &block(&span_pos), H, 0.25).unwrap();
+    let span = ToySpan {
+        candidates: span_pos.to_vec(),
+        start: 0,
+        end: 1,
+    };
+    let (_, dh_span) = head
+        .loss_and_grad(&span, &span_pos, &block(&span_pos), H, 0.25)
+        .unwrap();
 
     let merged = merge_hidden_grads(
         &union,
         &[
-            HiddenPart { positions: &d17_pos, grad: &dh_d17 },
-            HiddenPart { positions: &span_pos, grad: &dh_span },
+            HiddenPart {
+                positions: &d17_pos,
+                grad: &dh_d17,
+            },
+            HiddenPart {
+                positions: &span_pos,
+                grad: &dh_span,
+            },
         ],
         H,
     )
@@ -533,7 +696,11 @@ fn a_coinciding_span_and_d17_position_sums_the_hidden_gradient_once() {
             if let Some(k) = d17_pos.iter().position(|&q| q == pos) {
                 want += dh_d17[k * H + i];
             }
-            assert_eq!(merged[u * H + i].to_bits(), want.to_bits(), "position {pos} element {i}");
+            assert_eq!(
+                merged[u * H + i].to_bits(),
+                want.to_bits(),
+                "position {pos} element {i}"
+            );
         }
     }
     // Position 2's merged gradient is genuinely a sum, not either part alone.
@@ -543,11 +710,18 @@ fn a_coinciding_span_and_d17_position_sums_the_hidden_gradient_once() {
     let run = |p: &mut ToyProvider, hidden_at: &[u32], grad: Vec<f32>| {
         let job = SequenceJob {
             tokens: &tokens,
-            rows: RowTargets { positions: &[], targets: &[], scale: 0.0 },
+            rows: RowTargets {
+                positions: &[],
+                targets: &[],
+                scale: 0.0,
+            },
             hidden_at,
         };
-        let mut cb = |_: &[u32], _: &[f32]| -> Result<Vec<f32>, qd_train::step::StepError> { Ok(grad.clone()) };
-        p.accumulate(&job, BankMode::Overwrite, Some(&mut cb)).unwrap();
+        let mut cb = |_: &[u32], _: &[f32]| -> Result<Vec<f32>, qd_train::step::StepError> {
+            Ok(grad.clone())
+        };
+        p.accumulate(&job, BankMode::Overwrite, Some(&mut cb))
+            .unwrap();
         p.grads().to_vec()
     };
     let both = run(&mut p, &union, merged);
@@ -557,7 +731,10 @@ fn a_coinciding_span_and_d17_position_sums_the_hidden_gradient_once() {
     let only_span = run(&mut p, &union, dh_span.clone());
     for ((b, d), s) in both.iter().zip(&only_d17).zip(&only_span) {
         for ((b, d), s) in b.iter().zip(d).zip(s) {
-            assert!((b - (d + s)).abs() <= 1e-5 * (1.0 + b.abs()), "bank: {b} vs {d} + {s}");
+            assert!(
+                (b - (d + s)).abs() <= 1e-5 * (1.0 + b.abs()),
+                "bank: {b} vs {d} + {s}"
+            );
         }
     }
 }
@@ -566,15 +743,36 @@ fn a_coinciding_span_and_d17_position_sums_the_hidden_gradient_once() {
 fn merging_refuses_a_part_outside_the_union_a_repeated_position_and_a_bad_length() {
     let g = vec![1.0f32; 2 * 4];
     assert!(matches!(
-        merge_hidden_grads(&[0, 1], &[HiddenPart { positions: &[0, 9], grad: &g }], 4),
+        merge_hidden_grads(
+            &[0, 1],
+            &[HiddenPart {
+                positions: &[0, 9],
+                grad: &g
+            }],
+            4
+        ),
         Err(D17Error::Positions(_))
     ));
     assert!(matches!(
-        merge_hidden_grads(&[0, 0], &[HiddenPart { positions: &[0, 1], grad: &g }], 4),
+        merge_hidden_grads(
+            &[0, 0],
+            &[HiddenPart {
+                positions: &[0, 1],
+                grad: &g
+            }],
+            4
+        ),
         Err(D17Error::Positions(_))
     ));
     assert!(matches!(
-        merge_hidden_grads(&[0, 1], &[HiddenPart { positions: &[0, 1], grad: &g[..7] }], 4),
+        merge_hidden_grads(
+            &[0, 1],
+            &[HiddenPart {
+                positions: &[0, 1],
+                grad: &g[..7]
+            }],
+            4
+        ),
         Err(D17Error::Shape(_))
     ));
 }
@@ -585,7 +783,10 @@ struct Lcg(u64);
 
 impl Lcg {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         self.0 >> 33
     }
     fn unit(&mut self) -> f64 {
@@ -605,8 +806,12 @@ fn random_shapes_match_a_direct_f64_reference() {
             pool.swap(i, (rng.next() % (i as u64 + 1)) as usize);
         }
         let ids: [u32; D17_ROWS] = std::array::from_fn(|k| pool[k]);
-        let table: Vec<f32> = (0..vocab * hidden).map(|_| (rng.unit() * 0.8) as f32).collect();
-        let delta: Vec<f32> = (0..D17_ROWS * hidden).map(|_| (rng.unit() * 0.3) as f32).collect();
+        let table: Vec<f32> = (0..vocab * hidden)
+            .map(|_| (rng.unit() * 0.8) as f32)
+            .collect();
+        let delta: Vec<f32> = (0..D17_ROWS * hidden)
+            .map(|_| (rng.unit() * 0.3) as f32)
+            .collect();
         let h: Vec<f32> = (0..n * hidden).map(|_| (rng.unit() * 2.0) as f32).collect();
         let pick: Vec<usize> = (0..n).map(|_| (rng.next() % 17) as usize).collect();
         let targets: Vec<u32> = pick.iter().map(|&k| ids[k]).collect();
@@ -622,18 +827,26 @@ fn random_shapes_match_a_direct_f64_reference() {
         let r: Vec<f64> = (0..D17_ROWS * hidden)
             .map(|i| f64::from(table[ids[i / hidden] as usize * hidden + i % hidden] + delta[i]))
             .collect();
-        let (mut ref_loss, mut ref_dh, mut ref_dd) =
-            (0.0f64, vec![0.0f64; n * hidden], vec![0.0f64; D17_ROWS * hidden]);
+        let (mut ref_loss, mut ref_dh, mut ref_dd) = (
+            0.0f64,
+            vec![0.0f64; n * hidden],
+            vec![0.0f64; D17_ROWS * hidden],
+        );
         for row in 0..n {
             let hr = &h[row * hidden..(row + 1) * hidden];
             let z: Vec<f64> = (0..D17_ROWS)
-                .map(|k| (0..hidden).map(|j| f64::from(hr[j]) * r[k * hidden + j]).sum())
+                .map(|k| {
+                    (0..hidden)
+                        .map(|j| f64::from(hr[j]) * r[k * hidden + j])
+                        .sum()
+                })
                 .collect();
             let m = z.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             let se: f64 = z.iter().map(|v| (v - m).exp()).sum();
             ref_loss += m + se.ln() - z[pick[row]];
             for k in 0..D17_ROWS {
-                let dz = ((z[k] - m).exp() / se - if k == pick[row] { 1.0 } else { 0.0 }) * f64::from(scale);
+                let dz = ((z[k] - m).exp() / se - if k == pick[row] { 1.0 } else { 0.0 })
+                    * f64::from(scale);
                 for j in 0..hidden {
                     ref_dh[row * hidden + j] += dz * r[k * hidden + j];
                     ref_dd[k * hidden + j] += dz * f64::from(hr[j]);
@@ -646,7 +859,10 @@ fn random_shapes_match_a_direct_f64_reference() {
         );
         for (what, got, want) in [("dh", &dh, &ref_dh), ("dD17", &dd, &ref_dd)] {
             let rel = rel_to_max(got, want);
-            assert!(rel <= 1e-6, "trial {trial} (H={hidden}, N={n}) {what}: {rel:.3e}");
+            assert!(
+                rel <= 1e-6,
+                "trial {trial} (H={hidden}, N={n}) {what}: {rel:.3e}"
+            );
         }
         // A second call adds to the gradient; zero_grads clears it.
         d.loss_and_grad(&h, &targets, scale).unwrap();

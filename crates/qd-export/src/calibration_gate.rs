@@ -24,7 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::calibration_fit::ECE_THRESHOLD;
@@ -43,12 +43,19 @@ pub struct ExcludedFamily {
 impl ExcludedFamily {
     /// `FAMILY=REASON`, both non-empty.
     pub fn parse(s: &str) -> std::result::Result<Self, String> {
-        let (family, reason) = s.split_once('=').ok_or_else(|| format!("{s:?} is not FAMILY=REASON"))?;
+        let (family, reason) = s
+            .split_once('=')
+            .ok_or_else(|| format!("{s:?} is not FAMILY=REASON"))?;
         let (family, reason) = (family.trim(), reason.trim());
         if family.is_empty() || reason.is_empty() {
-            return Err(format!("{s:?}: both the family and the reason must be non-empty"));
+            return Err(format!(
+                "{s:?}: both the family and the reason must be non-empty"
+            ));
         }
-        Ok(Self { family: family.to_string(), reason: reason.to_string() })
+        Ok(Self {
+            family: family.to_string(),
+            reason: reason.to_string(),
+        })
     }
 }
 
@@ -64,13 +71,20 @@ fn is_shape_key(key: &str) -> bool {
     match key.split_once(':') {
         None => key == "span",
         Some((kind, rows)) => {
-            matches!(kind, "choice" | "score") && !rows.is_empty() && rows.bytes().all(|b| b.is_ascii_digit())
+            matches!(kind, "choice" | "score")
+                && !rows.is_empty()
+                && rows.bytes().all(|b| b.is_ascii_digit())
         }
     }
 }
 
 fn as_object<'a>(v: &'a Value, what: &str) -> Result<&'a Map<String, Value>> {
-    v.as_object().ok_or_else(|| refuse(RefusalKind::Calibration, format!("{what} is not a JSON object")))
+    v.as_object().ok_or_else(|| {
+        refuse(
+            RefusalKind::Calibration,
+            format!("{what} is not a JSON object"),
+        )
+    })
 }
 
 /// The recorded check at `ece`: ran, passed, and consistent with the registered threshold.
@@ -79,10 +93,21 @@ fn check_ece(key: &str, ece: Option<&Value>) -> Result<f64> {
     let ece = ece.ok_or_else(|| refuse(k, format!("{key}: the fit's report records no ece_after for this entry; an unrecorded check is not a passed one")))?;
     let state = ece.get("state").and_then(Value::as_str).unwrap_or("absent");
     if state != "ran" {
-        let why = ece.get("reason").and_then(Value::as_str).unwrap_or("no reason recorded");
-        return Err(refuse(k, format!("{key}: the recorded calibration check is {state}, not ran ({why}); a check that could not run is not a check that passed")));
+        let why = ece
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("no reason recorded");
+        return Err(refuse(
+            k,
+            format!(
+                "{key}: the recorded calibration check is {state}, not ran ({why}); a check that could not run is not a check that passed"
+            ),
+        ));
     }
-    let value = ece.get("value").and_then(Value::as_f64).filter(|v| v.is_finite());
+    let value = ece
+        .get("value")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite());
     let passed = ece.get("passed").and_then(Value::as_bool);
     let Some(value) = value else {
         return Err(refuse(k, format!("{key}: ece_after has no finite value")));
@@ -90,13 +115,17 @@ fn check_ece(key: &str, ece: Option<&Value>) -> Result<f64> {
     if passed != Some(true) {
         return Err(refuse(
             k,
-            format!("{key}: the fit's recorded calibration check failed (ECE {value:.4}, passed=false, threshold {ECE_THRESHOLD})"),
+            format!(
+                "{key}: the fit's recorded calibration check failed (ECE {value:.4}, passed=false, threshold {ECE_THRESHOLD})"
+            ),
         ));
     }
     if value > ECE_THRESHOLD {
         return Err(refuse(
             k,
-            format!("{key}: the report says passed=true but ECE {value:.4} is over the registered threshold {ECE_THRESHOLD}"),
+            format!(
+                "{key}: the report says passed=true but ECE {value:.4} is over the registered threshold {ECE_THRESHOLD}"
+            ),
         ));
     }
     Ok(value)
@@ -121,7 +150,10 @@ pub(crate) fn check(
     let bound = report
         .get("tables")
         .and_then(Value::as_array)
-        .is_some_and(|ts| ts.iter().any(|t| t.get("sha256").and_then(Value::as_str) == Some(table_sha.as_str())));
+        .is_some_and(|ts| {
+            ts.iter()
+                .any(|t| t.get("sha256").and_then(Value::as_str) == Some(table_sha.as_str()))
+        });
     if !bound {
         return Err(refuse(
             k,
@@ -150,7 +182,13 @@ pub(crate) fn check(
     let known: BTreeSet<&str> = all_families.iter().map(String::as_str).collect();
     for family in declared.keys() {
         if !known.contains(family.as_str()) {
-            return Err(refuse(k, format!("{}: declares shapes for {family:?}, which the train manifest does not hold", shapes_path.display())));
+            return Err(refuse(
+                k,
+                format!(
+                    "{}: declares shapes for {family:?}, which the train manifest does not hold",
+                    shapes_path.display()
+                ),
+            ));
         }
     }
 
@@ -184,31 +222,52 @@ pub(crate) fn check(
                 refuse(k, format!("{family}: each declared shape is a non-empty array of slot keys (one trained request), got {shape}"))
             })?;
             let mut this: Vec<String> = Vec::with_capacity(slots.len());
-        for key in slots {
-            let key = key
-                .as_str()
-                .filter(|s| is_shape_key(s))
-                .ok_or_else(|| refuse(k, format!("{family}: shape {key} is not span, choice:N or score:N")))?;
-            if key == "span" {
-                if !has_span {
-                    return Err(refuse(k, format!("{family}: trained slot shape span has no calibration entry (the table's span is null); the runtime would refuse its span slot as calibration_entry_missing")));
+            for key in slots {
+                let key = key.as_str().filter(|s| is_shape_key(s)).ok_or_else(|| {
+                    refuse(
+                        k,
+                        format!("{family}: shape {key} is not span, choice:N or score:N"),
+                    )
+                })?;
+                if key == "span" {
+                    if !has_span {
+                        return Err(refuse(
+                            k,
+                            format!(
+                                "{family}: trained slot shape span has no calibration entry (the table's span is null); the runtime would refuse its span slot as calibration_entry_missing"
+                            ),
+                        ));
+                    }
+                    let fitted =
+                        report.pointer("/span/fitted").and_then(Value::as_bool) == Some(true);
+                    if !fitted {
+                        return Err(refuse(
+                            k,
+                            format!(
+                                "{family}: span has an entry in the table but the report says span.fitted is not true"
+                            ),
+                        ));
+                    }
+                    let v = check_ece(
+                        &format!("{family}/span"),
+                        report.pointer("/span/scored/ece_after"),
+                    )?;
+                    checked.insert("span".to_string(), json!(v));
+                } else {
+                    if !letters.contains(key) {
+                        return Err(refuse(
+                            k,
+                            format!(
+                                "{family}: trained slot shape {key} has no calibration entry; the runtime would refuse it as calibration_entry_missing"
+                            ),
+                        ));
+                    }
+                    let ece = report.pointer(&format!("/entries/{key}/scored/ece_after"));
+                    let v = check_ece(&format!("{family}/{key}"), ece)?;
+                    checked.insert(key.to_string(), json!(v));
                 }
-                let fitted = report.pointer("/span/fitted").and_then(Value::as_bool) == Some(true);
-                if !fitted {
-                    return Err(refuse(k, format!("{family}: span has an entry in the table but the report says span.fitted is not true")));
-                }
-                let v = check_ece(&format!("{family}/span"), report.pointer("/span/scored/ece_after"))?;
-                checked.insert("span".to_string(), json!(v));
-            } else {
-                if !letters.contains(key) {
-                    return Err(refuse(k, format!("{family}: trained slot shape {key} has no calibration entry; the runtime would refuse it as calibration_entry_missing")));
-                }
-                let ece = report.pointer(&format!("/entries/{key}/scored/ece_after"));
-                let v = check_ece(&format!("{family}/{key}"), ece)?;
-                checked.insert(key.to_string(), json!(v));
+                this.push(key.to_string());
             }
-            this.push(key.to_string());
-        }
             this.sort();
             mine.push(this);
         }

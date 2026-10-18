@@ -26,7 +26,6 @@ use std::process::Command;
 
 use serde_json::Value;
 
-
 use crate::tristate::{TriState, aggregate};
 
 /// Directories whose files a registration cites as decision records.
@@ -88,7 +87,10 @@ fn git(repo: &Path, args: &[&str]) -> Result<(i32, String), String> {
         .args(args)
         .output()
         .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
-    let code = out.status.code().ok_or_else(|| format!("git {} was killed", args.join(" ")))?;
+    let code = out
+        .status
+        .code()
+        .ok_or_else(|| format!("git {} was killed", args.join(" ")))?;
     Ok((code, String::from_utf8_lossy(&out.stdout).trim().to_owned()))
 }
 
@@ -98,29 +100,39 @@ fn read_json(path: &Path) -> Result<Value, String> {
 }
 
 fn is_sha256(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Check 1: the shard set's recorded `shard_hash` is the one the registration pins.
 pub fn check_shard_hash(prereg: &Value, shard_dir: &Path) -> TriState {
-    let Some(pinned) = prereg.pointer("/data/train_shard/shard_hash").and_then(Value::as_str)
+    let Some(pinned) = prereg
+        .pointer("/data/train_shard/shard_hash")
+        .and_then(Value::as_str)
     else {
         return TriState::not_run(
             "the registration has no data.train_shard.shard_hash, so there is nothing to bind to",
         );
     };
     if !is_sha256(pinned) {
-        return TriState::not_run(format!("the registration's shard_hash {pinned:?} is not a sha256"));
+        return TriState::not_run(format!(
+            "the registration's shard_hash {pinned:?} is not a sha256"
+        ));
     }
     let header = match read_json(&shard_dir.join("header.json")) {
         Ok(v) => v,
-        Err(e) => return TriState::not_run(format!("the shard set's header could not be read: {e}")),
+        Err(e) => {
+            return TriState::not_run(format!("the shard set's header could not be read: {e}"));
+        }
     };
     let Some(actual) = header.get("shard_hash").and_then(Value::as_str) else {
         return TriState::not_run("the shard set's header.json records no shard_hash");
     };
     if actual == pinned {
-        TriState::pass(format!("shard_hash {pinned} (recorded header hash; the shard reader re-derives it)"))
+        TriState::pass(format!(
+            "shard_hash {pinned} (recorded header hash; the shard reader re-derives it)"
+        ))
     } else {
         TriState::fail(format!(
             "the shard set at {} carries shard_hash {actual}, but the registration pins {pinned}; \
@@ -154,7 +166,9 @@ pub fn check_committed_clean(repo: &Path, label: &str, paths: &[String]) -> TriS
         match git(repo, &["status", "--porcelain=v1", "--", p]) {
             Ok((0, out)) if out.is_empty() => {}
             Ok((0, out)) => problems.push(format!("{p} differs from HEAD ({})", out.trim())),
-            Ok((code, _)) => return TriState::not_run(format!("{label}: git status exited {code}")),
+            Ok((code, _)) => {
+                return TriState::not_run(format!("{label}: git status exited {code}"));
+            }
             Err(e) => return TriState::not_run(format!("{label}: {e}")),
         }
     }
@@ -167,27 +181,42 @@ pub fn check_committed_clean(repo: &Path, label: &str, paths: &[String]) -> TriS
             missing.join(", ")
         ));
     }
-    TriState::pass(format!("{label}: {} file(s) committed and unmodified", paths.len()))
+    TriState::pass(format!(
+        "{label}: {} file(s) committed and unmodified",
+        paths.len()
+    ))
 }
 
 /// Check 3: the commit that last touched the registration is an ancestor of the run's `HEAD`.
 pub fn check_ancestor(repo: &Path, prereg_rel: &str, head: Option<&str>) -> TriState {
-    let commit = match git(repo, &["log", "-1", "--format=%H", "HEAD", "--", prereg_rel]) {
+    let commit = match git(
+        repo,
+        &["log", "-1", "--format=%H", "HEAD", "--", prereg_rel],
+    ) {
         Ok((0, out)) if !out.is_empty() => out,
         Ok((0, _)) => {
-            return TriState::fail(format!("{prereg_rel} has no commit on HEAD: it was never committed"));
+            return TriState::fail(format!(
+                "{prereg_rel} has no commit on HEAD: it was never committed"
+            ));
         }
         Ok((code, _)) => return TriState::not_run(format!("git log exited {code}")),
         Err(e) => return TriState::not_run(e),
     };
     let target = head.unwrap_or("HEAD");
-    let resolved = match git(repo, &["rev-parse", "--verify", &format!("{target}^{{commit}}")]) {
+    let resolved = match git(
+        repo,
+        &["rev-parse", "--verify", &format!("{target}^{{commit}}")],
+    ) {
         Ok((0, out)) => out,
-        Ok(_) => return TriState::not_run(format!("the run's head {target:?} is not a commit here")),
+        Ok(_) => {
+            return TriState::not_run(format!("the run's head {target:?} is not a commit here"));
+        }
         Err(e) => return TriState::not_run(e),
     };
     match git(repo, &["merge-base", "--is-ancestor", &commit, &resolved]) {
-        Ok((0, _)) => TriState::pass(format!("registration commit {commit} is an ancestor of {resolved}")),
+        Ok((0, _)) => TriState::pass(format!(
+            "registration commit {commit} is an ancestor of {resolved}"
+        )),
         Ok((1, _)) => TriState::fail(format!(
             "registration commit {commit} is not an ancestor of the run's head {resolved}: the \
              run is not built on the registration"
@@ -206,7 +235,10 @@ pub fn bind(inputs: &BindInputs) -> (Vec<(String, TriState)>, TriState) {
         .unwrap_or_else(|_| inputs.prereg.clone());
     let rel_s = rel.to_string_lossy().into_owned();
     let (value, text) = match fs::read_to_string(&inputs.prereg) {
-        Ok(t) => (serde_json::from_str::<Value>(&t).map_err(|e| format!("not JSON: {e}")), Some(t)),
+        Ok(t) => (
+            serde_json::from_str::<Value>(&t).map_err(|e| format!("not JSON: {e}")),
+            Some(t),
+        ),
         Err(e) => (Err(format!("{}: {e}", inputs.prereg.display())), None),
     };
     let unreadable = |what: &str| {
@@ -223,14 +255,21 @@ pub fn bind(inputs: &BindInputs) -> (Vec<(String, TriState)>, TriState) {
     if let Some(t) = &text {
         files.extend(cited_paths(t).into_iter().filter(|p| *p != rel_s));
     }
-    let clean = check_committed_clean(&inputs.repo, "registration and cited decision records", &files);
+    let clean = check_committed_clean(
+        &inputs.repo,
+        "registration and cited decision records",
+        &files,
+    );
     let ancestor = check_ancestor(&inputs.repo, &rel_s, inputs.head.as_deref());
     let checks = vec![
         ("shard_hash".to_owned(), shard),
         ("committed_clean".to_owned(), clean),
         ("ancestor".to_owned(), ancestor),
     ];
-    let parts: Vec<(&str, TriState)> = checks.iter().map(|(n, t)| (n.as_str(), t.clone())).collect();
+    let parts: Vec<(&str, TriState)> = checks
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.clone()))
+        .collect();
     let overall = aggregate("qd-prereg-bind", &parts);
     (checks, overall)
 }
@@ -246,8 +285,16 @@ pub fn exit_code(t: &TriState) -> u8 {
 
 fn describe(t: &TriState) -> (&'static str, String) {
     match t {
-        TriState::Ran { passed: true, detail, .. } => ("PASS", detail.clone()),
-        TriState::Ran { passed: false, detail, .. } => ("FAILED", detail.clone()),
+        TriState::Ran {
+            passed: true,
+            detail,
+            ..
+        } => ("PASS", detail.clone()),
+        TriState::Ran {
+            passed: false,
+            detail,
+            ..
+        } => ("FAILED", detail.clone()),
         TriState::NotRun { reason } => ("NOT_RUN", reason.clone()),
     }
 }
@@ -260,22 +307,42 @@ pub fn run(args: &[String]) -> (String, u8) {
     let mut it = args.iter();
     while let Some(flag) = it.next() {
         let Some(value) = it.next() else {
-            return (format!("qd-prereg-bind: {flag} needs a value\n{usage}\n"), 2);
+            return (
+                format!("qd-prereg-bind: {flag} needs a value\n{usage}\n"),
+                2,
+            );
         };
         match flag.as_str() {
             "--prereg" => prereg = Some(PathBuf::from(value)),
             "--shard-dir" => shard = Some(PathBuf::from(value)),
             "--repo" => repo = Some(PathBuf::from(value)),
             "--head" => head = Some(value.clone()),
-            other => return (format!("qd-prereg-bind: unknown argument {other:?}\n{usage}\n"), 2),
+            other => {
+                return (
+                    format!("qd-prereg-bind: unknown argument {other:?}\n{usage}\n"),
+                    2,
+                );
+            }
         }
     }
     let (Some(prereg), Some(shard_dir)) = (prereg, shard) else {
-        return (format!("qd-prereg-bind: --prereg and --shard-dir are required\n{usage}\n"), 2);
+        return (
+            format!("qd-prereg-bind: --prereg and --shard-dir are required\n{usage}\n"),
+            2,
+        );
     };
     let repo = repo.unwrap_or_else(|| PathBuf::from("."));
-    let prereg = if prereg.is_absolute() { prereg } else { repo.join(prereg) };
-    let (checks, overall) = bind(&BindInputs { prereg, repo, shard_dir, head });
+    let prereg = if prereg.is_absolute() {
+        prereg
+    } else {
+        repo.join(prereg)
+    };
+    let (checks, overall) = bind(&BindInputs {
+        prereg,
+        repo,
+        shard_dir,
+        head,
+    });
     let mut out = String::new();
     for (name, t) in &checks {
         let (label, detail) = describe(t);
@@ -329,7 +396,19 @@ mod tests {
 
     fn commit_all(repo: &Path, msg: &str) -> String {
         sh(repo, &["add", "."]);
-        sh(repo, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg]);
+        sh(
+            repo,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                msg,
+            ],
+        );
         sh(repo, &["rev-parse", "HEAD"])
     }
 
@@ -348,14 +427,22 @@ mod tests {
         write(repo.path(), "campaign/other.json", "{}");
         let c = commit_all(repo.path(), "register");
         let shards = Scratch::new();
-        write(shards.path(), "header.json", &format!(r#"{{"shard_hash": "{HASH}"}}"#));
+        write(
+            shards.path(),
+            "header.json",
+            &format!(r#"{{"shard_hash": "{HASH}"}}"#),
+        );
         (repo, shards, c)
     }
 
     fn args(repo: &Scratch, shards: &Scratch, extra: &[&str]) -> Vec<String> {
         let mut a: Vec<String> = [
-            "--prereg", "campaign/p.json", "--shard-dir", shards.path().to_str().unwrap(),
-            "--repo", repo.path().to_str().unwrap(),
+            "--prereg",
+            "campaign/p.json",
+            "--shard-dir",
+            shards.path().to_str().unwrap(),
+            "--repo",
+            repo.path().to_str().unwrap(),
         ]
         .iter()
         .map(|s| (*s).to_owned())
@@ -370,7 +457,12 @@ mod tests {
                     xAUDIT/no.md and HANDOFF/h-2026.md";
         assert_eq!(
             cited_paths(text),
-            vec!["AUDIT/a/b.md", "HANDOFF/h-2026.md", "campaign/v5.json", "docs/x.json"]
+            vec![
+                "AUDIT/a/b.md",
+                "HANDOFF/h-2026.md",
+                "campaign/v5.json",
+                "docs/x.json"
+            ]
         );
     }
 
@@ -385,12 +477,19 @@ mod tests {
     #[test]
     fn a_shard_set_with_another_hash_fails() {
         let (repo, shards, _) = fixture();
-        write(shards.path(), "header.json", &format!(r#"{{"shard_hash": "{}"}}"#, "0".repeat(64)));
+        write(
+            shards.path(),
+            "header.json",
+            &format!(r#"{{"shard_hash": "{}"}}"#, "0".repeat(64)),
+        );
         let (out, code) = run(&args(&repo, &shards, &[]));
         assert_eq!(code, 1, "{out}");
         // The label column is `{label:8} `, so FAILED (6) is followed by two pad spaces and the
         // separator; NOT_RUN (7) by one and the separator, as the test below spells it.
-        assert!(out.contains("FAILED   shard_hash") && out.ends_with("RESULT: FAILED\n"), "{out}");
+        assert!(
+            out.contains("FAILED   shard_hash") && out.ends_with("RESULT: FAILED\n"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -399,13 +498,20 @@ mod tests {
         fs::remove_file(shards.path().join("header.json")).unwrap();
         let (out, code) = run(&args(&repo, &shards, &[]));
         assert_eq!(code, 3, "{out}");
-        assert!(out.contains("NOT_RUN  shard_hash") && out.ends_with("RESULT: NOT_RUN\n"), "{out}");
+        assert!(
+            out.contains("NOT_RUN  shard_hash") && out.ends_with("RESULT: NOT_RUN\n"),
+            "{out}"
+        );
     }
 
     #[test]
     fn a_modified_registration_fails() {
         let (repo, shards, _) = fixture();
-        write(repo.path(), "campaign/p.json", &prereg_json().replace("design_by", "design_by2"));
+        write(
+            repo.path(),
+            "campaign/p.json",
+            &prereg_json().replace("design_by", "design_by2"),
+        );
         let (out, code) = run(&args(&repo, &shards, &[]));
         assert_eq!(code, 1, "{out}");
         assert!(out.contains("campaign/p.json differs from HEAD"), "{out}");
@@ -414,7 +520,11 @@ mod tests {
     #[test]
     fn a_modified_cited_decision_record_fails() {
         let (repo, shards, _) = fixture();
-        write(repo.path(), "AUDIT/d/ruling.md", "ruling, edited after the fact");
+        write(
+            repo.path(),
+            "AUDIT/d/ruling.md",
+            "ruling, edited after the fact",
+        );
         let (out, code) = run(&args(&repo, &shards, &[]));
         assert_eq!(code, 1, "{out}");
         assert!(out.contains("AUDIT/d/ruling.md differs from HEAD"), "{out}");
@@ -449,7 +559,11 @@ mod tests {
         let (out, code) = run(&args(&repo, &shards, &["--head", &registered]));
         assert_eq!(code, 0, "{out}");
         // The registration is then re-committed (a different commit touches the file).
-        write(repo.path(), "campaign/p.json", &format!("{} ", prereg_json()));
+        write(
+            repo.path(),
+            "campaign/p.json",
+            &format!("{} ", prereg_json()),
+        );
         let re = commit_all(repo.path(), "re-register");
         // A run whose head is the earlier commit predates it: not built on this registration.
         let (out, code) = run(&args(&repo, &shards, &["--head", &registered]));

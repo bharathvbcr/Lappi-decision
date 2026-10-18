@@ -114,8 +114,13 @@ fn lora_recipe() -> FtRecipe {
 }
 
 fn base_row(recipe: FtRecipe, seed: u64) -> FtRow {
-    let protocol = Protocol::for_recipe(&recipe, "d".repeat(64).as_str(), "t".repeat(64).as_str(), seed)
-        .unwrap();
+    let protocol = Protocol::for_recipe(
+        &recipe,
+        "d".repeat(64).as_str(),
+        "t".repeat(64).as_str(),
+        seed,
+    )
+    .unwrap();
     let result = TrainResult {
         termination: Termination::StepsExhausted,
         optimizer_steps: 60,
@@ -182,7 +187,10 @@ fn good_row(f: &Fixture, seed: u64) -> FtRow {
         &init(f, a),
         &f.adapters,
         &f.host,
-        &[LoraQuickReason::Smoke, LoraQuickReason::FewerThanThreeSeeds { seeds: 1 }],
+        &[
+            LoraQuickReason::Smoke,
+            LoraQuickReason::FewerThanThreeSeeds { seeds: 1 },
+        ],
     )
     .unwrap()
 }
@@ -196,9 +204,16 @@ fn the_lora_row_carries_the_label_quick_with_its_reason_and_all_seven_digests() 
     assert_eq!(v["run_kind"], "ft");
     assert_eq!(v["quick"], true);
     let reason = v["quick_reason"].as_str().unwrap();
-    assert!(reason.contains("smoke") && reason.contains("fewer than 3 seeds"), "{reason}");
+    assert!(
+        reason.contains("smoke") && reason.contains("fewer than 3 seeds"),
+        "{reason}"
+    );
     let m = &v["metrics"];
-    let val = |k: &str| m[k]["value"].as_str().unwrap_or_else(|| panic!("{k}: {}", m[k]));
+    let val = |k: &str| {
+        m[k]["value"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{k}: {}", m[k]))
+    };
     // 1. span-head init content digest, 2. D17 init digest, 3. LoRA-A digest.
     assert_eq!(val("train.span_head_init_digest"), HEAD_DIGEST);
     assert_eq!(
@@ -206,11 +221,16 @@ fn the_lora_row_carries_the_label_quick_with_its_reason_and_all_seven_digests() 
         d17_zero_init_digest(17, 6).unwrap(),
         "recomputed from the host entry's shape"
     );
-    assert_eq!(val("lora.a_init_digest"), f.block["a_digest"].as_str().unwrap());
-    assert!(m["lora.a_init_digest"]["detail"]
-        .as_str()
-        .unwrap()
-        .contains("recomputed"));
+    assert_eq!(
+        val("lora.a_init_digest"),
+        f.block["a_digest"].as_str().unwrap()
+    );
+    assert!(
+        m["lora.a_init_digest"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("recomputed")
+    );
     // 4. base snapshot and safetensors sha256, 5. dtype map, 6. plan seed, 7. train shard hash.
     assert_eq!(v["recipe"]["backbone_snapshot"], SNAPSHOT);
     assert_eq!(val("lora.base_safetensors_sha256"), SAFETENSORS_SHA);
@@ -242,29 +262,36 @@ fn a_lora_a_digest_the_rule_does_not_give_voids_the_row() {
     )
     .unwrap_err()
     .to_string();
-    assert!(err.contains("LoRA-A digest") && err.contains("voids the row"), "{err}");
+    assert!(
+        err.contains("LoRA-A digest") && err.contains("voids the row"),
+        "{err}"
+    );
     // The digest is right for seed 0 but the row's protocol says seed 7: recomputed at 7, refused.
     let a0 = f.block["a_digest"].as_str().unwrap();
-    assert!(lora_ft_row(
-        base_row(lora_recipe(), 7),
-        &init(&f, a0),
-        &f.adapters,
-        &f.host,
-        &[LoraQuickReason::Smoke],
-    )
-    .is_err());
+    assert!(
+        lora_ft_row(
+            base_row(lora_recipe(), 7),
+            &init(&f, a0),
+            &f.adapters,
+            &f.host,
+            &[LoraQuickReason::Smoke],
+        )
+        .is_err()
+    );
     // A checkpoint A that differs by one ulp from the rule's draw hashes apart and is refused.
     let mut drawn = recompute_lora_a(0, f.rank, &f.modules).unwrap();
     drawn[0].1[0] = f32::from_bits(drawn[0].1[0].to_bits() ^ 1);
     let tampered = lora_a_digest(f.rank, &drawn).unwrap();
-    assert!(lora_ft_row(
-        base_row(lora_recipe(), 0),
-        &init(&f, &tampered),
-        &f.adapters,
-        &f.host,
-        &[LoraQuickReason::Smoke],
-    )
-    .is_err());
+    assert!(
+        lora_ft_row(
+            base_row(lora_recipe(), 0),
+            &init(&f, &tampered),
+            &f.adapters,
+            &f.host,
+            &[LoraQuickReason::Smoke],
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -274,7 +301,10 @@ fn a_row_that_is_not_quick_for_a_stated_reason_or_not_lora_is_refused() {
     let go = |row: FtRow, reasons: &[LoraQuickReason]| {
         lora_ft_row(row, &init(&f, a), &f.adapters, &f.host, reasons)
     };
-    assert!(go(base_row(lora_recipe(), 0), &[]).is_err(), "no quick reason");
+    assert!(
+        go(base_row(lora_recipe(), 0), &[]).is_err(),
+        "no quick reason"
+    );
     assert!(
         go(
             base_row(lora_recipe(), 0),
@@ -310,14 +340,16 @@ fn a_row_that_is_not_quick_for_a_stated_reason_or_not_lora_is_refused() {
         );
     }
     // The plan that would be refused cannot be written as a row either.
-    assert!(lora_ft_row(
-        base_row(lora_recipe(), 0),
-        &init(&f, a),
-        &[],
-        &f.host,
-        &[LoraQuickReason::Smoke]
-    )
-    .is_err());
+    assert!(
+        lora_ft_row(
+            base_row(lora_recipe(), 0),
+            &init(&f, a),
+            &[],
+            &f.host,
+            &[LoraQuickReason::Smoke]
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -348,15 +380,27 @@ fn ml_python() -> PathBuf {
 fn pythons_verifier_accepts_a_lora_row() {
     let f = fixture(0);
     let dir = std::env::temp_dir().join(format!("qd-train-lora-row-{}", std::process::id()));
-    let path = dir.join("ledger").join("mac-ojas-lora-test-2026-10-17.jsonl");
+    let path = dir
+        .join("ledger")
+        .join("mac-ojas-lora-test-2026-10-17.jsonl");
     if dir.exists() {
         std::fs::remove_dir_all(&dir).unwrap();
     }
     let row = good_row(&f, 0);
-    ledger::append(&path, &row, ledger::uuid4().unwrap(), "2026-10-17T10:00:00+00:00".into())
-        .unwrap();
-    ledger::append(&path, &row, ledger::uuid4().unwrap(), "2026-10-17T10:00:01+00:00".into())
-        .unwrap();
+    ledger::append(
+        &path,
+        &row,
+        ledger::uuid4().unwrap(),
+        "2026-10-17T10:00:00+00:00".into(),
+    )
+    .unwrap();
+    ledger::append(
+        &path,
+        &row,
+        ledger::uuid4().unwrap(),
+        "2026-10-17T10:00:01+00:00".into(),
+    )
+    .unwrap();
     let out = Command::new(ml_python())
         .args(["-m", "qd_train.ledger", "verify", "--ledger"])
         .arg(&path)

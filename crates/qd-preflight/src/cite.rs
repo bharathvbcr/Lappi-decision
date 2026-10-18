@@ -24,7 +24,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 pub const DEFAULT_SINCE: &str = "2026-10-18";
 
@@ -58,7 +58,8 @@ impl Known {
         for e in std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
             let p = e?.path();
             if p.extension().is_some_and(|x| x == "jsonl") {
-                let text = std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
+                let text = std::fs::read_to_string(&p)
+                    .with_context(|| format!("reading {}", p.display()))?;
                 for line in text.lines() {
                     if let Some(id) = json_str_field(line, "row_id") {
                         rows.push(id);
@@ -67,11 +68,17 @@ impl Known {
             }
         }
         if rows.is_empty() {
-            bail!("{} holds no row_id: no ledger row id could resolve", dir.display());
+            bail!(
+                "{} holds no row_id: no ledger row id could resolve",
+                dir.display()
+            );
         }
         let gp = root.join("gaps.jsonl");
         let mut gaps = BTreeSet::new();
-        for line in std::fs::read_to_string(&gp).with_context(|| format!("reading {}", gp.display()))?.lines() {
+        for line in std::fs::read_to_string(&gp)
+            .with_context(|| format!("reading {}", gp.display()))?
+            .lines()
+        {
             if let Some(id) = json_str_field(line, "id") {
                 gaps.insert(id);
             }
@@ -79,7 +86,11 @@ impl Known {
         if gaps.is_empty() {
             bail!("{} holds no gap id", gp.display());
         }
-        Ok(Self { ledger_rows: rows, gap_ids: gaps, root: root.to_path_buf() })
+        Ok(Self {
+            ledger_rows: rows,
+            gap_ids: gaps,
+            root: root.to_path_buf(),
+        })
     }
 
     fn row_resolves(&self, token: &str) -> bool {
@@ -87,7 +98,8 @@ impl Known {
     }
 
     fn gap_resolves(&self, token: &str) -> bool {
-        self.gap_ids.contains(token) || (token.ends_with('-') && self.gap_ids.iter().any(|k| k.starts_with(token)))
+        self.gap_ids.contains(token)
+            || (token.ends_with('-') && self.gap_ids.iter().any(|k| k.starts_with(token)))
     }
 }
 
@@ -112,15 +124,24 @@ fn is_date_at(b: &[u8], i: usize) -> bool {
 
 fn last_date(s: &str) -> Option<String> {
     let b = s.as_bytes();
-    (0..b.len()).rev().find(|&i| is_date_at(b, i)).map(|i| s[i..i + 10].to_string())
+    (0..b.len())
+        .rev()
+        .find(|&i| is_date_at(b, i))
+        .map(|i| s[i..i + 10].to_string())
 }
 
 /// The date a file is held to: its own name's, else its nearest dated parent directory's.
 pub fn file_date(path: &Path) -> Option<String> {
-    if let Some(d) = path.file_name().and_then(|n| n.to_str()).and_then(last_date) {
+    if let Some(d) = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(last_date)
+    {
         return Some(d);
     }
-    path.parent()?.ancestors().find_map(|a| a.file_name().and_then(|n| n.to_str()).and_then(last_date))
+    path.parent()?
+        .ancestors()
+        .find_map(|a| a.file_name().and_then(|n| n.to_str()).and_then(last_date))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -143,7 +164,9 @@ pub fn measured_number(line: &str) -> Option<String> {
         // The whole run of digits, dots, slashes, colons, hyphens and percent signs.
         let start = i;
         let mut j = i;
-        while j < b.len() && (b[j].is_ascii_digit() || matches!(b[j], b'.' | b'/' | b':' | b'-' | b'%' | b',')) {
+        while j < b.len()
+            && (b[j].is_ascii_digit() || matches!(b[j], b'.' | b'/' | b':' | b'-' | b'%' | b','))
+        {
             j += 1;
         }
         // A trailing separator is punctuation, not part of the number.
@@ -156,7 +179,13 @@ pub fn measured_number(line: &str) -> Option<String> {
         let after = b.get(end).copied().unwrap_or(b' ');
         i = j.max(i + 1);
         // Fused to an identifier: Qwen3.5, H100, choice-16, v0.1, file_2.5.
-        if is_ident(before) && !before.is_ascii_digit() || before == b'-' && start >= 2 && is_ident(b[start - 2]) && !b[start - 2].is_ascii_digit() || before == b'/' {
+        if is_ident(before) && !before.is_ascii_digit()
+            || before == b'-'
+                && start >= 2
+                && is_ident(b[start - 2])
+                && !b[start - 2].is_ascii_digit()
+            || before == b'/'
+        {
             continue;
         }
         if is_ident(after) && !after.is_ascii_digit() {
@@ -182,8 +211,14 @@ pub fn measured_number(line: &str) -> Option<String> {
 /// A number that names something rather than measures it: a section or audit item (`section 3.1`,
 /// a heading's own `### 4.4`), a paper id (`arXiv 2305.13282`), a price (`$2.29`).
 fn is_reference(prefix: &str, suffix: &str, before: u8, run: &str) -> bool {
-    let one_digit_pair = run.len() == 3 && run.as_bytes()[1] == b'.' && run.bytes().filter(u8::is_ascii_digit).count() == 2;
-    if one_digit_pair && ((prefix.ends_with('(') && suffix.starts_with(')')) || prefix.ends_with(" in ") || prefix.to_ascii_lowercase().ends_with("see ")) {
+    let one_digit_pair = run.len() == 3
+        && run.as_bytes()[1] == b'.'
+        && run.bytes().filter(u8::is_ascii_digit).count() == 2;
+    if one_digit_pair
+        && ((prefix.ends_with('(') && suffix.starts_with(')'))
+            || prefix.ends_with(" in ")
+            || prefix.to_ascii_lowercase().ends_with("see "))
+    {
         return true;
     }
     if prefix.trim_end().ends_with(['~', '≈', '≥', '≤', '±']) {
@@ -198,8 +233,23 @@ fn is_reference(prefix: &str, suffix: &str, before: u8, run: &str) -> bool {
     }
     let lower = prefix.trim_end().to_ascii_lowercase();
     const NAMES: [&str; 17] = [
-        "section", "§", "audit", "item", "step", "phase", "part", "arxiv", "doi:", "figure", "appendix", "table",
-        "threshold", "target", "target-precision", "at least", "at most",
+        "section",
+        "§",
+        "audit",
+        "item",
+        "step",
+        "phase",
+        "part",
+        "arxiv",
+        "doi:",
+        "figure",
+        "appendix",
+        "table",
+        "threshold",
+        "target",
+        "target-precision",
+        "at least",
+        "at most",
     ];
     if NAMES.iter().any(|w| lower.ends_with(w)) {
         return true;
@@ -222,7 +272,11 @@ fn classify(run: &str) -> Option<String> {
     if run.is_empty() {
         return None;
     }
-    if run.ends_with('%') && run[..run.len() - 1].bytes().all(|c| c.is_ascii_digit() || c == b'.') {
+    if run.ends_with('%')
+        && run[..run.len() - 1]
+            .bytes()
+            .all(|c| c.is_ascii_digit() || c == b'.')
+    {
         return Some(run.to_string());
     }
     if let Some((n, m)) = run.split_once('/') {
@@ -234,7 +288,12 @@ fn classify(run: &str) -> Option<String> {
     }
     let mut parts = run.split('.');
     let (a, b) = (parts.next()?, parts.next()?);
-    if parts.next().is_none() && !a.is_empty() && !b.is_empty() && a.bytes().all(|c| c.is_ascii_digit() || c == b',') && b.bytes().all(|c| c.is_ascii_digit()) {
+    if parts.next().is_none()
+        && !a.is_empty()
+        && !b.is_empty()
+        && a.bytes().all(|c| c.is_ascii_digit() || c == b',')
+        && b.bytes().all(|c| c.is_ascii_digit())
+    {
         return Some(run.to_string());
     }
     None
@@ -265,7 +324,9 @@ fn strip_non_prose(line: &str) -> String {
         // GAP-... ids
         if line[i..].starts_with("GAP-") {
             let mut j = i + 4;
-            while j < b.len() && (b[j].is_ascii_uppercase() || b[j].is_ascii_digit() || b[j] == b'-') {
+            while j < b.len()
+                && (b[j].is_ascii_uppercase() || b[j].is_ascii_digit() || b[j] == b'-')
+            {
                 j += 1;
             }
             out.push(' ');
@@ -301,7 +362,9 @@ fn hex_tokens(line: &str) -> Vec<String> {
         let tok = &line[i..end];
         let hex_only: String = tok.chars().filter(|c| *c != '-').collect();
         let next = b.get(end).copied().unwrap_or(b' ');
-        let lower = tok.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c) || c == b'-');
+        let lower = tok
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c) || c == b'-');
         let has_letter = tok.bytes().any(|c| (b'a'..=b'f').contains(&c));
         let has_digit = tok.bytes().any(|c| c.is_ascii_digit());
         let uuid_like = tok.matches('-').count() == 4 && tok.len() == 36;
@@ -325,7 +388,9 @@ fn hex_tokens(line: &str) -> Vec<String> {
 /// file digests are hex too, and flagging them is a false positive.
 fn is_ledger_claim(unit: &str, tok: &str) -> bool {
     let lower = unit.to_ascii_lowercase();
-    let Some(at) = unit.find(tok) else { return false };
+    let Some(at) = unit.find(tok) else {
+        return false;
+    };
     // `6cf99185…`: a truncated digest, not an id anyone could look up.
     let after = &unit[at + tok.len()..];
     if after.starts_with('…') || after.starts_with("...") {
@@ -336,8 +401,11 @@ fn is_ledger_claim(unit: &str, tok: &str) -> bool {
         from += 1;
     }
     let before = &lower[from..at];
-    let hashy = ["sha", "commit", "snapshot", "hash", "git", "blob", "digest", "@"];
-    !hashy.iter().any(|w| before.contains(w)) && (before.contains("row") || before.contains("ledger"))
+    let hashy = [
+        "sha", "commit", "snapshot", "hash", "git", "blob", "digest", "@",
+    ];
+    !hashy.iter().any(|w| before.contains(w))
+        && (before.contains("row") || before.contains("ledger"))
 }
 
 fn gap_tokens(line: &str) -> Vec<String> {
@@ -411,7 +479,8 @@ fn units(text: &str) -> Vec<(usize, Vec<&str>)> {
             || t.starts_with("- ")
             || t.starts_with("* ")
             || t.starts_with("+ ")
-            || t.split_once(". ").is_some_and(|(a, _)| !a.is_empty() && a.bytes().all(|c| c.is_ascii_digit()));
+            || t.split_once(". ")
+                .is_some_and(|(a, _)| !a.is_empty() && a.bytes().all(|c| c.is_ascii_digit()));
         if new_unit {
             flush(&mut cur, &mut out);
             cur = Some((n, vec![line]));
@@ -451,7 +520,11 @@ pub fn check_text(file: &Path, text: &str, known: &Known) -> Vec<Finding> {
         }
         for path in v_tags(&joined) {
             let p = Path::new(&path);
-            let full = if p.is_absolute() { p.to_path_buf() } else { known.root.join(p) };
+            let full = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                known.root.join(p)
+            };
             if full.exists() {
                 resolved += 1;
             } else {
@@ -459,7 +532,12 @@ pub fn check_text(file: &Path, text: &str, known: &Known) -> Vec<Finding> {
             }
         }
         for why in bad {
-            findings.push(Finding { file: file.to_path_buf(), line: first, reason: Reason::Unresolvable(why), text: lines[0].trim().chars().take(160).collect() });
+            findings.push(Finding {
+                file: file.to_path_buf(),
+                line: first,
+                reason: Reason::Unresolvable(why),
+                text: lines[0].trim().chars().take(160).collect(),
+            });
         }
         if resolved == 0 {
             for (k, line) in lines.iter().enumerate() {
@@ -512,13 +590,19 @@ pub struct Report {
 
 pub fn run(root: &Path, files: &[PathBuf], since: &str) -> Result<Report> {
     let known = Known::load(root)?;
-    let mut report = Report { in_scope: 0, skipped_undated: 0, skipped_before_cutoff: 0, findings: Vec::new() };
+    let mut report = Report {
+        in_scope: 0,
+        skipped_undated: 0,
+        skipped_before_cutoff: 0,
+        findings: Vec::new(),
+    };
     for f in files {
         match file_date(f) {
             None => report.skipped_undated += 1,
             Some(d) if d.as_str() < since => report.skipped_before_cutoff += 1,
             Some(_) => {
-                let text = std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?;
+                let text = std::fs::read_to_string(f)
+                    .with_context(|| format!("reading {}", f.display()))?;
                 report.in_scope += 1;
                 report.findings.extend(check_text(f, &text, &known));
             }
@@ -537,7 +621,10 @@ mod tests {
 
     #[test]
     fn measured_numbers_are_decimals_percentages_and_counts() {
-        assert_eq!(num("val choice top-1 **0.857** here").as_deref(), Some("0.857"));
+        assert_eq!(
+            num("val choice top-1 **0.857** here").as_deref(),
+            Some("0.857")
+        );
         assert_eq!(num("abstention is 4.6% overall").as_deref(), Some("4.6%"));
         assert_eq!(num("149/180 correct").as_deref(), Some("149/180"));
         assert_eq!(num("14,779/17,254 rows").as_deref(), Some("14,779/17,254"));
@@ -551,7 +638,10 @@ mod tests {
             "Qwen3.5-2B-Base snapshot b1485b2f",
             "see src/main.rs:123 and lines 5-8",
             "an H100 box, 8xH100, choice-16, v0.1 preview",
-            concat!("the [docs](docs/schema-api.md) and GAP", "-FOO-BAR-2026-10-06"),
+            concat!(
+                "the [docs](docs/schema-api.md) and GAP",
+                "-FOO-BAR-2026-10-06"
+            ),
             "[V: AUDIT/x-2026-10-18/0.5/notes.md] only",
             "23 families, 15 entries",
         ] {
@@ -561,15 +651,27 @@ mod tests {
 
     #[test]
     fn file_dates_come_from_the_name_then_the_directory() {
-        assert_eq!(file_date(Path::new("HANDOFF/x-2026-10-18.md")).as_deref(), Some("2026-10-18"));
-        assert_eq!(file_date(Path::new("AUDIT/harden-2026-10-19/x.md")).as_deref(), Some("2026-10-19"));
+        assert_eq!(
+            file_date(Path::new("HANDOFF/x-2026-10-18.md")).as_deref(),
+            Some("2026-10-18")
+        );
+        assert_eq!(
+            file_date(Path::new("AUDIT/harden-2026-10-19/x.md")).as_deref(),
+            Some("2026-10-19")
+        );
         assert_eq!(file_date(Path::new("AUDIT/x.md")), None);
     }
 
     #[test]
     fn uuid_and_prefix_tokens_are_found_and_hashes_are_not() {
-        assert_eq!(hex_tokens("row 6af73bef-aa56-49b3-8cdb-e0b0b56e9181 done"), vec!["6af73bef-aa56-49b3-8cdb-e0b0b56e9181"]);
-        assert_eq!(hex_tokens("rows 9a00cfd0, b0d9454e"), vec!["9a00cfd0", "b0d9454e"]);
+        assert_eq!(
+            hex_tokens("row 6af73bef-aa56-49b3-8cdb-e0b0b56e9181 done"),
+            vec!["6af73bef-aa56-49b3-8cdb-e0b0b56e9181"]
+        );
+        assert_eq!(
+            hex_tokens("rows 9a00cfd0, b0d9454e"),
+            vec!["9a00cfd0", "b0d9454e"]
+        );
         assert!(hex_tokens(&format!("hash {}", "ab12".repeat(16))).is_empty());
         assert!(hex_tokens("the word deadbeef alone and 12345678").is_empty());
     }

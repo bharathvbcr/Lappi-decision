@@ -37,6 +37,8 @@ fn main() -> ExitCode {
 }
 
 fn usage(why: &str) -> ExitCode {
-    eprintln!("qd-pin: {why}\nusage: qd-pin --lock FILE --sibling DIR --audit-dir DIR [--key ojas]");
+    eprintln!(
+        "qd-pin: {why}\nusage: qd-pin --lock FILE --sibling DIR --audit-dir DIR [--key ojas]"
+    );
     ExitCode::from(2)
 }

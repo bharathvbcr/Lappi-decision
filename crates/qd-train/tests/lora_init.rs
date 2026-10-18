@@ -85,14 +85,12 @@ fn a_digest_that_is_not_the_rules_is_refused() {
     let (zero, other) = (&o["seeds"][0], &o["seeds"][1]);
     let mods = modules(zero);
     // Another seed's digest: a checkpoint's A copied from the wrong run.
-    let err = verify_lora_a_digest(
-        0,
-        rank(&o),
-        &mods,
-        other["a_digest"].as_str().unwrap(),
-    )
-    .unwrap_err();
-    assert!(matches!(err, LoraInitError::Mismatch { seed: 0, .. }), "{err}");
+    let err =
+        verify_lora_a_digest(0, rank(&o), &mods, other["a_digest"].as_str().unwrap()).unwrap_err();
+    assert!(
+        matches!(err, LoraInitError::Mismatch { seed: 0, .. }),
+        "{err}"
+    );
     // The right digest, the wrong seed.
     assert!(matches!(
         verify_lora_a_digest(1, rank(&o), &mods, zero["a_digest"].as_str().unwrap()),

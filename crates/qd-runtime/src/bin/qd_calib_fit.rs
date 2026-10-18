@@ -38,9 +38,10 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, ValueEnum};
 use qd_runtime::calibration::{CalibrationEntry, CalibrationTable};
 use qd_runtime::calibration_fit::{
-    DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION, ECE_BINS, ECE_MIN_SAMPLES, ECE_THRESHOLD, EntryFit, LetterRows, RowScore, SpanRows, SpanScore, TEMPERATURE_HI, TEMPERATURE_ITERS,
-    TEMPERATURE_LO, ece_state, fit_entry, fit_span_entry, score_rows, score_span_rows,
-    summarise_spans, temperature_only,
+    DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION, ECE_BINS, ECE_MIN_SAMPLES, ECE_THRESHOLD, EntryFit,
+    LetterRows, RowScore, SpanRows, SpanScore, TEMPERATURE_HI, TEMPERATURE_ITERS, TEMPERATURE_LO,
+    ece_state, fit_entry, fit_span_entry, score_rows, score_span_rows, summarise_spans,
+    temperature_only,
 };
 use qd_runtime::schema::{
     MAX_BINS, MAX_OPTIONS, MIN_BINS, MIN_OPTIONS, RESERVED_NOUL_ROWS, SlotKind,

@@ -6,9 +6,9 @@
 mod common;
 
 use qd_train::recipe::{
-    self, EntryHyper, HEAD_LR_SCALE, LORA_TARGET_SUFFIXES,
-    LORA_UNADAPTED_LINEAR_SUFFIXES, LORA_WEIGHT_DECAY, LowerLayers, OptimizerRecipe,
-    lora_optimizer_table, lora_param_groups, optimizer_table,
+    self, EntryHyper, HEAD_LR_SCALE, LORA_TARGET_SUFFIXES, LORA_UNADAPTED_LINEAR_SUFFIXES,
+    LORA_WEIGHT_DECAY, LowerLayers, OptimizerRecipe, lora_optimizer_table, lora_param_groups,
+    optimizer_table,
 };
 use qd_train::step::ParamSpec;
 use serde_json::Value;
@@ -139,7 +139,9 @@ fn the_per_entry_table_matches_the_groups_and_has_no_lower_layer_split() {
 }
 
 fn refused(adapters: &[ParamSpec], host: &[ParamSpec], needle: &str) {
-    let err = lora_param_groups(adapters, host).expect_err(needle).to_string();
+    let err = lora_param_groups(adapters, host)
+        .expect_err(needle)
+        .to_string();
     assert!(err.contains(needle), "{err:?} lacks {needle:?}");
     let err = lora_optimizer_table(adapters, host, &recipe_lora())
         .expect_err(needle)
@@ -171,8 +173,14 @@ fn an_adapter_on_a_module_outside_the_target_table_is_refused() {
         ));
         refused(&bad, &host, leaf);
     }
-    adapters.push(ParamSpec::new("model.layers.0.input_layernorm.lora_A.weight", &[16, 12]));
-    adapters.push(ParamSpec::new("model.layers.0.input_layernorm.lora_B.weight", &[12, 16]));
+    adapters.push(ParamSpec::new(
+        "model.layers.0.input_layernorm.lora_A.weight",
+        &[16, 12],
+    ));
+    adapters.push(ParamSpec::new(
+        "model.layers.0.input_layernorm.lora_B.weight",
+        &[12, 16],
+    ));
     refused(&adapters, &host, "input_layernorm");
 }
 
