@@ -192,8 +192,11 @@ def test_every_component_sums_to_the_total_with_nothing_folded_in():
         + f.recurrent_state_bytes
         + f.safety_bytes
         + f.loss_head_bytes
+        + f.step_transient_bytes
     )
-    assert f.total_bytes == f.static_bytes + f.dynamic_bytes + f.loss_head_bytes
+    assert f.total_bytes == (
+        f.static_bytes + f.dynamic_bytes + f.loss_head_bytes + f.step_transient_bytes
+    )
 
 
 # --- the dynamic term --------------------------------------------------------------------
@@ -502,7 +505,11 @@ def test_the_capacity_answer_is_an_upper_bound_not_a_launch_target():
     gib = 1024 ** 3
     usable_bytes = int(91.42 * gib)  # what mem_get_info reported free on the measured box
     # (width, rows the device fitted, rows this function admits at that free figure)
-    measured = ((34_522, 8, 9), (8_192, 36, 38))
+    # Pre-fix this was ((34_522, 8, 9), (8_192, 36, 38)) and asserted the overshoot. The
+    # step transient and DEVICE_USABLE_FRACTION (2026-10-17, test_memory_upper_bound.py)
+    # retired it: the predictor now admits 8 and 34, never above what the device fitted.
+    # The 2 rows short at 8,192 are the price of a bound derived from two shapes.
+    measured = ((34_522, 8, 8), (8_192, 36, 34))
     for width, fitted, admitted in measured:
         positions = max_positions_that_fit(
             M, device_bytes=usable_bytes, width=width, optimizer=ADAMW_BF16,
@@ -510,14 +517,12 @@ def test_the_capacity_answer_is_an_upper_bound_not_a_launch_target():
         )
         predicted_rows = positions // width
         assert predicted_rows == admitted, (
-            f"width {width}: the predictor admits {predicted_rows} row(s), and the "
-            f"measurement recorded {admitted} against a device that fitted {fitted}. "
-            "If this changed, re-run tools/gh200_rows.py and update the measurement rather "
-            "than this number"
+            f"width {width}: the predictor admits {predicted_rows} row(s), expected "
+            f"{admitted} against a device that fitted {fitted}. If this changed, re-run "
+            "tools/gh200_rows.py and update the measurement rather than this number"
         )
-        assert predicted_rows > fitted, (
-            f"width {width}: the predictor no longer overshoots. That would be good news, "
-            "but it has to be measured on a device rather than asserted here"
+        assert predicted_rows <= fitted, (
+            f"width {width}: the predictor admits more rows than the device fitted"
         )
 
 

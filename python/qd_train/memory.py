@@ -44,6 +44,7 @@ from __future__ import annotations
 import json
 import math
 import struct
+import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from itertools import pairwise
@@ -56,6 +57,8 @@ __all__ = [
     "ADAMW_KAHAN",
     "ADAMW_MASTER",
     "BYTES_PER_ELEMENT",
+    "DEVICE_USABLE_FRACTION",
+    "MAC_HEAVY_SCRIPT",
     "MAX_CHECKPOINT_TENSORS",
     "MAX_SAFETENSORS_HEADER_BYTES",
     "MAX_SAFETY_FRACTION",
@@ -74,11 +77,14 @@ __all__ = [
     "estimate_scoring",
     "estimate_step",
     "head_is_tied",
+    "host_footprint_ceiling_bytes",
     "max_positions_that_fit",
+    "refuse_if_over_host_ceiling",
     "refuse_unless_it_fits",
     "safetensors_header",
     "spec_from_checkpoint",
     "tensor_ranges",
+    "usable_device_bytes",
 ]
 
 #: Bytes per element, by the names this repository uses for dtypes. ``float8`` is absent on
@@ -104,8 +110,91 @@ SAFETY_FRACTION: Final[float] = 0.35
 MAX_SAFETY_FRACTION: Final[float] = 2.0
 
 
+#: The share of a device's reported (or free) bytes the allocator can actually hand to a step.
+#: Two recorded OOMs bound it (``gh200_rows.py``, GAP-MEMORY-CAPACITY-PREDICTOR-ADMITS-MORE-
+#: ROWS-THAN-FIT): on a box whose ``mem_get_info`` free figure was 91.42 GiB, the 9th row at
+#: width 34,522 failed asking 3.56 GiB on top of a completed 83.05 GiB peak, so the ceiling
+#: there was under 86.61 GiB = 94.7% of free; the 37th row at width 8,192 failed under
+#: 89.96 GiB = 98.4%. 0.94 is the strictest of those, rounded down. It rests on TWO shapes of
+#: ONE device and one allocator; it is a bound, not a measured constant, and the ceiling is
+#: shape-dependent (fragmentation), so a long run is still to be confirmed by a real step.
+DEVICE_USABLE_FRACTION: Final[float] = 0.94
+
+
+def usable_device_bytes(device_bytes: int) -> int:
+    """What a step may be admitted against: ``DEVICE_USABLE_FRACTION`` of ``device_bytes``."""
+    return int(device_bytes * DEVICE_USABLE_FRACTION)
+
+
 class MemoryRefused(RuntimeError):
     """This step was refused before it ran, because the arithmetic says it cannot fit."""
+
+
+#: ``tools/mac_heavy.sh --print-limits`` is the one reader of memguard's threshold (its plist's
+#: ``-cap-gib``, falling back to memguard's own default) and of the margin mac_heavy keeps below
+#: it. This module asks that script instead of keeping a third copy of either number.
+MAC_HEAVY_SCRIPT: Final[Path] = Path(__file__).resolve().parents[2] / "tools" / "mac_heavy.sh"
+
+#: Bound on the ``--print-limits`` call: it reads one plist and prints two lines.
+MAC_HEAVY_LIMITS_TIMEOUT_S: Final[float] = 15.0
+
+
+def host_footprint_ceiling_bytes(script: Path = MAC_HEAVY_SCRIPT) -> int:
+    """The footprint a single Mac process may reach before memguard kills it, less mac_heavy's
+    margin: ``default_footprint_cap_mib`` of ``mac_heavy.sh --print-limits``.
+
+    Fails closed. A script that cannot be run, times out, exits non-zero (memguard installed
+    and its threshold unreadable exits 64) or prints no figure raises [`MemoryRefused`]:
+    a ceiling nobody could read is not a ceiling that was checked.
+    """
+    try:
+        done = subprocess.run(
+            ["bash", str(script), "--print-limits"],
+            capture_output=True,
+            text=True,
+            timeout=MAC_HEAVY_LIMITS_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise MemoryRefused(
+            f"cannot read memguard's threshold: {script} --print-limits failed: {exc}"
+        ) from exc
+    if done.returncode != 0:
+        raise MemoryRefused(
+            f"cannot read memguard's threshold: {script} --print-limits exited "
+            f"{done.returncode}: {done.stderr.strip()}"
+        )
+    for line in done.stdout.splitlines():
+        key, _, value = line.partition("=")
+        if key == "default_footprint_cap_mib" and value.isdigit() and int(value) > 0:
+            return int(value) * 1024 * 1024
+    raise MemoryRefused(
+        f"cannot read memguard's threshold: {script} --print-limits printed no "
+        f"default_footprint_cap_mib: {done.stdout!r}"
+    )
+
+
+def refuse_if_over_host_ceiling(
+    footprint: StepFootprint, *, where: str, script: Path = MAC_HEAVY_SCRIPT
+) -> None:
+    """Raise [`MemoryRefused`] when the predicted peak is at or above the Mac ceiling.
+
+    A run memguard kills (SIGTERM over its per-process threshold) leaves no ledger row and no
+    log. mac_heavy's own cap sits one margin below that threshold, so a step predicted at or
+    above this ceiling would be stopped by one or the other.
+    """
+    if not where.strip():
+        raise ValueError("refuse_if_over_host_ceiling needs a `where` naming what is checked")
+    ceiling = host_footprint_ceiling_bytes(script)
+    if footprint.total_bytes < ceiling:
+        return
+    gib = 1024**3
+    raise MemoryRefused(
+        f"{where}: predicted peak {footprint.total_bytes / gib:.2f} GiB is at or above the "
+        f"{ceiling / gib:.2f} GiB ceiling (memguard's per-process threshold less mac_heavy's "
+        f"margin, from {script} --print-limits). memguard would kill it and leave no row.\n"
+        f"{footprint.breakdown()}\n{footprint.provenance}"
+    )
 
 
 # --- the optimizer ------------------------------------------------------------------------
@@ -1006,6 +1095,9 @@ class StepFootprint:
     logit_slab_bytes: int = 0
     #: ``"train"`` (``estimate_step``) or ``"scoring"`` (``estimate_scoring``).
     purpose: str = "train"
+    #: One parameter-sized copy at the widest dtype the optimizer step touches (see
+    #: :func:`estimate_step`). Added to the admission total, zero for scoring.
+    step_transient_bytes: int = 0
 
     @property
     def static_bytes(self) -> int:
@@ -1025,7 +1117,11 @@ class StepFootprint:
     @property
     def total_bytes(self) -> int:
         return (
-            self.static_bytes + self.dynamic_bytes + self.loss_head_bytes + self.logit_slab_bytes
+            self.static_bytes
+            + self.dynamic_bytes
+            + self.loss_head_bytes
+            + self.logit_slab_bytes
+            + self.step_transient_bytes
         )
 
     @property
@@ -1075,6 +1171,8 @@ class StepFootprint:
             ),
             f"  stated allowance ({self.safety_fraction:.0%})     {self.safety_bytes:>15,} B  "
             f"{self.safety_bytes/gb:8.2f} GB",
+            f"  optimizer-step transient  {self.step_transient_bytes:>15,} B  "
+            f"{self.step_transient_bytes/gb:8.2f} GB",
             f"  TOTAL                     {self.total_bytes:>15,} B  "
             f"{self.total_bytes/gb:8.2f} GB",
         ]
@@ -1085,7 +1183,7 @@ class StepFootprint:
             raise TypeError(f"device_bytes must be int, got {type(device_bytes).__name__}")
         if device_bytes <= 0:
             raise ValueError(f"device_bytes must be positive, got {device_bytes}")
-        return self.total_bytes <= device_bytes
+        return self.total_bytes <= usable_device_bytes(device_bytes)
 
 
 def _dtype_bytes(name: str, *, what: str) -> int:
@@ -1177,6 +1275,19 @@ def estimate_step(
 
     enumerated_dynamic = activation_bytes + score_bytes + recurrent_bytes
     safety_bytes = int(enumerated_dynamic * safety_fraction)
+    # What the enumeration above cannot see: on a GH200 the peak of the optimizer step sat
+    # ABOVE weights + grads + states + masters (+ activations) by 1.8 B/param under bf16
+    # AdamW and 3.8 B/param under the master recipe, at every width from 2,048 to 34,522
+    # (AUDIT/gh200_footprint*.json; the 35% allowance is on activations and cannot cover a
+    # static gap). One extra parameter-sized copy at the widest dtype the step touches is
+    # 2 B/param for bf16 AdamW and 4 for the master recipe: the least whole-dtype term that
+    # bounds both recorded recipes. Its MECHANISM (foreach temporaries?) is unverified, and
+    # the kahan and fp32 recipes have no measurement at all; they get the same rule.
+    # `tests/test_memory_upper_bound.py` holds the bound against every recorded peak.
+    widest_step_dtype = max(
+        p_bytes, g_bytes, optimizer.state_bytes if optimizer.states_per_param else 0
+    )
+    step_transient_bytes = trainable * widest_step_dtype
 
     return StepFootprint(
         model=model.name,
@@ -1206,6 +1317,7 @@ def estimate_step(
         recompute=acts.describe(),
         attention=acts.attention,
         safety_fraction=float(safety_fraction),
+        step_transient_bytes=step_transient_bytes,
     )
 
 
@@ -1340,6 +1452,11 @@ def max_positions_that_fit(
     and 89.96 GiB (where the next row would have landed). Free bytes are therefore **also**
     optimistic: the allocator cannot hand out every free byte to a fragmented workload.
 
+    **Since 2026-10-17** the footprint carries the optimizer-step transient and a step is
+    admitted against ``DEVICE_USABLE_FRACTION`` of ``device_bytes``; at the 91.42 GiB figure
+    above this admits 8 and 34 rows, never above the 8 and 36 that fitted (the table above
+    is the pre-fix record: 9 and 38).
+
     So there is no value of ``device_bytes`` that makes this exact, and this function does
     not pretend otherwise. **Its answer is an upper bound, to be confirmed by a real step.**
     ``tools/gh200_rows.py`` is that confirmation: it walks rows upward until the device
@@ -1408,10 +1525,12 @@ def refuse_unless_it_fits(
     if footprint.fits(device_bytes=device_bytes):
         return
     gb = 1000**3
-    over = footprint.total_bytes - device_bytes
+    usable = usable_device_bytes(device_bytes)
+    over = footprint.total_bytes - usable
     raise MemoryRefused(
         f"{where}: this step needs {footprint.total_bytes/gb:.2f} GB and the device has "
-        f"{device_bytes/gb:.2f} GB -- {over/gb:.2f} GB over. Refused before the first step "
+        f"{device_bytes/gb:.2f} GB, of which {usable/gb:.2f} GB is usable "
+        f"({DEVICE_USABLE_FRACTION:.0%}) -- {over/gb:.2f} GB over. Refused before the first step "
         f"rather than by the allocator partway into a paid run.\n"
         f"{footprint.breakdown()}\n{footprint.provenance}"
     )
