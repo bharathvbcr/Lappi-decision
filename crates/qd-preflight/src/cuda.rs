@@ -32,7 +32,7 @@
 
 use std::os::raw::{c_char, c_int};
 
-use crate::tristate::TriState;
+use qd_preflight::tristate::TriState;
 
 /// Candidate sonames, most-specific first. `libcuda.so.1` is the driver ABI and is
 /// what a correctly installed driver provides; `libcuda.so` is often a devel symlink.

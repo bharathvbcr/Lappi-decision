@@ -15,13 +15,17 @@ use qd_export::export;
 use qd_runtime::calibration::{CalibrationEntry, CalibrationTable};
 use qd_runtime::calibration_fit::ECE_THRESHOLD;
 use qd_runtime::schema::SlotKind;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const BIN: &str = env!("CARGO_BIN_EXE_qd-export-ensemble");
 const V5_PROMPT_FORMAT: u64 = 2;
 
 fn entry() -> CalibrationEntry {
-    CalibrationEntry { temperature: 1.21, conformal_quantile: 0.09, noul_margin: 0.02 }
+    CalibrationEntry {
+        temperature: 1.21,
+        conformal_quantile: 0.09,
+        noul_margin: 0.02,
+    }
 }
 
 fn write_json(path: &Path, value: &Value) -> PathBuf {
@@ -70,7 +74,9 @@ fn member(seed: u64, rows: &[(&str, &[&str])]) -> common::Fixture {
         .map(|(name, t)| (name.clone(), t.shape.clone()))
         .expect("the standard fixture has a layernorm");
     tensors.insert(name, common::bf16_tensor(&shape, 7000 + seed));
-    let fx = common::build(&tensors, &common::tiny_config(), |m| m["prompt_format"] = json!(V5_PROMPT_FORMAT));
+    let fx = common::build(&tensors, &common::tiny_config(), |m| {
+        m["prompt_format"] = json!(V5_PROMPT_FORMAT)
+    });
     let mut req = fx.request();
     req.train_manifest = train_manifest(&fx.dir.0.join(format!("train-{seed}.json")), rows);
     export(&req).expect("a member release exports");
@@ -78,7 +84,10 @@ fn member(seed: u64, rows: &[(&str, &[&str])]) -> common::Fixture {
 }
 
 fn standard_rows() -> Vec<(&'static str, &'static [&'static str])> {
-    vec![("code.defect_class", &DEFECT[..]), ("devcouncil.verdict", &VERDICT[..])]
+    vec![
+        ("code.defect_class", &DEFECT[..]),
+        ("devcouncil.verdict", &VERDICT[..]),
+    ]
 }
 
 struct Case {
@@ -89,12 +98,26 @@ struct Case {
 }
 
 fn case(rows_per_member: &[Vec<(&str, &[&str])>]) -> Case {
-    let members = rows_per_member.iter().enumerate().map(|(i, rows)| member(i as u64, rows)).collect();
+    let members = rows_per_member
+        .iter()
+        .enumerate()
+        .map(|(i, rows)| member(i as u64, rows))
+        .collect();
     let dir = common::TempDir::new("ens-gate");
-    let table = CalibrationTable::new("ensemble-gate").with_letters(SlotKind::Choice, 5, entry()).with_span(entry());
-    let table_path = write_json(&dir.0.join("table.json"), &serde_json::to_value(table).unwrap());
+    let table = CalibrationTable::new("ensemble-gate")
+        .with_letters(SlotKind::Choice, 5, entry())
+        .with_span(entry());
+    let table_path = write_json(
+        &dir.0.join("table.json"),
+        &serde_json::to_value(table).unwrap(),
+    );
     let table_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(&table_path).unwrap()));
-    Case { members, dir, table: table_path, table_sha }
+    Case {
+        members,
+        dir,
+        table: table_path,
+        table_sha,
+    }
 }
 
 fn report(c: &Case, choice5: Value, sha: &str) -> PathBuf {
@@ -116,11 +139,17 @@ fn out_dir(c: &Case) -> PathBuf {
 fn run(c: &Case, report: Option<&Path>) -> Output {
     let mut cmd = Command::new(BIN);
     for m in &c.members {
-        cmd.arg("--member").arg(&m.out).arg("--trained-width").arg("1105");
+        cmd.arg("--member")
+            .arg(&m.out)
+            .arg("--trained-width")
+            .arg("1105");
     }
-    cmd.arg("--trained-width-source").arg("test: widths")
-        .arg("--calibration").arg(&c.table)
-        .arg("--out").arg(out_dir(c));
+    cmd.arg("--trained-width-source")
+        .arg("test: widths")
+        .arg("--calibration")
+        .arg(&c.table)
+        .arg("--out")
+        .arg(out_dir(c));
     if let Some(r) = report {
         cmd.arg("--calibration-report").arg(r);
     }
@@ -145,9 +174,14 @@ fn an_ensemble_table_whose_checks_passed_is_written_and_the_gate_is_recorded() {
     let out = run(&c, Some(&r));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
-    let m: Value = serde_json::from_slice(&std::fs::read(out_dir(&c).join("ensemble_manifest.json")).unwrap()).unwrap();
+    let m: Value =
+        serde_json::from_slice(&std::fs::read(out_dir(&c).join("ensemble_manifest.json")).unwrap())
+            .unwrap();
     assert_eq!(m["calibration"]["gate"]["table_sha256"], json!(c.table_sha));
-    assert_eq!(m["calibration"]["gate"]["ece_threshold"], json!(ECE_THRESHOLD));
+    assert_eq!(
+        m["calibration"]["gate"]["ece_threshold"],
+        json!(ECE_THRESHOLD)
+    );
 }
 
 #[test]
@@ -169,7 +203,11 @@ fn a_failing_recorded_check_on_the_ensemble_table_is_refused() {
 #[test]
 fn a_check_that_could_not_run_on_the_ensemble_table_is_refused() {
     let c = case(&three());
-    let r = report(&c, json!({"state": "not_run", "reason": "fewer than 100 examples"}), &c.table_sha);
+    let r = report(
+        &c,
+        json!({"state": "not_run", "reason": "fewer than 100 examples"}),
+        &c.table_sha,
+    );
     let out = run(&c, Some(&r));
     refused(&c, &out, "not_run");
 }
@@ -184,7 +222,10 @@ fn a_report_for_another_table_is_refused() {
 
 #[test]
 fn members_that_trained_on_different_shapes_are_refused() {
-    let other: Vec<(&str, &[&str])> = vec![("code.defect_class", &["choice:5"][..]), ("devcouncil.verdict", &VERDICT[..])];
+    let other: Vec<(&str, &[&str])> = vec![
+        ("code.defect_class", &["choice:5"][..]),
+        ("devcouncil.verdict", &VERDICT[..]),
+    ];
     let c = case(&[standard_rows(), other, standard_rows()]);
     let r = report(&c, ran(0.01), &c.table_sha);
     let out = run(&c, Some(&r));

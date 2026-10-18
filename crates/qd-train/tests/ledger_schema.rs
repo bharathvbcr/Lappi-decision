@@ -27,8 +27,10 @@ fn dir() -> PathBuf {
 
 fn expected() -> Value {
     let p = dir().join("expected.json");
-    serde_json::from_str(&std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())))
-        .unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+    serde_json::from_str(
+        &std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())),
+    )
+    .unwrap_or_else(|e| panic!("{}: {e}", p.display()))
 }
 
 fn lines() -> Vec<String> {
@@ -72,7 +74,8 @@ fn as_pairs(entries: &[LedgerEntry]) -> Vec<(String, String)> {
 fn the_default_read_skips_started_rows_exactly_as_python_rows_does() {
     let want = pairs(&expected()["rows"]);
     assert_eq!(want.len(), 4, "the fixture holds four terminal rows");
-    let got = read_entries(&dir().join("ledger.jsonl"), false).expect("a Python-written ledger parses");
+    let got =
+        read_entries(&dir().join("ledger.jsonl"), false).expect("a Python-written ledger parses");
     assert_eq!(as_pairs(&got), want);
     assert!(got.iter().all(|e| e.status != Status::Started));
 }
@@ -85,7 +88,14 @@ fn include_started_returns_every_line_in_file_order() {
     let statuses: Vec<&str> = want.iter().map(|(_, s)| s.as_str()).collect();
     assert_eq!(
         statuses,
-        ["started", "completed", "started", "killed", "completed", "completed"]
+        [
+            "started",
+            "completed",
+            "started",
+            "killed",
+            "completed",
+            "completed"
+        ]
     );
 }
 
@@ -98,7 +108,12 @@ fn the_chain_hash_is_over_every_raw_line_started_rows_included() {
         .map(|h| h.as_str().expect("hex").to_string())
         .collect();
     let got = read_entries(&dir().join("ledger.jsonl"), true).expect("parses");
-    assert_eq!(got.iter().map(|e| e.line_sha256.clone()).collect::<Vec<_>>(), want);
+    assert_eq!(
+        got.iter()
+            .map(|e| e.line_sha256.clone())
+            .collect::<Vec<_>>(),
+        want
+    );
     // the terminal-only read reports the same hashes for the rows it keeps
     let terminal = read_entries(&dir().join("ledger.jsonl"), false).expect("parses");
     for (kept, idx) in terminal.iter().zip([1, 3, 4, 5]) {
@@ -114,7 +129,12 @@ fn the_chain_hash_is_over_every_raw_line_started_rows_included() {
         .collect();
     assert_eq!(prevs[0], None);
     for i in 1..prevs.len() {
-        assert_eq!(prevs[i].as_deref(), Some(want[i - 1].as_str()), "line {}", i + 1);
+        assert_eq!(
+            prevs[i].as_deref(),
+            Some(want[i - 1].as_str()),
+            "line {}",
+            i + 1
+        );
     }
 }
 
@@ -122,7 +142,11 @@ fn the_chain_hash_is_over_every_raw_line_started_rows_included() {
 fn a_missing_file_is_an_empty_ledger_and_an_unknown_status_is_refused() {
     let d = std::env::temp_dir().join(format!("qd-ledger-schema-{}", std::process::id()));
     std::fs::create_dir_all(&d).expect("tmp dir");
-    assert!(read_entries(&d.join("absent.jsonl"), false).expect("absent is empty").is_empty());
+    assert!(
+        read_entries(&d.join("absent.jsonl"), false)
+            .expect("absent is empty")
+            .is_empty()
+    );
     let bad = d.join("bad.jsonl");
     std::fs::write(&bad, "{\"row_id\":\"x\",\"status\":\"paused\"}\n").expect("write");
     let err = read_entries(&bad, false).expect_err("an unknown status is refused");
@@ -140,7 +164,10 @@ fn status_parse_names_started_and_is_case_exact() {
 fn the_new_fields_are_read_off_python_rows_and_absent_means_not_recorded() {
     let want = expected();
     let got = read_entries(&dir().join("ledger.jsonl"), true).expect("parses");
-    assert_eq!(got[4].extras.val_without_train, Some(want["val_without_train"].clone()));
+    assert_eq!(
+        got[4].extras.val_without_train,
+        Some(want["val_without_train"].clone())
+    );
     assert_eq!(
         got[4].extras.train_manifest_sha256.as_deref(),
         want["train_manifest_sha256"].as_str()
@@ -161,8 +188,11 @@ fn a_malformed_new_field_is_refused_by_the_reader() {
         ("families", r#""val_without_train":{"families":["f"]}"#),
     ] {
         let p = d.join(format!("{name}.jsonl"));
-        std::fs::write(&p, format!("{{\"row_id\":\"x\",\"status\":\"completed\",{tail}}}\n"))
-            .expect("write");
+        std::fs::write(
+            &p,
+            format!("{{\"row_id\":\"x\",\"status\":\"completed\",{tail}}}\n"),
+        )
+        .expect("write");
         let err = read_entries(&p, false).expect_err(name);
         assert!(err.to_string().contains("line 1"), "{name}: {err}");
     }
@@ -173,7 +203,10 @@ fn a_malformed_new_field_is_refused_by_the_reader() {
         "{\"row_id\":\"x\",\"status\":\"completed\",\"val_without_train\":null,\"train_manifest_sha256\":null}\n",
     )
     .expect("write");
-    assert_eq!(read_entries(&p, false).expect("null parses")[0].extras, RowExtras::default());
+    assert_eq!(
+        read_entries(&p, false).expect("null parses")[0].extras,
+        RowExtras::default()
+    );
     std::fs::remove_dir_all(&d).expect("cleanup");
 }
 
@@ -185,7 +218,10 @@ fn fixture_row(line: &Value, status: Status) -> Row {
             data_snapshot_hash: "d".repeat(64),
             tokenizer_hash: "t".repeat(64),
             backbone_commit: "b".repeat(40),
-            recipe_hash: line["protocol"]["recipe_hash"].as_str().expect("recipe_hash").into(),
+            recipe_hash: line["protocol"]["recipe_hash"]
+                .as_str()
+                .expect("recipe_hash")
+                .into(),
             seed: 0,
         },
         status,
@@ -228,12 +264,18 @@ fn rust_writes_pythons_line_for_a_row_with_and_without_the_new_fields() {
     let got = fixture_row(&with, Status::Completed)
         .line_with(&stamp_of(&with), &extras)
         .expect("a valid row");
-    assert_eq!(got, all[4], "the row recording both fields is Python's line");
+    assert_eq!(
+        got, all[4],
+        "the row recording both fields is Python's line"
+    );
 
     let got = fixture_row(&without, Status::Completed)
         .line(&stamp_of(&without))
         .expect("a valid row");
-    assert_eq!(got, all[5], "a row recording neither omits both keys, as Python does");
+    assert_eq!(
+        got, all[5],
+        "a row recording neither omits both keys, as Python does"
+    );
     assert!(!got.contains("val_without_train") && !got.contains("train_manifest_sha256"));
 }
 
@@ -244,9 +286,18 @@ fn the_writer_refuses_a_malformed_field_and_a_started_row() {
     let row = fixture_row(&line, Status::Completed);
     let stamp = stamp_of(&line);
     for extras in [
-        RowExtras { train_manifest_sha256: Some("ABC".into()), ..RowExtras::default() },
-        RowExtras { val_without_train: Some(json!(["f"])), ..RowExtras::default() },
-        RowExtras { val_without_train: Some(json!({"families": ["f"]})), ..RowExtras::default() },
+        RowExtras {
+            train_manifest_sha256: Some("ABC".into()),
+            ..RowExtras::default()
+        },
+        RowExtras {
+            val_without_train: Some(json!(["f"])),
+            ..RowExtras::default()
+        },
+        RowExtras {
+            val_without_train: Some(json!({"families": ["f"]})),
+            ..RowExtras::default()
+        },
     ] {
         assert!(row.line_with(&stamp, &extras).is_err(), "{extras:?}");
     }

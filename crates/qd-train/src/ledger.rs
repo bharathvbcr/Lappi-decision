@@ -374,7 +374,9 @@ impl RowExtras {
             None => {}
             Some(Value::Object(o)) => {
                 if o.get("families").is_some_and(|f| !f.is_object()) {
-                    return refuse("val_without_train.families is not a mapping of family to val rows");
+                    return refuse(
+                        "val_without_train.families is not a mapping of family to val rows",
+                    );
                 }
             }
             Some(_) => return refuse("val_without_train is not an object"),
@@ -903,7 +905,9 @@ pub fn append_with(
     written_at: String,
 ) -> Result<Stamp, LedgerError> {
     check_ledger_path(path)?;
-    append_line(path, row_id, written_at, |stamp| row.line_with(stamp, extras))
+    append_line(path, row_id, written_at, |stamp| {
+        row.line_with(stamp, extras)
+    })
 }
 
 /// `Ledger.append`: take the write lock, refuse a duplicate `row_id`, chain to the last line,
@@ -1148,8 +1152,14 @@ pub fn lora_ft_row(
         );
     }
     for (what, v) in [
-        ("recipe.shard_hash (the train shard hash)", row.recipe.shard_hash.as_str()),
-        ("span-head init content digest", init.span_head_content_digest),
+        (
+            "recipe.shard_hash (the train shard hash)",
+            row.recipe.shard_hash.as_str(),
+        ),
+        (
+            "span-head init content digest",
+            init.span_head_content_digest,
+        ),
         ("LoRA-A digest", init.lora_a_digest),
         ("base safetensors sha256", init.base_safetensors_sha256),
         ("dtype_map_sha256", init.dtype_map_sha256),
@@ -1181,7 +1191,9 @@ pub fn lora_ft_row(
         return refuse(format!("D17 has shape {:?}, not [17, hidden]", d17.shape));
     };
     if d17_rows != 17 {
-        return refuse(format!("D17 has {d17_rows} rows, the registered readout has 17"));
+        return refuse(format!(
+            "D17 has {d17_rows} rows, the registered readout has 17"
+        ));
     }
     let d17_digest = crate::lora_init::d17_zero_init_digest(d17_rows, d17_hidden)
         .map_err(|e| LedgerError::Refused(e.to_string()))?;

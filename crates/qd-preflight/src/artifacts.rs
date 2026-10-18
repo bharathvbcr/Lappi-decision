@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::tristate::TriState;
+use qd_preflight::tristate::TriState;
 
 /// One pinned artifact: a path and the digest it is expected to have.
 #[derive(Debug, Clone, Serialize, Deserialize)]

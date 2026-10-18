@@ -1189,7 +1189,11 @@ mod tests {
                 let gs = (j + g) % 5;
                 let ge = gs + (j / 5) % (5 - gs);
                 let pointer = |gold: usize, hit: bool| {
-                    let winner = if hit { gold } else { (gold + 1 + j % (W - 1)) % W };
+                    let winner = if hit {
+                        gold
+                    } else {
+                        (gold + 1 + j % (W - 1)) % W
+                    };
                     let mut logits = vec![0.0f32; W];
                     logits[winner] = winner_logit;
                     logits
@@ -1212,7 +1216,9 @@ mod tests {
         // Confidence matches the hit rate in every group.
         let good = grouped_spans(&[(0.55, 11), (0.7, 14), (0.85, 17), (0.95, 19)], 100);
         match span_ece_after_fit(&good) {
-            EceState::Ran { value, n, passed, .. } => {
+            EceState::Ran {
+                value, n, passed, ..
+            } => {
                 assert_eq!(n, 800, "two pointers per row, pooled");
                 assert!(passed && value <= ECE_THRESHOLD, "ECE {value}");
             }
