@@ -272,7 +272,7 @@ def test_a_checkpoint_and_a_step_that_disagree_about_the_weight_are_refused(tmp_
 # --- real_ft_run: the flag, the recipe and the plan count ---------------------------------------
 
 _OFF = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-        "permutation": None, "replay": None}
+        "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
 
 
 def test_the_recipe_keys_appear_only_when_the_flag_is_given():

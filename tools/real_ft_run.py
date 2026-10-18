@@ -427,11 +427,13 @@ SPAN_HEAD_PREFIX: Final[str] = "span_head."
 #: a bound on what a mistyped path can make this process read into memory.
 MAX_SPAN_HEAD_INIT_BYTES: Final[int] = 1 << 30
 
-#: The cap the ledger's canonical recipe omits (_recipe_pieces) and the internal helpers
-#: (_cost, _control, _train) price when a programmatic caller hands none -- equal to the quick
-#: cap, never a CLI run's cap: main() always passes the resolved cap explicitly, and a run
-#: that trains has no default there. --wall-clock-cap-s or --quick is required
-#: (WallClockCap.resolve; GAP-LORA2B-REDUCED-RUN-DEFAULT-CAP-1800S-2026-10-17).
+#: The cap the ledger's canonical recipe omits (_recipe_pieces writes wall_clock_cap_s only
+#: when it differs). Equal to the quick cap. It is a recipe sentinel and nothing's default:
+#: _control, _train and _recipe_pieces take cap_s with no default, so a caller that forgets it
+#: is a TypeError, never a silent 1800 s stop
+#: (GAP-RUN-CONTROL-DEFAULT-CAP-CALLERS-OUTSIDE-L-OPS-2026-10-17). _cost keeps its default
+#: because it is protected; every caller in this tree passes cap_s (checked by AST in
+#: python/tests/test_helper_caps_have_no_default.py).
 WALL_CLOCK_CAP_S = QUICK_CAP_S
 
 #: The most ``--wall-clock-cap-s`` may be. The campaign approval is "up to 2-3 days" (72 h),
@@ -506,7 +508,7 @@ class NoulWeightPlan:
     def recipe(self) -> dict[str, object]:
         return _recipe_pieces(
             lower_layers_n=0, lower_lr_scale=1.0, beta2=DEFAULT_BETA2, permutation=None,
-            replay=None, noul_weight=self.weight,
+            replay=None, noul_weight=self.weight, cap_s=WALL_CLOCK_CAP_S,
         )
 
     def cut(self, n: int) -> NoulWeightPlan:
@@ -573,7 +575,7 @@ def noul_weight_plan(
 def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
-    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    cap_s: float, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
@@ -2688,7 +2690,7 @@ def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
-    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S, min_lr: float | None = None,
+    approved_by: str = "", cap_s: float, min_lr: float | None = None,
 ) -> RunControl:
     """The cap, the schedule and the price of a local run.
 
@@ -3343,7 +3345,7 @@ def _train(
     alphabets: Mapping[int, list[tuple[str, ...] | None]] | None = None,
     replay: ReplayPlan | None = None,
     eval_widths: Sequence[int] = (),
-    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    cap_s: float, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,

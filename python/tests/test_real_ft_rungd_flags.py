@@ -233,7 +233,7 @@ def _value(row: LedgerRow, name: str) -> Any:
 # --- 1. the recipe: each new piece only when on -----------------------------------------------
 
 _OFF = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-        "permutation": None, "replay": None}
+        "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
 
 
 def test_the_new_pieces_add_no_recipe_key_when_off():
@@ -405,7 +405,7 @@ def test_max_steps_trains_the_first_n_batches_under_a_schedule_recomputed_at_n(
 def test_rungd_schedule_is_the_recipes_formula_at_200_steps():
     """Fable's design: LRSchedule(peak_lr=1e-5, total_steps=200, warmup_steps=10, min_lr=1e-6),
     the min-lr formula lr/10 per GAP-LTRAINER-RUNGD-MIN-LR-FORMULA-VS-LITERAL-2026-10-01."""
-    control = rft._control(200, device="cpu", lr=1e-5, checkpoint_every=0)
+    control = rft._control(200, device="cpu", lr=1e-5, checkpoint_every=0, cap_s=1800.0)
     assert control.schedule == LRSchedule(
         peak_lr=1e-5, total_steps=200, warmup_steps=10, min_lr=1e-5 / 10
     )

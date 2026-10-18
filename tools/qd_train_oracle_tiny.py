@@ -815,7 +815,7 @@ def run_arm(
     if optimizer_edit is not None:
         optimizer_edit(step)
 
-    control = real_ft_run._control(steps, device="cpu", lr=lr)
+    control = real_ft_run._control(steps, device="cpu", lr=lr, cap_s=real_ft_run.QUICK_CAP_S)
     inner = getattr(step.optimizer, "_inner", step.optimizer)
     fused, foreach = _default_to_fused_or_foreach(
         [p for g in inner.param_groups for p in g["params"]],
@@ -1605,7 +1605,7 @@ def discrimination(
         fw = floor["final_weights"]
         warm = ref.schedule["warmup_steps"]
         total = ref.schedule["total_steps"]
-        sched = real_ft_run._control(total, device="cpu", lr=lr).schedule
+        sched = real_ft_run._control(total, device="cpu", lr=lr, cap_s=real_ft_run.QUICK_CAP_S).schedule
         rows: dict[str, Any] = {}
         for name, cf in counterfactuals().items():
             if name in ("no_lr_scale", "decay_not_lr_scaled") and not args.lower_layers_n:
