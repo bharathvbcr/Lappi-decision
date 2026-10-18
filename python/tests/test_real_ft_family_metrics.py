@@ -104,11 +104,13 @@ def _clinc_rows(config: DataConfig) -> list[ClincRow]:
     train, val, oos = _intents(config)
     rng = random.Random(5)
     out: list[ClincRow] = []
+    # These rows are the file CLINC's train split is read from. A v6 build (the default since
+    # e0d20af) refuses a row whose file is unstated, so a corpus with none read as no examples.
     for intent in (*train, *val):
         for _ in range(5):
-            out.append(ClincRow(_utterance(rng), intent, False))
+            out.append(ClincRow(_utterance(rng), intent, False, upstream_split="train"))
     for _ in range(8):
-        out.append(ClincRow(_utterance(rng), oos, True))
+        out.append(ClincRow(_utterance(rng), oos, True, upstream_split="train"))
     return out
 
 
@@ -167,6 +169,7 @@ def build_family_corpus(out: Path) -> FamilyCorpus:
             "--out", str(out), "--rev", REV, "--devices", "cpu", "--seeds", "0",
             "--epoch", "--no-memorise", "--score-val", "--ledger", str(corpus.ledger),
             "--tokenizer-json", str(corpus.tokenizer), "--verdicts-out", str(corpus.verdicts),
+            "--wall-clock-cap-s", "1800",  # a run that trains names its cap (a084326)
         ])
     return corpus
 
