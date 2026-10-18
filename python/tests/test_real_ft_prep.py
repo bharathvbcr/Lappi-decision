@@ -65,7 +65,7 @@ class _Reader:
 
 
 def _run(monkeypatch, tmp_path, capsys, *, score: bool, val_labels, ood_labels=(),
-         tokenizer: bool = True, plan: bool = False):
+         tokenizer: bool = True, plan: bool = False, facts=None):
     """main() with every expensive step stubbed and counted, stopped where it would decode
     (scoring: ``--score-checkpoint``, or ``--score-plan`` when ``plan``) or probe a device
     (training)."""
@@ -87,7 +87,8 @@ def _run(monkeypatch, tmp_path, capsys, *, score: bool, val_labels, ood_labels=(
     monkeypatch.setattr(rft, "resolve_rev", lambda repo, rev: rev)
     monkeypatch.setattr(rft, "ShardReader", lambda *a, **k: reader)
     monkeypatch.setattr(rft, "check_defect_source", lambda *a, **k: None)
-    monkeypatch.setattr(rft, "corpus_facts", lambda *a, **k: rft.CorpusFacts(None, {}))
+    corpus = facts or rft.CorpusFacts(None, {})
+    monkeypatch.setattr(rft, "corpus_facts", lambda *a, **k: corpus)
     monkeypatch.setattr(rft, "general_record_datasets", lambda record: None)
     monkeypatch.setattr(rft, "ft_split_rows", counted("ft_split_rows", (["tr"], ["va"])))
     monkeypatch.setattr(rft, "relabel_train", counted(
@@ -316,3 +317,14 @@ def test_labels_render_each_row_once_and_label_as_before(monkeypatch):
         else:
             assert lb.line_first_bytes is None, f"{lb.row_id}: a letter label carries lines"
     assert len(renders) == len(rows)
+
+
+def test_main_stages_the_manifest_digest_it_read_for_every_ft_row(monkeypatch, tmp_path, capsys):
+    block = {"count": 1, "families": {"fam.only_val": 2}}
+    facts = rft.CorpusFacts(None, {}, train_manifest_sha256="a" * 64, val_without_train=block)
+    rft._RUN_TRAIN_MANIFEST["train_manifest_sha256"] = "stale"
+    _run(monkeypatch, tmp_path, capsys, score=False, val_labels=CONFIRMED, facts=facts)
+    assert rft._RUN_TRAIN_MANIFEST == {
+        "train_manifest_sha256": "a" * 64, "val_without_train": block,
+    }
+    rft._RUN_TRAIN_MANIFEST.clear()

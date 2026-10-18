@@ -380,7 +380,7 @@ def _spy_main(tmp_path, monkeypatch, *extra: str) -> tuple[list[dict], object, o
         )),
     )
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
-    monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: None)
+    monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: rft.CorpusFacts(None, {}))
     with pytest.raises(_Stop) as got:
         rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
                   "--max-pairs", "7", "--rev", rev, *extra])
