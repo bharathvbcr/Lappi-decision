@@ -19,6 +19,7 @@
 # refuses to start until both cache files exist -- a run whose gate cannot report is a run
 # that burns the GPU to say `not_run`.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py

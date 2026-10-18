@@ -162,6 +162,11 @@ _TERMINATION_REASONS: frozenset[str] = frozenset(TerminationReason.__args__)  # 
 #: this was hit; moving it to make a run fit is a refused change.
 MAX_CAP_S: Final[float] = 40 * 3600.0
 
+#: The cap a run that says quick carries when it names none. The Python owner of the value
+#: crates/qd-train/src/run_control.rs QUICK_CAP_S owns in Rust. A registered run has no
+#: such default: see WallClockCap.resolve.
+QUICK_CAP_S: Final[float] = 1_800.0
+
 #: Rule 4: *"Every 8xH100 job carries a wall-clock cap, auto-terminate and a cost estimate,
 #: and needs a human yes before launch. Single-GPU jobs under $20 do not."* This is the
 #: "under $20" half of that sentence. Read-only for the same reason.
@@ -417,6 +422,22 @@ class WallClockCap:
                 "program's own cap from docs/plan-corrections.md DESIGN-4. Rule 2: a kill "
                 "criterion is read-only. Report that the cap was hit; do not raise it."
             )
+
+    @classmethod
+    def resolve(cls, cap_s: float | None, quick: bool) -> "WallClockCap":
+        """The cap a run starts with, mirroring Rust WallClockCap::resolve. A registered
+        run (quick false) must name its cap: None is refused, never filled with a default.
+        Only a run that says quick may omit it, and then it gets QUICK_CAP_S. The result is
+        validated like the constructor."""
+        if cap_s is not None:
+            return cls(cap_s=cap_s)
+        if quick:
+            return cls(cap_s=QUICK_CAP_S)
+        raise ValueError(
+            "a registered run must name its wall-clock cap: there is no default. Pass the "
+            "cap the registration was sized for, or mark the run quick (which excludes it "
+            "from every decision)."
+        )
 
     @property
     def cap_hours(self) -> float:

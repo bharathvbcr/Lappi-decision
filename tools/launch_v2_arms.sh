@@ -14,6 +14,7 @@
 # over 12,792 -- so neither arm spends GPU time waiting on a CPU fit that the runner would
 # refuse anyway at 39.8 hours against its 15-minute budget.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py

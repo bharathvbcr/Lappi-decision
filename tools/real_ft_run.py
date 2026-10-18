@@ -267,6 +267,7 @@ from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_atte
 from qd_train.run_control import (
     MAX_CAP_S,
     MAX_SIDECAR_BYTES,
+    QUICK_CAP_S,
     CostEstimate,
     LRSchedule,
     RunControl,
@@ -416,10 +417,12 @@ SPAN_HEAD_PREFIX: Final[str] = "span_head."
 #: a bound on what a mistyped path can make this process read into memory.
 MAX_SPAN_HEAD_INIT_BYTES: Final[int] = 1 << 30
 
-#: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
-#: every row before 2026-09-29 was taken under. `RunControl` stops at a group boundary and the
-#: ledger row records `termination`, so a capped run is legible as capped, not as finished.
-WALL_CLOCK_CAP_S = 1_800.0
+#: The cap the ledger's canonical recipe omits (_recipe_pieces) and the internal helpers
+#: (_cost, _control, _train) price when a programmatic caller hands none -- equal to the quick
+#: cap, never a CLI run's cap: main() always passes the resolved cap explicitly, and a run
+#: that trains has no default there. --wall-clock-cap-s or --quick is required
+#: (WallClockCap.resolve; GAP-LORA2B-REDUCED-RUN-DEFAULT-CAP-1800S-2026-10-17).
+WALL_CLOCK_CAP_S = QUICK_CAP_S
 
 #: The most ``--wall-clock-cap-s`` may be. The campaign approval is "up to 2-3 days" (72 h),
 #: but ``MAX_CAP_S`` -- the program's own cap, 40 h, read-only under rule 2 -- is lower, and
@@ -5061,7 +5064,7 @@ def probe_shapes_reason(margin_gib: float) -> str:
 def quick_reasons(
     *, tag: str, device: str, real_backbone: bool, corpus: CorpusFacts,
     termination: str | None = None, memorise_detail: str = "", max_steps: int | None = None,
-    probe_shapes: float | None = None,
+    probe_shapes: float | None = None, declared_quick: bool = False,
 ) -> list[str]:
     """Every rule-8 reason that stands for one row, from the run's facts. Empty means none.
 
@@ -5089,6 +5092,11 @@ def quick_reasons(
     Only ever a list of reasons to be quick; nothing here clears a flag a caller set.
     """
     reasons: list[str] = []
+    if declared_quick:
+        reasons.append(
+            "the run was declared --quick: it may omit its wall-clock cap, so it is excluded "
+            "from every decision"
+        )
     if tag == "memorise":
         reasons.append(
             "the memorisation arm is a subsample by construction"
@@ -11183,14 +11191,23 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--wall-clock-cap-s", type=float, default=WALL_CLOCK_CAP_S,
+        "--wall-clock-cap-s", type=float, default=None,
         help=(
-            f"the wall-clock cap on EACH arm of each seed, in seconds; default "
-            f"{WALL_CLOCK_CAP_S:g}. At most {MAX_WALL_CLOCK_CAP_S:g} "
+            f"the wall-clock cap on EACH arm of each seed, in seconds. Required for a run "
+            f"that trains, unless --quick (which carries {QUICK_CAP_S:g}). At most "
+            f"{MAX_WALL_CLOCK_CAP_S:g} "
             f"({MAX_WALL_CLOCK_CAP_S / 3600:g} h): the program's MAX_CAP_S, which is below "
             "the campaign's 72 h approval. The cost estimate is priced from it, so above "
             "rule 4's $20 line a run needs --approved-by and is armed with auto-terminate. "
             "Recorded in the recipe when it differs from the default"
+        ),
+    )
+    parser.add_argument(
+        "--quick", action="store_true",
+        help=(
+            f"declare this run quick (rule 8): it may omit --wall-clock-cap-s and then "
+            f"carries {QUICK_CAP_S:g} s, and every row it writes is marked quick, so it "
+            "is excluded from every decision"
         ),
     )
     parser.add_argument(
@@ -11905,6 +11922,21 @@ def main(argv: list[str] | None = None) -> int:
             "--resume-from is a 'memorise' checkpoint but --no-memorise was passed, so this "
             "run has no arm to resume it into"
         )
+    # A run that trains names its cap or says quick: no default stands in for a registration's
+    # cap (WallClockCap.resolve, the Rust trainer's refusal). A mode that trains nothing
+    # (scoring, probes, the needle control) only prices from the cap, and takes the quick one.
+    trains = (
+        args.score_checkpoint is None and args.score_plan is None
+        and args.needle_control is None and not args.probe
+        and args.arm_b_candidates is None and args.needle_predictions_out is None
+    )
+    if args.wall_clock_cap_s is None:
+        try:
+            args.wall_clock_cap_s = WallClockCap.resolve(
+                None, args.quick or not trains
+            ).cap_s
+        except ValueError as exc:
+            raise SystemExit(f"--wall-clock-cap-s: {exc}") from exc
     if not (math.isfinite(args.wall_clock_cap_s)
             and 0.0 < args.wall_clock_cap_s <= MAX_WALL_CLOCK_CAP_S):
         raise SystemExit(
@@ -12585,6 +12617,7 @@ def main(argv: list[str] | None = None) -> int:
             corpus=corpus, termination=termination, memorise_detail=memorise_detail,
             max_steps=args.max_steps if tag == "epoch" else None,
             probe_shapes=args.probe_shapes if tag == "epoch" else None,
+            declared_quick=args.quick,
         )
 
     report: dict[str, object] = {

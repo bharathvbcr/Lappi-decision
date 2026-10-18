@@ -195,6 +195,8 @@ def _run(
     argv = [
         "--out", str(corpus.out), "--rev", REV, "--devices", "cpu", "--seeds", "0",
         "--epoch", "--no-memorise", "--ledger", str(ledger),
+        # A run that trains names its cap (no default); 1800 is what these runs always carried.
+        "--wall-clock-cap-s", "1800",
         *(["--real-backbone", str(corpus.snapshot)] if real else []),
         *extra,
     ]

@@ -15,6 +15,7 @@
 # these are the two fastest widths -- and the alternative is reporting a capacity effect
 # measured with the smallest model handicapped.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py

@@ -161,12 +161,13 @@ def test_a_memorise_checkpoint_has_nowhere_to_go_under_no_memorise(tmp_path):
 def test_the_corpus_revision_is_a_full_sha(tmp_path, rev):
     """Every run of this tool writes ledger rows."""
     with pytest.raises(SystemExit, match="not a full 40-character commit sha"):
-        rft.main(["--out", str(tmp_path), "--rev", rev])
+        rft.main(["--out", str(tmp_path), "--rev", rev, "--wall-clock-cap-s", "1800"])
 
 
 def test_max_pairs_is_refused_where_the_rebuild_reads_nothing_it_bounds(tmp_path):
     with pytest.raises(SystemExit, match="would determine nothing"):
-        rft.main(["--out", str(tmp_path), "--no-repo-history", "--max-pairs", "400"])
+        rft.main(["--out", str(tmp_path), "--no-repo-history", "--max-pairs", "400",
+                  "--wall-clock-cap-s", "1800"])
 
 
 def test_ft_splits_rebuilds_through_the_pipelines_own_source_owner(monkeypatch):

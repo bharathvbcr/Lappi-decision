@@ -18,6 +18,7 @@
 # capacity question is open again -- which is the one thing measured so far that would
 # argue for more hardware.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py
