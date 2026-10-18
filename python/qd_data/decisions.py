@@ -20,6 +20,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -49,6 +50,7 @@ __all__ = [
     "POOL_ALLOCATION_APPLIED",
     "DecisionPool",
     "DecisionPoolError",
+    "check_pairwise_length_balance",
     "load_decision_pool",
     "pool_data_config",
     "rewrite_typed_decision",
@@ -149,8 +151,72 @@ def _check_allocate_binding(manifest: dict[str, object], actual_sha: str, where:
         )
 
 
-def load_decision_pool(pool_dir: Path) -> DecisionPool:
-    """The pool at ``pool_dir``, checked against its manifest. Refuses rather than caps."""
+PAIRWISE_FAMILY: Final[str] = "pairwise.helpfulness"
+_RESPONSE_A: Final[str] = "\n\nresponse_A:\n"
+_RESPONSE_B: Final[str] = "\n\nresponse_B:\n"
+
+
+def _pairwise_gold_is_longer(row: TypedDecisionRow) -> bool | None:
+    """``decisions.rs`` ``gold_is_longer`` over a pool row: whether the more helpful response is
+    the longer one, in characters; ``None`` for a tie verdict or two responses of equal length.
+    The context is ``user_prompt:\\n{p}\\n\\nresponse_A:\\n{a}\\n\\nresponse_B:\\n{b}``; the
+    last markers split it, so a response that quotes a marker moves a length, never a row."""
+    where = f"pairwise row {row.example_id!r}"
+    ib = row.context.rfind(_RESPONSE_B)
+    ia = row.context.rfind(_RESPONSE_A, 0, ib) if ib >= 0 else -1
+    if ia < 0:
+        raise DecisionPoolError(f"{where}: the context has no response_A / response_B blocks")
+    len_a = ib - (ia + len(_RESPONSE_A))
+    len_b = len(row.context) - (ib + len(_RESPONSE_B))
+    if row.gold_option is None or row.gold_option not in row.options[:3]:
+        raise DecisionPoolError(f"{where}: gold {row.gold_option!r} is not one of its options")
+    verdict = row.options.index(row.gold_option)
+    if verdict == 2:
+        return None
+    gold, other = (len_a, len_b) if verdict == 0 else (len_b, len_a)
+    return None if gold == other else gold > other
+
+
+def check_pairwise_length_balance(
+    rows: Sequence[TypedDecisionRow], band: tuple[float, float]
+) -> dict[str, dict[str, object]]:
+    """Per split, P(gold is the longer response) over the ordered, unequal-length
+    ``pairwise.helpfulness`` rows of ``rows``, refused when outside ``band`` (the check
+    ``qd-prep decisions`` makes under ``pairwise_length_balance``, which no Python build read).
+    A split with pairwise rows and none to read a P from is refused too: unmeasured is not
+    balanced. Returns the per-split tally for the caller's record."""
+    low, high = band
+    tally: dict[str, list[int]] = {}
+    for row in rows:
+        if row.family_id != PAIRWISE_FAMILY:
+            continue
+        t = tally.setdefault(row.split, [0, 0])
+        longer = _pairwise_gold_is_longer(row)
+        if longer is not None:
+            t[0 if longer else 1] += 1
+    report: dict[str, dict[str, object]] = {}
+    for split_name, (longer_n, shorter_n) in sorted(tally.items()):
+        n = longer_n + shorter_n
+        p = longer_n / n if n else None
+        report[split_name] = {"gold_longer": longer_n, "gold_shorter": shorter_n, "p": p}
+        if p is None or not low <= p <= high:
+            shown = "unmeasurable (no ordered rows of unequal length)" if p is None else f"{p:.3f}"
+            raise DecisionPoolError(
+                f"pairwise length prior on split {split_name!r}: P(gold is the longer response) "
+                f"= {shown} over {n} row(s), outside the v6 band [{low}, {high}] "
+                "(DataConfig.pairwise_length_band; AUDIT/training-audit-2026-10-06.md section "
+                "2.6): rebuild the pool with `qd-prep decisions` and a pairwise_length_balance "
+                "config, or name DataConfig.legacy_v5() to reproduce a pinned v5 artifact"
+            )
+    return report
+
+
+def load_decision_pool(pool_dir: Path, *, config: DataConfig | None = None) -> DecisionPool:
+    """The pool at ``pool_dir``, checked against its manifest. Refuses rather than caps.
+
+    With a ``config`` whose ``pairwise_length_band`` is set (v6's default), the pool's pairwise
+    rows must also satisfy it (:func:`check_pairwise_length_balance`). No ``config`` is no band:
+    the readers of v5-pinned pools (``tools/v5_a7_check.py``) keep reading them."""
     # Rule 3 at the pool door: a decision pool is training data, so one under a held-out path
     # marker is refused, as spelled and as resolved (a symlink into a held-out directory).
     markers = {m.casefold() for m in DataConfig().held_out_path_markers}
@@ -227,6 +293,10 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
                 actual=row.family_id, detail=f"{examples_path}:{i}",
             )
         raw.setdefault(row.source_id, []).append(row)
+    if config is not None and config.pairwise_length_band is not None:
+        check_pairwise_length_balance(
+            [r for rows in raw.values() for r in rows], config.pairwise_length_band
+        )
     return DecisionPool(
         raw={s: tuple(rows) for s, rows in raw.items()},
         examples_sha256=actual,

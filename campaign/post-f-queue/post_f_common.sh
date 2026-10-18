@@ -14,6 +14,16 @@
 # .started / .done in /home/ubuntu/queue; an EXIT trap touches .done on every path; GPU work
 # holds /home/ubuntu/queue/gpu.lock; lanes are pinned clean clones.
 
+# Every box_q_*.sh sources this file, and each starts paid work on the box: refuse unless
+# tools/campaign_driver.py started it (GAP-LAUNCH-SCRIPTS-RUN-A-PAID-BOX-OUTSIDE-THE-DRIVER-2026-10-17).
+# The guard is found beside this file (deploy it to $PF with this one) or in the checkout's
+# tools/; with neither, `.` fails and so does this, closed.
+_qd_rd=$(dirname "${BASH_SOURCE[0]}")
+[ -r "$_qd_rd/require_driver.sh" ] || _qd_rd=$_qd_rd/../../tools
+# shellcheck source=../../tools/require_driver.sh
+. "$_qd_rd/require_driver.sh" || exit 78
+unset _qd_rd
+
 Q=/home/ubuntu/queue
 PF=/home/ubuntu/post-f
 DEC=/home/ubuntu/ledger/post-f-decisions-2026-10-01

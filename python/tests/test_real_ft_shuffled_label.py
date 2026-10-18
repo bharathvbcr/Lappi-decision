@@ -46,7 +46,7 @@ from qd_data.rows import DataRow  # noqa: E402
 from qd_data.split import HELD_OUT, split  # noqa: E402
 from qd_train.artifacts import NO_SPAN, SLOT_CHOICE, SLOT_SPAN, Batch, RemapTable  # noqa: E402
 from qd_train.eval_harness import permute_within_groups  # noqa: E402
-from qd_train.ledger import Ledger, LedgerRow  # noqa: E402
+from qd_train.ledger import LIFECYCLE_STARTED_ROW, Ledger, LedgerRow  # noqa: E402
 from qd_train.shards import ShardReader, write_shards  # noqa: E402
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
@@ -407,7 +407,11 @@ def _patch(mp: pytest.MonkeyPatch, corpus_rows: tuple[list[DataRow], list[DataRo
 def _argv(corpus: Corpus, ledger: Path, *extra: str) -> list[str]:
     return [
         "--out", str(corpus.out), "--rev", REV, "--devices", "cpu", "--seeds", "0",
-        "--epoch", "--no-memorise", "--score-val", "--ledger", str(ledger), *extra,
+        "--epoch", "--no-memorise", "--score-val", "--ledger", str(ledger),
+        # A run that trains names its cap (a084326): 1800 s is the figure it used to default to,
+        # and the one the target's recipe records, which test_a_recipe_other_than_the_targets
+        # moves to 600 to show the control refused.
+        "--wall-clock-cap-s", "1800", *extra,
     ]
 
 
@@ -740,7 +744,9 @@ def test_skipping_the_whole_plan_evaluation_moves_no_hash_and_no_measurement(
             for part, states in (("gate", row.gates), ("control", row.controls),
                                  ("metric", row.metrics))
             for name, state in states.items()
-            if (part, name) != ("metric", link)
+            # `lifecycle.started_row_id` is the id of the started row this row terminates: row
+            # identity by another name, and different between any two runs.
+            if (part, name) not in (("metric", link), ("metric", LIFECYCLE_STARTED_ROW))
         }
 
     assert measured(again_eval) == measured(target_eval)
@@ -761,8 +767,9 @@ def test_the_memorise_arm_still_runs_the_whole_plan_evaluation(
     _patch(monkeypatch, (corpus.train, corpus.val))
     monkeypatch.setattr(rft, "_evaluate", counted)
     ledger = tmp_path / "memorise.jsonl"
+    # A run that trains names its cap (a084326).
     rft.main(["--out", str(corpus.out), "--rev", REV, "--devices", "cpu", "--seeds", "0",
-              "--ledger", str(ledger)])
+              "--ledger", str(ledger), "--wall-clock-cap-s", "1800"])
 
     assert calls, "the memorise arm did not evaluate its plan"
     floors = [r for r in Ledger(ledger).rows() if "letter_loss_reached_its_floor" in r.metrics]

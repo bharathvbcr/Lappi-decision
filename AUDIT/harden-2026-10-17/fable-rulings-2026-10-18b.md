@@ -59,7 +59,23 @@ Read-only, under the standing delegation. Navigation this round: `rg`/read only;
 
 **Fable's correction to Q12's handoff command:** it should read `MAC_HEAVY_MAX_LOAD=48 bash tools/mac_heavy.sh w4e-cargo cargo test -p qd-export`. The variable is read by mac_heavy.sh:136, so it must be in the wrapper's environment, not the job's.
 
+## Q14. The v6 length band: P1 option 1 is mine and I take it; P2 is yes; W2-d's brief holds
+
+(Asked as a follow-up after W3-b's report. Fable's answer, verbatim.)
+
+**P1. Decision.** Rebuild the pairwise rows under `pairwise_length_balance {low 0.45, high 0.55}` and re-pin the pool in `data/decisions/v6-allocation.json`; do not rule the band off. This is mine under delegation: the band is a data-construction rule from the plan I designed (HANDOFF/data-clean-v6-plan-2026-10-06.md:66, item 9; :7 "Decisions go to Fable; the human is asked only about cost and downloads"), applied to training rows. It touches no held-out set, no gate threshold and no seed, so rule 2 is not engaged; the only pairwise content that moves is the train/val stratification of `pairwise.helpfulness`, a 2% share (plan:23). Ruling the band off would reopen M24 and would be the human's.
+
+**Conditions.** The rebuild changes the pairwise row count, so the R2 allocation figure for `pairwise.helpfulness` is re-read from the new manifest, with `len_ratio` and drop counts recorded (plan:221). Cost: CPU on the Mac under mac_heavy, $0, so no human ask.
+
+**W2-d.** Its brief ("reproduce v5r's inputs with only the rules changed") is unchanged in meaning and the band is one of those rules: v5r's pool is the v5 input, the band is a v6 rule, and a rebuild that reads `DataConfig()` is the brief executed. What W2-d must not do is name `DataConfig.legacy_v5()` to get past the refusal; that would be the rule change silently undone. Until the pool is re-pinned, W2-d is blocked on this item, and the handoff says so.
+
+**P2. Decision.** Yes: add an optional `val_without_train` mapping to `LedgerRow`, written by the producer and read by `_population_paired_margin`, so a not_run there names the cause. Schema change, so the lane owning `ledger.py` and its Rust mirror (`crates/qd-train/src/ledger.rs`) does both halves in one change with a parse test, the same shape as the `started` fix in Q12 item 3. It excludes nothing from the pool; `paired_margin_population` (human, 2026-10-08) is untouched.
+
+**Evidence.** config.py:64, :143, :294, :301; v6-allocation.json:7, :10-13; w3b-proposals.md P1-P2; GAP-W3B-V5-DECISION-POOL-FAILS-THE-V6-LENGTH-BAND-2026-10-17; GAP-W3B-LEDGER-POPULATION-GATE-READING-DOES-NOT-NAME-VAL-WITHOUT-TRAIN-2026-10-17. Read, not graph-confirmed; the W2-d brief wording is the coordinator's, not read by me.
+
 ## Lead's notes (lappi-decision-ce)
+
+- **Q14 P2 touches crates/qd-train/src/ledger.rs, which belongs to lappi-decision-10.** It goes to that session, together with the `Status::Started` change.
 
 - **Q13's 0.2 ratio is waiting for the human's signature.** Nothing is partitioned, and the refusal stays off by default until it is signed.
 

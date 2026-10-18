@@ -16,6 +16,7 @@ import itertools
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,7 @@ from qd_train.span_null import (
     plus_line_null,
     span_beats_null_state,
 )
-from qd_train.tristate import NotRun, Ran
+from qd_train.tristate import NotRun, Ran, TriState
 
 REPO = Path(__file__).resolve().parents[2]
 LONG_AGO = "2020-01-01T00:00:00Z"
@@ -90,7 +91,8 @@ def _committed_record(tmp_path: Path, *, span_from: str = "2000-01-01",
 
 def _family(tmp_path: Path, record: Path, *, span: tuple[float, float, float, int] | None = (
         0.95, 0.95, 0.50, 100), stamp: bool = True,
-        not_run: frozenset[str] = frozenset()) -> Ledger:
+        not_run: frozenset[str] = frozenset(),
+        span_states: Mapping[str, TriState] | None = None) -> Ledger:
     """Three completed ft seeds, every gate and control green, the span metrics as
     ``(start, end, null, pointing_rows)``, each row stamped with ``record``. ``not_run`` names
     gates (including the two rulings) to leave not_run, for the property test."""
@@ -108,7 +110,10 @@ def _family(tmp_path: Path, record: Path, *, span: tuple[float, float, float, in
                 rec.control(c, Ran(passed=True, n=300, n_total=300))
             rec.metric("train.termination", Ran(passed=True, value="steps_exhausted"))
             record_decode_coverage(rec)
-            if span is not None:
+            if span_states is not None:
+                for name, state in span_states.items():
+                    rec.metric(name, state)
+            elif span is not None:
                 start, end, null, n = span
                 gold_added = round(n * 0.9)
                 rec.metric(SPAN_START_TOP1_METRIC,

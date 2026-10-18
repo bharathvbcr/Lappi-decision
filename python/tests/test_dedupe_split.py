@@ -279,7 +279,7 @@ def test_the_v6_rules_reach_the_fingerprint_and_v5_fingerprints_as_it_did() -> N
     assert set(DataConfig.legacy_v5().fingerprint()) == v5_keys
     v6 = _v6().fingerprint()
     assert set(v6) - v5_keys == {"dedupe_keep_rule", "lsh_min_agreement_permille",
-                                 "benchmark_eval_splits_are_targets"}
+                                 "benchmark_eval_splits_are_targets", "pairwise_length_band"}
     assert (v6["dedupe_keep_rule"], v6["lsh_min_agreement_permille"]) == ("split_priority", 650)
     for bad in ({"dedupe_keep_rule": "newest"}, {"lsh_min_agreement_permille": 1001},
                 {"lsh_min_agreement_permille": True}):

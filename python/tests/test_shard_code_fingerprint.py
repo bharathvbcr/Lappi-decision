@@ -118,7 +118,7 @@ def test_a_comment_edit_to_a_listed_module_still_moves_the_fingerprint(tmp_path:
 def test_a_missing_listed_module_is_refused_not_skipped(tmp_path: Path) -> None:
     _copy_package(tmp_path)
     (tmp_path / "render.py").unlink()
-    with pytest.raises(RuntimeError, match="render.py"):
+    with pytest.raises(RuntimeError, match=r"render\.py"):
         fp.shard_code_fingerprint(tmp_path)
 
 
@@ -136,7 +136,9 @@ def _check(header: ShardHeader):
     return artifacts._shard_code_check(header, path=Path("h.json"))
 
 
-def test_a_v2_header_passes_when_only_an_unlisted_module_changed(tmp_path: Path, monkeypatch) -> None:
+def test_a_v2_header_passes_when_only_an_unlisted_module_changed(
+    tmp_path: Path, monkeypatch
+) -> None:
     recorded = fp.shard_code_fingerprint()
     header = _header(code_fingerprint=recorded, code_fingerprint_version=fp.FINGERPRINT_VERSION)
     _copy_package(tmp_path)
