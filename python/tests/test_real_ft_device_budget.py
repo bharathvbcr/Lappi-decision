@@ -67,10 +67,54 @@ def test_cuda_within_budget_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(got, Ran) and got.passed is True
 
 
-def test_mps_reads_the_recommended_working_set(monkeypatch: pytest.MonkeyPatch) -> None:
+def _memguard_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gib: str) -> None:
+    plist = tmp_path / "memguard.plist"
+    plist.write_text(
+        "<plist><dict><array><string>-cap-gib</string>"
+        f"<string>{gib}</string></array></dict></plist>\n"
+    )
+    monkeypatch.setenv("MAC_HEAVY_MEMGUARD_PLIST", str(plist))
+
+
+def test_mps_reads_the_recommended_working_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _memguard_cap(monkeypatch, tmp_path, "32")
     monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 48 * GIB)
     assert real_ft_run.device_budget(60 * GIB, "mps").passed is False
-    assert real_ft_run.device_budget(30 * GIB, "mps").passed is True
+    assert real_ft_run.device_budget(20 * GIB, "mps").passed is True
+
+
+def test_mps_refuses_a_step_at_or_above_memguards_ceiling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A 30 GiB step fits the 48 GiB working set and is killed by memguard (32 GiB threshold,
+    28 GiB ceiling after mac_heavy's 4 GiB margin) with no ledger row."""
+    _memguard_cap(monkeypatch, tmp_path, "32")
+    monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 48 * GIB)
+    ceiling = 28 * GIB
+    assert real_ft_run.device_budget(30 * GIB, "mps").passed is False
+    assert real_ft_run.device_budget(ceiling, "mps").passed is False  # "at" is refused
+    assert real_ft_run.device_budget(ceiling - 1, "mps").passed is True
+
+
+def test_mps_with_an_unreadable_memguard_threshold_fails_the_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bad = tmp_path / "bad.plist"
+    bad.write_text("<plist><dict></dict></plist>\n")
+    monkeypatch.setenv("MAC_HEAVY_MEMGUARD_PLIST", str(bad))
+    monkeypatch.setenv("MAC_HEAVY_MEMGUARD_MAIN", str(tmp_path / "nope.go"))
+    monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 48 * GIB)
+    got = real_ft_run.device_budget(1 * GIB, "mps")
+    assert isinstance(got, Ran) and got.passed is False
+    assert "cannot read memguard's threshold" in got.detail
+
+
+def test_cuda_admits_only_the_usable_share_of_free_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda: (100 * GIB, 100 * GIB))
+    assert real_ft_run.device_budget(93 * GIB, "cuda").passed is True
+    assert real_ft_run.device_budget(95 * GIB, "cuda").passed is False
 
 
 def test_cpu_is_not_checked_and_says_so() -> None:

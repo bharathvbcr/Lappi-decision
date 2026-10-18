@@ -78,12 +78,20 @@
 main() {
 set -u
 
-if [ $# -lt 2 ]; then
+PRINT_LIMITS=0
+if [ "${1:-}" = "--print-limits" ] && [ $# -eq 1 ]; then
+  # Read-only query for callers that must not keep their own copy of memguard's threshold or
+  # of the margin below: prints both, takes no lock, runs nothing (qd_train.memory uses it).
+  PRINT_LIMITS=1
+  LABEL=print-limits
+elif [ $# -lt 2 ]; then
   echo "usage: bash tools/mac_heavy.sh <label> <command> [args...]" >&2
+  echo "       bash tools/mac_heavy.sh --print-limits" >&2
   exit 64
+else
+  LABEL=$1
+  shift
 fi
-LABEL=$1
-shift
 
 LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/build/mac-heavy.lock.d}
 MAX_WAIT=${MAC_HEAVY_MAX_WAIT_S:-14400}
@@ -117,6 +125,11 @@ case "$MG_GIB" in
     [ "$DEFAULT_FP_MB" -gt 0 ] || DEFAULT_FP_MB=$((MG_MB / 2))
     ;;
 esac
+if [ "$PRINT_LIMITS" = 1 ]; then
+  echo "memguard_threshold_mib=$MG_MB"
+  echo "default_footprint_cap_mib=$DEFAULT_FP_MB"
+  return 0
+fi
 MAX_FP_MB=${MAC_HEAVY_MAX_FOOTPRINT_MB-$DEFAULT_FP_MB}
 FOOTPRINT_PY=$(dirname "$0")/mac_footprint.py
 RSS_POLL=${MAC_HEAVY_RSS_POLL_S-2}

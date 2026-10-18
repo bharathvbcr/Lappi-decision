@@ -234,8 +234,11 @@ from qd_train.memory import (
     ADAMW_KAHAN,
     ADAMW_MASTER,
     CheckpointRefused,
+    MemoryRefused,
     OptimizerSpec,
+    host_footprint_ceiling_bytes,
     spec_from_checkpoint,
+    usable_device_bytes,
 )
 from qd_train.needle import (
     NEEDLE_CASES_PER_DEPTH,
@@ -2785,14 +2788,25 @@ def device_budget(estimate_bytes: int, device: str) -> TriState:
     gib = 1024**3
     if device == "cuda":
         available, source = int(torch.cuda.mem_get_info()[0]), "torch.cuda.mem_get_info free"
+        # The allocator cannot hand a step every free byte (memory.DEVICE_USABLE_FRACTION).
+        ceiling = usable_device_bytes(available)
     elif device == "mps":
         available, source = (
             int(torch.mps.recommended_max_memory()), "torch.mps.recommended_max_memory"
         )
+        # memguard kills a single process at its threshold and leaves no row, and mac_heavy's
+        # cap sits a margin below it: a step predicted at or above that is not admitted. A
+        # ceiling that cannot be read is a failed check, never a pass.
+        try:
+            host_ceiling = host_footprint_ceiling_bytes()
+        except MemoryRefused as exc:
+            return Ran(passed=False, value=estimate_bytes, detail=str(exc))
+        ceiling = min(available, host_ceiling - 1)  # "<= ceiling" is "< host_ceiling"
+        source = f"{source}, and memguard's ceiling {host_ceiling} B (mac_heavy.sh --print-limits)"
     else:
         return NotRun(reason=f"device {device!r} has no memory budget this tool can read")
     return Ran(
-        passed=estimate_bytes <= available,
+        passed=estimate_bytes <= ceiling,
         # The estimate is the value; the budget is in the detail. Not n / n_total: those
         # are a count examined out of a total, and an estimate over budget is exactly the
         # case where the first exceeds the second.
