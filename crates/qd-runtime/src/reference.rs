@@ -58,6 +58,17 @@ impl ReferenceBackend {
         Self { enabled, identity }
     }
 
+    /// The same backend, declaring that it was built for the calibration table `table_hash`.
+    ///
+    /// A runtime refuses a backend whose declared table is not the table it calibrates with
+    /// ([`crate::runtime::Runtime::with_backend`]), so a test that serves a fitted table over
+    /// this backend states that table here. Nothing about the runtime's check is relaxed.
+    #[must_use]
+    pub fn declaring_calibration(mut self, table_hash: String) -> Self {
+        self.identity.calibration_hash = table_hash;
+        self
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }

@@ -72,8 +72,15 @@ def _recipe_of_a_row() -> dict[str, object]:
     ]
     examples.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     manifest = tmp / "manifest.json"
-    manifest.write_text(json.dumps({"corpus_sha256": "0" * 64, "n_examples": len(rows)}),
-                        encoding="utf-8")
+    # The reader hashes the examples against the manifest's examples_sha256 (M18), so the
+    # fixture's manifest records the real hash of the file it describes.
+    manifest.write_text(
+        json.dumps({
+            "corpus_sha256": "0" * 64, "n_examples": len(rows),
+            "examples_sha256": hashlib.sha256(examples.read_bytes()).hexdigest(),
+        }),
+        encoding="utf-8",
+    )
     out = tmp / "scratch"
     out.mkdir()
     ledger = tmp / "l.jsonl"
@@ -293,7 +300,11 @@ def test_an_empty_pre_generated_corpus_is_refused(tmp_path) -> None:
     corpus = tmp_path / "examples.jsonl"
     corpus.write_text("", encoding="utf-8")
     manifest = tmp_path / "manifest.json"
-    manifest.write_text("{}", encoding="utf-8")
+    # A manifest the empty file matches, so the refusal under test is the corpus's emptiness
+    # and not the reader's (M18) check that the manifest records a hash at all.
+    manifest.write_text(
+        json.dumps({"examples_sha256": hashlib.sha256(b"").hexdigest()}), encoding="utf-8"
+    )
     with pytest.raises(SystemExit, match="nothing to train on"):
         tool.main([
             "--out", str(tmp_path), "--rev", "HEAD",

@@ -3520,7 +3520,7 @@ def run(
     if decisions_pool is not None:
         # Read whole or refused (load_decision_pool): every decision about a row was made
         # by qd-prep decisions, and its manifest names the rows by sha256.
-        pool = load_decision_pool(decisions_pool)
+        pool = load_decision_pool(decisions_pool, config=config)
         clash = sorted(set(pool.raw) & set(raw))
         if clash:
             raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
@@ -3668,8 +3668,17 @@ def run(
     manifests = build_manifests(
         config=config, mixture=mixture, dedupe_report=report, split_report=split_report
     )
+    without_train = manifests["train"].val_without_train
+    if without_train and without_train["count"]:
+        # Recorded in every manifest; printed because a manifest field is not read at launch.
+        print(
+            f"\n  VAL WITHOUT TRAIN: {without_train['count']} family(ies) have val rows and no "
+            f"train rows: {without_train['families']}; no control can be fitted for them, so a "
+            "gate pooled over them is not_run "
+            "(GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05)"
+        )
     snapshot_status = manifests["train"].status
-    not_run_snapshot = snapshot_status.to_json()["state"] == "not_run"
+    not_run_snapshot =snapshot_status.to_json()["state"] == "not_run"
     if not_run_snapshot:
         # Stated, never absorbed. The manifest door and `open_training_data` both refuse a
         # not-run snapshot by default, and this run overrides both -- so the reason it

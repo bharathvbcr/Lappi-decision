@@ -84,6 +84,8 @@ def test_the_flag_applies_both_v6_rules_and_both_reach_the_fingerprint() -> None
         "benchmark_eval_splits_are_targets": True,
         "dedupe_keep_rule": DEDUPE_KEEP_SPLIT_PRIORITY,
         "lsh_min_agreement_permille": V6_LSH_MIN_AGREEMENT_PERMILLE,
+        # M24 (2026-10-17): v6's pairwise length band is a data rule too.
+        "pairwise_length_band": [0.45, 0.55],
     }
 
 

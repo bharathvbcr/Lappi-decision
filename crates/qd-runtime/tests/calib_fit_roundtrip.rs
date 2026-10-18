@@ -241,7 +241,7 @@ fn the_fitted_file_is_the_table_the_runtime_answers_with() {
 
     // Through the runtime: the fitted shape answers, an unfitted one and span refuse.
     let runtime = Runtime::with_backend(
-        Arc::new(ReferenceBackend::new(true)),
+        Arc::new(ReferenceBackend::new(true).declaring_calibration(table.hash())),
         table.clone(),
         HeadRegistry::new(),
         RenderCaps::DEFAULT,
@@ -290,7 +290,7 @@ fn two_fold_writes_both_fold_tables_and_no_pooled_one() {
         assert_eq!(table.hash(), qd_runtime::hex(&qd_runtime::sha256(&bytes)));
         assert_eq!(report["tables"][i]["sha256"], json!(table.hash()));
         Runtime::with_backend(
-            Arc::new(ReferenceBackend::new(true)),
+            Arc::new(ReferenceBackend::new(true).declaring_calibration(table.hash())),
             table,
             HeadRegistry::new(),
             RenderCaps::DEFAULT,
@@ -309,7 +309,7 @@ fn two_fold_writes_both_fold_tables_and_no_pooled_one() {
 
 fn runtime_with(table: CalibrationTable) -> Runtime {
     Runtime::with_backend(
-        Arc::new(ReferenceBackend::new(true)),
+        Arc::new(ReferenceBackend::new(true).declaring_calibration(table.hash())),
         table,
         HeadRegistry::new(),
         RenderCaps::DEFAULT,

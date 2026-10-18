@@ -31,6 +31,7 @@ import ckpt_average  # noqa: E402
 import numpy as np  # noqa: E402
 import real_ft_run  # noqa: E402
 import torch  # noqa: E402
+from test_ckpt_average_shared_init import shared_init_args  # noqa: E402
 from test_real_ft_score_checkpoint import (  # noqa: E402
     AVG_IDS,
     STEPS,
@@ -44,8 +45,6 @@ from test_real_ft_score_checkpoint import (  # noqa: E402
     _schedule,
     tiny_master_checkpoints,
 )
-
-from test_ckpt_average_shared_init import shared_init_args  # noqa: E402
 
 from qd_train.backbone import TEXT_PREFIX  # noqa: E402
 

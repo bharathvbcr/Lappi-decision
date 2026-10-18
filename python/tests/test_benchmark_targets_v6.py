@@ -180,7 +180,7 @@ def test_the_v6_opt_in_is_in_the_fingerprint_only_when_set() -> None:
     assert v6.fingerprint()["benchmark_eval_splits_are_targets"] is True
     assert {k: v for k, v in v6.fingerprint().items()
             if k not in ("benchmark_eval_splits_are_targets", "dedupe_keep_rule",
-                         "lsh_min_agreement_permille")} == v5.fingerprint()
+                         "lsh_min_agreement_permille", "pairwise_length_band")} == v5.fingerprint()
     with pytest.raises(TypeError):
         DataConfig(benchmark_eval_splits_are_targets=1)  # type: ignore[arg-type]
 

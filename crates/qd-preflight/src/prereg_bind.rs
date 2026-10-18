@@ -26,7 +26,7 @@ use std::process::Command;
 
 use serde_json::Value;
 
-#[path = "../tristate.rs"]
+#[path = "tristate.rs"]
 pub mod tristate;
 
 use tristate::{aggregate, TriState};
@@ -390,7 +390,9 @@ mod tests {
         write(shards.path(), "header.json", &format!(r#"{{"shard_hash": "{}"}}"#, "0".repeat(64)));
         let (out, code) = run(&args(&repo, &shards, &[]));
         assert_eq!(code, 1, "{out}");
-        assert!(out.contains("FAILED  shard_hash") && out.ends_with("RESULT: FAILED\n"), "{out}");
+        // The label column is `{label:8} `, so FAILED (6) is followed by two pad spaces and the
+        // separator; NOT_RUN (7) by one and the separator, as the test below spells it.
+        assert!(out.contains("FAILED   shard_hash") && out.ends_with("RESULT: FAILED\n"), "{out}");
     }
 
     #[test]

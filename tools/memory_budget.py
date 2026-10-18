@@ -43,6 +43,7 @@ from qd_train.memory import (
     StepFootprint,
     estimate_step,
     max_positions_that_fit,
+    refuse_if_over_host_ceiling,
     refuse_unless_it_fits,
     spec_from_checkpoint,
 )
@@ -146,6 +147,12 @@ def main() -> int:
         default=None,
         help="exit 1 unless every bucket fits a device of this many GB",
     )
+    ap.add_argument(
+        "--mac-host",
+        action="store_true",
+        help="also refuse a bucket whose predicted peak is at or above memguard's per-process "
+        "threshold less mac_heavy's margin (read via tools/mac_heavy.sh --print-limits)",
+    )
     args = ap.parse_args()
 
     try:
@@ -238,6 +245,8 @@ def main() -> int:
             )
             try:
                 refuse_unless_it_fits(f, device_bytes=dev_bytes, where=f"bucket width {w:,}")
+                if args.mac_host:
+                    refuse_if_over_host_ceiling(f, where=f"bucket width {w:,}")
             except MemoryRefused as exc:
                 failures.append(str(exc).splitlines()[0])
             else:
