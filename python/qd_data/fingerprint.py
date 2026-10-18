@@ -25,7 +25,7 @@ Two rules, named by ``FINGERPRINT_VERSION``.
 **Version 1** (every header written before 2026-10-18; ``code_fingerprint(directory)``):
 every ``*.py`` in ``qd_data``, by source bytes. It over-invalidated -- any edit, to a comment
 or to a module no shard builder imports, made every pinned set unreadable, and all 89 sets
-on the campaign host already drifted (GAP-LDATA-ALL-89-SHARD-HEADERS-DRIFT-FROM-QD-DATA-HEAD).
+on the campaign host already drifted (GAP-LDATA-ALL-89-SHARD-HEADERS-DRIFT-FROM-QD-DATA-HEAD-2026-10-17).
 A guard that is always red ends with someone bypassing it.
 
 **Version 2** (``shard_code_fingerprint()``): only the modules that determine shard content,
