@@ -94,7 +94,7 @@ import numpy as np
 from qd_data.config import DataConfig
 from qd_data.defect_class import NOUL_ROUTE_CONTRAST, NOUL_ROUTE_KEY
 from qd_data.errors import QdRefusal
-from qd_data.fingerprint import code_fingerprint
+from qd_data.fingerprint import FINGERPRINT_VERSION, shard_code_fingerprint
 from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY
 from qd_data.render import (
     DEFAULT_CAPS,
@@ -1802,7 +1802,8 @@ def write_shards(
         # Taken here rather than passed in: the fingerprint must describe the modules that
         # are LOADED in the process doing the writing, which is the only thing that
         # actually shaped `sequences`.
-        code_fingerprint=code_fingerprint(),
+        code_fingerprint=shard_code_fingerprint(),
+        code_fingerprint_version=FINGERPRINT_VERSION,
         # Pins WHICH REVISION the corpus was read at. Empty is honest: a caller that does
         # not know its rev must not put a guess here, because a wrong rev in the header is
         # worse than an absent one -- absent reads NotRun, wrong reads passed=True.

@@ -424,7 +424,7 @@ class WallClockCap:
             )
 
     @classmethod
-    def resolve(cls, cap_s: float | None, quick: bool) -> "WallClockCap":
+    def resolve(cls, cap_s: float | None, quick: bool) -> WallClockCap:
         """The cap a run starts with, mirroring Rust WallClockCap::resolve. A registered
         run (quick false) must name its cap: None is refused, never filled with a default.
         Only a run that says quick may omit it, and then it gets QUICK_CAP_S. The result is

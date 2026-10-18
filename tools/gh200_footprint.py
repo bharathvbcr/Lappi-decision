@@ -126,6 +126,7 @@ def backbone_predicted_bytes(
         "master_bytes": fp.master_bytes,
         "activation_bytes": fp.activation_bytes,
         "recurrent_state_bytes": fp.recurrent_state_bytes,
+        "step_transient_bytes": fp.step_transient_bytes,
     }
     excluded = {
         "loss_head_bytes": fp.loss_head_bytes,

@@ -41,7 +41,7 @@ from data_fixtures import small_corpus
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
 from qd_data.errors import ContextTooLargeRefusal, EmptyContextRefusal, HeldOutViolation
-from qd_data.fingerprint import code_fingerprint
+from qd_data.fingerprint import FINGERPRINT_VERSION, shard_code_fingerprint
 from qd_data.manifest import Manifest, build_manifests
 from qd_data.mixture import _line_span as mixture_line_span
 from qd_data.mixture import build_mixture
@@ -2432,7 +2432,8 @@ def test_a_written_shard_set_records_the_code_that_produced_its_rows(
 
     assert raw["code_fingerprint"], "header.json carries no code_fingerprint"
     assert raw["code_fingerprint"] == header.code_fingerprint
-    assert raw["code_fingerprint"] == code_fingerprint()
+    assert raw["code_fingerprint"] == shard_code_fingerprint()
+    assert raw["code_fingerprint_version"] == FINGERPRINT_VERSION
     # The two modules whose drift caused the recorded incident are both covered.
     assert "mixture.py" in raw["code_fingerprint"]
     assert "render.py" in raw["code_fingerprint"]
@@ -2454,9 +2455,9 @@ def test_opening_a_set_whose_generating_code_moved_is_refused(
     # Fine before the drift, so the refusal below is the drift and not the fixture.
     ShardReader(out, config=snap.config, repo_root=snap.root)
 
-    drifted = dict(code_fingerprint())
+    drifted = dict(shard_code_fingerprint())
     drifted["render.py"] = "0" * 64
-    monkeypatch.setattr(artifacts, "code_fingerprint", lambda: drifted)
+    monkeypatch.setattr(artifacts, "shard_code_fingerprint", lambda: drifted)
 
     with pytest.raises(ShardContractViolation, match="qd_data has changed"):
         ShardReader(out, config=snap.config, repo_root=snap.root)

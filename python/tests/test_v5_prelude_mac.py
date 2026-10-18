@@ -82,6 +82,8 @@ def _prelude():
 
 def _toy_argv(corpus, tmp_path: Path, *extra: str) -> list[str]:  # noqa: F811
     return [
+        "--wall-clock-cap-s",
+        "1800",
         "--out",
         str(corpus.out),
         "--rev",

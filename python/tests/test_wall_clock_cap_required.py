@@ -22,6 +22,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 from qd_train.run_control import MAX_CAP_S, QUICK_CAP_S, WallClockCap  # noqa: E402
 
+TORCH_REASON = "torch is an optional 'mac' extra, not in .venv"
 RUST = (REPO / "crates" / "qd-train" / "src" / "run_control.rs").read_text(encoding="utf-8")
 
 
@@ -57,6 +58,7 @@ def test_resolve_follows_the_rust_truth_table() -> None:
 
 
 def test_there_is_one_python_owner_of_the_quick_cap() -> None:
+    pytest.importorskip("torch", reason=TORCH_REASON)
     import real_ft_run
 
     assert real_ft_run.QUICK_CAP_S is QUICK_CAP_S
@@ -66,6 +68,7 @@ def test_there_is_one_python_owner_of_the_quick_cap() -> None:
 
 
 def test_a_training_run_without_a_cap_or_quick_is_refused_at_argv(tmp_path: Path) -> None:
+    pytest.importorskip("torch", reason=TORCH_REASON)
     import real_ft_run
 
     with pytest.raises(SystemExit) as refused:
@@ -75,15 +78,17 @@ def test_a_training_run_without_a_cap_or_quick_is_refused_at_argv(tmp_path: Path
 
 
 def test_quick_gets_the_quick_cap_and_a_named_cap_needs_no_quick(tmp_path: Path) -> None:
+    pytest.importorskip("torch", reason=TORCH_REASON)
     import real_ft_run
 
     for argv in (["--quick"], ["--wall-clock-cap-s", "32400"]):
         # Past every argv check, the first thing the run reads is the (absent) shard set.
-        with pytest.raises(FileNotFoundError, match="header.json"):
+        with pytest.raises(FileNotFoundError, match=r"header\.json"):
             real_ft_run.main(["--out", str(tmp_path), "--epoch", *argv])
 
 
 def test_a_declared_quick_run_is_marked_quick() -> None:
+    pytest.importorskip("torch", reason=TORCH_REASON)
     import real_ft_run
 
     base = dict(

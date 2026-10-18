@@ -520,7 +520,8 @@ def test_a_checkpoint_is_refused_when_this_run_has_no_cell_for_it(tmp_path) -> N
     """
     ckpt = tmp_path / "memorise-seed3-cuda.json"
     ckpt.write_text("{}", encoding="utf-8")
-    common = ["--out", str(tmp_path), "--real-backbone", str(tmp_path), "--wall-clock-cap-s", "1800",
+    common = ["--out", str(tmp_path), "--real-backbone", str(tmp_path),
+              "--wall-clock-cap-s", "1800",
               "--resume-from", str(ckpt)]
 
     with pytest.raises(SystemExit, match="checkpoint from cuda"):

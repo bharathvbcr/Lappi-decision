@@ -122,7 +122,8 @@ def _run(monkeypatch, tmp_path, capsys, *, score: bool, val_labels, ood_labels=(
     backbone.mkdir(exist_ok=True)
     if tokenizer:
         (backbone / "tokenizer.json").write_text("{}", encoding="utf-8")
-    argv = ["--out", str(tmp_path), "--rev", "0" * 40, "--no-repo-history",
+    argv = ["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+            "--rev", "0" * 40, "--no-repo-history",
             "--real-backbone", str(backbone), "--score-val", "--devices", "cpu"]
     if score and plan:
         plan_json = tmp_path / "plan.json"

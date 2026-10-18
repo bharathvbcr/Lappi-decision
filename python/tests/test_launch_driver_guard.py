@@ -67,7 +67,7 @@ def test_a_launcher_gets_past_the_guard_with_the_variable(script: Path, tmp_path
         assert line.startswith("#") or not line.strip() or line.startswith("set "), line
     probe = tmp_path / "probe.sh"
     (tmp_path / "require_driver.sh").write_text((TOOLS / "require_driver.sh").read_text())
-    probe.write_text("\n".join(head + ["echo PAST_GUARD", ""]))
+    probe.write_text("\n".join([*head, "echo PAST_GUARD", ""]))
     done = subprocess.run(
         ["bash", str(probe)], env=_env(CAMPAIGN_DRIVER_RUN="a-campaign"),
         capture_output=True, text=True, timeout=30,
