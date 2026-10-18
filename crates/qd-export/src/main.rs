@@ -51,15 +51,10 @@ struct Cli {
     calibration: Option<PathBuf>,
 
     /// The fit's own report for that table (qd-calib-fit report.json). Required with --calibration:
-    /// the export is refused unless every declared (family, slot shape) has an entry whose recorded
-    /// check ran and passed.
+    /// the export is refused unless every (family, slot shape) the train manifest records has an
+    /// entry whose recorded check ran and passed.
     #[arg(long, value_name = "PATH")]
     calibration_report: Option<PathBuf>,
-
-    /// JSON {family: ["choice:5", "span"]}: the slot shapes each trained family was trained on.
-    /// Required with --calibration.
-    #[arg(long, value_name = "PATH")]
-    trained_slot_shapes: Option<PathBuf>,
 
     /// Do not admit a trained family, with the reason (recorded in the manifest). The only way
     /// past the calibration gate for a family. Repeatable.
@@ -92,7 +87,10 @@ struct Cli {
 
     /// The ft ledger (JSON lines) holding the completed ft rows named by the source manifest.
     /// Required with --averaged-head-preregistration: the export verifies from the rows'
-    /// recipe.span_head_init that every seed shared one head init.
+    /// recipe.span_head_init that every seed shared one head init. When given, it also binds the
+    /// train manifest: every ft row the weights came from must record a train_manifest_sha256
+    /// equal to the manifest's file sha256 (absent or different is refused). Without it the
+    /// release records ledger_binding.verified=false, and qd-release-check fails such a release.
     #[arg(long, value_name = "PATH")]
     ft_ledger: Option<PathBuf>,
 
@@ -111,7 +109,6 @@ fn main() -> ExitCode {
         expect_vocab_size: cli.expect_vocab_size,
         calibration: cli.calibration,
         calibration_report: cli.calibration_report,
-        trained_slot_shapes: cli.trained_slot_shapes,
         exclude_families: cli.exclude_family,
         uncalibrated_reason: cli.uncalibrated_reason,
         train_manifest: cli.train_manifest,

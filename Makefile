@@ -225,7 +225,11 @@ BENCHMARK_TARGETS ?=
 PREREG           ?=
 SHARD_DIR        ?=
 
-# preflight-release arguments. All three are required; none has a default.
+# preflight-release arguments. All three are required; none has a default. The release-check step
+# runs `qd-release-check check`, whose `ledger_binding` line FAILS a release whose manifest has no
+# train_manifest.ledger_binding block or one that is not verified (exported without --ft-ledger),
+# so an unbound release cannot pass this target
+# (GAP-W7A-LEDGER-BINDING-CHECK-NOT-WIRED-INTO-PREFLIGHT-RELEASE-2026-10-18).
 RELEASE_DIR      ?=
 REPLAY_RESULTS   ?=
 MIN_ANSWERED     ?=

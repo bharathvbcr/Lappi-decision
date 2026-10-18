@@ -12,9 +12,11 @@
 //! * the fit's own report (`qd-calib-fit`'s `report.json`): its `tables[].sha256` must be this
 //!   table's file hash, its `ece.threshold` must be [`ECE_THRESHOLD`] (the registered constant,
 //!   not a number read from the report), and `entries[KEY].scored.ece_after` is the recorded check;
-//! * the slot shapes each trained family was trained on, `{family: [["choice:5", "span"], ["choice:7"]]}`: one array per trained request shape, so choice and span trained together are declared together. No
-//!   tracked registry of these exists (the train manifest records families, not slots), so the
-//!   operator declares them; a trained family with no declaration is refused.
+//! * the slot shapes each trained family was trained on, `{family: [["choice:5", "span"], ["choice:7"]]}`:
+//!   one array per trained request shape, so choice and span trained together are gated together.
+//!   The train manifest owns them (each entry's `slot_shape`, read by `export::read_train_manifest`
+//!   under a versioned `slot_shape_digest`); for an ensemble they are the members' own release
+//!   manifests'. Nothing is hand-declared: a family with no recorded shape is refused.
 //!
 //! A check that did not run (`state: "not_run"`, e.g. fewer than 100 examples) is a refusal, never
 //! a pass. The only way past a family is [`ExcludedFamily`]: the family leaves
@@ -24,7 +26,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::calibration_fit::ECE_THRESHOLD;
@@ -54,23 +56,51 @@ impl ExcludedFamily {
 
 /// What the gate established, for the manifest.
 pub(crate) struct GateRecord {
-    /// Declared shapes of the admitted families only.
-    pub shapes: BTreeMap<String, Vec<Vec<String>>>,
     /// The `calibration.gate` block.
     pub block: Value,
 }
 
-fn is_shape_key(key: &str) -> bool {
+/// Per family, the set of request shapes it trained on; each shape is its sorted slot keys.
+pub(crate) type FamilyShapes = BTreeMap<String, BTreeSet<Vec<String>>>;
+
+/// A recorded `trained_slot_shapes` object (`{family: [[key, ...], ...]}`), as a release manifest
+/// writes it.
+pub(crate) fn parse_family_shapes(v: &Value, what: &str, kind: RefusalKind) -> Result<FamilyShapes> {
+    let obj = v.as_object().ok_or_else(|| refuse(kind, format!("{what}: trained_slot_shapes is not an object")))?;
+    let mut out = FamilyShapes::new();
+    for (family, shapes) in obj {
+        let arr = shapes
+            .as_array()
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| refuse(kind, format!("{what}: trained_slot_shapes[{family}] is not a non-empty array")))?;
+        let mut set = BTreeSet::new();
+        for shape in arr {
+            let mut keys = Vec::new();
+            for key in shape.as_array().filter(|s| !s.is_empty()).into_iter().flatten() {
+                let key = key
+                    .as_str()
+                    .filter(|s| is_shape_key(s))
+                    .ok_or_else(|| refuse(kind, format!("{what}: {family}: shape key {key} is not span, choice:N or score:N")))?;
+                keys.push(key.to_string());
+            }
+            if keys.is_empty() {
+                return Err(refuse(kind, format!("{what}: {family}: a shape is a non-empty array of slot keys, got {shape}")));
+            }
+            keys.sort();
+            set.insert(keys);
+        }
+        out.insert(family.clone(), set);
+    }
+    Ok(out)
+}
+
+pub(crate) fn is_shape_key(key: &str) -> bool {
     match key.split_once(':') {
         None => key == "span",
         Some((kind, rows)) => {
             matches!(kind, "choice" | "score") && !rows.is_empty() && rows.bytes().all(|b| b.is_ascii_digit())
         }
     }
-}
-
-fn as_object<'a>(v: &'a Value, what: &str) -> Result<&'a Map<String, Value>> {
-    v.as_object().ok_or_else(|| refuse(RefusalKind::Calibration, format!("{what} is not a JSON object")))
 }
 
 /// The recorded check at `ece`: ran, passed, and consistent with the registered threshold.
@@ -102,14 +132,13 @@ fn check_ece(key: &str, ece: Option<&Value>) -> Result<f64> {
     Ok(value)
 }
 
-/// Run the gate. `all_families` is the train manifest's set; `admitted` is that set minus the
-/// exclusions.
+/// Run the gate. `trained` is what the train manifest (or, for an ensemble, its members' release
+/// manifests) records each family as trained on; `admitted` is the families the release admits.
 pub(crate) fn check(
     table_bytes: &[u8],
     table: &CalibrationTable,
     report_path: &Path,
-    shapes_path: &Path,
-    all_families: &[String],
+    trained: &FamilyShapes,
     admitted: &[String],
 ) -> Result<GateRecord> {
     let k = RefusalKind::Calibration;
@@ -143,17 +172,6 @@ pub(crate) fn check(
         ));
     }
 
-    let shapes_bytes = read_small(shapes_path, k)?;
-    let shapes_doc: Value = serde_json::from_slice(&shapes_bytes)
-        .map_err(|e| refuse(k, format!("{}: not JSON: {e}", shapes_path.display())))?;
-    let declared = as_object(&shapes_doc, &shapes_path.display().to_string())?;
-    let known: BTreeSet<&str> = all_families.iter().map(String::as_str).collect();
-    for family in declared.keys() {
-        if !known.contains(family.as_str()) {
-            return Err(refuse(k, format!("{}: declares shapes for {family:?}, which the train manifest does not hold", shapes_path.display())));
-        }
-    }
-
     let table_doc = serde_json::to_value(table).map_err(|e| refuse(k, e.to_string()))?;
     let letters: BTreeSet<&str> = table_doc
         .get("letters")
@@ -162,33 +180,19 @@ pub(crate) fn check(
         .unwrap_or_default();
     let has_span = table_doc.get("span").is_some_and(|s| !s.is_null());
 
-    let mut shapes: BTreeMap<String, Vec<Vec<String>>> = BTreeMap::new();
     let mut checked: BTreeMap<String, Value> = BTreeMap::new();
     for family in admitted {
-        let keys = declared
-            .get(family)
-            .and_then(Value::as_array)
-            .filter(|a| !a.is_empty())
-            .ok_or_else(|| {
-                refuse(
-                    k,
-                    format!(
-                        "{family}: no declared slot shapes in {}; a trained family whose shapes are unknown cannot be shown calibrated. Declare them, or exclude the family with --exclude-family",
-                        shapes_path.display()
-                    ),
-                )
-            })?;
-        let mut mine: Vec<Vec<String>> = Vec::with_capacity(keys.len());
-        for shape in keys {
-            let slots = shape.as_array().filter(|s| !s.is_empty()).ok_or_else(|| {
-                refuse(k, format!("{family}: each declared shape is a non-empty array of slot keys (one trained request), got {shape}"))
-            })?;
-            let mut this: Vec<String> = Vec::with_capacity(slots.len());
-        for key in slots {
-            let key = key
-                .as_str()
-                .filter(|s| is_shape_key(s))
-                .ok_or_else(|| refuse(k, format!("{family}: shape {key} is not span, choice:N or score:N")))?;
+        let shapes = trained.get(family).filter(|s| !s.is_empty()).ok_or_else(|| {
+            refuse(
+                k,
+                format!(
+                    "{family}: no recorded slot shapes; a trained family whose shapes are unknown cannot be shown calibrated. Exclude the family with --exclude-family"
+                ),
+            )
+        })?;
+        for shape in shapes {
+        for key in shape {
+            let key = key.as_str();
             if key == "span" {
                 if !has_span {
                     return Err(refuse(k, format!("{family}: trained slot shape span has no calibration entry (the table's span is null); the runtime would refuse its span slot as calibration_entry_missing")));
@@ -207,12 +211,8 @@ pub(crate) fn check(
                 let v = check_ece(&format!("{family}/{key}"), ece)?;
                 checked.insert(key.to_string(), json!(v));
             }
-            this.push(key.to_string());
         }
-            this.sort();
-            mine.push(this);
         }
-        shapes.insert(family.clone(), mine);
     }
 
     let block = json!({
@@ -221,7 +221,7 @@ pub(crate) fn check(
         "table_sha256": table_sha,
         "ece_threshold": ECE_THRESHOLD,
         "ece_after_by_shape": checked,
-        "rule": "every declared (admitted family, slot shape) has a table entry whose recorded ece_after ran and passed at the registered threshold; a not_run check is a refusal",
+        "rule": "every recorded (admitted family, slot shape) has a table entry whose recorded ece_after ran and passed at the registered threshold; a not_run check is a refusal",
     });
-    Ok(GateRecord { shapes, block })
+    Ok(GateRecord { block })
 }

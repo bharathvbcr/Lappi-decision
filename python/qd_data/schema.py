@@ -66,6 +66,7 @@ __all__ = [
     "decode_context",
     "encode_context",
     "slot_set_digest",
+    "slot_shape_keys",
 ]
 
 SCHEMA_VERSION: Final[int] = 1
@@ -718,3 +719,28 @@ def slot_set_digest(slots: tuple[Slot, ...] | list[Slot]) -> str:
     """
     body = [s.to_wire() for s in slots]
     return hashlib.sha256(canonical_json(body).encode("utf-8")).hexdigest()
+
+
+def slot_shape_keys(slots: tuple[Slot, ...] | list[Slot]) -> tuple[str, ...]:
+    """The sorted slot keys of a request, spelled as the calibration table keys them.
+
+    ``choice:N`` and ``score:N`` count the decode rows including the reserved noul row
+    (``options + 1``, ``bins + 1``); ``span`` has one entry. This is what a train manifest
+    entry records as ``slot_shape`` and what ``qd-export`` gates per family. The Rust
+    spelling is ``qd_preflight::release_check::request_shape``. Duplicates are kept, as that
+    function keeps them.
+    """
+    keys: list[str] = []
+    for slot in slots:
+        if isinstance(slot, ChoiceSlot):
+            keys.append(f"choice:{len(slot.options) + 1}")
+        elif isinstance(slot, ScoreSlot):
+            keys.append(f"score:{slot.bins + 1}")
+        elif isinstance(slot, SpanSlot):
+            keys.append("span")
+        else:
+            raise UnknownSlotTypeRefusal(
+                expected="choice, score or span", actual=type(slot).__name__,
+                detail=f"slot {slot.name!r} has no calibration key",
+            )
+    return tuple(sorted(keys))
