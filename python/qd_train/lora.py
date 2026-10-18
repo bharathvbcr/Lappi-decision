@@ -40,16 +40,26 @@ arithmetic ``MasterWeightAdamW`` delegates to; nothing in ``optim.py`` is change
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
+import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-from qd_train.run_control import LRSchedule
+from qd_train.artifacts import Batch
+from qd_train.fused_ce import fused_linear_cross_entropy
+from qd_train.heads import plan_span_batch
+from qd_train.memory import ADAMW_FP32, tensor_ranges
+from qd_train.optim import apply_lr, build_optimizer
+from qd_train.run_control import LRSchedule, TensorRef, _sidecar_digest
+from qd_train.trainer import Supervision
 
 __all__ = [
     "D17_LR",
@@ -65,11 +75,19 @@ __all__ = [
     "LoRALinear",
     "LoraAdapter",
     "LoraContractViolation",
+    "LoraReferenceStep",
+    "StoredDtypes",
+    "adapted_in_features",
     "attach_lora",
+    "d17_init_digest",
+    "lora_a_digest",
+    "lora_a_rule_digest",
+    "lora_model_state",
     "lora_param_groups",
     "lora_parameters",
     "lora_schedule",
     "merged_weights",
+    "stored_dtypes",
 ]
 
 #: D6: r=16, alpha=16, dropout 0 (there is no dropout path here, so 0 cannot be mis-set).
@@ -343,3 +361,345 @@ def lora_param_groups(
             }
         )
     return groups
+
+
+# --- the driver's pieces: init digests, the lora-merged checkpoint body, the training step -------
+#
+# Added for ``tools/lora_reference_run.py`` (card ft-3b8126cd564d889af2b0169943020aa7). Everything
+# above is unchanged. Each digest below is one of the seven that the pre-registration's
+# ``init.record_in_every_row`` names; the formulas are in each docstring so the Rust writer can
+# restate them byte for byte.
+
+
+def _tensor_ref(tensor: torch.Tensor) -> TensorRef:
+    """``tensor`` as a ``TensorRef`` (dtype, shape, raw little-endian bytes), as
+    ``QwenDecisionStep.state`` builds one."""
+    host = tensor.detach().to("cpu").contiguous()
+    return TensorRef(
+        dtype=str(host.dtype).removeprefix("torch."),
+        shape=tuple(host.shape),
+        data=host.reshape(-1).view(torch.uint8).numpy().tobytes(),
+    )
+
+
+def d17_init_digest(hidden_size: int, rows: int = D17_ROWS) -> str:
+    """D17's init digest: ``TensorRef.digest()`` of a float32 zero tensor of shape
+    ``[rows, hidden_size]`` (the pre-registration's ``init.d17.formula``)."""
+    return _tensor_ref(torch.zeros(rows, hidden_size, dtype=torch.float32)).digest()
+
+
+def lora_a_digest(model: nn.Module) -> str:
+    """The LoRA-A digest of an adapter freshly attached by :func:`attach_lora`.
+
+    ``run_control._sidecar_digest`` over ``{"<module>.lora_A.weight": TensorRef(A)}`` for every
+    adapted module, ``A`` as the float32 ``[r, in]`` tensor. ``_sidecar_digest`` is: sha256 of its
+    domain bytes, the tensor count (u64 big endian), then for each name in sorted order its byte
+    length (u64 big endian), its UTF-8 bytes and the 32 raw bytes of that tensor's
+    ``TensorRef.digest()``.
+    """
+    refs = {
+        name: _tensor_ref(param)
+        for name, param in lora_parameters(model)
+        if name.endswith(".lora_A.weight")
+    }
+    if not refs:
+        raise LoraContractViolation("the model carries no LoRA adapter to digest")
+    return _sidecar_digest(refs)
+
+
+def lora_a_rule_digest(
+    in_features: Iterable[tuple[str, int]], *, seed: int, r: int = LORA_RANK
+) -> str:
+    """The LoRA-A digest the pre-registration's *rule* predicts, without a model.
+
+    ``in_features`` is ``(module name, in_features)`` for each adapted linear in
+    ``model.named_modules()`` order. ``A`` is ``kaiming_uniform_(a=sqrt(5))`` on each ``[r, in]``
+    float32 tensor drawn from one CPU generator seeded with ``seed``; the digest is
+    :func:`lora_a_digest`'s. A row's recorded digest must equal this one, or the row is void.
+    """
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    refs: dict[str, TensorRef] = {}
+    for name, n_in in in_features:
+        a = torch.empty(r, n_in, dtype=torch.float32)
+        nn.init.kaiming_uniform_(a, a=math.sqrt(5), generator=generator)
+        refs[f"{name}.lora_A.weight"] = _tensor_ref(a)
+    if not refs:
+        raise LoraContractViolation("no module to draw an A for")
+    return _sidecar_digest(refs)
+
+
+def adapted_in_features(model: nn.Module) -> list[tuple[str, int]]:
+    """``(module name, in_features)`` of every wrapped linear, in ``named_modules()`` order."""
+    return [
+        (name, module.base.in_features)
+        for name, module in model.named_modules()
+        if isinstance(module, LoRALinear)
+    ]
+
+
+@dataclass(frozen=True)
+class StoredDtypes:
+    """What a snapshot's safetensors headers say about the text tower's stored dtypes."""
+
+    #: ``sha256("\n".join(f"{name}\t{dtype}" for name in sorted(text names)))``, names without the
+    #: ``model.language_model.`` prefix, dtype as the safetensors header spells it (F32, BF16).
+    dtype_map_sha256: str
+    #: Names stored F32, sorted: the set ``load_text_tower(keep_stored_dtype=...)`` keeps.
+    f32_names: tuple[str, ...]
+    #: ``sha256("\n".join(f32_names))``.
+    f32_names_sha256: str
+    #: sha256 of the snapshot's one ``*.safetensors`` file; for several files, sha256 of
+    #: ``"<file name>\t<sha256>\n"`` lines in file-name order.
+    safetensors_sha256: str
+
+
+def stored_dtypes(snapshot: Path) -> StoredDtypes:
+    """Read the stored-dtype facts off ``snapshot``'s headers (tensor data is only hashed)."""
+    from qd_train.backbone import TEXT_PREFIX, text_tensor_index
+
+    snapshot = Path(snapshot)
+    index = text_tensor_index(snapshot)
+    dtypes: dict[str, str] = {}
+    for shard in sorted({shard for shard, _ in index.values()}):
+        ranges = tensor_ranges(shard)
+        for name, (path, _shape) in index.items():
+            if path == shard:
+                dtypes[name] = ranges[TEXT_PREFIX + name].dtype
+    if set(dtypes) != set(index):
+        raise LoraContractViolation("a text tensor's header entry could not be read")
+    f32 = tuple(sorted(n for n, d in dtypes.items() if d == "F32"))
+    files = sorted(snapshot.glob("*.safetensors"))
+    if not files:
+        raise LoraContractViolation(f"{snapshot} holds no *.safetensors file")
+    per_file: list[tuple[str, str]] = []
+    for path in files:
+        h = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 24), b""):
+                h.update(chunk)
+        per_file.append((path.name, h.hexdigest()))
+    whole = (
+        per_file[0][1]
+        if len(per_file) == 1
+        else hashlib.sha256("".join(f"{n}\t{d}\n" for n, d in per_file).encode()).hexdigest()
+    )
+    return StoredDtypes(
+        dtype_map_sha256=hashlib.sha256(
+            "\n".join(f"{n}\t{dtypes[n]}" for n in sorted(dtypes)).encode()
+        ).hexdigest(),
+        f32_names=f32,
+        f32_names_sha256=hashlib.sha256("\n".join(f32).encode()).hexdigest(),
+        safetensors_sha256=whole,
+    )
+
+
+def lora_model_state(
+    model: nn.Module,
+    *,
+    delta: AnswerRowDelta,
+    span_head: nn.Module,
+    span_weight: float,
+    vocab_size: int,
+    prompt_format: int = 1,
+) -> dict[str, Any]:
+    """The ``lora-merged`` checkpoint body ``tools/ckpt_average.py`` reads.
+
+    ``tower`` is the frozen base under the dense tower's own names (``<module>.weight``, not
+    ``<module>.base.weight``), ``lora_A``/``lora_B`` map module name to the f32 ``[r, in]`` /
+    ``[out, r]`` tensor, ``lora_r``/``lora_alpha`` are ints, ``d17`` holds the ``delta`` tensor,
+    and ``span_head``, ``span_weight``, ``vocab_size`` (and ``prompt_format`` when not 1) are the
+    full fine-tune checkpoint's.
+    """
+    wrapped = {n: m for n, m in model.named_modules() if isinstance(m, LoRALinear)}
+    if not wrapped:
+        raise LoraContractViolation("the model carries no LoRA adapter to checkpoint")
+    scalars = {(m.r, m.alpha) for m in wrapped.values()}
+    if len(scalars) != 1:
+        raise LoraContractViolation(f"adapters disagree about (r, alpha): {sorted(scalars)}")
+    ((r, alpha),) = scalars
+    tower: dict[str, TensorRef] = {}
+    for key, tensor in model.state_dict().items():
+        module, _, leaf = key.rpartition(".")
+        if module.endswith((".lora_A", ".lora_B")):
+            continue
+        owner, _, inner = module.rpartition(".")
+        if inner == "base" and owner in wrapped:
+            key = f"{owner}.{leaf}"
+        tower[key] = _tensor_ref(tensor)
+    state: dict[str, Any] = {
+        "tower": tower,
+        "span_head": {k: _tensor_ref(v) for k, v in span_head.state_dict().items()},
+        "lora_A": {n: _tensor_ref(m.lora_A.weight) for n, m in wrapped.items()},
+        "lora_B": {n: _tensor_ref(m.lora_B.weight) for n, m in wrapped.items()},
+        "lora_r": r,
+        "lora_alpha": alpha,
+        "d17": {"delta": _tensor_ref(delta.delta)},
+        "span_weight": float(span_weight),
+        "vocab_size": int(vocab_size),
+    }
+    if prompt_format != 1:
+        state["prompt_format"] = prompt_format
+    return state
+
+
+class LoraReferenceStep:
+    """A ``SpanScoringStep`` over a LoRA-adapted tower: the reference arm's training step.
+
+    One optimizer step per :meth:`apply`; ``grad_accum`` is 1 by the recipe, so a step is one
+    batch. The objective is the pre-registered one: the 17-way cross entropy over the answer rows
+    (:class:`AnswerRowDelta`) at the supervised choice positions, plus ``span_weight`` (1.0) times
+    the span pointer head's loss; the full-vocabulary letter cross entropy at the same positions
+    is computed without gradient and only logged. The gradient is clipped to ``max_grad_norm``
+    over every trainable tensor (adapters, D17, span head), as ``QwenDecisionStep`` clips; the
+    logged ``grad_norm`` is the norm before clipping.
+
+    ``log_path``, when given, receives one JSON line per optimizer step.
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        *,
+        answer_ids: Iterable[int],
+        span_head: nn.Module,
+        total_steps: int,
+        max_width: int,
+        vocab_size: int,
+        prompt_format: int = 1,
+        log_path: Path | None = None,
+        span_weight: float = 1.0,
+        max_grad_norm: float = 1.0,
+    ) -> None:
+        if not span_weight > 0.0 or not max_grad_norm > 0.0 or max_width < 2:
+            raise LoraContractViolation("span_weight, max_grad_norm and max_width must be positive")
+        embedding = model.get_input_embeddings().weight
+        self.model = model
+        self.device = embedding.device
+        self.embedding = embedding
+        self.span_head = span_head
+        self.span_weight = float(span_weight)
+        self.max_grad_norm = float(max_grad_norm)
+        self.max_width = int(max_width)
+        self.vocab_size = int(vocab_size)
+        self.prompt_format = int(prompt_format)
+        self.row_ids = torch.as_tensor(list(answer_ids), dtype=torch.int64, device=self.device)
+        self.delta = AnswerRowDelta(embedding.shape[1], rows=int(self.row_ids.numel())).to(
+            self.device
+        )
+        groups = lora_param_groups(model, delta=self.delta, span_head=span_head)
+        self.trainable = [p for g in groups for p in g["params"]]
+        self.optimizer = build_optimizer(
+            groups, spec=ADAMW_FP32, lr=LORA_LR, total_steps=total_steps
+        )
+        self.steps_applied = 0
+        self.micro_batches = 0
+        self._pending: dict[str, Any] = {}
+        self._log = None if log_path is None else log_path.open("w", encoding="utf-8")
+
+    def parameters(self) -> list[nn.Parameter]:
+        return list(self.trainable)
+
+    def hidden(self, batch: Batch) -> torch.Tensor:
+        width = int(batch.tokens.shape[1])
+        if width > self.max_width:
+            raise LoraContractViolation(
+                f"a batch {width} wide reached a step bounded at {self.max_width}; clipping it "
+                "would move every row's target_index"
+            )
+        ids = torch.as_tensor(batch.tokens.astype(np.int64), device=self.device)
+        lengths = torch.as_tensor(np.asarray(batch.lengths).astype(np.int64), device=self.device)
+        mask = (torch.arange(width, device=self.device).unsqueeze(0) < lengths.unsqueeze(1)).to(
+            torch.int64
+        )
+        return self.model(input_ids=ids, attention_mask=mask).last_hidden_state
+
+    def _choice(self, hidden: torch.Tensor, supervision: Supervision) -> torch.Tensor | None:
+        if supervision.n_supervised == 0:
+            return None
+        mask = torch.as_tensor(supervision.mask.copy(), device=self.device)
+        targets = torch.as_tensor(supervision.targets.astype(np.int64), device=self.device)
+        choice = self.delta.loss(
+            hidden[:, :-1][mask], self.embedding, self.row_ids, targets[mask]
+        )
+        with torch.no_grad():
+            self._pending["loss_vocab_ce"] = float(
+                fused_linear_cross_entropy(
+                    hidden[:, :-1].detach(), self.embedding.detach(), targets, mask=mask
+                )
+            )
+        self._pending["loss_choice_17way"] = float(choice.detach())
+        return choice
+
+    def accumulate(self, batch: Batch, supervision: Supervision) -> float:
+        total = self._choice(self.hidden(batch), supervision)
+        if total is None:
+            raise LoraContractViolation("a span-free batch reached accumulate with no choice row")
+        return self._backward(batch, total)
+
+    def accumulate_span(self, batch: Batch, supervision: Supervision) -> float:
+        span = supervision.span
+        if span is None:
+            raise LoraContractViolation("accumulate_span was handed a batch with no span rows")
+        hidden = self.hidden(batch)
+        plan = plan_span_batch(span, device=hidden.device)
+        rows = torch.as_tensor(span.rows.astype(np.int64), device=hidden.device)
+        span_loss = self.span_head.loss(hidden[rows].float(), plan)
+        self._pending["loss_span"] = float(span_loss.detach())
+        choice = self._choice(hidden, supervision)
+        weighted = self.span_weight * span_loss
+        return self._backward(batch, weighted if choice is None else choice + weighted)
+
+    def _backward(self, batch: Batch, total: torch.Tensor) -> float:
+        if self._pending.get("micro_batches", 0):
+            raise LoraContractViolation("grad_accum is 1: a second micro-batch before apply")
+        total.backward()
+        value = float(total.detach())
+        self._pending.update(loss_total=value, batch_index=int(batch.index), micro_batches=1)
+        self.micro_batches += 1
+        return value
+
+    def apply(self, *, lr: float) -> None:
+        apply_lr(self.optimizer, lr)
+        norm = float(nn.utils.clip_grad_norm_(self.trainable, self.max_grad_norm))
+        if not math.isfinite(norm):
+            raise LoraContractViolation(f"non-finite gradient norm {norm} before the step")
+        self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
+        line = {
+            "step": self.steps_applied,
+            "lr": lr,
+            "loss_total": self._pending["loss_total"],
+            "loss_choice_17way": self._pending.get("loss_choice_17way"),
+            "loss_span": self._pending.get("loss_span"),
+            "loss_vocab_ce": self._pending.get("loss_vocab_ce"),
+            "grad_norm": norm,
+            "batch_index": self._pending["batch_index"],
+        }
+        self._pending = {}
+        self.steps_applied += 1
+        if self._log is not None:
+            self._log.write(json.dumps(line, sort_keys=True) + "\n")
+            self._log.flush()
+
+    def close_log(self) -> None:
+        if self._log is not None:
+            self._log.close()
+            self._log = None
+
+    def state(self) -> dict[str, Any]:
+        """The ``lora-merged`` checkpoint body (:func:`lora_model_state`): the loop writes it into
+        every ``Checkpoint`` it builds, so the final one is what ``ckpt_average`` reads."""
+        return lora_model_state(
+            self.model,
+            delta=self.delta,
+            span_head=self.span_head,
+            span_weight=self.span_weight,
+            vocab_size=self.vocab_size,
+            prompt_format=self.prompt_format,
+        )
+
+    def load_state(self, state: Any) -> None:
+        raise LoraContractViolation(
+            "the LoRA reference arm does not resume: a load_state that restored nothing would "
+            "report a checkpoint's loss log against freshly initialised adapters"
+        )
