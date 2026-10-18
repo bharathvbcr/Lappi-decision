@@ -1083,10 +1083,15 @@ fn a_prior_source_record_last_in_the_pool_still_refuses_the_whole_run_with_no_ou
 
 /// Pinned from the binary built at main@94b9d0d, before `--single-version-records` existed: the
 /// commit-pool path (prior_source present, no flag) must compose these exact bytes.
+///
+/// Re-pinned 2026-10-18 (W4-d) when every row gained `cluster_key` and the manifest gained
+/// `function_cap`: the old pins named bytes that no longer carry the key, by design. The new
+/// values are what the binary at that commit wrote (mac_heavy run, build/w4d-cargo.log), not an
+/// independent derivation; the test still catches any later drift.
 const COMMIT_PATH_EXAMPLES_SHA256: &str =
-    "547c92c79c5e1b15324a0cef09184e013181acd4aad3d7c1f7db2d26789cc246";
+    "5ed4d179054401833eda2fe1f4f270c832761c1f69ec0558e82faf003ad79cd6";
 const COMMIT_PATH_MANIFEST_SHA256: &str =
-    "c56435327bbe801ef86db56ad84f4da283491ab44d0ee76084f33053b68441f0";
+    "a5a5e062543297c8b0e65bad38aa9f881cb0738bde5556cc57ae98b2a5212b42";
 
 #[test]
 fn the_commit_pool_compose_path_is_byte_identical_to_the_pre_change_binary() {
@@ -1105,8 +1110,10 @@ fn the_commit_pool_compose_path_is_byte_identical_to_the_pre_change_binary() {
 
 /// `generate --seed 0 --clean-permille 300` over this file's fixture pool, from the binary built
 /// before `--id-prefix` existed. (The manifest names the pool's path, so only the rows are pinned.)
+/// Re-pinned 2026-10-18 (W4-d) for the `cluster_key` field every row now carries; observed from the
+/// binary at that commit, not independently derived.
 const GENERATE_DEFAULT_EXAMPLES_SHA256: &str =
-    "30f858b376bf96bb416a5365a6dd24bcde7da71e4a099c3955accd1d2df6908f";
+    "08b02080b719575a23fbaf7fa4fc05af01c093e41650305e35c18f6c2d7d99ab";
 
 fn jsonl_values(path: &Path) -> Vec<serde_json::Value> {
     std::fs::read_to_string(path)
