@@ -43,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -680,6 +681,7 @@ class LoraReferenceStep:
         if self._log is not None:
             self._log.write(json.dumps(line, sort_keys=True) + "\n")
             self._log.flush()
+            os.fsync(self._log.fileno())
 
     def close_log(self) -> None:
         if self._log is not None:

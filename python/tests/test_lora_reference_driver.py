@@ -36,6 +36,7 @@ import test_backbone as tb  # noqa: E402
 import test_real_ft_rungd_flags as rg  # noqa: E402
 from test_real_ft_family_metrics import _tokenizer_json  # noqa: E402
 
+from qd_data.config import DataConfig  # noqa: E402
 from qd_data.errors import HeldOutViolation  # noqa: E402
 from qd_train import lora  # noqa: E402
 from qd_train.ledger import Ledger  # noqa: E402
@@ -152,9 +153,18 @@ def test_the_a_digest_moves_with_the_seed(env, tmp_path):
 
 
 def test_the_checkpoint_round_trips_through_ckpt_averages_lora_merged_reader(env, tmp_path):
-    paths = [drv.run(_cfg(env, tmp_path / f"s{s}", seed=s)).checkpoint for s in (0, 1)]
+    runs = [
+        drv.run(_cfg(env, tmp_path / f"s{s}", seed=s, ledger=tmp_path / "ledger.jsonl"))
+        for s in (0, 1)
+    ]
+    paths = [r.checkpoint for r in runs]
     out = tmp_path / "avg" / "m.safetensors"
-    assert ckpt_average.main([*map(str, paths), "--out", str(out), "--from", "lora-merged"]) == 0
+    # Two inputs need the span-head proof ckpt_average now demands: take seed 0's head, with the
+    # two ft rows read from the ledger.
+    assert ckpt_average.main([
+        *map(str, paths), "--out", str(out), "--from", "lora-merged", "--span-head-seed", "0",
+        "--ft-ledger", str(tmp_path / "ledger.jsonl"), "--ft-row-ids", *(r.row_id for r in runs),
+    ]) == 0
     from safetensors.torch import load_file
 
     averaged = load_file(str(out))
@@ -348,3 +358,120 @@ def test_the_mps_bf16_leg_runs_with_a_bf16_base_f32_stored_tensors_and_f32_adapt
     a_log = next(k for k in tower if k.endswith("linear_attn.A_log"))
     assert tower[a_log].dtype == "float32"
     assert {r.dtype for r in states["lora_A"].values()} == {"float32"}
+
+
+# v6 data rules and the pre-registration binding (card ft-3b8126cd, lane W2-2) ---------------------
+#
+# Both are checked by validate_inputs, the one pre-read entry point. The binding calls
+# qd-prereg-bind as a subprocess; no tiny fixture matches the real pre-registration's shard
+# hash, so every test below reaches the same call with a fake binary named by
+# QD_PREREG_BIND_BIN (or LoraRunConfig.prereg_bind_bin), never a skip flag.
+
+
+def _fake_bind(where: Path, *, code: int, result: str | None, sleep_s: float = 0.0) -> Path:
+    """A stand-in qd-prereg-bind: logs its argv, optionally sleeps, prints a RESULT line."""
+    where.mkdir(parents=True, exist_ok=True)
+    script = where / "qd-prereg-bind"
+    tail = f"echo 'RESULT: {result}'\n" if result is not None else ""
+    script.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$@" > "{where / "argv.txt"}"\n'
+        + (f"sleep {sleep_s}\n" if sleep_s else "")
+        + "echo 'one line of report'\n"
+        + tail
+        + f"exit {code}\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+@pytest.fixture(autouse=True)
+def passing_prereg_bind(tmp_path_factory, monkeypatch) -> Path:
+    """Every test but the binding's own runs against a binary that passes."""
+    script = _fake_bind(tmp_path_factory.mktemp("bind-pass"), code=0, result="PASS")
+    monkeypatch.setenv("QD_PREREG_BIND_BIN", str(script))
+    return script
+
+
+def _nothing_opened(monkeypatch) -> None:
+    _forbid(monkeypatch)
+    monkeypatch.setattr(torch, "load", lambda *a, **k: pytest.fail("a tensor file was read"))
+
+
+def test_a_v5_rule_config_is_refused_before_any_tensor_is_read(env, tmp_path, monkeypatch):
+    """Q15: on the tree before this change the driver ran under any DataConfig it was handed."""
+    _nothing_opened(monkeypatch)
+    monkeypatch.setattr(drv, "DataConfig", lambda: DataConfig.legacy_v5())
+    with pytest.raises(drv.LegacyDataRulesRefusal, match="v5"):
+        drv.run(_cfg(env, tmp_path))
+    assert not (tmp_path / "ledger.jsonl").exists()
+
+
+def test_a_v6_config_passes_validation_and_is_returned_as_v6(env, tmp_path):
+    config = drv.validate_inputs(_cfg(env, tmp_path))
+    assert config == drv.data_rules(DataConfig(), v6=True)
+    assert config.benchmark_eval_splits_are_targets is True
+
+
+@pytest.mark.parametrize(
+    ("code", "result", "needle"),
+    [
+        (1, "FAILED", "FAILED"),
+        (3, "NOT_RUN", "NOT_RUN"),
+        (2, None, "usage"),
+        (0, None, "RESULT"),
+        (0, "FAILED", "RESULT"),
+        (0, "NOT_RUN", "RESULT"),
+        (7, "PASS", "exit"),
+    ],
+    ids=["failed", "not-run", "bad-usage", "exit0-no-result", "exit0-says-failed",
+         "exit0-says-not-run", "odd-exit-with-pass-line"],
+)
+def test_a_prereg_bind_that_does_not_pass_refuses_before_any_tensor_is_read(
+    env, tmp_path, monkeypatch, code, result, needle
+):
+    _nothing_opened(monkeypatch)
+    bind = _fake_bind(tmp_path / "bind", code=code, result=result)
+    monkeypatch.setenv("QD_PREREG_BIND_BIN", str(bind))
+    with pytest.raises(drv.PreregBindRefusal, match=needle):
+        drv.run(_cfg(env, tmp_path))
+    assert not (tmp_path / "ledger.jsonl").exists()
+
+
+def test_a_prereg_bind_that_passes_is_called_with_the_prereg_and_the_train_shard_set(
+    env, tmp_path, monkeypatch
+):
+    bind = _fake_bind(tmp_path / "bind", code=0, result="PASS")
+    monkeypatch.setenv("QD_PREREG_BIND_BIN", str(bind))
+    drv.run(_cfg(env, tmp_path))
+    argv = (tmp_path / "bind" / "argv.txt").read_text(encoding="utf-8").splitlines()
+    assert argv[argv.index("--prereg") + 1] == str(REPO / "campaign" / "lora-2b-preregistered.json")
+    assert argv[argv.index("--shard-dir") + 1] == str(env.out / "shards" / "train")
+    assert argv[argv.index("--repo") + 1] == str(REPO)
+
+
+def test_a_prereg_bind_that_hangs_is_refused_at_its_bound(env, tmp_path, monkeypatch):
+    _nothing_opened(monkeypatch)
+    bind = _fake_bind(tmp_path / "bind", code=0, result="PASS", sleep_s=30)
+    monkeypatch.setenv("QD_PREREG_BIND_BIN", str(bind))
+    monkeypatch.setattr(drv, "PREREG_BIND_TIMEOUT_S", 0.5)
+    with pytest.raises(drv.PreregBindRefusal, match="timed out"):
+        drv.run(_cfg(env, tmp_path))
+
+
+def test_a_missing_prereg_bind_binary_is_not_run_and_refuses(env, tmp_path, monkeypatch):
+    _nothing_opened(monkeypatch)
+    monkeypatch.setenv("QD_PREREG_BIND_BIN", str(tmp_path / "no-such-binary"))
+    with pytest.raises(drv.PreregBindRefusal, match="NOT_RUN"):
+        drv.run(_cfg(env, tmp_path))
+    monkeypatch.delenv("QD_PREREG_BIND_BIN")
+    with pytest.raises(drv.PreregBindRefusal, match="QD_PREREG_BIND_BIN is unset"):
+        drv.run(_cfg(env, tmp_path))
+
+
+def test_the_prereg_bind_field_beats_the_environment(env, tmp_path, monkeypatch):
+    _nothing_opened(monkeypatch)
+    failing = _fake_bind(tmp_path / "bad", code=1, result="FAILED")
+    with pytest.raises(drv.PreregBindRefusal, match="FAILED"):
+        drv.run(_cfg(env, tmp_path, prereg_bind_bin=failing))
