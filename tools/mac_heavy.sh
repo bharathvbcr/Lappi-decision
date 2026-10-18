@@ -55,9 +55,15 @@
 #   directory does not exist on this Mac (checked 2026-10-17), so the kill leaves no log line here or
 #   there: the job ends with signal 15 and no footprint message from this script. That case (job
 #   status 143 that this script did not cause) exits 79, "external SIGTERM -- likely memguard".
-# - Busy machine. After taking the lock, it waits while the 1-minute load average exceeds
+# - Busy machine. BEFORE taking the lock it waits while the 1-minute load average exceeds
 #   $MAC_HEAVY_MAX_LOAD (default 12) or the process count exceeds $MAC_HEAVY_MAX_PROCS (default
-#   2500). If that does not clear within the wait budget, it exits 76 and the job never runs.
+#   2500), and it reads the load once more after taking the lock; if the machine turned busy in
+#   between, it releases the lock and goes back to waiting. A job holds the lock only while it
+#   runs (a job blocked by load used to hold it, and everyone behind it, for up to 4 h:
+#   2026-10-17). One wait budget covers both waits. If the lock was free but the machine stayed
+#   busy, it exits 76; if the machine was quiet but the lock stayed held, 75; the job never runs.
+#   $MAC_HEAVY_LOAD_CMD replaces the load read (prints the 1-minute load) and, like
+#   MAC_HEAVY_FOOTPRINT_CMD, is refused with exit 64 unless MAC_HEAVY_TEST_HOOK=1.
 # - Clean stop. On SIGTERM or SIGINT it stops the job's tree before it exits, so no job outlives
 #   its wrapper. The job runs in the background of this script in its own process group (set -m),
 #   with stdin /dev/null. The "tree" is the job's descendants plus every process still in that
@@ -65,6 +71,10 @@
 #   whatever remains is stopped (SIGTERM, then SIGKILL) and reported as "left behind", and the
 #   exit status stays the command's. A process that calls setsid leaves the group and the
 #   tree, and is not covered.
+#
+# - Arrival order. Waiters take numbered tickets in $MAC_HEAVY_LOCK.q and only the lowest live
+#   ticket that load allows may try the lock (rules and bounds at take_ticket below;
+#   $MAC_HEAVY_MAX_QUEUE, default 256 live tickets, is refused above with exit 75).
 #
 # It never breaks another holder's lock. A holder whose pid is gone is reported as STALE every
 # 5 minutes, and the lead clears it by hand. A hold taken by hand (for another session's run)
@@ -97,6 +107,8 @@ LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/build/mac-hea
 MAX_WAIT=${MAC_HEAVY_MAX_WAIT_S:-14400}
 MIN_FREE_GB=${MAC_HEAVY_MIN_FREE_GB:-15}
 POLL=${MAC_HEAVY_POLL_S:-20}
+QUEUE=$LOCK.q
+MAX_QUEUE=${MAC_HEAVY_MAX_QUEUE:-256}
 if [ -n "${MAC_HEAVY_MAX_RSS_MB+x}" ]; then
   echo "mac_heavy: MAC_HEAVY_MAX_RSS_MB is retired; the cap is now on phys_footprint, so use MAC_HEAVY_MAX_FOOTPRINT_MB (default 53248). Refusing rather than running uncapped" >&2
   exit 64
@@ -140,14 +152,18 @@ MAX_PROCS=${MAC_HEAVY_MAX_PROCS-2500}
 # lock loop then fell through and the job ran without the lock) and 0900 as 0 (a free-space floor
 # of nothing). Bounded too: a value too wide for bash's integer tests makes `[ -gt ]` error, and
 # an error read as "not over" is a guard that fails open.
-for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS"; do
+for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS" "$MAX_QUEUE"; do
   case "$v" in
     0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-    *) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD and _MAX_PROCS must each be a canonical non-negative decimal integer of at most 9 digits (no leading zeros, no sign, no fraction); got '$v'. Refusing" >&2; exit 64 ;;
+    *) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD, _MAX_PROCS and _MAX_QUEUE must each be a canonical non-negative decimal integer of at most 9 digits (no leading zeros, no sign, no fraction); got '$v'. Refusing" >&2; exit 64 ;;
   esac
 done
 if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ] && [ "${MAC_HEAVY_TEST_HOOK:-}" != 1 ]; then
   echo "mac_heavy: MAC_HEAVY_FOOTPRINT_CMD replaces the memory guard and is honoured only for tests (MAC_HEAVY_TEST_HOOK=1); refusing rather than running unguarded" >&2
+  exit 64
+fi
+if [ -n "${MAC_HEAVY_LOAD_CMD:-}" ] && [ "${MAC_HEAVY_TEST_HOOK:-}" != 1 ]; then
+  echo "mac_heavy: MAC_HEAVY_LOAD_CMD replaces the busy-machine gate and is honoured only for tests (MAC_HEAVY_TEST_HOOK=1); refusing rather than ignoring the machine's load" >&2
   exit 64
 fi
 if [ "$MG_MB" -gt 0 ] && [ "$MAX_FP_MB" -ge "$MG_MB" ]; then
@@ -158,26 +174,6 @@ fi
 [ "$RSS_POLL" -ge 1 ] || RSS_POLL=1
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-
-waited=0
-last_note=-300
-until mkdir "$LOCK" 2>/dev/null; do
-  if [ "$waited" -ge "$MAX_WAIT" ]; then
-    echo "mac_heavy: $(now) gave up after ${waited}s waiting for $LOCK; '$LABEL' did NOT run" >&2
-    [ -f "$LOCK/owner" ] && sed 's/^/mac_heavy:   holder: /' "$LOCK/owner" >&2
-    exit 75
-  fi
-  if [ $((waited - last_note)) -ge 300 ]; then
-    holder=$(tr '\n' ' ' < "$LOCK/owner" 2>/dev/null)
-    hpid=$(sed -n 's/^pid=//p' "$LOCK/owner" 2>/dev/null)
-    stale=""
-    if [ -n "$hpid" ] && ! kill -0 "$hpid" 2>/dev/null; then stale=" STALE (pid $hpid is gone; the lead clears it)"; fi
-    echo "mac_heavy: $(now) '$LABEL' waiting ${waited}s for the lock; holder: ${holder:-unknown}$stale" >&2
-    last_note=$waited
-  fi
-  sleep "$POLL"
-  waited=$((waited + 10#$POLL))
-done
 
 release() {
   if [ "$(sed -n 's/^pid=//p' "$LOCK/owner" 2>/dev/null)" = "$$" ]; then
@@ -241,16 +237,148 @@ stop_job() {
   JOB=""
 }
 
-trap release EXIT
+# Arrival order. A bare mkdir lock polled by everyone is won by whoever polls first after a release,
+# and a job chain that re-enters at once polls first every time (2026-10-18: an ojas chain took it
+# three times running while earlier Lappi waiters sat; GAP-MAC-HEAVY-LOCK-IS-NOT-FIFO-A-JOB-CHAIN-
+# STARVES-WAITERS-2026-10-18). On arrival a waiter takes a ticket: a hard link (atomic, and never
+# visible without its pid) named by a zero-padded number one above the highest in $QUEUE
+# ($LOCK.q, so every caller of this script, ojas included, shares it). A waiter may try the mkdir
+# only when no LOWER live ticket is ready to. A ticket whose pid is dead is reaped by whoever sees
+# it. A ticket is dropped when its owner takes the lock or exits, so a chain's next job queues
+# behind everyone already waiting.
+# Load-blocked waiters: a waiter that load stops keeps its ticket and marks it "$ticket.busy"; a
+# lower ticket so marked does not hold up the waiters behind it. Otherwise one load-blocked job
+# would block everyone, which is what moving the load wait out of the lock fixed. The mark is the
+# waiter's last answer, so a waiter whose load just fell may be passed once, for up to one poll.
+# Bounded: at most $MAX_QUEUE live tickets (more is refused with 75), reaping is one pass over them,
+# and the wait budget below still applies.
+TICKET=""
+TICKET_TMP=""
+ticket_pid() { sed -n 's/^pid=//p' "$1" 2>/dev/null; }
+drop_ticket() {
+  [ -z "$TICKET" ] || rm -f "$TICKET" "$TICKET.busy"
+  [ -z "$TICKET_TMP" ] || rm -f "$TICKET_TMP"
+  TICKET=""
+}
+cleanup() { release; drop_ticket; }
+take_ticket() {
+  local t name p n count=0 last=0 tries=0
+  if ! mkdir -p "$QUEUE" 2>/dev/null; then
+    echo "mac_heavy: cannot create the queue directory $QUEUE; '$LABEL' did NOT run" >&2
+    exit 75
+  fi
+  for t in "$QUEUE"/[0-9]*; do
+    name=${t##*/}
+    case "$name" in *[!0-9]*|'') continue ;; esac
+    [ -e "$t" ] || continue
+    p=$(ticket_pid "$t")
+    if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then rm -f "$t" "$t.busy"; continue; fi
+    count=$((count + 1))
+    n=$((10#$name))
+    [ "$n" -le "$last" ] || last=$n
+  done
+  if [ "$count" -ge "$MAX_QUEUE" ]; then
+    echo "mac_heavy: the queue is full ($count live tickets in $QUEUE, max $MAX_QUEUE); '$LABEL' did NOT run" >&2
+    exit 75
+  fi
+  TICKET_TMP=$QUEUE/.tmp.$$
+  { echo "pid=$$"; echo "label=$LABEL"; echo "arrival=$(now)"; } > "$TICKET_TMP"
+  while [ "$tries" -lt 100 ]; do
+    last=$((last + 1))
+    name=$(printf '%010d' "$last")
+    if ln "$TICKET_TMP" "$QUEUE/$name" 2>/dev/null; then TICKET=$QUEUE/$name; rm -f "$TICKET_TMP"; return 0; fi
+    tries=$((tries + 1))
+  done
+  echo "mac_heavy: could not take a ticket in $QUEUE after $tries tries; '$LABEL' did NOT run" >&2
+  exit 75
+}
+# True when a lower live ticket that is not load-blocked is ahead of ours. Reaps dead ones on the way.
+ticket_ahead() {
+  local t name p
+  for t in "$QUEUE"/[0-9]*; do
+    name=${t##*/}
+    case "$name" in *[!0-9]*|'') continue ;; esac
+    [ "$t" \< "$TICKET" ] || return 1
+    [ -e "$t" ] || continue
+    p=$(ticket_pid "$t")
+    if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then rm -f "$t" "$t.busy"; continue; fi
+    [ ! -e "$t.busy" ] || continue
+    return 0
+  done
+  return 1
+}
+
+trap cleanup EXIT
 trap 'stop_job; exit 130' INT
 trap 'stop_job; exit 143' TERM
 
-{
-  echo "label=$LABEL"
-  echo "pid=$$"
-  echo "start=$(now)"
-  echo "cwd=$PWD"
-} > "$LOCK/owner"
+# Busy machine: a job never starts into a storm, and a job that is waiting for quiet never holds
+# the lock (2026-10-17: a gdn-mem job held it from 22:08Z, blocked by load, and never ran).
+# The lock is taken only when the machine is quiet, and the load is read again once it is held;
+# if the machine turned busy in between, the lock is released and the wait goes on.
+load1() { sysctl -n vm.loadavg | awk '{ print $2 }'; }
+nprocs() { ps -A -o pid= | wc -l | tr -d ' '; }
+load=""
+procs=""
+machine_busy() {
+  # shellcheck disable=SC2086
+  if [ -n "${MAC_HEAVY_LOAD_CMD:-}" ]; then load=$($MAC_HEAVY_LOAD_CMD) || load=999999999; else load=$(load1); fi
+  procs=$(nprocs)
+  [ "$(awk -v l="$load" -v ml="$MAX_LOAD" -v p="$procs" -v mp="$MAX_PROCS" \
+    'BEGIN { print ((l + 0 > ml + 0) || (p + 0 > mp + 0)) ? 1 : 0 }')" = 1 ]
+}
+
+waited=0
+last_note=-300
+busy_note=-300
+take_ticket
+while :; do
+  blocker=""
+  if machine_busy; then
+    : > "$TICKET.busy"
+    blocker=busy
+  elif rm -f "$TICKET.busy"; ticket_ahead; then
+    blocker=lock
+  elif mkdir "$LOCK" 2>/dev/null; then
+    {
+      echo "label=$LABEL"
+      echo "pid=$$"
+      echo "start=$(now)"
+      echo "cwd=$PWD"
+    } > "$LOCK/owner"
+    machine_busy || break
+    release
+    : > "$TICKET.busy"
+    blocker=busy
+  else
+    blocker=lock
+  fi
+  if [ "$waited" -ge "$MAX_WAIT" ]; then
+    if [ "$blocker" = busy ]; then
+      echo "mac_heavy: $(now) the machine stayed busy (load $load > $MAX_LOAD or $procs processes > $MAX_PROCS) for the whole wait; '$LABEL' did NOT run" >&2
+      exit 76
+    fi
+    echo "mac_heavy: $(now) gave up after ${waited}s waiting for $LOCK; '$LABEL' did NOT run" >&2
+    [ -f "$LOCK/owner" ] && sed 's/^/mac_heavy:   holder: /' "$LOCK/owner" >&2
+    exit 75
+  fi
+  if [ "$blocker" = busy ]; then
+    if [ $((waited - busy_note)) -ge 300 ]; then
+      echo "mac_heavy: $(now) '$LABEL' waits without the lock: machine busy (load $load, max $MAX_LOAD; $procs processes, max $MAX_PROCS)" >&2
+      busy_note=$waited
+    fi
+  elif [ $((waited - last_note)) -ge 300 ]; then
+    holder=$(tr '\n' ' ' < "$LOCK/owner" 2>/dev/null)
+    hpid=$(sed -n 's/^pid=//p' "$LOCK/owner" 2>/dev/null)
+    stale=""
+    if [ -n "$hpid" ] && ! kill -0 "$hpid" 2>/dev/null; then stale=" STALE (pid $hpid is gone; the lead clears it)"; fi
+    echo "mac_heavy: $(now) '$LABEL' waiting ${waited}s for the lock; holder: ${holder:-unknown}$stale" >&2
+    last_note=$waited
+  fi
+  sleep "$POLL"
+  waited=$((waited + 10#$POLL))
+done
+drop_ticket
 
 vol=/System/Volumes/Data
 [ -d "$vol" ] || vol=/
@@ -262,28 +390,6 @@ if [ "$free_kb" -lt $((10#$MIN_FREE_GB * 1024 * 1024)) ]; then
   echo "mac_heavy: $vol has $((free_kb / 1024 / 1024)) GB free, under ${MIN_FREE_GB} GB; '$LABEL' did NOT run" >&2
   exit 74
 fi
-
-# Busy machine: hold the lock and wait for quiet; a job never starts into a storm.
-load1() { sysctl -n vm.loadavg | awk '{ print $2 }'; }
-nprocs() { ps -A -o pid= | wc -l | tr -d ' '; }
-busy_note=-300
-while :; do
-  load=$(load1)
-  procs=$(nprocs)
-  over=$(awk -v l="$load" -v ml="$MAX_LOAD" -v p="$procs" -v mp="$MAX_PROCS" \
-    'BEGIN { print ((l + 0 > ml + 0) || (p + 0 > mp + 0)) ? 1 : 0 }')
-  [ "$over" = 0 ] && break
-  if [ "$waited" -ge "$MAX_WAIT" ]; then
-    echo "mac_heavy: $(now) the machine stayed busy (load $load > $MAX_LOAD or $procs processes > $MAX_PROCS) for the whole wait; '$LABEL' did NOT run" >&2
-    exit 76
-  fi
-  if [ $((waited - busy_note)) -ge 300 ]; then
-    echo "mac_heavy: $(now) '$LABEL' holds the lock but waits: machine busy (load $load, max $MAX_LOAD; $procs processes, max $MAX_PROCS)" >&2
-    busy_note=$waited
-  fi
-  sleep "$POLL"
-  waited=$((waited + 10#$POLL))
-done
 
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 # This job's own label, replacing any the caller inherited from an outer mac_heavy.sh.

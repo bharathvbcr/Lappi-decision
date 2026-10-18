@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -572,3 +573,266 @@ def test_a_job_ended_by_an_external_sigterm_gets_a_distinct_exit_and_message(tmp
     assert "external SIGTERM -- likely memguard" in proc.stderr
     assert "finished with exit" not in proc.stderr
     assert not lock.exists()
+
+
+# --- a job waiting for quiet does not hold the lock (Fable Q8, 2026-10-18) ---------------------
+# 2026-10-17: an ojas gdn-mem job took the lock at 22:08Z, then waited on load while holding it
+# and never ran, blocking every other job behind it.
+
+
+def _popen(lock: Path, *args: str, **env: str) -> subprocess.Popen[str]:
+    full_env = {
+        **os.environ,
+        "MAC_HEAVY_LOCK": str(lock),
+        "MAC_HEAVY_POLL_S": "1",
+        "MAC_HEAVY_MIN_FREE_GB": "0",
+        "MAC_HEAVY_MAX_PROCS": "10000000",
+        **env,
+    }
+    return subprocess.Popen(
+        ["bash", str(SCRIPT), *args],
+        env=full_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def test_a_waiter_blocked_by_load_never_owns_the_lock(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    # Real load, with a limit no machine meets: the waiter must stay out of the lock.
+    proc = _popen(
+        lock, "t", "touch", str(marker), MAC_HEAVY_MAX_LOAD="0", MAC_HEAVY_MAX_WAIT_S="4"
+    )
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and proc.poll() is None:
+            assert not (lock / "owner").exists(), "a load-blocked job holds the lock"
+            assert not lock.exists(), "a load-blocked job holds the lock"
+            time.sleep(0.1)
+        _, err = proc.communicate(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 76, err
+    assert not marker.exists()
+    assert not lock.exists()
+
+
+def test_a_load_blocked_waiter_takes_the_lock_once_load_falls(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    load = tmp_path / "load"
+    load.write_text("50\n")
+    marker = tmp_path / "ran"
+    proc = _popen(
+        lock, "t", "touch", str(marker),
+        MAC_HEAVY_MAX_LOAD="5", MAC_HEAVY_MAX_WAIT_S="30",
+        MAC_HEAVY_LOAD_CMD=f"cat {load}", MAC_HEAVY_TEST_HOOK="1",
+    )
+    try:
+        for _ in range(25):
+            assert not lock.exists(), "a load-blocked job holds the lock"
+            time.sleep(0.1)
+        assert proc.poll() is None and not marker.exists()
+        load.write_text("1\n")
+        _, err = proc.communicate(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 0, err
+    assert marker.exists()
+    assert not lock.exists()
+
+
+def test_a_machine_that_turns_busy_after_the_lock_is_taken_releases_it(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    counter = tmp_path / "calls"
+    seen = tmp_path / "lock_seen_busy"
+    marker = tmp_path / "ran"
+    # Call 1 (before mkdir): quiet. Call 2 (the re-check with the lock held): busy. By call 3 the
+    # lock must be gone. Later calls: quiet.
+    probe = tmp_path / "load.sh"
+    probe.write_text(
+        f'n=$(cat "{counter}" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "{counter}"\n'
+        f'if [ "$n" = 3 ]; then [ -d "{lock}" ] && echo held > "{seen}"; fi\n'
+        'if [ "$n" = 2 ]; then echo 50; else echo 1; fi\n'
+    )
+    proc = _popen(
+        lock, "t", "touch", str(marker),
+        MAC_HEAVY_MAX_LOAD="5", MAC_HEAVY_MAX_WAIT_S="30",
+        MAC_HEAVY_LOAD_CMD=f"bash {probe}", MAC_HEAVY_TEST_HOOK="1",
+    )
+    _, err = proc.communicate(timeout=30)
+    assert proc.returncode == 0, err
+    assert marker.exists()
+    assert not seen.exists(), "the lock was still held while the job waited out the busy re-check"
+    assert not lock.exists()
+
+
+def test_the_load_hook_is_refused_without_the_test_marker(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    proc = _run(lock, "t", "touch", str(marker), MAC_HEAVY_LOAD_CMD="echo 0")
+    assert proc.returncode == 64
+    assert "MAC_HEAVY_LOAD_CMD" in proc.stderr
+    assert not marker.exists()
+    assert not lock.exists()
+
+
+# --- the lock is taken in arrival order (GAP-MAC-HEAVY-LOCK-IS-NOT-FIFO-A-JOB-CHAIN-STARVES-
+# WAITERS-2026-10-18) ---------------------------------------------------------------------------
+# A bare mkdir lock polled by everyone is won by whoever polls first after a release, and a job chain
+# that re-enters at once polls first every time. A waiter now takes a numbered ticket in $LOCK.q on
+# arrival, and only the lowest live ticket that load allows may try the mkdir.
+
+
+def _queue(lock: Path) -> Path:
+    return lock.with_name(lock.name + ".q")
+
+
+def _tickets(lock: Path) -> list[str]:
+    q = _queue(lock)
+    return sorted(p.name for p in q.iterdir() if p.name.isdigit()) if q.is_dir() else []
+
+
+def _wait_for(pred: Callable[[], bool], timeout: float = 15.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return
+        time.sleep(0.05)
+    raise AssertionError("condition not reached")
+
+
+def _hold(lock: Path) -> None:
+    lock.mkdir()
+    (lock / "owner").write_text("label=manual\n")
+
+
+def _unhold(lock: Path) -> None:
+    (lock / "owner").unlink()
+    lock.rmdir()
+
+
+def test_waiters_get_the_lock_in_arrival_order_even_when_the_later_one_polls_first(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "lock.d"
+    log = tmp_path / "log"
+    _hold(lock)
+    a = _popen(lock, "A", "bash", "-c", f"echo A >> {log}", MAC_HEAVY_POLL_S="3",
+               MAC_HEAVY_MAX_LOAD="100000", MAC_HEAVY_MAX_WAIT_S="40")
+    try:
+        _wait_for(lambda: len(_tickets(lock)) == 1)
+        b = _popen(lock, "B", "bash", "-c", f"echo B >> {log}", MAC_HEAVY_POLL_S="1",
+                   MAC_HEAVY_MAX_LOAD="100000", MAC_HEAVY_MAX_WAIT_S="40")
+        try:
+            _wait_for(lambda: len(_tickets(lock)) == 2)
+            _unhold(lock)
+            _, ea = a.communicate(timeout=40)
+            _, eb = b.communicate(timeout=40)
+        finally:
+            if b.poll() is None:
+                b.kill()
+                b.communicate()
+    finally:
+        if a.poll() is None:
+            a.kill()
+            a.communicate()
+    assert a.returncode == 0, ea
+    assert b.returncode == 0, eb
+    assert log.read_text().split() == ["A", "B"]
+    assert _tickets(lock) == []
+
+
+def test_a_dead_ticket_is_reaped_and_blocks_nobody(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    q = _queue(lock)
+    q.mkdir()
+    dead = subprocess.run(["bash", "-c", "echo $$"], capture_output=True, text=True, check=True)
+    (q / "0000000001").write_text(f"pid={dead.stdout.strip()}\nlabel=ghost\n")
+    marker = tmp_path / "ran"
+    proc = _run(lock, "t", "touch", str(marker), MAC_HEAVY_MAX_WAIT_S="10")
+    assert proc.returncode == 0, proc.stderr
+    assert marker.exists()
+    assert _tickets(lock) == [], "the dead ticket was left in the queue"
+
+
+def test_a_load_blocked_earlier_waiter_keeps_its_place_but_does_not_hold_up_a_later_one(
+    tmp_path: Path,
+) -> None:
+    # Rule: only a lower live ticket that is NOT load-blocked makes a waiter yield. A is blocked by
+    # its own (stricter) limit; B's limit allows the machine's load of 50, so B runs past A.
+    lock = tmp_path / "lock.d"
+    load = tmp_path / "load"
+    load.write_text("50\n")
+    seen = tmp_path / "queue_during_b"
+    hook = {"MAC_HEAVY_LOAD_CMD": f"cat {load}", "MAC_HEAVY_TEST_HOOK": "1"}
+    a = _popen(lock, "A", "true", MAC_HEAVY_MAX_LOAD="5", MAC_HEAVY_MAX_WAIT_S="40", **hook)
+    try:
+        _wait_for(lambda: len(_tickets(lock)) == 1)
+        b = _popen(lock, "B", "bash", "-c", f"ls -A {_queue(lock)} > {seen}",
+                   MAC_HEAVY_MAX_LOAD="100", MAC_HEAVY_MAX_WAIT_S="40", **hook)
+        _, eb = b.communicate(timeout=40)
+        assert b.returncode == 0, eb
+        assert a.poll() is None, "the load-blocked earlier waiter ran while load was high"
+        names = seen.read_text().split()
+        assert len(names) == 2 and any(n.endswith(".busy") for n in names), names
+        load.write_text("1\n")
+        _, ea = a.communicate(timeout=40)
+    finally:
+        if a.poll() is None:
+            a.kill()
+            a.communicate()
+    assert a.returncode == 0, ea
+    assert _tickets(lock) == []
+
+
+def test_a_job_chain_that_re_enters_at_once_does_not_beat_an_earlier_waiter(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "lock.d"
+    log = tmp_path / "log"
+    chain = tmp_path / "chain.sh"
+    chain.write_text(
+        f"bash {SCRIPT} C1 bash -c 'sleep 2; echo C1 >> {log}'\n"
+        f"bash {SCRIPT} C2 bash -c 'echo C2 >> {log}'\n"
+    )
+    env = {"MAC_HEAVY_LOCK": str(lock), "MAC_HEAVY_POLL_S": "1", "MAC_HEAVY_MIN_FREE_GB": "0",
+           "MAC_HEAVY_MAX_LOAD": "100000", "MAC_HEAVY_MAX_PROCS": "10000000"}
+    c = subprocess.Popen(["bash", str(chain)], env={**os.environ, **env},
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        _wait_for(lock.exists)
+        w = _popen(lock, "W", "bash", "-c", f"echo W >> {log}", MAC_HEAVY_POLL_S="2",
+                   MAC_HEAVY_MAX_LOAD="100000", MAC_HEAVY_MAX_WAIT_S="40")
+        try:
+            _, ew = w.communicate(timeout=50)
+            c.communicate(timeout=50)
+        finally:
+            if w.poll() is None:
+                w.kill()
+                w.communicate()
+    finally:
+        if c.poll() is None:
+            c.kill()
+            c.communicate()
+    assert w.returncode == 0, ew
+    assert log.read_text().split() == ["C1", "W", "C2"]
+
+
+def test_a_full_queue_refuses_with_exit_75_and_never_runs(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    q = _queue(lock)
+    q.mkdir()
+    for i in (1, 2):
+        (q / f"{i:010d}").write_text(f"pid={os.getpid()}\nlabel=live{i}\n")
+    marker = tmp_path / "ran"
+    proc = _run(lock, "t", "touch", str(marker), MAC_HEAVY_MAX_QUEUE="2")
+    assert proc.returncode == 75
+    assert "queue is full" in proc.stderr
+    assert not marker.exists()
+    assert _run(lock, "t", "true", MAC_HEAVY_MAX_QUEUE="many").returncode == 64
