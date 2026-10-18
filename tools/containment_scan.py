@@ -392,6 +392,21 @@ def scan_specs(sets: Sequence[ScanSet]) -> list[ScanSpec]:
     ]
 
 
+def drop_empty_targets(
+    sets: Sequence[ScanSet], scans: Sequence[ScanSpec],
+) -> tuple[list[ScanSpec], list[str]]:
+    """``(scans, names)`` without the scans whose target set has no row, and those sets' names.
+
+    ``qd-prep containment`` refuses a scan against an empty set ("a scan against nothing is not a
+    check"), and a task-holdout family can have no row in a corpus (code.language_id has none;
+    the v5 attestation lists it with 0 rows). The set stays in the request, zero rows, and the
+    names go in the export block (``empty_sets_not_scanned``), so the attestation says it was
+    not scanned rather than showing it scanned and clean."""
+    empty = {s.name for s in sets if not s.rows}
+    kept = [scan for scan in scans if scan.target not in empty]
+    return kept, sorted({scan.target for scan in scans if scan.target in empty})
+
+
 def targets_block(targets: Sequence[TargetSet]) -> dict[str, object]:
     """The attestation's ``export.targets``: per set, its row count, sha256 and source."""
     return {
@@ -442,12 +457,14 @@ def _str(fh: BinaryIO, value: str, what: str) -> int:
 
 def export_block(
     sets: Sequence[ScanSet], *, engine: Path, strip: Mapping[str, object],
-    targets: Sequence[TargetSet] = (),
+    targets: Sequence[TargetSet] = (), empty_sets: Sequence[str] = (),
 ) -> dict[str, object]:
     """What the exporter left out, which engine scanned, what the template strip removed
     (``strip``, :func:`scan_sets`'s record) and, when there are any, the external targets
     (:func:`targets_block`): the attestation's ``export``."""
     extra: dict[str, object] = {"targets": targets_block(targets)} if targets else {}
+    if empty_sets:
+        extra["empty_sets_not_scanned"] = sorted(empty_sets)
     return {
         **extra,
         "tool": TOOL,
@@ -645,7 +662,7 @@ def main(argv: list[str] | None = None) -> int:
     sets, strip = scan_sets(report, config=config, template_strip=args.template_strip,
                             targets=targets)
     rendered = time.monotonic()
-    scans = scan_specs(sets)
+    scans, empty_sets = drop_empty_targets(sets, scan_specs(sets))
     # The name ft_splits and the pipeline check an exclusion list against.
     corpus = containment_corpus(replay_corpus_identity(
         rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
@@ -661,7 +678,8 @@ def main(argv: list[str] | None = None) -> int:
     with request.open("xb") as fh:
         size = write_request(
             fh, sets, scans, corpus=corpus,
-            export=export_block(sets, engine=engine, strip=strip, targets=targets),
+            export=export_block(sets, engine=engine, strip=strip, targets=targets,
+                                empty_sets=empty_sets),
             checks=splitter_checks(report),
         )
     exported = time.monotonic()
