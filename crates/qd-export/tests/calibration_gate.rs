@@ -14,16 +14,12 @@ use std::process::{Command, Output};
 use qd_runtime::calibration::{CalibrationEntry, CalibrationTable};
 use qd_runtime::calibration_fit::ECE_THRESHOLD;
 use qd_runtime::schema::SlotKind;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 const BIN: &str = env!("CARGO_BIN_EXE_qd-export");
 
 fn entry() -> CalibrationEntry {
-    CalibrationEntry {
-        temperature: 1.1,
-        conformal_quantile: 0.3,
-        noul_margin: 0.1,
-    }
+    CalibrationEntry { temperature: 1.1, conformal_quantile: 0.3, noul_margin: 0.1 }
 }
 
 /// choice:5 and choice:16, plus a span entry when `with_span`.
@@ -49,20 +45,10 @@ fn not_run() -> Value {
 }
 
 /// The shape of `qd-calib-fit`'s report.json, restricted to what the gate reads.
-fn report(
-    table_sha: &str,
-    ece_by_key: &[(&str, Value)],
-    span_fitted: bool,
-    threshold: f64,
-) -> Value {
+fn report(table_sha: &str, ece_by_key: &[(&str, Value)], span_fitted: bool, threshold: f64) -> Value {
     let entries: serde_json::Map<String, Value> = ece_by_key
         .iter()
-        .map(|(k, ece)| {
-            (
-                (*k).to_string(),
-                json!({"kind": "choice", "n": 500, "scored": {"ece_after": ece}}),
-            )
-        })
+        .map(|(k, ece)| ((*k).to_string(), json!({"kind": "choice", "n": 500, "scored": {"ece_after": ece}})))
         .collect();
     json!({
         "ece": {"bins": 15, "min_samples": 100, "threshold": threshold},
@@ -80,20 +66,51 @@ struct Case {
 
 fn case(with_span: bool) -> Case {
     let fx = common::standard();
-    let path = write_json(
-        &fx.dir.0.join("table.json"),
-        &serde_json::to_value(table(with_span)).unwrap(),
-    );
+    let path = write_json(&fx.dir.0.join("table.json"), &serde_json::to_value(table(with_span)).unwrap());
     let table_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(&path).unwrap()));
-    Case {
-        fx,
-        table: path,
-        table_sha,
-    }
+    Case { fx, table: path, table_sha }
 }
 
-fn shapes(c: &Case, doc: &Value) -> PathBuf {
-    write_json(&c.fx.dir.0.join("shapes.json"), doc)
+/// The train manifest the export reads: one entry per (family, shape) of `doc`
+/// (`{family: [[key, ...], ...]}`), or entries recording no shape at all when `doc` is `None`.
+fn train_manifest(c: &Case, doc: Option<&Value>) -> PathBuf {
+    let mut entries: Vec<Value> = Vec::new();
+    let mut push = |family: &str, shape: Option<&Value>| {
+        let i = entries.len();
+        let mut e = json!({
+            "row_id": format!("train-row-{i}"), "content_hash": format!("{i:064x}"), "split": "train",
+            "source_id": "test/source", "host": "test", "family_id": family,
+            "repo_key": format!("repo-{i}"), "identity_key": format!("identity-{i}"),
+            "licence_id": "MIT", "obligations": [],
+        });
+        if let Some(shape) = shape {
+            e["slot_shape"] = shape.clone();
+        }
+        entries.push(e);
+    };
+    match doc {
+        Some(doc) => {
+            for (family, shapes) in doc.as_object().unwrap() {
+                for shape in shapes.as_array().unwrap() {
+                    push(family, Some(shape));
+                }
+            }
+        }
+        None => {
+            for family in common::TRAINED_FAMILIES {
+                push(family, None);
+            }
+        }
+    }
+    let mut m = json!({
+        "manifest_format_version": 1, "split": "train", "data_snapshot_hash": "ab".repeat(32),
+        "n_rows": entries.len(), "held_out_families": ["code.language_id", "qa.answerability"],
+        "entries": entries,
+    });
+    if doc.is_some() {
+        m["slot_shape_digest"] = common::slot_shape_digest(m["entries"].as_array().unwrap());
+    }
+    write_json(&c.fx.dir.0.join("train-shapes.json"), &m)
 }
 
 fn default_shapes() -> Value {
@@ -102,33 +119,18 @@ fn default_shapes() -> Value {
 
 fn run(c: &Case, report: Option<&Value>, shapes: Option<&Value>, extra: &[&str]) -> Output {
     let mut cmd = Command::new(BIN);
-    cmd.arg("--source")
-        .arg(&c.fx.source)
-        .arg("--base-snapshot")
-        .arg(&c.fx.snapshot)
-        .arg("--tokenizer-sha256")
-        .arg(common::tokenizer_sha256(&c.fx.snapshot))
-        .arg("--expect-vocab-size")
-        .arg(common::VOCAB.to_string())
-        .arg("--train-manifest")
-        .arg(&c.fx.train_manifest)
-        .arg("--calibration")
-        .arg(&c.table)
-        .arg("--out")
-        .arg(&c.fx.out);
+    cmd.arg("--source").arg(&c.fx.source)
+        .arg("--base-snapshot").arg(&c.fx.snapshot)
+        .arg("--tokenizer-sha256").arg(common::tokenizer_sha256(&c.fx.snapshot))
+        .arg("--expect-vocab-size").arg(common::VOCAB.to_string())
+        .arg("--train-manifest").arg(train_manifest(c, shapes))
+        .arg("--calibration").arg(&c.table)
+        .arg("--out").arg(&c.fx.out);
     if let Some(r) = report {
-        cmd.arg("--calibration-report")
-            .arg(write_json(&c.fx.dir.0.join("report.json"), r));
-    }
-    if let Some(s) = shapes {
-        cmd.arg("--trained-slot-shapes").arg(shapes_path(c, s));
+        cmd.arg("--calibration-report").arg(write_json(&c.fx.dir.0.join("report.json"), r));
     }
     cmd.args(extra);
     cmd.output().expect("the binary runs")
-}
-
-fn shapes_path(c: &Case, doc: &Value) -> PathBuf {
-    shapes(c, doc)
 }
 
 fn refused(c: &Case, out: &Output, needle: &str) {
@@ -141,12 +143,7 @@ fn refused(c: &Case, out: &Output, needle: &str) {
 }
 
 fn all_passing(c: &Case) -> Value {
-    report(
-        &c.table_sha,
-        &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))],
-        true,
-        ECE_THRESHOLD,
-    )
+    report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))], true, ECE_THRESHOLD)
 }
 
 #[test]
@@ -157,23 +154,17 @@ fn a_table_with_no_fit_report_is_refused() {
 }
 
 #[test]
-fn a_table_with_no_declared_slot_shapes_is_refused() {
+fn a_train_manifest_that_records_no_slot_shapes_is_refused() {
     let c = case(true);
     let out = run(&c, Some(&all_passing(&c)), None, &[]);
-    refused(&c, &out, "--trained-slot-shapes");
+    refused(&c, &out, "slot_shape");
 }
 
 #[test]
 fn a_failing_recorded_check_is_refused_and_names_the_entry() {
     let c = case(true);
-    let r = report(
-        &c.table_sha,
-        &[("choice:5", ran(0.01)), ("choice:16", ran(0.079))],
-        true,
-        ECE_THRESHOLD,
-    );
-    let shapes =
-        json!({"code.defect_class": [["choice:16", "span"]], "devcouncil.verdict": [["choice:5"]]});
+    let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", ran(0.079))], true, ECE_THRESHOLD);
+    let shapes = json!({"code.defect_class": [["choice:16", "span"]], "devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&r), Some(&shapes), &[]);
     refused(&c, &out, "choice:16");
     assert!(String::from_utf8_lossy(&out.stderr).contains("passed=false"));
@@ -182,14 +173,8 @@ fn a_failing_recorded_check_is_refused_and_names_the_entry() {
 #[test]
 fn a_check_that_could_not_run_is_not_a_check_that_passed() {
     let c = case(true);
-    let r = report(
-        &c.table_sha,
-        &[("choice:5", ran(0.01)), ("choice:16", not_run())],
-        true,
-        ECE_THRESHOLD,
-    );
-    let shapes =
-        json!({"code.defect_class": [["choice:16", "span"]], "devcouncil.verdict": [["choice:5"]]});
+    let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", not_run())], true, ECE_THRESHOLD);
+    let shapes = json!({"code.defect_class": [["choice:16", "span"]], "devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&r), Some(&shapes), &[]);
     refused(&c, &out, "not_run");
 }
@@ -197,12 +182,7 @@ fn a_check_that_could_not_run_is_not_a_check_that_passed() {
 #[test]
 fn a_family_whose_trained_span_slot_has_no_entry_is_refused() {
     let c = case(false);
-    let r = report(
-        &c.table_sha,
-        &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))],
-        false,
-        ECE_THRESHOLD,
-    );
+    let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))], false, ECE_THRESHOLD);
     let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
     refused(&c, &out, "code.defect_class");
     assert!(String::from_utf8_lossy(&out.stderr).contains("span"));
@@ -223,29 +203,26 @@ fn a_fitted_span_entry_with_no_recorded_check_is_refused() {
 #[test]
 fn a_shape_the_table_has_no_entry_for_is_refused() {
     let c = case(true);
-    let shapes =
-        json!({"code.defect_class": [["choice:7", "span"]], "devcouncil.verdict": [["choice:5"]]});
+    let shapes = json!({"code.defect_class": [["choice:7", "span"]], "devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&all_passing(&c)), Some(&shapes), &[]);
     refused(&c, &out, "choice:7");
 }
 
 #[test]
-fn a_trained_family_with_no_declared_shapes_is_refused() {
+fn a_family_the_train_manifest_has_no_rows_for_is_not_admitted_and_so_not_gated() {
     let c = case(true);
     let shapes = json!({"devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&all_passing(&c)), Some(&shapes), &[]);
-    refused(&c, &out, "code.defect_class");
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    assert_eq!(m["trained_families"], json!(["devcouncil.verdict"]));
+    assert_eq!(m["trained_slot_shapes"], shapes);
 }
 
 #[test]
 fn a_report_for_another_table_is_refused() {
     let c = case(true);
-    let r = report(
-        &"0".repeat(64),
-        &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))],
-        true,
-        ECE_THRESHOLD,
-    );
+    let r = report(&"0".repeat(64), &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))], true, ECE_THRESHOLD);
     let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
     refused(&c, &out, "sha256");
 }
@@ -253,12 +230,7 @@ fn a_report_for_another_table_is_refused() {
 #[test]
 fn a_report_fitted_under_another_ece_threshold_is_refused() {
     let c = case(true);
-    let r = report(
-        &c.table_sha,
-        &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))],
-        true,
-        0.5,
-    );
+    let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))], true, 0.5);
     let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
     refused(&c, &out, "threshold");
 }
@@ -269,77 +241,36 @@ fn a_calibrated_table_whose_checks_all_passed_is_exported_and_the_gate_is_record
     let out = run(&c, Some(&all_passing(&c)), Some(&default_shapes()), &[]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
-    let m: Value =
-        serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap())
-            .unwrap();
-    assert_eq!(
-        m["trained_families"],
-        json!(["code.defect_class", "devcouncil.verdict"])
-    );
+    let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    assert_eq!(m["trained_families"], json!(["code.defect_class", "devcouncil.verdict"]));
     assert_eq!(m["trained_slot_shapes"], default_shapes());
     assert_eq!(m["excluded_families"], json!([]));
-    assert_eq!(
-        m["calibration"]["gate"]["ece_threshold"],
-        json!(ECE_THRESHOLD)
-    );
+    assert_eq!(m["calibration"]["gate"]["ece_threshold"], json!(ECE_THRESHOLD));
     assert_eq!(m["calibration"]["gate"]["table_sha256"], json!(c.table_sha));
 }
 
 #[test]
 fn an_explicit_exclusion_is_the_way_past_and_is_recorded() {
     let c = case(false);
-    let r = report(
-        &c.table_sha,
-        &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))],
-        false,
-        ECE_THRESHOLD,
-    );
+    let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))], false, ECE_THRESHOLD);
     let reason = "span is not fittable from verdicts (GAP-CALIB-SPAN-NOT-FITTABLE-FROM-VERDICTS)";
-    let out = run(
-        &c,
-        Some(&r),
-        Some(&default_shapes()),
-        &["--exclude-family", &format!("code.defect_class={reason}")],
-    );
+    let out = run(&c, Some(&r), Some(&default_shapes()), &["--exclude-family", &format!("code.defect_class={reason}")]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
-    let m: Value =
-        serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap())
-            .unwrap();
+    let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
     assert_eq!(m["trained_families"], json!(["devcouncil.verdict"]));
-    assert_eq!(
-        m["excluded_families"],
-        json!([{"family": "code.defect_class", "reason": reason}])
-    );
-    assert_eq!(
-        m["trained_slot_shapes"],
-        json!({"devcouncil.verdict": [["choice:5"]]})
-    );
+    assert_eq!(m["excluded_families"], json!([{"family": "code.defect_class", "reason": reason}]));
+    assert_eq!(m["trained_slot_shapes"], json!({"devcouncil.verdict": [["choice:5"]]}));
 }
 
 #[test]
 fn an_exclusion_without_a_reason_or_for_an_unknown_family_is_refused() {
     let c = case(false);
-    let r = report(
-        &c.table_sha,
-        &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))],
-        false,
-        ECE_THRESHOLD,
-    );
-    let out = run(
-        &c,
-        Some(&r),
-        Some(&default_shapes()),
-        &["--exclude-family", "code.defect_class="],
-    );
+    let r = report(&c.table_sha, &[("choice:5", ran(0.01)), ("choice:16", ran(0.02))], false, ECE_THRESHOLD);
+    let out = run(&c, Some(&r), Some(&default_shapes()), &["--exclude-family", "code.defect_class="]);
     assert_ne!(out.status.code(), Some(0));
     assert!(!c.fx.out.exists());
-    let out = run(
-        &c,
-        Some(&r),
-        Some(&default_shapes()),
-        &["--exclude-family", "no.such.family=because"],
-    );
+    let out = run(&c, Some(&r), Some(&default_shapes()), &["--exclude-family", "no.such.family=because"]);
     refused(&c, &out, "no.such.family");
 }
 
@@ -347,37 +278,20 @@ fn an_exclusion_without_a_reason_or_for_an_unknown_family_is_refused() {
 fn a_release_without_a_table_needs_a_recorded_reason() {
     let c = case(true);
     let mut cmd = Command::new(BIN);
-    cmd.arg("--source")
-        .arg(&c.fx.source)
-        .arg("--base-snapshot")
-        .arg(&c.fx.snapshot)
-        .arg("--tokenizer-sha256")
-        .arg(common::tokenizer_sha256(&c.fx.snapshot))
-        .arg("--expect-vocab-size")
-        .arg(common::VOCAB.to_string())
-        .arg("--train-manifest")
-        .arg(&c.fx.train_manifest)
-        .arg("--out")
-        .arg(&c.fx.out);
+    cmd.arg("--source").arg(&c.fx.source)
+        .arg("--base-snapshot").arg(&c.fx.snapshot)
+        .arg("--tokenizer-sha256").arg(common::tokenizer_sha256(&c.fx.snapshot))
+        .arg("--expect-vocab-size").arg(common::VOCAB.to_string())
+        .arg("--train-manifest").arg(&c.fx.train_manifest)
+        .arg("--out").arg(&c.fx.out);
     let out = cmd.output().unwrap();
     refused(&c, &out, "--uncalibrated-reason");
-    cmd.arg("--uncalibrated-reason")
-        .arg("trial export for a tower round trip; not served");
+    cmd.arg("--uncalibrated-reason").arg("trial export for a tower round trip; not served");
     let out = cmd.output().unwrap();
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let m: Value =
-        serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap())
-            .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
     assert_eq!(m["calibration"], Value::Null);
-    assert_eq!(
-        m["calibration_absent_reason"],
-        json!("trial export for a tower round trip; not served")
-    );
+    assert_eq!(m["calibration_absent_reason"], json!("trial export for a tower round trip; not served"));
 }
 
 /// The `span` section of a report as `qd-calib-fit` writes it: fitted by `fit_span_entry` over
@@ -397,32 +311,18 @@ fn fitted_span_section(groups: &[(f64, usize)], per: usize) -> Value {
             let gs = (j + g) % 5;
             let ge = gs + (j / 5) % (5 - gs);
             let pointer = |gold: usize, hit: bool| {
-                let winner = if hit {
-                    gold
-                } else {
-                    (gold + 1 + j % (W - 1)) % W
-                };
+                let winner = if hit { gold } else { (gold + 1 + j % (W - 1)) % W };
                 let mut logits = vec![0.0f32; W];
                 logits[winner] = winner_logit;
                 logits
             };
-            rows.push(
-                &pointer(gs, j % 20 < *hits),
-                &pointer(ge, (j * 7 + 3) % 20 < *hits),
-                gs,
-                ge,
-            )
-            .unwrap();
+            rows.push(&pointer(gs, j % 20 < *hits), &pointer(ge, (j * 7 + 3) % 20 < *hits), gs, ge)
+                .unwrap();
         }
     }
-    let entry = fit_span_entry(&rows, DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION)
-        .unwrap()
-        .entry();
-    let scored: Vec<_> = score_span_rows(&rows, &entry)
-        .unwrap()
-        .into_iter()
-        .map(|s| Some((s, entry)))
-        .collect();
+    let entry = fit_span_entry(&rows, DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION).unwrap().entry();
+    let scored: Vec<_> =
+        score_span_rows(&rows, &entry).unwrap().into_iter().map(|s| Some((s, entry))).collect();
     json!({"fitted": true, "rows": rows.len(), "scored": summarise_spans(&scored, "in_sample").unwrap()})
 }
 
@@ -438,14 +338,8 @@ fn a_span_fit_is_admitted_on_its_recorded_check_and_refused_when_miscalibrated()
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
     let m: Value =
-        serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap())
-            .unwrap();
-    assert!(
-        m["calibration"]["gate"]["ece_after_by_shape"]["span"]
-            .as_f64()
-            .unwrap()
-            <= ECE_THRESHOLD
-    );
+        serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    assert!(m["calibration"]["gate"]["ece_after_by_shape"]["span"].as_f64().unwrap() <= ECE_THRESHOLD);
 
     let c = case(true);
     let mut r = all_passing(&c);

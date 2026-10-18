@@ -112,7 +112,6 @@ pub fn tiny_release(tag: &str, edit_source_manifest: impl FnOnce(&mut Value)) ->
         expect_vocab_size: usize::try_from(manifest["vocab_size"].as_u64().unwrap()).unwrap(),
         calibration: None,
         calibration_report: None,
-        trained_slot_shapes: None,
         exclude_families: Vec::new(),
         uncalibrated_reason: Some("tiny fixture: not served with a table".to_string()),
         train_manifest: tiny.join("train.json"),

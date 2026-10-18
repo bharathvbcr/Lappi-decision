@@ -7,6 +7,10 @@
     "code.language_id",
     "qa.answerability"
   ],
+  "slot_shape_digest": {
+    "version": 1,
+    "sha256": "089c1c3d63f02e7a83aa3e3cf6e4123b8f86ba0eaf000c6ef9ceef143533e6c3"
+  },
   "entries": [
     {
       "row_id": "tiny-row-0",
@@ -15,6 +19,10 @@
       "source_id": "fixture",
       "host": "fixture",
       "family_id": "code.defect_class",
+      "slot_shape": [
+        "choice:5",
+        "span"
+      ],
       "repo_key": "r",
       "identity_key": "i",
       "licence_id": "MIT",

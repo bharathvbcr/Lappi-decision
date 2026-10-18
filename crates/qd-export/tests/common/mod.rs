@@ -195,6 +195,26 @@ pub const TRAINED_FAMILIES: [&str; 2] = ["code.defect_class", "devcouncil.verdic
 /// A train-split data manifest in `Manifest.to_json()`'s shape (`python/qd_data/manifest.py`),
 /// one row per family, written to `path`.
 pub fn write_train_manifest(path: &Path, families: &[&str]) -> PathBuf {
+    write_train_manifest_with_shape(path, families, &["choice:5".to_string()])
+}
+
+/// `slot_shape_digest` version 1, as `qd_data.manifest.Manifest.slot_shape_digest` writes it:
+/// sha256 over `"{row_id}\t{content_hash}\t{key,key}\n"` per entry, sorted by `row_id`.
+pub fn slot_shape_digest(entries: &[Value]) -> Value {
+    let mut rows: Vec<&Value> = entries.iter().collect();
+    rows.sort_by_key(|e| e["row_id"].as_str().unwrap().to_string());
+    let body: String = rows
+        .iter()
+        .map(|e| {
+            let keys: Vec<&str> = e["slot_shape"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
+            format!("{}\t{}\t{}\n", e["row_id"].as_str().unwrap(), e["content_hash"].as_str().unwrap(), keys.join(","))
+        })
+        .collect();
+    json!({"version": 1, "sha256": qd_runtime::hex(&qd_runtime::sha256(body.as_bytes()))})
+}
+
+/// [`write_train_manifest`] with every entry recording `shape` as its request shape.
+pub fn write_train_manifest_with_shape(path: &Path, families: &[&str], shape: &[String]) -> PathBuf {
     let entries: Vec<Value> = families
         .iter()
         .enumerate()
@@ -206,6 +226,7 @@ pub fn write_train_manifest(path: &Path, families: &[&str]) -> PathBuf {
                 "source_id": "test/source",
                 "host": "test",
                 "family_id": family,
+                "slot_shape": shape,
                 "repo_key": format!("repo-{i}"),
                 "identity_key": format!("identity-{i}"),
                 "licence_id": "MIT",
@@ -219,6 +240,7 @@ pub fn write_train_manifest(path: &Path, families: &[&str]) -> PathBuf {
         "data_snapshot_hash": "ab".repeat(32),
         "n_rows": entries.len(),
         "held_out_families": ["code.language_id", "qa.answerability"],
+        "slot_shape_digest": slot_shape_digest(&entries),
         "entries": entries,
     });
     std::fs::write(path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
@@ -302,19 +324,31 @@ pub fn build(
 }
 
 /// Point `req` at `table_path` with a fit report in which every entry's check ran and passed, and
-/// shapes declaring each fixture family's first choice entry (and span, when the table has one).
-/// The gate itself is tested in `calibration_gate.rs`; this is for tests of everything else.
+/// rewrite its train manifest so every fixture family trained on the table's first choice entry
+/// (and span, when the table has one). The gate itself is tested in `calibration_gate.rs`; this is
+/// for tests of everything else.
 pub fn calibrate(req: &mut ExportRequest, dir: &Path, table_path: &Path) {
-    let families: Vec<String> = TRAINED_FAMILIES.iter().map(|f| (*f).to_string()).collect();
-    let (report_path, shapes_path) = gate_files(dir, table_path, &families);
+    let report_path = gate_report(dir, table_path);
+    write_train_manifest_with_shape(&req.train_manifest, &TRAINED_FAMILIES, &first_shape(table_path));
     req.calibration = Some(table_path.to_path_buf());
     req.calibration_report = Some(report_path);
-    req.trained_slot_shapes = Some(shapes_path);
     req.uncalibrated_reason = None;
 }
 
-/// The passing fit report and the slot-shape declaration for `families` over the table at `table_path`.
-pub fn gate_files(dir: &Path, table_path: &Path, families: &[String]) -> (PathBuf, PathBuf) {
+/// The shape a family is taken to have trained on in tests of everything but the gate: the
+/// table's first choice entry, plus span when the table has one.
+pub fn first_shape(table_path: &Path) -> Vec<String> {
+    let doc: Value = serde_json::from_slice(&std::fs::read(table_path).unwrap()).unwrap();
+    let first = doc["letters"].as_object().expect("letters").keys().find(|k| k.starts_with("choice:")).expect("a choice entry").clone();
+    let mut one = vec![first];
+    if !doc["span"].is_null() {
+        one.push("span".to_string());
+    }
+    one
+}
+
+/// The passing fit report over the table at `table_path`: every entry's recorded check ran and passed.
+pub fn gate_report(dir: &Path, table_path: &Path) -> PathBuf {
     let bytes = std::fs::read(table_path).unwrap();
     let doc: Value = serde_json::from_slice(&bytes).unwrap();
     let letters = doc["letters"].as_object().expect("letters");
@@ -330,24 +364,9 @@ pub fn gate_files(dir: &Path, table_path: &Path, families: &[String]) -> (PathBu
         "span": if has_span { json!({"fitted": true, "scored": {"ece_after": ran.clone()}}) } else { json!({"fitted": false}) },
         "tables": [{"sha256": qd_runtime::hex(&qd_runtime::sha256(&bytes))}],
     });
-    let first = letters
-        .keys()
-        .find(|k| k.starts_with("choice:"))
-        .expect("a choice entry")
-        .clone();
-    let mut one = vec![json!(first)];
-    if has_span {
-        one.push(json!("span"));
-    }
-    let shapes: serde_json::Map<String, Value> = families
-        .iter()
-        .map(|f| (f.clone(), Value::Array(vec![Value::Array(one.clone())])))
-        .collect();
     let report_path = dir.join("fit-report.json");
-    let shapes_path = dir.join("slot-shapes.json");
     std::fs::write(&report_path, report.to_string()).unwrap();
-    std::fs::write(&shapes_path, Value::Object(shapes).to_string()).unwrap();
-    (report_path, shapes_path)
+    report_path
 }
 
 pub fn standard() -> Fixture {
@@ -364,7 +383,6 @@ impl Fixture {
             expect_vocab_size: VOCAB,
             calibration: None,
             calibration_report: None,
-            trained_slot_shapes: None,
             exclude_families: Vec::new(),
             uncalibrated_reason: Some("test fixture: this export is not served".to_string()),
             train_manifest: self.train_manifest.clone(),

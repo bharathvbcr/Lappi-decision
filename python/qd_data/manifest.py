@@ -44,7 +44,7 @@ from .config import SPLITS, DataConfig
 from .dedupe import DedupeReport
 from .mixture import MixtureResult
 from .rows import DataRow, row_content_hash
-from .schema import canonical_json
+from .schema import canonical_json, slot_shape_keys
 from .sources import DECISION_FAMILIES, admitted_sources, refusal_report
 from .split import SplitReport
 
@@ -76,6 +76,14 @@ class ManifestEntry:
     identity_key: str
     licence_id: str
     obligations: tuple[str, ...]
+    #: The request's slot keys as the calibration table spells them
+    #: (:func:`qd_data.schema.slot_shape_keys`). The train manifest is where ``qd-export``
+    #: reads the per-family shapes a release is gated on
+    #: (GAP-QD-EXPORT-NO-TRACKED-PER-FAMILY-SLOT-SHAPE-REGISTRY-2026-10-17). Not in
+    #: :meth:`hashed_body`: recording it moves no ``data_snapshot_hash``. ``None`` is an entry
+    #: read from a manifest written before the shape existed; ``qd-export`` refuses such a
+    #: manifest rather than guess.
+    slot_shape: tuple[str, ...] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -89,6 +97,7 @@ class ManifestEntry:
             "identity_key": self.identity_key,
             "licence_id": self.licence_id,
             "obligations": list(self.obligations),
+            "slot_shape": None if self.slot_shape is None else list(self.slot_shape),
         }
 
     @classmethod
@@ -104,6 +113,10 @@ class ManifestEntry:
             identity_key=str(raw["identity_key"]),
             licence_id=str(raw["licence_id"]),
             obligations=tuple(str(o) for o in raw.get("obligations", ())),
+            slot_shape=(
+                None if raw.get("slot_shape") is None
+                else tuple(str(k) for k in raw["slot_shape"])
+            ),
         )
 
     def hashed_body(self) -> dict[str, Any]:
@@ -181,6 +194,24 @@ class Manifest:
             canonical_json(self.hashed_body()).encode("utf-8")
         ).hexdigest()
 
+    def slot_shape_digest(self) -> dict[str, Any] | None:
+        """Binds every entry's ``slot_shape`` to its row, outside ``data_snapshot_hash``.
+
+        ``qd-export`` decides what a release admits from the shapes, so they need an integrity
+        check of their own; adding them to the hashed body would move every existing
+        ``data_snapshot_hash``. Version 1: sha256 over one line per entry, sorted by
+        ``row_id``, ``"{row_id}\\t{content_hash}\\t{key,key}\\n"``. ``qd-export`` re-derives it
+        (``crates/qd-export/src/export.rs``, ``slot_shape_digest``) and refuses a mismatch.
+        ``None`` when any entry lacks a shape: such a manifest is refused by ``qd-export``.
+        """
+        if any(e.slot_shape is None for e in self.entries):
+            return None
+        body = "".join(
+            f"{e.row_id}\t{e.content_hash}\t{','.join(e.slot_shape or ())}\n"
+            for e in sorted(self.entries, key=lambda e: e.row_id)
+        )
+        return {"version": 1, "sha256": hashlib.sha256(body.encode("utf-8")).hexdigest()}
+
     # -- file form --------------------------------------------------------
 
     def to_json(self) -> dict[str, Any]:
@@ -202,6 +233,7 @@ class Manifest:
             "status": self.status.to_json(),
             "provenance": dict(sorted(self.provenance.items())),
             "val_without_train": self.val_without_train,
+            "slot_shape_digest": self.slot_shape_digest(),
             "entries": [e.to_json() for e in self.entries],
         }
 
@@ -263,6 +295,13 @@ class Manifest:
                 f"re-derived from the file's contents ({derived!r}). The file has been "
                 "edited, or was written by a different manifest format."
             )
+        recorded_shapes = raw.get("slot_shape_digest")
+        if recorded_shapes is not None and recorded_shapes != manifest.slot_shape_digest():
+            raise ValueError(
+                f"{path}: recorded slot_shape_digest {recorded_shapes!r} does not match the "
+                f"digest re-derived from the entries ({manifest.slot_shape_digest()!r}). A "
+                "slot_shape was edited after the manifest was written."
+            )
         return manifest
 
 
@@ -278,6 +317,7 @@ def _entry(row: DataRow, split_name: str) -> ManifestEntry:
         identity_key=row.identity_key,
         licence_id=row.licence_id,
         obligations=row.obligations,
+        slot_shape=slot_shape_keys(row.request.slots),
     )
 
 

@@ -61,7 +61,7 @@ pub fn d17_row_letters() -> String {
         .collect()
 }
 
-use crate::calibration_gate::{self, ExcludedFamily, GateRecord};
+use crate::calibration_gate::{self, ExcludedFamily, FamilyShapes, GateRecord, is_shape_key};
 
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
@@ -117,9 +117,6 @@ pub struct ExportRequest {
     /// The fit's own report for that table (`qd-calib-fit`'s `report.json`). Required with
     /// `calibration`: it holds the recorded calibration check the gate reads.
     pub calibration_report: Option<PathBuf>,
-    /// `{family: ["choice:5", "span"]}`: the slot shapes each trained family was trained on.
-    /// Required with `calibration`.
-    pub trained_slot_shapes: Option<PathBuf>,
     /// Trained families deliberately not admitted, each with a recorded reason. Removed from
     /// `trained_families`; the only way past the calibration gate for a family.
     pub exclude_families: Vec<ExcludedFamily>,
@@ -446,6 +443,54 @@ fn read_averaged_preregistration(path: &Path) -> Result<AveragedPreregistration>
 /// init: each of `row_ids` is exactly one completed ft row whose seed is one of the inputs', whose
 /// `recipe.span_head_init.shared` is true, and all rows record the same `content_digest`. Returns
 /// the evidence the manifest records (and the loader requires).
+/// Tie the train manifest's file sha256 to the ft rows the release is built from: every row must
+/// record `train_manifest_sha256` (a row field, written beside `data_snapshot_hash`) and it must
+/// equal `train_sha256`. A differing value is refused and so is an absent one: absent means not
+/// recorded, which is not the same as matching. Returns the `ledger_binding` block.
+///
+/// Depends on the ft LedgerRow carrying that optional field (W2-1); until a producer writes it,
+/// a ledger passed here refuses every row as not recorded.
+fn verify_ledger_binding(ledger: &Path, ft_row_ids: &[String], train_sha256: &str) -> Result<Value> {
+    let k = RefusalKind::TrainManifest;
+    let bad = |detail: String| refuse(k, format!("{}: {detail}", ledger.display()));
+    let text = String::from_utf8(read_bounded(ledger, k, MAX_TRAIN_MANIFEST_BYTES)?)
+        .map_err(|e| bad(format!("not UTF-8: {e}")))?;
+    let rows: Vec<Value> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(serde_json::from_str)
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| bad(format!("not JSON lines: {e}")))?;
+    for id in ft_row_ids {
+        let found: Vec<&Value> = rows.iter().filter(|r| r.get("row_id").and_then(Value::as_str) == Some(id)).collect();
+        let [row] = found.as_slice() else {
+            return Err(bad(format!("{} rows have row_id {id:?}; the release's weights name this ft row", found.len())));
+        };
+        match row.get("train_manifest_sha256").and_then(Value::as_str) {
+            None => {
+                return Err(bad(format!(
+                    "ft row {id} records no train_manifest_sha256: which train manifest it trained from is not recorded, \
+                     so {} cannot be tied to it",
+                    train_sha256
+                )));
+            }
+            Some(recorded) if !recorded.eq_ignore_ascii_case(train_sha256) => {
+                return Err(bad(format!(
+                    "ft row {id} records train_manifest_sha256 {recorded}, but the train manifest read has sha256 {train_sha256}: \
+                     this is not the manifest that row trained from, or it was edited since"
+                )));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(json!({
+        "verified": true,
+        "train_manifest_sha256": train_sha256,
+        "ledger": ledger.display().to_string(),
+        "ft_row_ids": ft_row_ids,
+    }))
+}
+
 fn verify_shared_init(ledger: &Path, manifest: &SourceManifest) -> Result<Value> {
     let k = RefusalKind::SourceManifest;
     let bad = |detail: String| refuse(k, format!("{}: {detail}", ledger.display()));
@@ -554,6 +599,9 @@ struct TrainManifest {
     data_snapshot_hash: String,
     n_rows: usize,
     rows_by_family: BTreeMap<String, u64>,
+    /// Per family, the request shapes its entries record (`slot_shape`), bound to their rows by
+    /// the manifest's `slot_shape_digest`.
+    shapes_by_family: FamilyShapes,
 }
 
 impl TrainManifest {
@@ -639,6 +687,8 @@ fn read_train_manifest(path: &Path) -> Result<TrainManifest> {
         )));
     }
     let mut rows_by_family: BTreeMap<String, u64> = BTreeMap::new();
+    let mut shapes_by_family = FamilyShapes::new();
+    let mut digest_lines: Vec<(String, String)> = Vec::with_capacity(entries.len());
     for (i, entry) in entries.iter().enumerate() {
         let row_id = entry
             .get("row_id")
@@ -669,13 +719,40 @@ fn read_train_manifest(path: &Path) -> Result<TrainManifest> {
             )));
         }
         *rows_by_family.entry(family.to_string()).or_default() += 1;
+
+        // The request shape this row trained on. A manifest that records none cannot say what
+        // the release admits, so it is refused rather than guessed at.
+        let shape: Vec<String> = entry
+            .get("slot_shape")
+            .and_then(Value::as_array)
+            .filter(|a| !a.is_empty())
+            .and_then(|a| {
+                a.iter()
+                    .map(|k| k.as_str().filter(|k| is_shape_key(k)).map(str::to_string))
+                    .collect::<Option<Vec<_>>>()
+            })
+            .ok_or_else(|| {
+                bad(format!(
+                    "entry {i} (row_id {row_id}) has no valid slot_shape (a non-empty array of span, \
+                     choice:N or score:N). This manifest does not record what request shapes its \
+                     families trained on, so the release's calibration cannot be gated per shape; \
+                     rebuild it with qd_data.manifest"
+                ))
+            })?;
+        let content_hash = entry.get("content_hash").and_then(Value::as_str).unwrap_or_default();
+        let mut sorted = shape.clone();
+        sorted.sort();
+        digest_lines.push((row_id_plain(entry), format!("{content_hash}\t{}", shape.join(","))));
+        shapes_by_family.entry(family.to_string()).or_default().insert(sorted);
     }
+    verify_slot_shape_digest(obj.get("slot_shape_digest"), digest_lines, &bad)?;
     let train = TrainManifest {
         path: path.to_path_buf(),
         sha256: hex(&sha256(&bytes)),
         data_snapshot_hash,
         n_rows: entries.len(),
         rows_by_family,
+        shapes_by_family,
     };
     validate_trained_families(&train.families()).map_err(|detail| {
         bad(format!(
@@ -684,6 +761,40 @@ fn read_train_manifest(path: &Path) -> Result<TrainManifest> {
         ))
     })?;
     Ok(train)
+}
+
+fn row_id_plain(entry: &Value) -> String {
+    entry.get("row_id").and_then(Value::as_str).unwrap_or_default().to_string()
+}
+
+/// `slot_shape_digest` version 1, as `qd_data.manifest.Manifest.slot_shape_digest` writes it:
+/// sha256 over `"{row_id}\t{content_hash}\t{key,key}\n"` per entry, sorted by `row_id`. The shapes
+/// decide what a release admits and sit outside `data_snapshot_hash`, so an entry edited after
+/// the manifest was written, or a manifest with no digest or another version, is refused.
+fn verify_slot_shape_digest(
+    recorded: Option<&Value>,
+    mut lines: Vec<(String, String)>,
+    bad: &dyn Fn(String) -> Refusal,
+) -> Result<()> {
+    let version = recorded.and_then(|d| d.get("version")).and_then(Value::as_i64);
+    let want = recorded.and_then(|d| d.get("sha256")).and_then(Value::as_str);
+    let (Some(1), Some(want)) = (version, want) else {
+        return Err(bad(
+            "slot_shape_digest is absent or not version 1 with a sha256; without it the entries' \
+             slot_shape values are unbound, and they decide what a release admits"
+                .to_string(),
+        ));
+    };
+    lines.sort_by(|a, b| a.0.cmp(&b.0));
+    let body: String = lines.iter().map(|(id, rest)| format!("{id}\t{rest}\n")).collect();
+    let got = hex(&sha256(body.as_bytes()));
+    if got != want {
+        return Err(bad(format!(
+            "slot_shape_digest records {want}, but the entries' slot_shape values digest to {got}: \
+             a slot_shape was edited after the manifest was written"
+        )));
+    }
+    Ok(())
 }
 
 /// A count as `u64`, refused rather than truncated.
@@ -767,6 +878,9 @@ struct Plan {
     gate: Option<GateRecord>,
     uncalibrated_reason: Option<String>,
     train: TrainManifest,
+    /// `train_manifest.ledger_binding` in the release manifest: verified against the ft rows, or
+    /// saying it was not.
+    ledger_binding: Value,
     /// `train.families()` minus the exclusions: what `trained_families` records.
     admitted: Vec<String>,
     excluded: Vec<ExcludedFamily>,
@@ -841,73 +955,41 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         if !all_families.contains(&ex.family) {
             return Err(refuse(
                 RefusalKind::TrainManifest,
-                format!(
-                    "--exclude-family {:?}: not a family the train manifest holds",
-                    ex.family
-                ),
+                format!("--exclude-family {:?}: not a family the train manifest holds", ex.family),
             ));
         }
         if qd_runtime::is_blank(&ex.reason) || !excluded_names.insert(ex.family.as_str()) {
             return Err(refuse(
                 RefusalKind::TrainManifest,
-                format!(
-                    "--exclude-family {:?}: needs one non-blank reason",
-                    ex.family
-                ),
+                format!("--exclude-family {:?}: needs one non-blank reason", ex.family),
             ));
         }
     }
-    let admitted: Vec<String> = all_families
-        .iter()
-        .filter(|f| !excluded_names.contains(f.as_str()))
-        .cloned()
-        .collect();
+    let admitted: Vec<String> = all_families.iter().filter(|f| !excluded_names.contains(f.as_str())).cloned().collect();
     validate_trained_families(&admitted).map_err(|detail| {
-        refuse(
-            RefusalKind::TrainManifest,
-            format!("after the exclusions no release can be recorded: {detail}"),
-        )
+        refuse(RefusalKind::TrainManifest, format!("after the exclusions no release can be recorded: {detail}"))
     })?;
 
     // The calibration gate: a table is shown calibrated for every admitted (family, shape), or
     // the release states why it has none.
-    let gate = match (
-        &calibration,
-        &req.calibration_report,
-        &req.trained_slot_shapes,
-        &req.uncalibrated_reason,
-    ) {
-        (Some((_, bytes, table)), Some(report), Some(shapes), None) => Some(
-            calibration_gate::check(bytes, table, report, shapes, &all_families, &admitted)?,
-        ),
-        (Some(_), report, shapes, None) => {
-            let missing = [
-                (report.is_none(), "--calibration-report"),
-                (shapes.is_none(), "--trained-slot-shapes"),
-            ]
-            .iter()
-            .filter(|(m, _)| *m)
-            .map(|(_, n)| *n)
-            .collect::<Vec<_>>()
-            .join(" and ");
+    let gate = match (&calibration, &req.calibration_report, &req.uncalibrated_reason) {
+        (Some((_, bytes, table)), Some(report), None) => {
+            Some(calibration_gate::check(bytes, table, report, &train.shapes_by_family, &admitted)?)
+        }
+        (Some(_), None, None) => {
             return Err(refuse(
                 RefusalKind::Calibration,
-                format!(
-                    "a calibration table needs {missing}: without the fit's recorded checks and the trained slot shapes nothing shows every trained (family, slot) is calibrated and passing"
-                ),
+                "a calibration table needs --calibration-report: without the fit's recorded checks nothing shows every trained (family, slot) is calibrated and passing",
             ));
         }
-        (Some(_), _, _, Some(_)) => {
-            return Err(refuse(
-                RefusalKind::Calibration,
-                "--uncalibrated-reason is for a release with no --calibration",
-            ));
+        (Some(_), _, Some(_)) => {
+            return Err(refuse(RefusalKind::Calibration, "--uncalibrated-reason is for a release with no --calibration"));
         }
-        (None, None, None, Some(reason)) if !qd_runtime::is_blank(reason) => None,
+        (None, None, Some(reason)) if !qd_runtime::is_blank(reason) => None,
         (None, ..) => {
             return Err(refuse(
                 RefusalKind::Calibration,
-                "no --calibration: a release with no table has no calibration entries and the runtime refuses it at load. Pass --calibration with --calibration-report and --trained-slot-shapes, or state why with --uncalibrated-reason (and no report or shapes)",
+                "no --calibration: a release with no table has no calibration entries and the runtime refuses it at load. Pass --calibration with --calibration-report, or state why with --uncalibrated-reason (and no report)",
             ));
         }
     };
@@ -923,6 +1005,13 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         req.source.with_file_name(name)
     });
     let manifest = read_source_manifest(&manifest_path)?;
+    let ledger_binding = match &req.ft_ledger {
+        Some(ledger) => verify_ledger_binding(ledger, &manifest.ft_row_ids, &train.sha256)?,
+        None => json!({
+            "verified": false,
+            "reason": "no --ft-ledger was given, so nothing ties this train manifest to the ft rows the weights came from",
+        }),
+    };
     if manifest.n_tensors != src.tensors().len() {
         return Err(refuse(
             RefusalKind::SourceManifest,
@@ -1185,6 +1274,7 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         gate,
         uncalibrated_reason: req.uncalibrated_reason.clone(),
         train,
+        ledger_binding,
         admitted,
         excluded: req.exclude_families.clone(),
     })
@@ -1524,6 +1614,7 @@ fn write_release(
             "split": TRAIN_SPLIT,
             "n_rows": plan.train.n_rows,
             "rows_by_family": plan.train.rows_by_family,
+            "ledger_binding": plan.ledger_binding,
             "data_snapshot_hash_as_recorded": plan.train.data_snapshot_hash,
             "rule": "trained_families is the sorted, unique family_id set of this manifest's \
                      entries. data_snapshot_hash is as the file records it, not re-derived here \
@@ -1534,15 +1625,17 @@ fn write_release(
     // task as `task_not_trained` (Fable's pipeline ruling, item 4).
     manifest[TRAINED_FAMILIES_KEY] = Value::from(trained_families.clone());
     // Read by `qd-release-check`; the runtime reads only `trained_families`.
-    manifest["excluded_families"] = plan
-        .excluded
+    manifest["excluded_families"] = plan.excluded.iter().map(|e| json!({"family": e.family, "reason": e.reason})).collect::<Vec<_>>().into();
+    // The shapes the train manifest records for the admitted families: what `qd-release-check`
+    // enumerates, and what the calibration gate checked when the release has a table.
+    let admitted_shapes: FamilyShapes = plan
+        .train
+        .shapes_by_family
         .iter()
-        .map(|e| json!({"family": e.family, "reason": e.reason}))
-        .collect::<Vec<_>>()
-        .into();
-    if let Some(g) = &plan.gate {
-        manifest["trained_slot_shapes"] = json!(g.shapes);
-    }
+        .filter(|(family, _)| plan.admitted.contains(family))
+        .map(|(family, shapes)| (family.clone(), shapes.clone()))
+        .collect();
+    manifest["trained_slot_shapes"] = json!(admitted_shapes);
     if let Some(reason) = &plan.uncalibrated_reason {
         manifest["calibration_absent_reason"] = Value::from(reason.clone());
     }

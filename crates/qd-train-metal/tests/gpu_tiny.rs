@@ -942,6 +942,31 @@ fn gpu_run_completed_writes_exactly_one_quick_row() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 
+/// The row names the manifest file `run()` read: sha256 of its bytes (Python's
+/// `TrainingData.manifest_file_sha256`). `unpinned_ojas` because this checkout's sibling ojas
+/// need not sit at the locked commit; the row is then marked, which this test does not look at.
+#[test]
+#[ignore = "GPU: opens a Metal runtime; run only in an agreed GPU window"]
+fn gpu_run_row_carries_the_train_manifest_sha256() {
+    let root = scratch("manifest-sha");
+    let mut a = args(&root, 2);
+    a.unpinned_ojas = true;
+    run(&a).unwrap();
+    let rows = rows(&a.ledger);
+    assert_eq!(rows.len(), 1);
+    let manifest_sha: String = qd_export::safetensors::sha256_file(&a.manifest)
+        .unwrap()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(
+        rows[0]["train_manifest_sha256"].as_str(),
+        Some(manifest_sha.as_str()),
+        "the ft row carries train_manifest_sha256"
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 #[ignore = "GPU: opens a Metal runtime; run only in an agreed GPU window"]
 fn gpu_run_of_two_epochs_trains_both_and_the_row_says_two_passes() {

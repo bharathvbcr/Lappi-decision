@@ -2491,6 +2491,8 @@ class RunRecorder:
         registration_id: str | None = None,
         run_cap_s: float | None = None,
         decision_record_path: str | os.PathLike[str] | None = None,
+        train_manifest_sha256: str | None = None,
+        val_without_train: Mapping[str, Any] | None = None,
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
@@ -2517,6 +2519,13 @@ class RunRecorder:
         # once the run was over, and would take the row with it.
         LedgerRow._validate_recipe(recipe)
         self.recipe = recipe
+        # What the terminal row records about the train manifest the run read
+        # (`LedgerRow.train_manifest_sha256`, `.val_without_train`). Validated here for the
+        # same reason as `recipe`: refused at construction, not once the run is spent.
+        LedgerRow._validate_train_manifest_sha256(train_manifest_sha256)
+        LedgerRow._validate_val_without_train(val_without_train)
+        self.train_manifest_sha256 = train_manifest_sha256
+        self.val_without_train = val_without_train
         if cost is None and self.env.device not in CostEstimate.LOCAL_DEVICES:
             # The GH200 case, made impossible rather than discouraged: 13 rung 0 rows
             # recorded cost_usd 0.0 for real GPU hours because nothing required a rate.
@@ -2831,6 +2840,8 @@ class RunRecorder:
                 cost_usd=0.0 if self.cost is None else self.cost.cost_for(wall),
                 notes=note,
                 recipe=self.recipe,
+                val_without_train=self.val_without_train,
+                train_manifest_sha256=self.train_manifest_sha256,
             )
         )
 
