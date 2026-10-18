@@ -105,11 +105,19 @@ def test_the_generate_command_carries_the_configured_k(tmp_path: Path) -> None:
 
 def test_rung0_forwards_its_config_into_the_command() -> None:
     tree = ast.parse((REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8"))
-    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "generate_examples")
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "generate_examples"
+    )
     calls = [
-        n for n in ast.walk(fn)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "generate_command"
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "generate_command"
     ]
     assert len(calls) == 1
     forwarded = {kw.arg: kw.value for kw in calls[0].keywords}
-    assert isinstance(forwarded.get("config"), ast.Name) and forwarded["config"].id == "mutate_config"
+    config = forwarded.get("config")
+    assert isinstance(config, ast.Name) and config.id == "mutate_config"

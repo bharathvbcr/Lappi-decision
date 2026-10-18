@@ -147,7 +147,12 @@ def test_rows_carry_cluster_key_and_are_otherwise_the_pre_cluster_key_bytes() ->
     rows = _rows()
     assert rows and all(str(r.get("cluster_key", "")).startswith("fk1:") for r in rows)
     stripped = "".join(
-        json.dumps({k: v for k, v in r.items() if k != "cluster_key"}, ensure_ascii=False, separators=(",", ":")) + "\n"
+        json.dumps(
+            {k: v for k, v in r.items() if k != "cluster_key"},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        + "\n"
         for r in rows
     )
     assert hashlib.sha256(stripped.encode("utf-8")).hexdigest() == PRE_CLUSTER_KEY_SHA256
