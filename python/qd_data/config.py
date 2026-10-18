@@ -32,6 +32,7 @@ __all__ = [
     "POOL_MAX_CANDIDATE_PAIRS",
     "SPLITS",
     "V6_LSH_MIN_AGREEMENT_PERMILLE",
+    "V6_PAIRWISE_LENGTH_BAND",
     "DataConfig",
     "Split",
 ]
@@ -55,6 +56,12 @@ DEDUPE_KEEP_RULES: Final[tuple[str, ...]] = (DEDUPE_KEEP_LEXICAL, DEDUPE_KEEP_SP
 #: (GAP-DEDUPE-LSH-BAND-CANDIDATES-NOT-DUPLICATES-2026-10-03). Per mille, so Python and
 #: ``qd-prep lsh`` compare the same integers and cannot round a boundary pair differently.
 V6_LSH_MIN_AGREEMENT_PERMILLE: Final[int] = 650
+#: v6's pairwise length balance, ``(low, high)``: per split, P(the gold response is the longer
+#: one) among ordered ``pairwise.helpfulness`` rows of unequal length must lie in it. The band
+#: is the one the data-clean plan states (HANDOFF/data-clean-v6-plan-2026-10-06.md, item 9:
+#: [0.45, 0.55]) and ``qd-prep decisions``' ``pairwise_length_balance`` implements; v5's pool
+#: carried a length prior (AUDIT/training-audit-2026-10-06.md section 2.6, mistake M24).
+V6_PAIRWISE_LENGTH_BAND: Final[tuple[float, float]] = (0.45, 0.55)
 
 #: The near-duplicate searches' candidate-pair bound (dedupe and the split's re-derivation).
 #: At 0.8 Jaccard on a code corpus the candidate set is a small multiple of the unit count, so
@@ -129,6 +136,11 @@ class DataConfig:
     #: v5's (none). In :meth:`fingerprint` only when set: it can drop a confirmed pair whose
     #: estimate fell under it, so unlike the bound it can change the data.
     lsh_min_agreement_permille: int = V6_LSH_MIN_AGREEMENT_PERMILLE
+    #: The pairwise length band a decision pool must satisfy
+    #: (:func:`qd_data.decisions.load_decision_pool`); v6's by default, ``None`` is v5's (no
+    #: check). In :meth:`fingerprint` only when set, so a :meth:`legacy_v5` config hashes as v5's
+    #: pinned manifests recorded it.
+    pairwise_length_band: tuple[float, float] | None = V6_PAIRWISE_LENGTH_BAND
 
     metadata: dict[str, str] = field(default_factory=dict)
     #: v6's benchmark re-pin (data-clean plan section 3 item 6;
@@ -217,6 +229,12 @@ class DataConfig:
             raise ValueError(
                 f"lsh_min_agreement_permille must be an int in [0, 1000], got {permille!r}"
             )
+        band = self.pairwise_length_band
+        if band is not None and not (len(band) == 2 and 0.0 < band[0] <= 0.5 <= band[1] < 1.0):
+            raise ValueError(
+                "pairwise_length_band must be (low, high) with 0 < low <= 0.5 <= high < 1 "
+                f"(the balanced point inside it), got {band!r}"
+            )
         if not self.held_out_roots:
             raise ValueError(
                 "held_out_roots is empty: the training-time path check would then have "
@@ -258,6 +276,8 @@ class DataConfig:
             body["lsh_min_agreement_permille"] = self.lsh_min_agreement_permille
         if self.benchmark_eval_splits_are_targets:
             body["benchmark_eval_splits_are_targets"] = True
+        if self.pairwise_length_band is not None:
+            body["pairwise_length_band"] = list(self.pairwise_length_band)
         return body
 
     def with_rules(self, *, v6: bool) -> DataConfig:
@@ -271,12 +291,14 @@ class DataConfig:
                 dedupe_keep_rule=DEDUPE_KEEP_SPLIT_PRIORITY,
                 lsh_min_agreement_permille=V6_LSH_MIN_AGREEMENT_PERMILLE,
                 benchmark_eval_splits_are_targets=True,
+                pairwise_length_band=V6_PAIRWISE_LENGTH_BAND,
             )
         return replace(
             self,
             dedupe_keep_rule=DEDUPE_KEEP_LEXICAL,
             lsh_min_agreement_permille=0,
             benchmark_eval_splits_are_targets=False,
+            pairwise_length_band=None,
         )
 
     @classmethod

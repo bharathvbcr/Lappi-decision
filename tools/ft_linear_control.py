@@ -113,7 +113,7 @@ import time
 import types
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final
 
@@ -651,6 +651,7 @@ def score_against_control(
         gate: TriState = NotRun(reason=f"a task's control did not run: {reason}")
     else:
         gate = paired_margin_by_key(verdicts.correct, control, seed=seed)
+    gate = _naming_val_without_train(gate, train, val)
 
     for kind in LETTER_KIND_NAMES:
         keys = [k for k, v in verdicts.kind_of.items() if v == kind]
@@ -673,6 +674,31 @@ def score_against_control(
     if hold is not None:
         metrics.update(_holdout_metrics(val, verdicts, control, hold, seed=seed, gate=gate))
     return ControlScore(gate, metrics, len(train), removed, fit_seconds)
+
+
+def _naming_val_without_train(
+    gate: TriState, train: Sequence[RequestDoc], val: Sequence[RequestDoc]
+) -> TriState:
+    """``gate`` with its reading naming every family the pooled margin spans that has val rows
+    and no train rows (the train rows after any hold-out), with its val count. Such a family has
+    no control to fit, so the pooled gate cannot have run over it
+    (GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05). Which families
+    the gate pools is not decided here: that is ``paired_margin_population``'s."""
+    trained = {task_family(d.task) for d in train}
+    val_by_family: dict[str, int] = {}
+    for d in val:
+        family = task_family(d.task)
+        val_by_family[family] = val_by_family.get(family, 0) + 1
+    only = {f: n for f, n in sorted(val_by_family.items()) if f not in trained}
+    if not only:
+        return gate
+    named = "; ".join(f"{f} (val {n})" for f, n in only.items())
+    note = f"pooled over family(ies) with val rows but no train rows: {named}"
+    if isinstance(gate, NotRun):
+        return replace(gate, reason=f"{gate.reason}; {note}")
+    if isinstance(gate, Ran):
+        return replace(gate, detail=f"{gate.detail}; {note}" if gate.detail else note)
+    return gate
 
 
 def task_family(task: str) -> str:

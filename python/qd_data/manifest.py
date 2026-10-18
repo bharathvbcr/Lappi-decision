@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -53,6 +54,7 @@ __all__ = [
     "ManifestEntry",
     "build_manifests",
     "data_snapshot_hash",
+    "val_without_train",
 ]
 
 #: Bumped when the hashed body changes shape. It is *inside* the hashed body, so an
@@ -135,6 +137,11 @@ class Manifest:
     status: TriState
     #: Free-form, excluded from the hash. Wall-clock and host go here or nowhere.
     provenance: dict[str, str]
+    #: Families with val rows and no train rows in this build (:func:`val_without_train`), the
+    #: same block in every split's manifest. Excluded from the hash, like ``provenance``.
+    #: ``None`` is a manifest written before the block existed: it says nothing, and
+    #: ``to_json`` writes it as null rather than as "none".
+    val_without_train: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.split not in SPLITS:
@@ -194,6 +201,7 @@ class Manifest:
             "split_report": self.split_json,
             "status": self.status.to_json(),
             "provenance": dict(sorted(self.provenance.items())),
+            "val_without_train": self.val_without_train,
             "entries": [e.to_json() for e in self.entries],
         }
 
@@ -245,6 +253,7 @@ class Manifest:
             split_json=dict(raw.get("split_report", {})),
             status=parse_tristate(raw.get("status"), field=f"{path}:status"),
             provenance=dict(raw.get("provenance", {})),
+            val_without_train=raw.get("val_without_train"),
         )
         recorded = raw.get("data_snapshot_hash")
         derived = manifest.snapshot_hash()
@@ -270,6 +279,19 @@ def _entry(row: DataRow, split_name: str) -> ManifestEntry:
         licence_id=row.licence_id,
         obligations=row.obligations,
     )
+
+
+def val_without_train(
+    train_by_family: Mapping[str, int], val_by_family: Mapping[str, int]
+) -> dict[str, Any]:
+    """The families with val rows and no train rows, each with its val count, and their number
+    (GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05). Such a family
+    is scored on val with nothing to fit a control on, so a gate pooled over it cannot run."""
+    only = {
+        f: n for f, n in sorted(val_by_family.items())
+        if n > 0 and train_by_family.get(f, 0) == 0
+    }
+    return {"count": len(only), "families": only}
 
 
 def build_manifests(
@@ -313,6 +335,12 @@ def build_manifests(
     ))
     refused = {k: tuple(v) for k, v in refusal_report(config.licence).items()}
 
+    by_family = {
+        name: _histogram(split_report.rows_by_split.get(name, ()), "family_id")
+        for name in ("train", "val")
+    }
+    without_train = val_without_train(by_family["train"], by_family["val"])
+
     out: dict[str, Manifest] = {}
     for split_name in SPLITS:
         rows = split_report.rows_by_split.get(split_name, ())
@@ -331,6 +359,7 @@ def build_manifests(
             split_json=split_json,
             status=status,
             provenance=prov,
+            val_without_train=without_train,
         )
     return out
 
