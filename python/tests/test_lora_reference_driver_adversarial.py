@@ -26,7 +26,12 @@ sys.path.insert(0, str(REPO / "python"))
 import ckpt_average  # noqa: E402
 import lora_reference_run as drv  # noqa: E402
 import test_real_ft_rungd_flags as rg  # noqa: E402
-from test_lora_reference_driver import _cfg, env, tiny_spec  # noqa: E402,F401
+from test_lora_reference_driver import (  # noqa: E402,F401
+    _cfg,
+    env,
+    passing_prereg_bind,
+    tiny_spec,
+)
 
 from qd_data.errors import HeldOutViolation  # noqa: E402
 from qd_train import lora  # noqa: E402
