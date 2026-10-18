@@ -845,3 +845,149 @@ def test_a_full_queue_refuses_with_exit_75_and_never_runs(tmp_path: Path) -> Non
     assert "queue is full" in proc.stderr
     assert not marker.exists()
     assert _run(lock, "t", "true", MAC_HEAVY_MAX_QUEUE="many").returncode == 64
+
+
+# --- a job waiting for a cargo slot does not hold the lock (Fable Q17, 2026-10-18) ------------
+# GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE-2026-10-18
+# ~/.claude-bin/cargo has 2 lockf slots and waits up to 1800 s for one. "All slots held" is part of
+# mac_heavy's busy predicate, so a holder never sits on the lock in that wait.
+
+
+@pytest.fixture(autouse=True)
+def _no_real_cargo_slots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Every test, including those that build their own env from os.environ, probes a directory
+    # that does not exist, never the real ~/.cache/cargo-slots.
+    monkeypatch.setenv("MAC_HEAVY_CARGO_SLOTS_DIR", str(tmp_path / "absent-cargo-slots"))
+
+
+def _take_slots(slots: Path, n: int) -> list[int]:
+    # lockf(1) takes flock(2) locks, so holding flock on the slot files is what a gate does.
+    import fcntl
+
+    slots.mkdir(exist_ok=True)
+    fds = []
+    for i in range(1, n + 1):
+        fd = os.open(slots / f"slot{i}", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fds.append(fd)
+    return fds
+
+
+def _free_slots(fds: list[int]) -> None:
+    for fd in fds:
+        os.close(fd)
+
+
+def test_a_waiter_that_finds_every_cargo_slot_held_never_owns_the_lock_then_runs_when_one_frees(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "lock.d"
+    slots = tmp_path / "slots"
+    marker = tmp_path / "ran"
+    fds = _take_slots(slots, 2)
+    proc = _popen(
+        lock, "t", "touch", str(marker),
+        MAC_HEAVY_MAX_LOAD="100000", MAC_HEAVY_MAX_WAIT_S="30",
+        MAC_HEAVY_CARGO_SLOTS_DIR=str(slots),
+    )
+    try:
+        _wait_for(lambda: len(_tickets(lock)) == 1)
+        for _ in range(25):
+            assert not lock.exists(), "a slot-blocked job holds the lock"
+            assert not (lock / "owner").exists()
+            time.sleep(0.1)
+        assert proc.poll() is None and not marker.exists()
+        assert any(p.name.endswith(".busy") for p in _queue(lock).iterdir()), "no .busy marker"
+        _free_slots(fds[:1])
+        fds = fds[1:]
+        _, err = proc.communicate(timeout=30)
+    finally:
+        _free_slots(fds)
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 0, err
+    assert marker.exists()
+    assert not lock.exists()
+    assert _tickets(lock) == []
+
+
+def test_slots_held_for_the_whole_wait_exit_76_without_running(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    slots = tmp_path / "slots"
+    marker = tmp_path / "ran"
+    fds = _take_slots(slots, 2)
+    try:
+        proc = _run(
+            lock, "t", "touch", str(marker),
+            MAC_HEAVY_MAX_WAIT_S="2", MAC_HEAVY_CARGO_SLOTS_DIR=str(slots),
+        )
+    finally:
+        _free_slots(fds)
+    assert proc.returncode == 76, proc.stderr
+    assert "no cargo slot free" in proc.stderr
+    assert not marker.exists()
+    assert not lock.exists()
+
+
+def test_one_free_slot_is_not_busy(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    slots = tmp_path / "slots"
+    marker = tmp_path / "ran"
+    fds = _take_slots(slots, 1)
+    (slots / "slot2").write_text("")
+    try:
+        proc = _run(
+            lock, "t", "touch", str(marker),
+            MAC_HEAVY_MAX_WAIT_S="10", MAC_HEAVY_CARGO_SLOTS_DIR=str(slots),
+        )
+    finally:
+        _free_slots(fds)
+    assert proc.returncode == 0, proc.stderr
+    assert marker.exists()
+
+
+def test_an_absent_cargo_slot_dir_is_not_busy(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    slots = tmp_path / "no-such-dir"
+    marker = tmp_path / "ran"
+    proc = _run(
+        lock, "t", "touch", str(marker),
+        MAC_HEAVY_MAX_WAIT_S="10", MAC_HEAVY_CARGO_SLOTS_DIR=str(slots),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert marker.exists()
+    assert not slots.exists(), "the probe created the slot directory"
+
+
+def test_the_slot_probe_holds_no_slot_after_it_returns_and_creates_no_slot_file(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "lock.d"
+    slots = tmp_path / "slots"
+    slots.mkdir()
+    (slots / "slot1").write_text("keep")
+    (slots / "slot2").write_text("keep")
+    result = tmp_path / "result"
+    # The job runs after the probe (twice: before the mkdir and with the lock held). It tries to
+    # take both slots itself; a probe that leaked a lock would make a slot unavailable.
+    job = (
+        "import fcntl, os\n"
+        "ok = []\n"
+        "for i in (1, 2):\n"
+        f"    p = {str(slots)!r} + '/slot%d' % i\n"
+        "    fd = os.open(p, os.O_WRONLY | os.O_APPEND)\n"
+        "    try:\n"
+        "        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); ok.append(i)\n"
+        "    except OSError:\n"
+        "        pass\n"
+        f"open({str(result)!r}, 'w').write(repr(ok))\n"
+    )
+    proc = _run(
+        lock, "t", "python3", "-c", job,
+        MAC_HEAVY_MAX_WAIT_S="10", MAC_HEAVY_CARGO_SLOTS_DIR=str(slots),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert result.read_text() == "[1, 2]"
+    assert (slots / "slot1").read_text() == "keep", "the probe truncated a slot file"
+    assert sorted(p.name for p in slots.iterdir()) == ["slot1", "slot2"]

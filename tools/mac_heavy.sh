@@ -62,6 +62,9 @@
 #   runs (a job blocked by load used to hold it, and everyone behind it, for up to 4 h:
 #   2026-10-17). One wait budget covers both waits. If the lock was free but the machine stayed
 #   busy, it exits 76; if the machine was quiet but the lock stayed held, 75; the job never runs.
+#   "No cargo slot free" is part of the same predicate (slots_busy below): all $MAC_HEAVY_CARGO_SLOTS
+#   (default 2) lockf slots in $MAC_HEAVY_CARGO_SLOTS_DIR (default ~/.cache/cargo-slots, the cargo
+#   slot gate's) held. A directory that is absent is not busy.
 #   $MAC_HEAVY_LOAD_CMD replaces the load read (prints the 1-minute load) and, like
 #   MAC_HEAVY_FOOTPRINT_CMD, is refused with exit 64 unless MAC_HEAVY_TEST_HOOK=1.
 # - Clean stop. On SIGTERM or SIGINT it stops the job's tree before it exits, so no job outlives
@@ -75,6 +78,14 @@
 # - Arrival order. Waiters take numbered tickets in $MAC_HEAVY_LOCK.q and only the lowest live
 #   ticket that load allows may try the lock (rules and bounds at take_ticket below;
 #   $MAC_HEAVY_MAX_QUEUE, default 256 live tickets, is refused above with exit 75).
+#
+# OPEN QUESTION FOR THE OWNER (Fable ruling Q17 (a), 2026-10-18; not implemented): the lock already
+# serializes Lappi to one build, so should a job under it run with CARGO_SLOT_HELD set? Its cargo
+# would then skip the machine-wide slot gate, and a Lappi build could never queue behind other
+# sessions' slots; the price is that Lappi's build would no longer count against the 2-slot cap
+# that exists to keep the machine under the 2026-10-17 WindowServer-watchdog load. Until the owner
+# rules, the job passes through the gate like any other, and slots_busy keeps it from waiting there
+# while holding the lock.
 #
 # It never breaks another holder's lock. A holder whose pid is gone is reported as STALE every
 # 5 minutes, and the lead clears it by hand. A hold taken by hand (for another session's run)
@@ -104,6 +115,9 @@ else
 fi
 
 LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/build/mac-heavy.lock.d}
+# The cargo slot gate's directory and slot count (~/.claude-bin/cargo: CARGO_SLOT_DIR, CARGO_SLOTS).
+CARGO_SLOTS_DIR=${MAC_HEAVY_CARGO_SLOTS_DIR:-/Users/bharath/.cache/cargo-slots}
+CARGO_SLOTS=${MAC_HEAVY_CARGO_SLOTS:-2}
 MAX_WAIT=${MAC_HEAVY_MAX_WAIT_S:-14400}
 MIN_FREE_GB=${MAC_HEAVY_MIN_FREE_GB:-15}
 POLL=${MAC_HEAVY_POLL_S:-20}
@@ -152,10 +166,10 @@ MAX_PROCS=${MAC_HEAVY_MAX_PROCS-2500}
 # lock loop then fell through and the job ran without the lock) and 0900 as 0 (a free-space floor
 # of nothing). Bounded too: a value too wide for bash's integer tests makes `[ -gt ]` error, and
 # an error read as "not over" is a guard that fails open.
-for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS" "$MAX_QUEUE"; do
+for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS" "$MAX_QUEUE" "$CARGO_SLOTS"; do
   case "$v" in
     0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-    *) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD, _MAX_PROCS and _MAX_QUEUE must each be a canonical non-negative decimal integer of at most 9 digits (no leading zeros, no sign, no fraction); got '$v'. Refusing" >&2; exit 64 ;;
+    *) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD, _MAX_PROCS, _MAX_QUEUE and _CARGO_SLOTS must each be a canonical non-negative decimal integer of at most 9 digits (no leading zeros, no sign, no fraction); got '$v'. Refusing" >&2; exit 64 ;;
   esac
 done
 if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ] && [ "${MAC_HEAVY_TEST_HOOK:-}" != 1 ]; then
@@ -328,13 +342,47 @@ machine_busy() {
     'BEGIN { print ((l + 0 > ml + 0) || (p + 0 > mp + 0)) ? 1 : 0 }')" = 1 ]
 }
 
+# No cargo slot free (GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE-2026-10-18).
+# Under CLAUDECODE=1 the cargo wrapper ~/.claude-bin/cargo waits up to 1800 s for one of 2 lockf
+# slots and then builds ungated; a job that held the Lappi lock for that wait blocked every Lappi
+# lane, the load-wait defect one layer down. So "all slots held" counts as busy, probed before the
+# mkdir and again once the lock is held, like load. The probe is conservative: it runs whether or
+# not the wrapped command will reach the gate. Non-destructive: it opens each existing slot file
+# for append (never truncates, never creates one) and try-locks it with `lockf -s -t 0` inside a
+# subshell, so the lock drops when the subshell exits, a few ms later. A gate never sees a slot
+# stay taken because of it: the gate's own try is non-blocking and retries every 3 s, so the worst
+# a collision does is cost the gate one retry, and a waiting gate holds no slot to steal. An absent
+# directory, an absent slot file (the gate has never used it, so it is free) or an unwritable one
+# (it cannot be probed) is not busy.
+slots_busy() {
+  local i=1 f
+  [ -d "$CARGO_SLOTS_DIR" ] || return 1
+  while [ "$i" -le "$CARGO_SLOTS" ]; do
+    f=$CARGO_SLOTS_DIR/slot$i
+    { [ -f "$f" ] && [ -w "$f" ]; } || return 1
+    if ( exec 9>>"$f" && /usr/bin/lockf -s -t 0 9 ) 2>/dev/null; then return 1; fi
+    i=$((i + 1))
+  done
+  return 0
+}
+why=""
+cant_start() {
+  if machine_busy; then
+    why="machine busy (load $load, max $MAX_LOAD; $procs processes, max $MAX_PROCS)"
+  elif slots_busy; then
+    why="no cargo slot free (all $CARGO_SLOTS held in $CARGO_SLOTS_DIR)"
+  else
+    return 1
+  fi
+}
+
 waited=0
 last_note=-300
 busy_note=-300
 take_ticket
 while :; do
   blocker=""
-  if machine_busy; then
+  if cant_start; then
     : > "$TICKET.busy"
     blocker=busy
   elif rm -f "$TICKET.busy"; ticket_ahead; then
@@ -346,7 +394,7 @@ while :; do
       echo "start=$(now)"
       echo "cwd=$PWD"
     } > "$LOCK/owner"
-    machine_busy || break
+    cant_start || break
     release
     : > "$TICKET.busy"
     blocker=busy
@@ -355,7 +403,7 @@ while :; do
   fi
   if [ "$waited" -ge "$MAX_WAIT" ]; then
     if [ "$blocker" = busy ]; then
-      echo "mac_heavy: $(now) the machine stayed busy (load $load > $MAX_LOAD or $procs processes > $MAX_PROCS) for the whole wait; '$LABEL' did NOT run" >&2
+      echo "mac_heavy: $(now) stayed busy for the whole wait: $why; '$LABEL' did NOT run" >&2
       exit 76
     fi
     echo "mac_heavy: $(now) gave up after ${waited}s waiting for $LOCK; '$LABEL' did NOT run" >&2
@@ -364,7 +412,7 @@ while :; do
   fi
   if [ "$blocker" = busy ]; then
     if [ $((waited - busy_note)) -ge 300 ]; then
-      echo "mac_heavy: $(now) '$LABEL' waits without the lock: machine busy (load $load, max $MAX_LOAD; $procs processes, max $MAX_PROCS)" >&2
+      echo "mac_heavy: $(now) '$LABEL' waits without the lock: $why" >&2
       busy_note=$waited
     fi
   elif [ $((waited - last_note)) -ge 300 ]; then
