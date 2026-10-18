@@ -324,7 +324,7 @@ def test_main_stages_the_manifest_digest_it_read_for_every_ft_row(monkeypatch, t
     facts = rft.CorpusFacts(None, {}, train_manifest_sha256="a" * 64, val_without_train=block)
     rft._RUN_TRAIN_MANIFEST["train_manifest_sha256"] = "stale"
     _run(monkeypatch, tmp_path, capsys, score=False, val_labels=CONFIRMED, facts=facts)
-    assert rft._RUN_TRAIN_MANIFEST == {
+    assert {
         "train_manifest_sha256": "a" * 64, "val_without_train": block,
-    }
+    } == rft._RUN_TRAIN_MANIFEST
     rft._RUN_TRAIN_MANIFEST.clear()
