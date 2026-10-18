@@ -128,6 +128,29 @@ fn dates_versions_shas_lines_and_identifiers_are_not_measured_numbers() {
 }
 
 #[test]
+fn a_registered_constant_quoted_with_its_value_is_not_a_measured_number() {
+    let r = root();
+    let ok = doc(
+        &r,
+        "HANDOFF/c-2026-10-18.md",
+        "Applied at `ECE_THRESHOLD` 0.05 and MAX_LOAD_FRACTION = 0.94, also `DEVICE_USABLE_FRACTION`: 0.94.\n",
+    );
+    let (code, out) = run(&r, &[&ok]);
+    assert_eq!(code, Some(0), "{out}");
+    // The same value with no constant name before it, or after a lower-case or unnamed label, is
+    // still a claim.
+    for (name, text) in [
+        ("d", "Applied at the threshold of exactly 0.05 here\n"),
+        ("e", "The val_accuracy 0.857 came out of the run.\n"),
+        ("f", "It reached ECE 0.05 on the held-out set.\n"),
+    ] {
+        let f = doc(&r, &format!("HANDOFF/{name}-2026-10-18.md"), text);
+        let (code, out) = run(&r, &[&f]);
+        assert_eq!(code, Some(1), "{text}: {out}");
+    }
+}
+
+#[test]
 fn historical_files_are_not_flagged_and_the_count_says_so() {
     let r = root();
     let old = doc(

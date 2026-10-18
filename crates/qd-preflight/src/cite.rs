@@ -227,6 +227,9 @@ fn is_reference(prefix: &str, suffix: &str, before: u8, run: &str) -> bool {
     if before == b'$' {
         return true;
     }
+    if follows_constant_name(prefix) {
+        return true;
+    }
     let lead = prefix.trim_start_matches('#').trim();
     if prefix.trim_start().starts_with('#') && lead.is_empty() {
         return true;
@@ -256,6 +259,26 @@ fn is_reference(prefix: &str, suffix: &str, before: u8, run: &str) -> bool {
     }
     matches!(run.split_once('.'), Some((a, b)) if a.len() == 4 && (4..=5).contains(&b.len()) && !a.contains(','))
         && run.bytes().all(|c| c.is_ascii_digit() || c == b'.')
+}
+
+/// A registered constant quoted with its value (`ECE_THRESHOLD` 0.05, `MAX_X = 0.94`): the number
+/// is read from source, where it was set, not measured by a run. The name is SCREAMING_SNAKE_CASE
+/// with at least one underscore, optionally in backticks, optionally followed by `=` or `:`.
+fn follows_constant_name(prefix: &str) -> bool {
+    let head = prefix.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, '=' | ':' | '`'));
+    let name_len = head
+        .bytes()
+        .rev()
+        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == b'_')
+        .count();
+    let name = &head[head.len() - name_len..];
+    name.len() >= 3
+        && name.contains('_')
+        && name.bytes().any(|c| c.is_ascii_uppercase())
+        && head[..head.len() - name_len]
+            .bytes()
+            .next_back()
+            .is_none_or(|c| !c.is_ascii_alphanumeric())
 }
 
 fn is_date_or_time(run: &str) -> bool {

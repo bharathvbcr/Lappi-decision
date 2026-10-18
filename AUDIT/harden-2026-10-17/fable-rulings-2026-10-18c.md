@@ -18,7 +18,7 @@ Read-only, under the standing delegation. Navigation: `devmap_status` fresh (gen
 
 ## Q17. Load: keep 48; make mac_heavy see the slot gate; two asks
 
-**Decision.** `MAX_LOAD=48` stands. Load at 95 is 5.3/core on 18 cores and memory pressure is the guarded failure; but the real cost of running under load is false timeouts (`stress_v6.rs:34` CLI_LIMIT 1800 s; W5-d's d9bfbcf-vs-879933c timing is not an A/B unless interleaved, so treat its result as `quick`). Raising 48 buys nothing but more such failures.
+**Decision.** `MAX_LOAD=48` stands. Load at 95 is 5.3/core on 18 cores and memory pressure is the guarded failure; but the real cost of running under load is false timeouts (`stress_v6.rs:34` CLI_LIMIT 1800 s; W5-d's d9bfbcf-vs-879933c timing is not an A/B unless interleaved, so treat its result as `quick`). Raising 48 buys nothing but more such failures. [W8-a citation tag, not Fable's text: GAP-FABLE-RULINGS-FIGURES-FROM-SOURCES-OUTSIDE-THE-REPO-2026-10-18]
 
 **Lappi's own fix.** The slot gate is `~/.claude-bin/cargo`: 2 lockf slots (:48), waits ≤1800 s then runs ungated (:49, :77-79), active only under `CLAUDECODE=1` (:25). So a Lappi holder waits up to 30 min holding the lock, then builds anyway, which is W5-b's defect one layer down (GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE-2026-10-18). Add "no cargo slot free" to mac_heavy's busy predicate, probed before `mkdir`, with a test that a waiter at 2/2 does not own `$LOCK/owner`. **Ask the owner:** (a) whether a job under the mac_heavy lock should run with `CARGO_SLOT_HELD` set, since the lock already serializes Lappi to one build; (b) sibling-repo builds (GAP-MAC-HEAVY-LOCK-AND-LOAD-GATE-BIND-LAPPI-ONLY-2026-10-18).
 
