@@ -174,19 +174,6 @@ pub fn row_extras(train_manifest_sha256: &str) -> ledger::RowExtras {
     }
 }
 
-/// [`ledger::append`] with `extras` ([`FtRow::line_with`]): the same `mac-ojas-*` path rule, the
-/// same locked, chained, fsynced append.
-pub fn append_row(
-    path: &Path,
-    row: &FtRow,
-    extras: &ledger::RowExtras,
-    row_id: String,
-    written_at: String,
-) -> Result<ledger::Stamp, ledger::LedgerError> {
-    ledger::check_ledger_path(path)?;
-    ledger::append_line(path, row_id, written_at, |stamp| row.line_with(stamp, extras))
-}
-
 /// Run `a` to completion. See the module docs for the order of checks.
 pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
     // ---- host-side refusals, before the GPU ------------------------------------------------
@@ -569,7 +556,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         ) + &resumed,
     };
     let written_at = ledger::isoformat_utc(SystemTime::now()).map_err(failed("written_at"))?;
-    append_row(
+    ledger::append_with(
         &a.ledger,
         &row,
         &row_extras(&manifest_sha256),

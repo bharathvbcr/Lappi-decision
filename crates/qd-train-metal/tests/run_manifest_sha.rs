@@ -104,7 +104,7 @@ fn the_appended_row_carries_the_digest_and_equals_the_manifest_hash() {
         wall_clock_source: WallClockSource::Recorder,
         notes: String::new(),
     };
-    qd_train_metal::run::append_row(
+    ledger::append_with(
         &a.ledger,
         &row,
         &row_extras(&sha),
