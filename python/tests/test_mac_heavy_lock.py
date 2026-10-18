@@ -691,11 +691,11 @@ def test_the_load_hook_is_refused_without_the_test_marker(tmp_path: Path) -> Non
     assert not lock.exists()
 
 
-# --- the lock is taken in arrival order (GAP-MAC-HEAVY-LOCK-IS-NOT-FIFO-A-JOB-CHAIN-STARVES-
-# WAITERS-2026-10-18) ---------------------------------------------------------------------------
-# A bare mkdir lock polled by everyone is won by whoever polls first after a release, and a job chain
-# that re-enters at once polls first every time. A waiter now takes a numbered ticket in $LOCK.q on
-# arrival, and only the lowest live ticket that load allows may try the mkdir.
+# --- the lock is taken in arrival order --------------------------------------------------------
+# GAP-MAC-HEAVY-LOCK-IS-NOT-FIFO-A-JOB-CHAIN-STARVES-WAITERS-2026-10-18
+# A bare mkdir lock polled by everyone is won by whoever polls first after a release, and a job
+# chain that re-enters at once polls first every time. A waiter now takes a numbered ticket in
+# $LOCK.q on arrival, and only the lowest live ticket that load allows may try the mkdir.
 
 
 def _queue(lock: Path) -> Path:
