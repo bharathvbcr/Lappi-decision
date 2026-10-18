@@ -4,8 +4,8 @@ qd-mutate numbers lines by counting LF bytes (crates/qd-mutate/src/span.rs line_
 diffspan.rs lines_for_diff and span.rs lines_in_span all split on '\\n'). Python's
 str.splitlines() also breaks on CR, VT, FF, FS, GS, RS, U+0085, U+2028 and U+2029, so a span
 numbered with it and read by qd-mutate points at the wrong line whenever the file holds one
-of them (GAP-COMMITPACKFT-CHANGED-LINE-SPANS-SPLITLINES-VS-QD-MUTATE-NEWLINES). Every Python
-site that numbers lines for a span label calls lf_lines.
+of them (GAP-COMMITPACKFT-CHANGED-LINE-SPANS-SPLITLINES-VS-QD-MUTATE-NEWLINES-2026-10-12).
+Every site that numbers lines for a span label calls lf_lines.
 """
 
 from __future__ import annotations

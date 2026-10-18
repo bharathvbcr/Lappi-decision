@@ -2,7 +2,7 @@
 
 ``str.splitlines()`` also splits on CR, VT, FF, FS, GS, RS, U+0085, U+2028 and U+2029, so a
 changed-line span numbered with it is off by one after any of them when read by qd-mutate
-(GAP-COMMITPACKFT-CHANGED-LINE-SPANS-SPLITLINES-VS-QD-MUTATE-NEWLINES).
+(GAP-COMMITPACKFT-CHANGED-LINE-SPANS-SPLITLINES-VS-QD-MUTATE-NEWLINES-2026-10-12).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO / "tools"))
 
 from qd_data.lines import lf_lines  # noqa: E402
 
-SEPARATORS = ["\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", " ", " "]
+SEPARATORS = ["\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", chr(0x2028), chr(0x2029)]
 
 
 def _id(sep: str) -> str:

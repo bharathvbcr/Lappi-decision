@@ -139,6 +139,14 @@ class DataConfig:
     #: by intent), which is how the v5r shards came to hold benchmark test items. In
     #: :meth:`fingerprint` only when set, so a :meth:`legacy_v5` config hashes as v5's did.
     benchmark_eval_splits_are_targets: bool = True
+    #: Make a training-shard row that shares source content with a held-out task family's row
+    #: fail the split status (M12, GAP-PORTED-HELDOUT-FAMILY-CONTENT-OVERLAPS-TRAIN). Off by
+    #: default: the mixture feeds one commitpackft row to trained families and to the held-out
+    #: ``code.language_id`` at once, so turning it on fails every such build until a human rules
+    #: how the raw rows are partitioned (rule 2: that moves the held-out population). The overlap
+    #: is reported either way (``SplitReport.task_holdout_content_disjoint``). Not in
+    #: :meth:`fingerprint`: it changes whether a build is accepted, not the rows built.
+    refuse_task_holdout_content_overlap: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.seed, int) or isinstance(self.seed, bool):
