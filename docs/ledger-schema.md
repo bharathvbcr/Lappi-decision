@@ -65,6 +65,10 @@ not a rounding choice.
 | `cost_usd` | number | measured from instance rate x wall clock |
 | `notes` | string | free text; never parsed by a gate |
 | `recipe` | object \| null | the settings `protocol.recipe_hash` was taken of, stored as well as hashed. `null` on a row that does not record them, which is every row written before 2026-09-21 — never `{}`, which would claim the run had no settings |
+| `val_without_train` | object (optional) | the data build's block naming families with val rows and no train rows (`Manifest.val_without_train`: `{count, families: {family: val rows}}`; qd-prep's block adds `strata`). Added 2026-10-18 (Fable Q14 P2): `_population_paired_margin` reads it so a `not_run` for a family names the cause. It excludes nothing from any pool. Omitted from the line when not recorded, so every earlier line is unchanged; an empty block (`count` 0) is a record that there is no such family, not the same claim as absent. |
+| `train_manifest_sha256` | string (optional) | lowercase hex sha256 of the train manifest **file's bytes** (`TrainingData.manifest_file_sha256`). `protocol.data_snapshot_hash` hashes the manifest's re-derived content, so it cannot say which file was read. Deliberately not a `Protocol` field (that would move every protocol hash). Absent means *not recorded*, never a pass; a consumer that needs it refuses a row without it. Added 2026-10-18. |
+
+Rust mirror: `crates/qd-train/src/ledger.rs` reads both (`read_entries`, `RowExtras`) and writes both (`Row::line_with`); `Status::Started` is read and skipped by default, as `Ledger.rows()` does.
 
 ### `recipe`
 
