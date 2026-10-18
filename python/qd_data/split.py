@@ -24,10 +24,15 @@ the subtle error this module is written to avoid:
     abstention on an unasked question. Their content may legitimately overlap
     training content -- a commitpackft row can feed a training family and a held-out
     family at once -- so applying the near-duplicate check across this boundary
-    would flag the design as a defect.
+    would flag the design as a defect. That overlap is not harmless, though: it
+    is exactly what made replay drawn from training shards hit held-out content
+    (GAP-PORTED-HELDOUT-FAMILY-CONTENT-OVERLAPS-TRAIN). :func:`task_holdout_content_disjoint`
+    reports it, by exact key, and fails the split status while it exists when
+    ``DataConfig.refuse_task_holdout_content_overlap`` is set.
 
-So the near-duplicate and identity checks run over ``repo_split``, and a separate
-check asserts no held-out family identifier appears in a training shard.
+So the near-duplicate and identity checks run over ``repo_split``, a separate
+check asserts no held-out family identifier appears in a training shard, and
+another asserts no training row shares source content with a held-out family.
 
 The repo assignment is a keyed hash, not a shuffle:
 
@@ -62,11 +67,11 @@ from .rows import DataRow
 from .sources import PINNED_SPLIT_KEY
 
 __all__ = [
+    "CLUSTER_KEY_METADATA",
     "CONTENT_DISJOINT_FAMILIES",
     "HELD_OUT",
     "SQUAD_ANSWERABILITY_TITLE_FRACTION",
     "SQUAD_TITLE_FAMILIES",
-    "CLUSTER_KEY_METADATA",
     "TRAINING_SPLITS",
     "SplitAssignment",
     "SplitReport",
@@ -78,6 +83,8 @@ __all__ = [
     "split",
     "squad_title_family",
     "squad_title_repo_key",
+    "task_holdout_content_disjoint",
+    "task_holdout_overlap",
 ]
 
 HELD_OUT: Final[str] = "heldout"
@@ -265,6 +272,14 @@ class SplitReport:
     #: its content digest with a row on another side of the split: that ruling's leak
     #: definition. ``None`` when no row was scoped out, and then absent from every report.
     exact_content_disjoint: TriState | None = None
+    #: No row in a training shard shares source content (``identity_key``, ``cluster_key`` or
+    #: ``dedupe_text`` digest) with a row of a held-out task family
+    #: (:func:`task_holdout_content_disjoint`). ``NotRun`` when there is no held-out-family row
+    #: or no training row, and then absent from the status.
+    task_holdout_content_disjoint: TriState | None = None
+    #: ``DataConfig.refuse_task_holdout_content_overlap``: whether the check above feeds
+    #: :attr:`status`. It is reported either way.
+    refuse_task_holdout_content_overlap: bool = False
     #: No file block of a composed (multi-file) row near-duplicates a file block of a row on
     #: the other side of the repo split (:func:`_composed_file_near_duplicates`). ``None`` when
     #: no row is composed, and then absent from every report, so a corpus without composed rows
@@ -314,6 +329,14 @@ class SplitReport:
                     if self.exact_content_disjoint is not None
                     else {}
                 ),
+                # Only when it ran, as content_disjoint_families: a NotRun here means there was
+                # no held-out-family row or no training row to compare, nothing that could leak.
+                **(
+                    {"task_holdout_content_disjoint": self.task_holdout_content_disjoint}
+                    if self.refuse_task_holdout_content_overlap
+                    and isinstance(self.task_holdout_content_disjoint, Ran)
+                    else {}
+                ),
                 **(
                     {
                         "composed_file_near_duplicate_disjoint": (
@@ -357,6 +380,8 @@ class SplitReport:
             body["cluster_key_disjoint"] = self.cluster_key_disjoint.to_json()
             body["cluster_key_rows"] = self.cluster_key_rows
             body["identity_fallback_rows"] = self.identity_fallback_rows
+        if self.task_holdout_content_disjoint is not None:
+            body["task_holdout_content_disjoint"] = self.task_holdout_content_disjoint.to_json()
         if self.exact_content_disjoint is not None:
             body["exact_content_disjoint"] = self.exact_content_disjoint.to_json()
         if self.composed_file_near_duplicate_disjoint is not None:
@@ -468,6 +493,10 @@ def split(
         held_out_families_absent_from_training=fam_ok,
         dedupe_status=report.status,
         content_disjoint_families=content_disjoint_families(rows),
+        task_holdout_content_disjoint=task_holdout_content_disjoint(
+            rows, split_of={a.row_id: a.split for a in assignments}, config=config
+        ),
+        refuse_task_holdout_content_overlap=config.refuse_task_holdout_content_overlap,
         exact_content_disjoint=_exact_content_disjoint(
             rows, split_of={a.row_id: a.split for a in assignments}
         ),
@@ -568,6 +597,91 @@ def content_disjoint_families(rows: tuple[DataRow, ...] | list[DataRow]) -> TriS
         n=tested,
         n_total=tested,
         detail="; ".join(shared),
+    )
+
+
+def _content_keys(row: DataRow) -> tuple[tuple[str, str], ...]:
+    """The source-content keys a row carries: ``identity_key`` (repo + path [+ symbol]),
+    ``cluster_key`` when present, and the digest of ``dedupe_text``. Two rows sharing any one
+    were built from the same source content, whatever task they ask."""
+    keys = [("identity_key", row.identity_key), ("content_digest", text_digest(row.dedupe_text))]
+    cluster = cluster_key_of(row)
+    if cluster is not None:
+        keys.append(("cluster_key", cluster))
+    return tuple(keys)
+
+
+def task_holdout_overlap(
+    rows: tuple[DataRow, ...] | list[DataRow],
+    *,
+    split_of: dict[str, str],
+    config: DataConfig,
+) -> dict[str, tuple[str, ...]]:
+    """Training-shard rows that share source content with a held-out-family row.
+
+    ``{row_id: kinds of key shared}`` for every row whose final split is in
+    :data:`TRAINING_SPLITS`, whose family is not held out, and which shares an ``identity_key``,
+    ``cluster_key`` or ``dedupe_text`` digest with a row of a held-out task family. The task
+    holdout withholds the question shape; this is its content half
+    (GAP-PORTED-HELDOUT-FAMILY-CONTENT-OVERLAPS-TRAIN). Exhaustive: key maps, no bound.
+    """
+    held: set[tuple[str, str]] = set()
+    for r in rows:
+        if config.is_held_out_family(r.family_id):
+            held.update(_content_keys(r))
+    overlap: dict[str, tuple[str, ...]] = {}
+    for r in rows:
+        if config.is_held_out_family(r.family_id) or split_of[r.row_id] not in TRAINING_SPLITS:
+            continue
+        shared = tuple(kind for kind, value in _content_keys(r) if (kind, value) in held)
+        if shared:
+            overlap[r.row_id] = shared
+    return overlap
+
+
+def task_holdout_content_disjoint(
+    rows: tuple[DataRow, ...] | list[DataRow],
+    *,
+    split_of: dict[str, str],
+    config: DataConfig,
+) -> TriState:
+    """No training-shard row shares source content with a held-out task family's rows.
+
+    The family holdout holds out tasks, not content: a commitpackft row feeds trained families
+    and the held-out ``code.language_id`` at once, and replay measured 222 of 234 such rows
+    hitting held-out content (containment 0.65-0.84). ``identity_key`` is the key because every
+    row carries it and a commitpackft one is ``repo::new_file``, so it covers the same commit
+    and every other version of the file; the ``dedupe_text`` digest closes copies under another
+    path. MinHash signatures are not used: the near-duplicate check is deliberately blind across
+    this boundary, and for rows built from one source an exact key misses nothing a signature
+    would find. ``NotRun`` when either side is empty.
+    """
+    held = [r for r in rows if config.is_held_out_family(r.family_id)]
+    training = [
+        r
+        for r in rows
+        if not config.is_held_out_family(r.family_id) and split_of[r.row_id] in TRAINING_SPLITS
+    ]
+    if not held or not training:
+        return NotRun(
+            reason=(
+                "no held-out-family row, or no training row, so the content overlap between "
+                f"the task holdout and training was not tested (held-out rows: {len(held)}, "
+                f"training rows: {len(training)})"
+            )
+        )
+    overlap = task_holdout_overlap(rows, split_of=split_of, config=config)
+    return Ran(
+        passed=not overlap,
+        value=len(overlap),
+        n=len(training),
+        n_total=len(training),
+        detail=(
+            ""
+            if not overlap
+            else f"{len(overlap)} of {len(training)} training-shard rows share source content "
+            f"with {len(held)} held-out-family rows (first five: {sorted(overlap)[:5]})"
+        ),
     )
 
 

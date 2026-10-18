@@ -65,7 +65,12 @@ from typing import Any, Final, Self
 import numpy as np
 
 from qd_data.config import SPLITS, DataConfig
-from qd_data.fingerprint import code_fingerprint, describe_drift
+from qd_data.fingerprint import (
+    FINGERPRINT_VERSION,
+    code_fingerprint,
+    describe_drift,
+    shard_code_fingerprint,
+)
 from qd_data.render import PROMPT_FORMAT
 
 from .data_access import assert_path_not_held_out
@@ -365,6 +370,12 @@ class ShardHeader:
     #: different answers and a header cannot be allowed to give the passing one by
     #: omission; `assert_shard_trainable` reports the empty case as `NotRun`.
     code_fingerprint: dict[str, str] = field(default_factory=dict)
+    #: Which rule produced ``code_fingerprint``: 1 is every ``qd_data`` module (every header
+    #: written before the field), 2 is ``qd_data.fingerprint.SHARD_CONTENT_MODULES``. It is
+    #: serialised and hashed only when not 1, so those headers still verify unchanged (the
+    #: ``prompt_format`` precedent), and it is covered, so it cannot be edited to move a set
+    #: between rules.
+    code_fingerprint_version: int = 1
     #: The git revision the corpus was READ AT. Neither of the other pins covers it:
     #: `data_snapshot_hash` hashes the rows that came out, and `code_fingerprint` hashes the
     #: code that turned them into rows -- so a set built from the wrong revision is
@@ -439,6 +450,11 @@ class ShardHeader:
             )
 
     def __post_init__(self) -> None:
+        if self.code_fingerprint_version not in (1, FINGERPRINT_VERSION):
+            raise ShardContractViolation(
+                f"code_fingerprint_version {self.code_fingerprint_version!r} is not a rule "
+                f"this reader knows (1 or {FINGERPRINT_VERSION})"
+            )
         if self.format != SHARD_FORMAT:
             raise ShardContractViolation(f"format {self.format!r}, expected {SHARD_FORMAT!r}")
         if self.packed:
@@ -588,6 +604,12 @@ class ShardHeader:
                 if self.prompt_format != 1
                 else ()
             ),
+            # Same contract, tagged: rule 1 (every earlier header) hashes to nothing.
+            *(
+                (b"code_fingerprint_version:" + str(self.code_fingerprint_version).encode(),)
+                if self.code_fingerprint_version != 1
+                else ()
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -620,6 +642,8 @@ class ShardHeader:
             out["contrast_rows"] = self.contrast_rows.to_json()
         if self.prompt_format != 1:
             out["prompt_format"] = self.prompt_format
+        if self.code_fingerprint_version != 1:
+            out["code_fingerprint_version"] = self.code_fingerprint_version
         out["shard_hash"] = self.shard_hash()
         return out
 
@@ -635,6 +659,11 @@ class ShardHeader:
             # that does not state a format as one that does.
             raise ShardContractViolation(
                 f"prompt_format is {prompt_format!r}; a header states it as a JSON integer"
+            )
+        fp_version = raw.get("code_fingerprint_version", 1)
+        if isinstance(fp_version, bool) or not isinstance(fp_version, int):
+            raise ShardContractViolation(
+                f"code_fingerprint_version is {fp_version!r}; a header states it as a JSON integer"
             )
         header = cls(
             split=raw["split"],
@@ -662,6 +691,7 @@ class ShardHeader:
                 ContrastRows.from_json(raw["contrast_rows"]) if "contrast_rows" in raw else None
             ),
             prompt_format=prompt_format,
+            code_fingerprint_version=fp_version,
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(
@@ -1148,7 +1178,13 @@ def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
                 "out, or read it knowing the question is open."
             )
         )
-    current = code_fingerprint()
+    v1 = header.code_fingerprint_version == 1
+    current = code_fingerprint() if v1 else shard_code_fingerprint()
+    rule = (
+        "v1 rule, every qd_data module, header predates the shard-content list"
+        if v1
+        else f"v{header.code_fingerprint_version} rule, shard-content modules"
+    )
     drift = describe_drift(header.code_fingerprint, current)
     if not drift:
         return Ran(
@@ -1156,14 +1192,14 @@ def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
             value=len(current),
             detail=(
                 f"{len(current)} qd_data module(s) hash as they did when this shard set "
-                "was written"
+                f"was written ({rule})"
             ),
         )
     return Ran(
         passed=False,
         value=len(current),
         detail=(
-            f"{path}: qd_data has changed since this shard set was written -- {drift}. "
+            f"{path}: qd_data has changed since this shard set was written ({rule}) -- {drift}. "
             "The corpus, tokenizer and remap hashes all still match, because none of them "
             "covers the code that turns the corpus into rows: this set's labels were "
             "produced by code that is no longer what would run. Regenerate the shard set, "

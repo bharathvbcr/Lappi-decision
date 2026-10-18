@@ -29,6 +29,7 @@ all.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -106,8 +107,14 @@ def _corpus(tmp_path: Path, *, n_files: int = 8, per_file: int = 3) -> tuple[Pat
     examples = tmp_path / "examples.jsonl"
     examples.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     manifest = tmp_path / "manifest.json"
+    # The reader hashes the examples against the manifest's examples_sha256 (M18), so the
+    # manifest records the real hash of the file it describes.
     manifest.write_text(
-        json.dumps({"corpus_sha256": "0" * 64, "n_examples": len(rows)}), encoding="utf-8"
+        json.dumps({
+            "corpus_sha256": "0" * 64, "n_examples": len(rows),
+            "examples_sha256": hashlib.sha256(examples.read_bytes()).hexdigest(),
+        }),
+        encoding="utf-8",
     )
     return examples, manifest
 
@@ -366,7 +373,13 @@ def _read_until(proc: subprocess.Popen[str], prefix: str, *, timeout: float) -> 
     while time.monotonic() < deadline:
         line = proc.stdout.readline()
         if not line:
-            break
+            # End of output: the child exited, so waiting out the timeout would add nothing.
+            # (This used to raise "never printed within 300s" at once, and that message read
+            # as a timeout in the failure list of a run in which nothing had waited at all.)
+            raise AssertionError(
+                f"{prefix!r} never printed: the child closed its output (exit "
+                f"{proc.poll()}) first:\n{''.join(seen)}"
+            )
         seen.append(line)
         if line.startswith(prefix):
             return "".join(seen)

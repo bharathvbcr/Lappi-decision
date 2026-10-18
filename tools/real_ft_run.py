@@ -283,6 +283,7 @@ from qd_train.run_control import (
 from qd_train.shards import (
     HEADER_NAME,
     MAX_POSITIONS_PER_BATCH,
+    SequenceSpec,
     ShardReader,
     UnencodableGold,
     answer_letter,
@@ -291,6 +292,12 @@ from qd_train.shards import (
     encode_slot,
     rendered_training_texts,
     training_texts,
+)
+from qd_train.span_null import (
+    SPAN_END_TOP1_METRIC,
+    SPAN_NULL_METRIC,
+    SPAN_START_TOP1_METRIC,
+    plus_line_null,
 )
 from qd_train.trainer import (
     TRAIN_ATTENTION_MASKS,
@@ -420,11 +427,13 @@ SPAN_HEAD_PREFIX: Final[str] = "span_head."
 #: a bound on what a mistyped path can make this process read into memory.
 MAX_SPAN_HEAD_INIT_BYTES: Final[int] = 1 << 30
 
-#: The cap the ledger's canonical recipe omits (_recipe_pieces) and the internal helpers
-#: (_cost, _control, _train) price when a programmatic caller hands none -- equal to the quick
-#: cap, never a CLI run's cap: main() always passes the resolved cap explicitly, and a run
-#: that trains has no default there. --wall-clock-cap-s or --quick is required
-#: (WallClockCap.resolve; GAP-LORA2B-REDUCED-RUN-DEFAULT-CAP-1800S-2026-10-17).
+#: The cap the ledger's canonical recipe omits (_recipe_pieces writes wall_clock_cap_s only
+#: when it differs). Equal to the quick cap. It is a recipe sentinel and nothing's default:
+#: _control, _train and _recipe_pieces take cap_s with no default, so a caller that forgets it
+#: is a TypeError, never a silent 1800 s stop
+#: (GAP-RUN-CONTROL-DEFAULT-CAP-CALLERS-OUTSIDE-L-OPS-2026-10-17). _cost keeps its default
+#: because it is protected; every caller in this tree passes cap_s (checked by AST in
+#: python/tests/test_helper_caps_have_no_default.py).
 WALL_CLOCK_CAP_S = QUICK_CAP_S
 
 #: The most ``--wall-clock-cap-s`` may be. The campaign approval is "up to 2-3 days" (72 h),
@@ -499,7 +508,7 @@ class NoulWeightPlan:
     def recipe(self) -> dict[str, object]:
         return _recipe_pieces(
             lower_layers_n=0, lower_lr_scale=1.0, beta2=DEFAULT_BETA2, permutation=None,
-            replay=None, noul_weight=self.weight,
+            replay=None, noul_weight=self.weight, cap_s=WALL_CLOCK_CAP_S,
         )
 
     def cut(self, n: int) -> NoulWeightPlan:
@@ -566,7 +575,7 @@ def noul_weight_plan(
 def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
-    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    cap_s: float, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
@@ -834,6 +843,21 @@ class Label:
     #: ``DataRow.metadata["language"]`` where the row has one -- ``code.defect_class`` rows
     #: do, the commitpackft rewriters' rows do not. What ``ece.lang.*`` groups by.
     language: str | None = None
+    #: A span label's candidate set as the first byte of each context line, in line order
+    #: (``SequenceSpec.line_char_starts`` read off the rendered text). What the
+    #: ``span_beats_null`` gate's random-``+``-line null is computed from, through
+    #: ``qd_train.span_null``. ``None`` on a letter label.
+    line_first_bytes: tuple[int, ...] | None = None
+
+
+def _line_first_bytes(spec: SequenceSpec) -> tuple[int, ...]:
+    """The first byte of every context line of a span spec, from its own rendered text."""
+    starts = spec.line_char_starts
+    if starts is None:
+        raise ValueError(f"span slot {spec.slot_name!r} carries no line_char_starts")
+    if any(not 0 <= c < len(spec.text) for c in starts):
+        raise ValueError(f"span slot {spec.slot_name!r} has a line start outside its text")
+    return tuple(spec.text[c].encode("utf-8")[0] for c in starts)
 
 
 def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], list[str]]:
@@ -889,6 +913,9 @@ def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], li
                         gold_letter=gold,
                         letters=letters,
                         language=language,
+                        line_first_bytes=(
+                            _line_first_bytes(spec) if spec.slot_kind == SLOT_SPAN else None
+                        ),
                     )
                 )
         except (UnencodableGold, QdRefusal) as exc:
@@ -2663,7 +2690,7 @@ def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
-    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S, min_lr: float | None = None,
+    approved_by: str = "", cap_s: float, min_lr: float | None = None,
 ) -> RunControl:
     """The cap, the schedule and the price of a local run.
 
@@ -3318,7 +3345,7 @@ def _train(
     alphabets: Mapping[int, list[tuple[str, ...] | None]] | None = None,
     replay: ReplayPlan | None = None,
     eval_widths: Sequence[int] = (),
-    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    cap_s: float, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
@@ -4687,7 +4714,7 @@ def ft_split_report(
         # The pipeline's admission for a pool build (its opt-in sources, with the human's call);
         # without it build_mixture refuses an opt-in source's rows at load.
         config = pool_data_config(config)
-        pool = load_decision_pool(decisions_pool)
+        pool = load_decision_pool(decisions_pool, config=config)
         clash = sorted(set(pool.raw) & set(raw))
         if clash:
             raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
@@ -5424,7 +5451,68 @@ def score_states(scored: dict[str, object], labels: list[Label]) -> dict[str, Tr
                 f"of {n} ({base_n / n:.1%}), a gap of {(correct - base_n) / n:+.1%}"
             ),
         )
+    states.update(span_pointer_states(scored, labels))
     return states
+
+
+def span_pointer_states(scored: dict[str, object], labels: list[Label]) -> dict[str, TriState]:
+    """The three metrics ``span_beats_null`` reads, over one val decode's pointing rows.
+
+    ``SPAN_START_TOP1_METRIC`` and ``SPAN_END_TOP1_METRIC`` are the head's start and end top-1
+    over the pointing rows (``n`` hits, ``n_total`` pointing rows); ``SPAN_NULL_METRIC`` is the
+    random-``+``-line null on the SAME rows, computed by ``qd_train.span_null.plus_line_null``
+    (``n`` the rows whose gold is an added line, ``n_total`` the pointing rows). A span row
+    whose label carries no candidate bytes, or whose candidate count is not the head's, makes
+    all three ``NotRun`` rather than a null over a different set.
+    """
+    names = (SPAN_START_TOP1_METRIC, SPAN_END_TOP1_METRIC, SPAN_NULL_METRIC)
+    by_key = {(label.row_id, label.slot_name): label for label in labels}
+    rows: list[tuple[tuple[int, ...], int]] = []
+    hits_start = hits_end = 0
+    uniform = 0.0
+    for v in scored["verdicts"]:  # type: ignore[union-attr]
+        if v["kind"] != "span" or v["expected_abstain"]:
+            continue
+        label = by_key.get((str(v["row_id"]), str(v["slot_name"])))
+        first = None if label is None else label.line_first_bytes
+        if first is None or len(first) != int(v["noul_row"]):
+            why = (
+                "has no label" if label is None else
+                "carries no candidate bytes" if first is None else
+                f"has {len(first)} candidate lines against the head's {v['noul_row']}"
+            )
+            gone = NotRun(reason=f"span row {v['row_id']} {why}: the random-+-line null is not "
+                          "computable over the head's candidate set")
+            return dict.fromkeys(names, gone)
+        gold = int(v["gold_start"])
+        rows.append((first, gold))
+        top_start, top_end = (int(t) for t in v["top"])
+        hits_start += int(top_start == gold)
+        hits_end += int(top_end == int(v["gold_end"]))
+        uniform += 1.0 / len(first)
+    pointing = len(rows)
+    if not pointing:
+        gone = NotRun(reason="the decode holds no pointing span row (every span gold abstains, "
+                      "or there is none), so there is nothing to measure a pointer over")
+        return dict.fromkeys(names, gone)
+    null, null_rows, gold_added = plus_line_null(rows)
+    if null_rows != pointing:  # pragma: no cover - plus_line_null counts the same rows
+        raise AssertionError(f"null over {null_rows} rows, top-1 over {pointing}")
+    chance = uniform / pointing
+    out: dict[str, TriState] = {}
+    for name, hits, what in ((SPAN_START_TOP1_METRIC, hits_start, "start"),
+                             (SPAN_END_TOP1_METRIC, hits_end, "end")):
+        out[name] = Ran(
+            passed=hits / pointing > chance, value=hits / pointing, n=hits, n_total=pointing,
+            detail=(f"span {what} top-1 {hits}/{pointing} over the pointing val rows; uniform "
+                    f"chance over the candidate line starts {chance:.2%}"),
+        )
+    out[SPAN_NULL_METRIC] = Ran(
+        passed=True, value=null, n=gold_added, n_total=pointing,
+        detail=(f"what 'point at a uniformly random ADDED line' scores on the same {pointing} "
+                f"pointing rows: {null:.2%} ({gold_added} with a gold that is an added line)"),
+    )
+    return out
 
 
 #: Why ``ece.lang.*`` cannot be computed from rows without a language, carried INTO the
