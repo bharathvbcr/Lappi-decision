@@ -443,9 +443,11 @@ def test_the_control_carries_the_interval_into_the_loop(tmp_path) -> None:
     changed nothing."""
     from real_ft_run import _control
 
-    assert _control(100, device="cpu", lr=1e-5).checkpoint_every == 0
     assert _control(
-        100, device="cpu", lr=1e-5, checkpoint_every=25
+        100, device="cpu", lr=1e-5, cap_s=1800.0
+    ).checkpoint_every == 0
+    assert _control(
+        100, device="cpu", lr=1e-5, checkpoint_every=25, cap_s=1800.0
     ).checkpoint_every == 25
 
 

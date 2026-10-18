@@ -655,7 +655,8 @@ def test_the_trainer_refuses_a_rebuild_that_disagrees_with_the_header(tmp_path: 
     with pytest.raises(SystemExit, match="unreadable"):
         rft.check_exclusion_source(named, tmp_path / "missing.txt")
     assert rft._recipe_pieces(lower_layers_n=0, lower_lr_scale=1.0, beta2=rft.DEFAULT_BETA2,
-                              permutation=None, replay=None, exclusions_sha256=digest) == {
+                              permutation=None, replay=None, exclusions_sha256=digest,
+                              cap_s=rft.WALL_CLOCK_CAP_S) == {
         "exclusions_sha256": digest
     }
     assert "exclusions_sha256" in rft.RECIPE_PIECE_KEYS
