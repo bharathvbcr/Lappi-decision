@@ -1605,7 +1605,9 @@ def discrimination(
         fw = floor["final_weights"]
         warm = ref.schedule["warmup_steps"]
         total = ref.schedule["total_steps"]
-        sched = real_ft_run._control(total, device="cpu", lr=lr, cap_s=real_ft_run.QUICK_CAP_S).schedule
+        sched = real_ft_run._control(
+            total, device="cpu", lr=lr, cap_s=real_ft_run.QUICK_CAP_S
+        ).schedule
         rows: dict[str, Any] = {}
         for name, cf in counterfactuals().items():
             if name in ("no_lr_scale", "decay_not_lr_scaled") and not args.lower_layers_n:

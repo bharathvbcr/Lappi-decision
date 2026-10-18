@@ -49,7 +49,9 @@ def test_without_the_flag_the_floor_is_still_lr_over_ten():
 
 def test_the_flag_sets_the_floor_and_nothing_else():
     default = rft._control(9683, device="cpu", lr=1e-5, cap_s=rft.WALL_CLOCK_CAP_S).schedule
-    floored = rft._control(9683, device="cpu", lr=1e-5, min_lr=0.0, cap_s=rft.WALL_CLOCK_CAP_S).schedule
+    floored = rft._control(
+        9683, device="cpu", lr=1e-5, min_lr=0.0, cap_s=rft.WALL_CLOCK_CAP_S
+    ).schedule
     assert floored.min_lr == 0.0
     assert (floored.peak_lr, floored.total_steps, floored.warmup_steps) == (
         default.peak_lr, default.total_steps, default.warmup_steps
@@ -126,7 +128,9 @@ def test_with_lower_layers_at_a_tenth_their_floor_is_zero_too():
     opt = torch.optim.AdamW(groups, lr=1e-5)
     by_name = {g["name"]: g for g in opt.param_groups}
     lr, steps = 1e-5, 9683
-    floored = rft._control(steps, device="cpu", lr=lr, min_lr=0.0, cap_s=rft.WALL_CLOCK_CAP_S).schedule
+    floored = rft._control(
+        steps, device="cpu", lr=lr, min_lr=0.0, cap_s=rft.WALL_CLOCK_CAP_S
+    ).schedule
     assert floored.min_lr * by_name["base_lower"]["lr_scale"] == 0.0
     for step in (0, floored.warmup_steps, steps // 2, steps - 1):
         rate = floored.lr_at(step)

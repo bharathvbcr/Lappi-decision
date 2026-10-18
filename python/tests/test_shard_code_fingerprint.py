@@ -61,10 +61,10 @@ def _qd_data_imports(path: Path) -> set[str]:
     return {f"{name}.py" for name in found if (QD_DATA / f"{name}.py").is_file()}
 
 
-def _import_closure() -> set[str]:
+def _import_closure(entries: tuple[Path, ...] = ENTRY_POINTS) -> set[str]:
     seen: set[str] = set()
     frontier: set[str] = set()
-    for entry in ENTRY_POINTS:
+    for entry in entries:
         frontier |= _qd_data_imports(entry)
     while frontier:
         name = frontier.pop()
