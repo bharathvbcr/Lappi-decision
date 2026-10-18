@@ -157,8 +157,8 @@ fn a_family_whose_trained_span_slot_has_no_entry_is_refused() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("span"));
 }
 
-/// What qd-calib-fit writes for a fitted span entry today (`summarise_spans`): no ECE. A check the
-/// fit did not record is not one that passed.
+/// What qd-calib-fit wrote for a fitted span entry before `summarise_spans` recorded `ece_after`:
+/// no ECE. A check the fit did not record is not one that passed.
 #[test]
 fn a_fitted_span_entry_with_no_recorded_check_is_refused() {
     let c = case(true);
@@ -258,4 +258,59 @@ fn a_release_without_a_table_needs_a_recorded_reason() {
     let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
     assert_eq!(m["calibration"], Value::Null);
     assert_eq!(m["calibration_absent_reason"], json!("trial export for a tower round trip; not served"));
+}
+
+/// The `span` section of a report as `qd-calib-fit` writes it: fitted by `fit_span_entry` over
+/// `rows`, scored in sample through the library's `summarise_spans`, not typed by hand. `groups`
+/// is `(confidence, hits per 20)`, `per` rows each: a pointer puts `confidence` on its winner and
+/// hits exactly `hits / 20` of the time by a fixed pattern.
+fn fitted_span_section(groups: &[(f64, usize)], per: usize) -> Value {
+    use qd_runtime::calibration_fit::{
+        DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION, SpanRows, fit_span_entry, score_span_rows,
+        summarise_spans,
+    };
+    const W: usize = 6;
+    let mut rows = SpanRows::new();
+    for (g, (confidence, hits)) in groups.iter().enumerate() {
+        let winner_logit = (confidence * (W - 1) as f64 / (1.0 - confidence)).ln() as f32;
+        for j in 0..per {
+            let gs = (j + g) % 5;
+            let ge = gs + (j / 5) % (5 - gs);
+            let pointer = |gold: usize, hit: bool| {
+                let winner = if hit { gold } else { (gold + 1 + j % (W - 1)) % W };
+                let mut logits = vec![0.0f32; W];
+                logits[winner] = winner_logit;
+                logits
+            };
+            rows.push(&pointer(gs, j % 20 < *hits), &pointer(ge, (j * 7 + 3) % 20 < *hits), gs, ge)
+                .unwrap();
+        }
+    }
+    let entry = fit_span_entry(&rows, DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION).unwrap().entry();
+    let scored: Vec<_> =
+        score_span_rows(&rows, &entry).unwrap().into_iter().map(|s| Some((s, entry))).collect();
+    json!({"fitted": true, "rows": rows.len(), "scored": summarise_spans(&scored, "in_sample").unwrap()})
+}
+
+/// A well-calibrated synthetic span fit is admitted, a miscalibrated one is refused. Before
+/// `summarise_spans` recorded `/span/scored/ece_after`, the gate refused both: it found no check.
+#[test]
+fn a_span_fit_is_admitted_on_its_recorded_check_and_refused_when_miscalibrated() {
+    let c = case(true);
+    let mut r = all_passing(&c);
+    r["span"] = fitted_span_section(&[(0.55, 11), (0.7, 14), (0.85, 17), (0.95, 19)], 100);
+    assert_eq!(r["span"]["scored"]["ece_after"]["state"], "ran");
+    let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    let m: Value =
+        serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    assert!(m["calibration"]["gate"]["ece_after_by_shape"]["span"].as_f64().unwrap() <= ECE_THRESHOLD);
+
+    let c = case(true);
+    let mut r = all_passing(&c);
+    r["span"] = fitted_span_section(&[(0.5, 18), (0.9, 10)], 200);
+    let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
+    refused(&c, &out, "code.defect_class/span");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("passed=false"));
 }

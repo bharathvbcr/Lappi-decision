@@ -52,6 +52,7 @@ use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::cluster::cluster_key;
 use crate::diffspan;
 use crate::fmt::{self, Availability, Resolved};
 use crate::lang::{LangId, Language};
@@ -107,22 +108,81 @@ pub struct Options {
     pub limit: Option<usize>,
     /// Examples one file may contribute.
     pub max_examples_per_file: usize,
+    /// Rows one function (one `cluster_key`) may contribute **per label class**; the clean twin is
+    /// its own class. No default: the value is a data-build decision (Fable Q3, 2026-10-18: K = 2,
+    /// carried in `data/decisions/v6-allocation.json` and passed as `--max-per-function`).
+    /// [`Generator::new`] refuses 0, which would drop every row.
+    pub max_per_function: usize,
     /// What `before` and `diff` are taken from.
     pub diff_shape: DiffShape,
 }
 
-impl Default for Options {
-    fn default() -> Self {
-        Options {
-            seed: 0,
-            // Roughly a fifth clean. The model treats `clean` as "nothing found", and the class is
-            // noisy by construction — some real agent diffs *are* stubs — so it is a contrast set,
-            // not a majority.
-            clean_permille: 200,
-            languages: Vec::new(),
-            limit: None,
-            max_examples_per_file: MAX_EXAMPLES_PER_FILE,
-            diff_shape: DiffShape::default(),
+/// Rows kept and dropped by the per-function cap, folded into the manifest at the end of a run.
+struct FunctionCap {
+    max: usize,
+    kept: HashMap<(String, &'static str), usize>,
+    before: HashMap<String, u64>,
+    before_class: HashMap<(String, &'static str), u64>,
+    after: HashMap<String, u64>,
+    dropped: std::collections::BTreeMap<String, u64>,
+}
+
+impl FunctionCap {
+    fn new(max: usize) -> Self {
+        FunctionCap {
+            max,
+            kept: HashMap::new(),
+            before: HashMap::new(),
+            before_class: HashMap::new(),
+            after: HashMap::new(),
+            dropped: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Count a row that is about to be emitted; false when its function already holds `max` rows
+    /// of its class, in which case the drop is counted here.
+    fn admit(&mut self, key: &str, class: MutationClass) -> bool {
+        *self.before.entry(key.to_string()).or_insert(0) += 1;
+        *self
+            .before_class
+            .entry((key.to_string(), class.as_str()))
+            .or_insert(0) += 1;
+        let slot = self
+            .kept
+            .entry((key.to_string(), class.as_str()))
+            .or_insert(0);
+        if *slot >= self.max {
+            *self.dropped.entry(class.as_str().to_string()).or_insert(0) += 1;
+            return false;
+        }
+        *slot += 1;
+        *self.after.entry(key.to_string()).or_insert(0) += 1;
+        true
+    }
+
+    fn report(self) -> crate::manifest::FunctionCapReport {
+        let histogram = |rows: &HashMap<String, u64>| {
+            let mut out = std::collections::BTreeMap::new();
+            for n in rows.values() {
+                *out.entry(*n).or_insert(0u64) += 1;
+            }
+            out
+        };
+        crate::manifest::FunctionCapReport {
+            max_per_function: self.max,
+            keys_seen: self.before.len() as u64,
+            rows_before: self.before.values().sum(),
+            rows_after: self.after.values().sum(),
+            rows_per_key_before: histogram(&self.before),
+            rows_per_key_after: histogram(&self.after),
+            rows_per_key_class_before: {
+                let mut out = std::collections::BTreeMap::new();
+                for n in self.before_class.values() {
+                    *out.entry(*n).or_insert(0u64) += 1;
+                }
+                out
+            },
+            dropped_by_class: self.dropped,
         }
     }
 }
@@ -158,6 +218,11 @@ pub struct Example {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_span: Option<LineSpan>,
     pub function: FunctionIdentity,
+    /// The function this row was made from, from the **unmutated** parse (see
+    /// [`crate::cluster`]). A mutant, its cosmetic twin and the clean row of one function share it.
+    /// Empty only in a corpus written before the key existed, which `compose` refuses.
+    #[serde(default)]
+    pub cluster_key: String,
     /// The grammar's own name for the declaration node the mutator took. "The function body" is
     /// ambiguous for nested functions and closures, so the mutator names which node it took.
     pub node_kind: String,
@@ -221,6 +286,10 @@ impl Generator {
     /// cosmetic coverage depend on when each file was processed — and that is not a property a
     /// reproducible generator may have.
     pub fn new(options: Options) -> Self {
+        assert!(
+            options.max_per_function >= 1,
+            "max_per_function must be at least 1: 0 would drop every row"
+        );
         // One pass, not two. Resolution now runs the formatter on a smoke input, so calling
         // `probe_all()` alongside this loop would have paid for every formatter twice and — worse —
         // left the recorded availability and the formatter actually used as two separate
@@ -260,6 +329,7 @@ impl Generator {
         // The split-safety proof. Keyed on the function identity, which does not move when the
         // layout does.
         let mut disposition_of: HashMap<FunctionIdentity, Disposition> = HashMap::new();
+        let mut cap = FunctionCap::new(self.options.max_per_function);
 
         for record in records {
             if let Some(limit) = self.options.limit
@@ -390,6 +460,10 @@ impl Generator {
                     }
                 };
                 let first = &bodies[0];
+                let key = cluster_key(&record.repo, &record.path, language_id, first);
+                if !cap.admit(&key, MutationClass::Clean) {
+                    continue;
+                }
                 examples.push(Example {
                     id: format!("{}#clean", record.id),
                     pool_id: record.id.clone(),
@@ -402,6 +476,7 @@ impl Generator {
                     span: None,
                     source_span: None,
                     function: record.identity(&first.name, first.arity),
+                    cluster_key: key,
                     node_kind: first.node_kind.to_string(),
                     is_nested: first.is_nested,
                     before: prior.to_string(),
@@ -501,6 +576,9 @@ impl Generator {
                     emitted_here,
                 ) {
                     Ok(example) => {
+                        if !cap.admit(&example.cluster_key, example.class) {
+                            continue;
+                        }
                         manifest.note_emitted(language_id, *op);
                         manifest.totals.examples += 1;
                         manifest.totals.mutated += 1;
@@ -522,6 +600,7 @@ impl Generator {
         }
 
         manifest.pool.records = records.len() as u64;
+        manifest.function_cap = cap.report();
         // Measured on what is emitted, not inferred from the renderer.
         for example in &examples {
             manifest
@@ -726,6 +805,7 @@ impl Generator {
             span: Some(from_bytes),
             source_span: Some(source_span),
             function: record.identity(&body.name, body.arity),
+            cluster_key: cluster_key(&record.repo, &record.path, language_id, body),
             node_kind: body.node_kind.to_string(),
             is_nested: body.is_nested,
             diff,
@@ -819,6 +899,109 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
 }
 ";
 
+
+    /// Tests run uncapped unless they are about the cap: `usize::MAX` is a test fixture, not a
+    /// default (`Options` has none).
+    fn test_options() -> Options {
+        Options {
+            seed: 0,
+            clean_permille: 200,
+            languages: Vec::new(),
+            limit: None,
+            max_examples_per_file: MAX_EXAMPLES_PER_FILE,
+            max_per_function: usize::MAX,
+            diff_shape: DiffShape::default(),
+        }
+    }
+
+    /// `n` records of one file: each function is offered `n` times, under one `cluster_key`.
+    fn copies_of_one_file(n: usize) -> Vec<PoolRecord> {
+        (0..n)
+            .map(|i| record(&format!("r{i}"), "src/one.rs", RUST_FILE, None))
+            .collect()
+    }
+
+    #[test]
+    fn the_per_function_cap_holds_per_class_and_every_drop_is_counted() {
+        let records = copies_of_one_file(40);
+        let uncapped = Generator::new(Options {
+            seed: 3,
+            clean_permille: 0,
+            ..test_options()
+        })
+        .run(&records, pool_report());
+        let capped = Generator::new(Options {
+            seed: 3,
+            clean_permille: 0,
+            max_per_function: 2,
+            ..test_options()
+        })
+        .run(&records, pool_report());
+        let mut per: HashMap<(String, &str), usize> = HashMap::new();
+        for e in &capped.examples {
+            assert!(!e.cluster_key.is_empty());
+            *per.entry((e.cluster_key.clone(), e.class.as_str())).or_insert(0) += 1;
+        }
+        assert!(per.values().all(|n| *n <= 2), "{per:?}");
+        assert!(uncapped.examples.len() > capped.examples.len(), "the cap dropped nothing");
+        let report = &capped.manifest.function_cap;
+        assert_eq!(report.max_per_function, 2);
+        assert_eq!(report.rows_before as usize, uncapped.examples.len());
+        assert_eq!(report.rows_after as usize, capped.examples.len());
+        assert_eq!(
+            report.dropped_by_class.values().sum::<u64>(),
+            report.rows_before - report.rows_after,
+            "rows the cap removed must be the rows it reports"
+        );
+        assert_eq!(report.keys_seen, 1, "one function, one key: {report:?}");
+        // The unit the cap binds on: rows per (key, class) before the cap, read off the uncapped
+        // run, with at least one pair holding more than K rows (else the cap bound nothing).
+        let mut per_pair: HashMap<(String, &str), u64> = HashMap::new();
+        for e in &uncapped.examples {
+            *per_pair.entry((e.cluster_key.clone(), e.class.as_str())).or_insert(0) += 1;
+        }
+        let mut expected = std::collections::BTreeMap::new();
+        for n in per_pair.values() {
+            *expected.entry(*n).or_insert(0u64) += 1;
+        }
+        assert_eq!(report.rows_per_key_class_before, expected);
+        assert!(expected.keys().any(|n| *n > 2), "{expected:?}");
+        assert_eq!(report.rows_per_key_before.values().sum::<u64>(), report.keys_seen);
+        assert_eq!(report.rows_per_key_after.values().sum::<u64>(), report.keys_seen);
+        assert_eq!(capped.manifest.totals.examples as usize, capped.examples.len());
+        assert!(uncapped.manifest.function_cap.dropped_by_class.is_empty());
+    }
+
+    #[test]
+    fn the_clean_twin_is_its_own_class_under_the_cap() {
+        let records: Vec<PoolRecord> = (0..5)
+            .map(|i| {
+                record_with_prior(
+                    &format!("c{i}"),
+                    "src/one.rs",
+                    &format!("{RUST_FILE}// prior {i}\n"),
+                    RUST_FILE,
+                )
+            })
+            .collect();
+        let run = Generator::new(Options {
+            max_per_function: 2,
+            ..all_clean()
+        })
+        .run(&records, pool_report());
+        assert_eq!(run.examples.len(), 2);
+        assert_eq!(run.manifest.function_cap.dropped_by_class.get("clean"), Some(&3));
+    }
+
+    #[test]
+    #[should_panic(expected = "max_per_function must be at least 1")]
+    fn a_zero_cap_is_refused_rather_than_dropping_every_row() {
+        let _ = Generator::new(Options {
+            max_per_function: 0,
+            ..test_options()
+        });
+    }
+
     /// A pool record carrying the agent's pre-image, so `clean` has a real diff to be.
     fn record_with_prior(id: &str, path: &str, prior: &str, source: &str) -> PoolRecord {
         PoolRecord {
@@ -831,7 +1014,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
     fn all_clean() -> Options {
         Options {
             clean_permille: 1000,
-            ..Options::default()
+            ..test_options()
         }
     }
 
@@ -919,7 +1102,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         Options {
             seed: 17,
             clean_permille: 0,
-            ..Options::default()
+            ..test_options()
         }
     }
 
@@ -1093,7 +1276,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
 
         let clean = Generator::new(Options {
             clean_permille: 1000,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records_over(10, None, &source), pool_report());
         assert!(clean.manifest.totals.clean > 0);
@@ -1299,7 +1482,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let records = vec![record("r1", "a.rs", RUST_FILE, None)];
         let options = Options {
             seed: 4242,
-            ..Options::default()
+            ..test_options()
         };
         let first = Generator::new(options.clone()).run(&records, pool_report());
         let second = Generator::new(options).run(&records, pool_report());
@@ -1317,12 +1500,12 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             .collect();
         let a = Generator::new(Options {
             seed: 1,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         let b = Generator::new(Options {
             seed: 2,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         assert_ne!(
@@ -1339,7 +1522,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             .collect();
         let run = Generator::new(Options {
             seed: 99,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         assert!(!run.examples.is_empty());
@@ -1374,7 +1557,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let run = Generator::new(Options {
             seed: 7,
             clean_permille: 0,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         assert!(
@@ -1399,7 +1582,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let run = Generator::new(Options {
             seed: 7,
             clean_permille: 0,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         assert!(!run.examples.is_empty());
@@ -1417,7 +1600,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let run = Generator::new(Options {
             seed: 7,
             clean_permille: 0,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         assert!(!run.examples.is_empty());
@@ -1437,7 +1620,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let run = Generator::new(Options {
             seed: 5,
             clean_permille: 500,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         let mut seen: HashMap<FunctionIdentity, MutationClass> = HashMap::new();
@@ -1470,13 +1653,13 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             .collect();
         let full = Generator::new(Options {
             seed: 11,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         let capped = Generator::new(Options {
             seed: 11,
             limit: Some(3),
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         assert!(capped.examples.len() <= 3);
@@ -1502,7 +1685,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             seed: 3,
             clean_permille: 0,
             languages: vec![LangId::Python],
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         assert!(run.examples.iter().all(|e| e.language == LangId::Python));
@@ -1519,7 +1702,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let run = Generator::new(Options {
             seed: 2026,
             clean_permille: 0,
-            ..Options::default()
+            ..test_options()
         })
         .run(&records, pool_report());
         let silent = run.examples.iter().filter(|e| e.silent).count();
