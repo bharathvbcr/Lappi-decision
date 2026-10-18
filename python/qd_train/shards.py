@@ -80,6 +80,7 @@ for the same reason and on the same terms: injected, not imported.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import unicodedata
@@ -137,6 +138,7 @@ __all__ = [
     "HEADER_NAME",
     "MAX_POSITIONS_PER_BATCH",
     "MAX_ROWS_PER_BATCH",
+    "MAX_SHARD_DIR_ENTRIES",
     "OFFSETS_NAME",
     "PAD_ID",
     "REMAP_NAME",
@@ -261,6 +263,9 @@ PAD_ID: Final[int] = 0
 #: generous ``batch_tokens`` into a batch of tens of thousands of rows, and the first sign
 #: of it is an allocator failure some minutes into a run.
 MAX_ROWS_PER_BATCH: Final[int] = 4096
+#: Entries a shard directory may hold before the reader refuses it: the rule-3 per-file sweep is
+#: bounded, and a directory it cannot finish checking is refused rather than partly checked.
+MAX_SHARD_DIR_ENTRIES: Final[int] = 4096
 
 #: ...and in **positions**, which is the number that costs memory. :data:`MAX_ROWS_PER_BATCH`
 #: bounds rows; a batch's cost is ``rows x width``, and until 2026-09-20 nothing bounded
@@ -2026,7 +2031,13 @@ class ShardReader:
         # entry is checked (given and resolved form, dangling links included), not a fixed
         # name list, so a file added to the format later is covered without a second edit.
         assert_path_not_held_out(self.root, config=config, repo_root=self._repo_root)
-        for entry in sorted(self.root.iterdir()):
+        entries = list(itertools.islice(self.root.iterdir(), MAX_SHARD_DIR_ENTRIES + 1))
+        if len(entries) > MAX_SHARD_DIR_ENTRIES:
+            raise ShardContractViolation(
+                f"{self.root}: more than {MAX_SHARD_DIR_ENTRIES} entries; refusing to open a "
+                "directory whose files cannot all be checked against rule 3"
+            )
+        for entry in sorted(entries):
             assert_path_not_held_out(entry, config=config, repo_root=self._repo_root)
 
         raw = json.loads((self.root / HEADER_NAME).read_text(encoding="utf-8"))

@@ -16,7 +16,8 @@ from test_shards import snapshot  # noqa: F401 - fixture
 from test_shards import train_shards as _built_shards  # noqa: F401 - fixture
 
 from qd_data.errors import HeldOutViolation
-from qd_train.shards import OFFSETS_NAME, TOKENS_NAME, ShardReader
+from qd_train.artifacts import ShardContractViolation
+from qd_train.shards import MAX_SHARD_DIR_ENTRIES, OFFSETS_NAME, TOKENS_NAME, ShardReader
 
 
 @pytest.fixture
@@ -100,6 +101,14 @@ def test_dotdot_through_a_directory_symlink_is_refused(train_shards, tmp_path) -
     # link/.. is physically tmp/heldout, so link/../set is a held-out path.
     with pytest.raises(HeldOutViolation):
         _read(snap, link / ".." / "set")
+
+
+def test_directory_over_the_entry_cap_is_refused(train_shards) -> None:
+    snap, out, _ = train_shards
+    for i in range(MAX_SHARD_DIR_ENTRIES):
+        (out / f"pad-{i}").touch()
+    with pytest.raises(ShardContractViolation, match="cannot all be checked"):
+        _read(snap, out)
 
 
 def test_marker_in_the_given_path_refuses_even_when_it_resolves_clean(
