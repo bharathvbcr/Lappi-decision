@@ -87,12 +87,14 @@ fn lines(path: &Path) -> Vec<Value> {
 fn it_emits_per_shape_requests_for_exactly_the_admitted_pairs() {
     let d = tmp();
     release(&d, Some(shapes()));
-    write_lines(&d.join("val.jsonl"), &val_rows());
+    // Every admitted pair has at least two val rows here (fam.b at choice:6 gets a second), so
+    // asking for two fills them all: a full run exits 0.
+    let mut rows = val_rows();
+    rows.push(req("fam.b", 11, vec![choice(5)]));
+    write_lines(&d.join("val.jsonl"), &rows);
     let out = run(&d, &d.join("val.jsonl"), &d.join("req.jsonl"), "2");
-    // fam.b at choice:6 has one val row, so asking for two leaves that pair short: exit 1. The
-    // other pairs are full, and the short one still gets what exists.
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(1), "{stderr}{}", String::from_utf8_lossy(&out.stdout));
+    assert_eq!(out.status.code(), Some(0), "{stderr}{}", String::from_utf8_lossy(&out.stdout));
     let got = lines(&d.join("req.jsonl"));
     let mut count = std::collections::BTreeMap::<(String, Vec<String>), usize>::new();
     for r in &got {
@@ -102,7 +104,7 @@ fn it_emits_per_shape_requests_for_exactly_the_admitted_pairs() {
     let want: std::collections::BTreeMap<(String, Vec<String>), usize> = [
         (("code.defect_class", vec!["choice:5", "span"]), 2),
         (("fam.b", vec!["choice:4"]), 2),
-        (("fam.b", vec!["choice:6"]), 1),
+        (("fam.b", vec!["choice:6"]), 2),
     ]
     .into_iter()
     .map(|((f, s), n)| ((f.to_string(), s.into_iter().map(String::from).collect()), n))
