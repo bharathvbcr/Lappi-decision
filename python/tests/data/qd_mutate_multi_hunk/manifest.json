@@ -10,7 +10,7 @@
       "python": 12
     }
   },
-  "examples_sha256": "c661d177d0ac4e7769d8cf24d318949ba9cc5e2146d36a7b6dba8645b4da8442",
+  "examples_sha256": "9f0902a348b26946191fcf6010e26704a9b38be7b5fe91eb011e532b29884c1d",
   "totals": {
     "examples": 12,
     "mutated": 10,
@@ -47,6 +47,22 @@
     },
     "mutated_without_prior": 0,
     "clean_without_prior": 0
+  },
+  "function_cap": {
+    "max_per_function": 2,
+    "keys_seen": 12,
+    "rows_before": 12,
+    "rows_after": 12,
+    "rows_per_key_before": {
+      "1": 12
+    },
+    "rows_per_key_after": {
+      "1": 12
+    },
+    "rows_per_key_class_before": {
+      "1": 12
+    },
+    "dropped_by_class": {}
   },
   "languages": [
     {

@@ -10,7 +10,7 @@ three ``@@`` headers when the commit is far away, one when it is adjacent. Regen
       --pool python/tests/data/qd_mutate_multi_hunk/pool.jsonl \\
       --out python/tests/data/qd_mutate_multi_hunk/examples.jsonl \\
       --manifest python/tests/data/qd_mutate_multi_hunk/manifest.json \\
-      --seed 0 --clean-permille 250
+      --seed 0 --clean-permille 250 --max-per-function 2   # K from data/decisions/v6-mutate.json
 
 ``crates/qd-mutate/tests/multi_hunk_fixture.rs`` re-renders every diff here and fails if the
 renderer drifts from these bytes. What this file pins is the other half: that
@@ -136,3 +136,18 @@ def test_load_defect_rows_rebases_every_span_with_no_refusal(tmp_path: Path) -> 
             raw["diff"].encode(), start_line=span["start_line"], end_line=span["end_line"]
         )
         assert row.diff == raw["diff"]
+
+
+#: sha256 of the fixture as committed before cluster_key was added (2026-10-18). Every row is
+#: unchanged except that key, so the file with cluster_key removed must still hash to this.
+PRE_CLUSTER_KEY_SHA256 = "c661d177d0ac4e7769d8cf24d318949ba9cc5e2146d36a7b6dba8645b4da8442"
+
+
+def test_rows_carry_cluster_key_and_are_otherwise_the_pre_cluster_key_bytes() -> None:
+    rows = _rows()
+    assert rows and all(str(r.get("cluster_key", "")).startswith("fk1:") for r in rows)
+    stripped = "".join(
+        json.dumps({k: v for k, v in r.items() if k != "cluster_key"}, ensure_ascii=False, separators=(",", ":")) + "\n"
+        for r in rows
+    )
+    assert hashlib.sha256(stripped.encode("utf-8")).hexdigest() == PRE_CLUSTER_KEY_SHA256
