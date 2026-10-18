@@ -143,7 +143,11 @@ FMT_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: fmt - car
 # Override OJAS_DIR to point it elsewhere (test_pin_gate.py points it at an empty directory).
 OJAS_DIR  ?= $(REPO)/../ojas
 PIN_LOCK  ?= $(REPO)/upstream.lock.json
-PIN_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: pin - cargo is not on PATH, so the sibling commit was not compared.\n'; exit $(NOT_RUN); fi; cargo run --quiet --manifest-path "$(REPO)/Cargo.toml" -p qd-preflight --bin qd-pin -- --lock "$(PIN_LOCK)" --sibling "$(OJAS_DIR)" --key ojas
+# It also fails a sibling whose tracked files differ from HEAD (HEAD then does not pin what builds)
+# and a pin with no AUDIT/ojas-pin-<sha7>-<date>/delta-report.md (a closed allowance in pin.rs lists
+# the two pins that predate the convention). PIN_AUDIT is where the reports are looked up.
+PIN_AUDIT ?= $(REPO)/AUDIT
+PIN_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: pin - cargo is not on PATH, so the sibling commit was not compared.\n'; exit $(NOT_RUN); fi; cargo run --quiet --manifest-path "$(REPO)/Cargo.toml" -p qd-preflight --bin qd-pin -- --lock "$(PIN_LOCK)" --sibling "$(OJAS_DIR)" --audit-dir "$(PIN_AUDIT)" --key ojas
 
 CARGO_TEST_RUN = cargo test --manifest-path $(REPO)/Cargo.toml --workspace
 CARGO_TEST_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: cargo-test - cargo is not on PATH, so no Rust test was executed.\n'; exit $(NOT_RUN); fi; $(CARGO_TEST_RUN)
@@ -196,7 +200,102 @@ LEDGER_RECORD_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-record - no
 
 LEDGER_VERIFY_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-verify - no interpreter at %s; the chain was not checked.\n' "$(PY)"; exit $(NOT_RUN); fi; if [ ! -f "$(LEDGER)" ]; then printf 'NotRun: ledger-verify - no ledger at %s; there is no chain to check.\n  An absent ledger is not a verified one.\n' "$(LEDGER)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger verify --ledger "$(LEDGER)"
 
-.PHONY: all gates help lint clippy fmt pin cargo-test pytest torch-pytest ledger-record ledger-verify
+# --------------------------------------------------------------------------------
+# Preflight entry points: `make preflight-train` and `make preflight-release`.
+#
+# Each runs every check the launch needs as a subshell with its true 0/1/3 status (as `gates`
+# does), tallies them and prints a summary and a `RESULT:` line. One FAILED fails the target; with
+# none, one NotRun makes it NotRun (exit 3 from the recipe, 2 from GNU make). A check whose required
+# argument is missing is NotRun, never PASS: the checks that take a path or a count have no default.
+# `gates` is one of the checks, run through make so its own summary prints; its status is read back
+# from its `RESULT:` line (make collapses 1 and 3 to 2), and a run with neither FAILED nor NotRun
+# nor an explicit `RESULT: PASS` counts as FAILED. `gates` already covers orphaned `started` ledger
+# rows (`qd_train.ledger verify` fails a gone one and NotRuns an unverifiable one), so there is no
+# separate orphan check here.
+# --------------------------------------------------------------------------------
+
+# Branch the checkout must contain (qd-base-fresh).
+BASE_INTO        ?= main
+
+# preflight-train arguments. TRAIN_EXAMPLES is optional. BENCHMARK_TARGETS is space-separated
+# NAME=FILE items (qd-train-data --target).
+TRAIN_SHARDS     ?=
+TRAIN_EXAMPLES   ?=
+BENCHMARK_TARGETS ?=
+PREREG           ?=
+SHARD_DIR        ?=
+
+# preflight-release arguments. All three are required; none has a default.
+RELEASE_DIR      ?=
+REPLAY_RESULTS   ?=
+MIN_ANSWERED     ?=
+
+# `$(call qdrun,<bin>)` runs one qd-preflight binary; `$(call need,<check>,<value>,<what>)` is
+# NotRun when <value> is empty.
+qdrun = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: $(1) - cargo is not on PATH.\n'; exit $(NOT_RUN); fi; cargo run --quiet --manifest-path "$(REPO)/Cargo.toml" -p qd-preflight --bin $(1) --
+need  = if [ -z "$(strip $(2))" ]; then printf 'NotRun: $(1) - $(3) is not set; this check has no default and did not run.\n'; exit $(NOT_RUN); fi;
+
+BASE_FRESH_CMD     = $(call qdrun,qd-base-fresh) --repo "$(REPO)" --into "$(BASE_INTO)"
+TRAIN_DATA_CMD     = $(call need,qd-train-data,$(TRAIN_SHARDS),TRAIN_SHARDS) $(call need,qd-train-data,$(BENCHMARK_TARGETS),BENCHMARK_TARGETS) $(call qdrun,qd-train-data) --train "$(TRAIN_SHARDS)" $(if $(strip $(TRAIN_EXAMPLES)),--examples "$(TRAIN_EXAMPLES)") $(foreach t,$(BENCHMARK_TARGETS),--target "$(t)")
+PREREG_BIND_CMD    = $(call need,qd-prereg-bind,$(PREREG),PREREG) $(call need,qd-prereg-bind,$(SHARD_DIR),SHARD_DIR) $(call qdrun,qd-prereg-bind) --prereg "$(PREREG)" --shard-dir "$(SHARD_DIR)" --repo "$(REPO)"
+RELEASE_CHECK_CMD  = $(call need,qd-release-check,$(RELEASE_DIR),RELEASE_DIR) $(call need,qd-release-check,$(REPLAY_RESULTS),REPLAY_RESULTS) $(call need,qd-release-check,$(MIN_ANSWERED),MIN_ANSWERED) $(call qdrun,qd-release-check) check --release "$(RELEASE_DIR)" --results "$(REPLAY_RESULTS)" --min-answered "$(MIN_ANSWERED)" --repo "$(REPO)"
+CITE_CMD           = $(call qdrun,qd-cite) --root "$(REPO)"
+
+# `gates` through make: prints its summary, and its 0/1/3 is rebuilt from the RESULT: line.
+GATES_VIA_MAKE_CMD = out=`mktemp`; $(MAKE) --no-print-directory -f "$(REPO)/Makefile" gates > "$$out" 2>&1; rc=$$?; cat "$$out"; if [ $$rc -eq 0 ] && grep -q '^RESULT: PASS' "$$out"; then rc=0; elif grep -q '^RESULT: NotRun' "$$out"; then rc=$(NOT_RUN); else rc=1; fi; rm -f "$$out"; exit $$rc
+
+# The GPU digest pins. They are `#[ignore]`d GPU tests and `make gates` never runs them, which is how
+# gpu_prefix_state_digest_v1_is_pinned failed on an uncommitted tree unseen
+# (GAP-MAIN-UNCOMMITTED-BATCHED-DECODE-FAILS-ITS-DIGEST-PIN-2026-10-06). The tests say "run only in an
+# agreed GPU window", so this is NotRun unless GPU_WINDOW=1 says one is open, and NotRun when this is
+# not an Apple-silicon Mac with Metal or the Qwen3.5-2B-Base snapshot is absent. `0 passed` is
+# FAILED: a filter that matches nothing must not read as a pass. Run it under tools/mac_heavy.sh.
+GPU_WINDOW       ?=
+GPU_SNAPSHOTS    ?= $(HOME)/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots
+GPU_UNAME_S      ?= $(shell uname -s)
+GPU_UNAME_M      ?= $(shell uname -m)
+GPU_METAL_PROBE  ?= system_profiler SPDisplaysDataType 2> /dev/null | grep -qi metal
+GPU_PIN_TESTS    := gpu_prefix_state_digest_v1_is_pinned
+GPU_PINS_CMD = if [ "$(GPU_WINDOW)" != 1 ]; then printf 'NotRun: gpu-pins - no GPU window declared (set GPU_WINDOW=1 in an agreed window); the digest pins were not run.\n'; exit $(NOT_RUN); fi; if [ "$(GPU_UNAME_S)" != Darwin ] || [ "$(GPU_UNAME_M)" != arm64 ]; then printf 'NotRun: gpu-pins - this host is %s/%s, not Apple-silicon macOS, so no Metal GPU is usable.\n' "$(GPU_UNAME_S)" "$(GPU_UNAME_M)"; exit $(NOT_RUN); fi; if ! ( $(GPU_METAL_PROBE) ); then printf 'NotRun: gpu-pins - no Metal GPU was found on this host.\n'; exit $(NOT_RUN); fi; if ! ls "$(GPU_SNAPSHOTS)"/*/config.json > /dev/null 2>&1; then printf 'NotRun: gpu-pins - no Qwen3.5-2B-Base snapshot under %s.\n' "$(GPU_SNAPSHOTS)"; exit $(NOT_RUN); fi; if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: gpu-pins - cargo is not on PATH.\n'; exit $(NOT_RUN); fi; out=`mktemp`; cargo test --release --manifest-path "$(REPO)/Cargo.toml" -p qd-metal --test gpu $(GPU_PIN_TESTS) -- --ignored --exact --test-threads=1 > "$$out" 2>&1; rc=$$?; cat "$$out"; if [ $$rc -eq 0 ] && ! grep -q 'test result: ok. 1 passed' "$$out"; then printf 'FAILED: gpu-pins - cargo exited 0 but the digest pin test did not report 1 passed.\n'; rc=1; fi; rm -f "$$out"; exit $$rc
+
+# Shared tally: `rec <name> <rc>` appends one summary row and sets fail/notrun.
+PREFLIGHT_REC = rec() { if [ $$2 -eq 0 ]; then printf '  %-18s PASS\n' "$$1" >> "$$tally"; elif [ $$2 -eq $(NOT_RUN) ]; then notrun=1; printf '  %-18s NotRun\n' "$$1" >> "$$tally"; else fail=1; printf '  %-18s FAILED (exit %s)\n' "$$1" "$$2" >> "$$tally"; fi; };
+# `$(call preflight_summary,<label>)`: the summary, the RESULT: line and the exit status.
+preflight_summary = printf '\n======== $(1) summary ========\n'; cat "$$tally"; rm -f "$$tally"; if [ $$fail -ne 0 ]; then printf '\nRESULT: FAILED - at least one check ran and failed.\n'; exit 1; elif [ $$notrun -ne 0 ]; then printf '\nRESULT: NotRun - nothing failed, but a check could not run.\n'; printf 'This is not a pass. An unexamined check is not a clean one.\n'; exit $(NOT_RUN); fi; printf '\nRESULT: PASS - every check ran and passed.\n'
+
+gpu-pins:
+	@$(GPU_PINS_CMD)
+
+preflight-train:
+	@tally=`mktemp`; fail=0; notrun=0; $(PREFLIGHT_REC) \
+	for t in gates base-fresh train-data prereg-bind; do \
+	  printf '\n======== %s ========\n' "$$t"; \
+	  case "$$t" in \
+	    gates)       ( $(GATES_VIA_MAKE_CMD) ); rc=$$? ;; \
+	    base-fresh)  ( $(BASE_FRESH_CMD) );     rc=$$? ;; \
+	    train-data)  ( $(TRAIN_DATA_CMD) );     rc=$$? ;; \
+	    prereg-bind) ( $(PREREG_BIND_CMD) );    rc=$$? ;; \
+	  esac; \
+	  rec "$$t" "$$rc"; \
+	done; \
+	$(call preflight_summary,preflight-train)
+
+preflight-release:
+	@tally=`mktemp`; fail=0; notrun=0; $(PREFLIGHT_REC) \
+	for t in gates base-fresh release-check cite gpu-pins; do \
+	  printf '\n======== %s ========\n' "$$t"; \
+	  case "$$t" in \
+	    gates)         ( $(GATES_VIA_MAKE_CMD) ); rc=$$? ;; \
+	    base-fresh)    ( $(BASE_FRESH_CMD) );     rc=$$? ;; \
+	    release-check) ( $(RELEASE_CHECK_CMD) );  rc=$$? ;; \
+	    cite)          ( $(CITE_CMD) );           rc=$$? ;; \
+	    gpu-pins)      ( $(GPU_PINS_CMD) );       rc=$$? ;; \
+	  esac; \
+	  rec "$$t" "$$rc"; \
+	done; \
+	$(call preflight_summary,preflight-release)
+
+.PHONY: all gates help lint clippy fmt pin cargo-test pytest torch-pytest ledger-record ledger-verify gpu-pins preflight-train preflight-release
 
 all: gates
 
@@ -215,6 +314,12 @@ help:
 	@echo '  torch-pytest   the same suite where torch exists; +89 model-path tests'
 	@echo '  ledger-record  run the counted suites, append one `build` row, print its id'
 	@echo '  ledger-verify  recompute the ledger hash chain'
+	@echo '  gpu-pins       the #[ignore]d GPU digest-pin tests; NotRun without GPU_WINDOW=1, Metal and the snapshot'
+	@echo '  preflight-train    before a training run: gates, qd-base-fresh, qd-train-data, qd-prereg-bind'
+	@echo '                     needs TRAIN_SHARDS BENCHMARK_TARGETS="NAME=FILE ..." PREREG SHARD_DIR (TRAIN_EXAMPLES, BASE_INTO optional)'
+	@echo '  preflight-release  before a release: gates, qd-base-fresh, qd-release-check, qd-cite, gpu-pins'
+	@echo '                     needs RELEASE_DIR REPLAY_RESULTS MIN_ANSWERED (no defaults; BASE_INTO optional)'
+	@echo '  A preflight target with a missing argument is NotRun, never PASS. FAILED outranks NotRun.'
 
 lint:
 	@$(LINT_CMD)
