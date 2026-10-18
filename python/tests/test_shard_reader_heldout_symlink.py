@@ -17,7 +17,13 @@ from test_shards import train_shards as _built_shards  # noqa: F401 - fixture
 
 from qd_data.errors import HeldOutViolation
 from qd_train.artifacts import ShardContractViolation
-from qd_train.shards import MAX_SHARD_DIR_ENTRIES, OFFSETS_NAME, TOKENS_NAME, ShardReader
+from qd_train.shards import (
+    MAX_SHARD_DIR_ENTRIES,
+    OFFSETS_NAME,
+    TOKENS_NAME,
+    ShardReader,
+    assert_shard_files_trainable,
+)
 
 
 @pytest.fixture
@@ -109,6 +115,43 @@ def test_directory_over_the_entry_cap_is_refused(train_shards) -> None:
         (out / f"pad-{i}").touch()
     with pytest.raises(ShardContractViolation, match="cannot all be checked"):
         _read(snap, out)
+
+
+def test_public_check_admits_a_clean_set_and_opens_no_file(train_shards) -> None:
+    snap, out, _ = train_shards
+    # Unreadable members: any open would raise PermissionError, so a pass proves none was opened.
+    unreadable = [out / name for name in (TOKENS_NAME, OFFSETS_NAME, "header.json")]
+    for path in unreadable:
+        path.chmod(0)
+    try:
+        assert_shard_files_trainable(out, config=snap.config, repo_root=snap.root)
+    finally:
+        for path in unreadable:
+            path.chmod(0o644)
+
+
+def test_public_check_refuses_a_symlinked_member_without_a_reader(train_shards) -> None:
+    snap, out, _ = train_shards
+    _swap_for_link(out, TOKENS_NAME, snap.root / "data" / "heldout" / "stash" / TOKENS_NAME)
+    with pytest.raises(HeldOutViolation):
+        assert_shard_files_trainable(out, config=snap.config, repo_root=snap.root)
+
+
+def test_public_check_refuses_a_dangling_symlink_into_a_marker_directory(
+    train_shards, tmp_path
+) -> None:
+    snap, out, _ = train_shards
+    (out / "extra.bin").symlink_to(tmp_path / "heldout" / "nowhere.bin")
+    with pytest.raises(HeldOutViolation):
+        assert_shard_files_trainable(out, config=snap.config, repo_root=snap.root)
+
+
+def test_public_check_refuses_a_directory_over_the_entry_cap(train_shards) -> None:
+    snap, out, _ = train_shards
+    for i in range(MAX_SHARD_DIR_ENTRIES):
+        (out / f"pad-{i}").touch()
+    with pytest.raises(ShardContractViolation, match="cannot all be checked"):
+        assert_shard_files_trainable(out, config=snap.config, repo_root=snap.root)
 
 
 def test_marker_in_the_given_path_refuses_even_when_it_resolves_clean(

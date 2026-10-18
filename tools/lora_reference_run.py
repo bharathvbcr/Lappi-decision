@@ -92,7 +92,7 @@ from qd_train.heads import SpanPointerHead
 from qd_train.ledger import Environment, Ledger, RunRecorder
 from qd_train.memory import ADAMW_BF16, ADAMW_FP32, CheckpointRefused, spec_from_checkpoint
 from qd_train.run_control import RunControl, WallClockCap
-from qd_train.shards import ShardReader
+from qd_train.shards import ShardReader, assert_shard_files_trainable
 from qd_train.trainer import train_ft
 from qd_train.tristate import NotRun, Ran
 
@@ -204,8 +204,11 @@ def check_not_held_out(cfg: LoraRunConfig, config: DataConfig) -> None:
         ("--checkpoint", cfg.checkpoint),
     ):
         assert_path_not_held_out(Path(path), config=config, repo_root=REPO)
-    # Each shard FILE is checked by ShardReader itself (qd_train.shards), the one owner of that
-    # rule; this driver checks only the paths it is given.
+    # Each shard FILE too, by the reader's own pre-read check (the one implementation; it reads
+    # no token). A missing directory is the reader's refusal to make, later.
+    shard_dir = cfg.out / "shards" / "train"
+    if shard_dir.is_dir():
+        assert_shard_files_trainable(shard_dir, config=config, repo_root=REPO)
 
 
 def answer_ids(reader: ShardReader, tokenizer_json: Path) -> list[int]:
