@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
@@ -61,6 +62,20 @@ def _write(path: Path, lines: list[tuple[str, str, str, str]]) -> str:
     with path.open("xb") as fh:
         fh.write(body)
     return hashlib.sha256(body).hexdigest()
+
+
+def pick(
+    rows: Sequence[tuple[str, str, str, str]], found: set[str], source_of: dict[str, str],
+) -> list[tuple[str, str, str, str]]:
+    """``(key, source_id, family, text)`` of the slots whose row id (the key before ``#``) is in
+    ``found``, in the order of ``rows`` -- the split's own order, never a set's or a completion
+    order -- so two runs write the same bytes."""
+    out: list[tuple[str, str, str, str]] = []
+    for key, _identity, family, text in rows:
+        rid = key.split("#", 1)[0]
+        if rid in found:
+            out.append((key, source_of[rid], family, text))
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -110,21 +125,11 @@ def main(argv: list[str] | None = None) -> int:
     stripped = next(s for s in sets if s.name == TRAIN)
     unstripped, _refused = _rendered(train_rows)
 
-    def pick(
-        rows: list[tuple[str, str, str, str]],
-    ) -> list[tuple[str, str, str, str]]:
-        out: list[tuple[str, str, str, str]] = []
-        for key, _identity, family, text in rows:
-            rid = key.split("#", 1)[0]
-            if rid in found:
-                out.append((key, source_of[rid], family, text))
-        return out
-
-    a = pick([(k, i, f, t) for k, i, f, t in stripped.rows])
+    a = pick(stripped.rows, found, source_of)
     b = pick([
         (key, identity, family, parts.joined())
         for key, identity, family, _slot, parts in unstripped
-    ])
+    ], found, source_of)
     covered = {k.split("#", 1)[0] for k, *_ in a}
     uncovered = sorted(found - covered)
     print(f"stripped slots {len(a)} over {len(covered)} rows; unstripped slots {len(b)}; "

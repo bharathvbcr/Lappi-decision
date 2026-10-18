@@ -55,6 +55,19 @@ def test_written_lines_carry_the_fields_qd_train_data_reads(tmp_path: Path) -> N
     assert digest == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def test_pick_keeps_input_order_and_only_manifest_rows() -> None:
+    from train_examples_export import pick
+
+    rows = [
+        ("z#s", "i", "f", "t1"), ("a#s", "i", "f", "t2"), ("skip#s", "i", "f", "t3"),
+        ("m#s2", "i", "f", "t4"), ("a#s2", "i", "f", "t5"),
+    ]
+    got = pick(rows, {"z", "a", "m"}, {"z": "S1", "a": "S2", "m": "S3"})
+    assert [(k, s) for k, s, _f, _t in got] == [
+        ("z#s", "S1"), ("a#s", "S2"), ("m#s2", "S3"), ("a#s2", "S2"),
+    ]
+
+
 def test_an_existing_output_is_not_overwritten(tmp_path: Path) -> None:
     from train_examples_export import _write
 
