@@ -287,6 +287,25 @@ def test_a_step_that_does_not_fit_is_refused_with_the_arithmetic_in_the_message(
     assert "ARITHMETIC, not a measurement" in message, "rule 5 travels with the number"
 
 
+def _refusal_text(**kw) -> str:
+    f = estimate_step(
+        M, rows=1, width=34_522, vocab_size=REMAP_VOCAB,
+        activations=ActivationModel(recompute="none"), **BF16,
+    )
+    with pytest.raises(MemoryRefused) as excinfo:
+        refuse_unless_it_fits(f, device_bytes=96 * GB, where="w", **kw)
+    return str(excinfo.value)
+
+
+def test_the_usable_fraction_caveat_names_gh200_unless_the_device_is_one():
+    """DEVICE_USABLE_FRACTION was measured on a GH200 only (Fable Q11, 2026-10-18)."""
+    said = "fraction measured on GH200 only"
+    assert said in _refusal_text()  # an unnamed device has not been shown to be the GH200
+    assert said in _refusal_text(device_name="NVIDIA H100 80GB HBM3")
+    assert said not in _refusal_text(device_name="NVIDIA GH200 480GB")
+    assert "94%" in _refusal_text(device_name="NVIDIA GH200 480GB")
+
+
 def test_a_step_that_fits_is_not_refused():
     f = estimate_step(M, rows=1, width=34_522, vocab_size=REMAP_VOCAB, **BF16)
     refuse_unless_it_fits(f, device_bytes=96 * GB, where="bucket width 34,522")

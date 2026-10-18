@@ -572,3 +572,110 @@ def test_a_job_ended_by_an_external_sigterm_gets_a_distinct_exit_and_message(tmp
     assert "external SIGTERM -- likely memguard" in proc.stderr
     assert "finished with exit" not in proc.stderr
     assert not lock.exists()
+
+
+# --- a job waiting for quiet does not hold the lock (Fable Q8, 2026-10-18) ---------------------
+# 2026-10-17: an ojas gdn-mem job took the lock at 22:08Z, then waited on load while holding it
+# and never ran, blocking every other job behind it.
+
+
+def _popen(lock: Path, *args: str, **env: str) -> subprocess.Popen[str]:
+    full_env = {
+        **os.environ,
+        "MAC_HEAVY_LOCK": str(lock),
+        "MAC_HEAVY_POLL_S": "1",
+        "MAC_HEAVY_MIN_FREE_GB": "0",
+        "MAC_HEAVY_MAX_PROCS": "10000000",
+        **env,
+    }
+    return subprocess.Popen(
+        ["bash", str(SCRIPT), *args],
+        env=full_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def test_a_waiter_blocked_by_load_never_owns_the_lock(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    # Real load, with a limit no machine meets: the waiter must stay out of the lock.
+    proc = _popen(
+        lock, "t", "touch", str(marker), MAC_HEAVY_MAX_LOAD="0", MAC_HEAVY_MAX_WAIT_S="4"
+    )
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and proc.poll() is None:
+            assert not (lock / "owner").exists(), "a load-blocked job holds the lock"
+            assert not lock.exists(), "a load-blocked job holds the lock"
+            time.sleep(0.1)
+        _, err = proc.communicate(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 76, err
+    assert not marker.exists()
+    assert not lock.exists()
+
+
+def test_a_load_blocked_waiter_takes_the_lock_once_load_falls(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    load = tmp_path / "load"
+    load.write_text("50\n")
+    marker = tmp_path / "ran"
+    proc = _popen(
+        lock, "t", "touch", str(marker),
+        MAC_HEAVY_MAX_LOAD="5", MAC_HEAVY_MAX_WAIT_S="30",
+        MAC_HEAVY_LOAD_CMD=f"cat {load}", MAC_HEAVY_TEST_HOOK="1",
+    )
+    try:
+        for _ in range(25):
+            assert not lock.exists(), "a load-blocked job holds the lock"
+            time.sleep(0.1)
+        assert proc.poll() is None and not marker.exists()
+        load.write_text("1\n")
+        _, err = proc.communicate(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 0, err
+    assert marker.exists()
+    assert not lock.exists()
+
+
+def test_a_machine_that_turns_busy_after_the_lock_is_taken_releases_it(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    counter = tmp_path / "calls"
+    seen = tmp_path / "lock_seen_busy"
+    marker = tmp_path / "ran"
+    # Call 1 (before mkdir): quiet. Call 2 (the re-check with the lock held): busy. By call 3 the
+    # lock must be gone. Later calls: quiet.
+    probe = tmp_path / "load.sh"
+    probe.write_text(
+        f'n=$(cat "{counter}" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "{counter}"\n'
+        f'if [ "$n" = 3 ]; then [ -d "{lock}" ] && echo held > "{seen}"; fi\n'
+        'if [ "$n" = 2 ]; then echo 50; else echo 1; fi\n'
+    )
+    proc = _popen(
+        lock, "t", "touch", str(marker),
+        MAC_HEAVY_MAX_LOAD="5", MAC_HEAVY_MAX_WAIT_S="30",
+        MAC_HEAVY_LOAD_CMD=f"bash {probe}", MAC_HEAVY_TEST_HOOK="1",
+    )
+    _, err = proc.communicate(timeout=30)
+    assert proc.returncode == 0, err
+    assert marker.exists()
+    assert not seen.exists(), "the lock was still held while the job waited out the busy re-check"
+    assert not lock.exists()
+
+
+def test_the_load_hook_is_refused_without_the_test_marker(tmp_path: Path) -> None:
+    lock = tmp_path / "lock.d"
+    marker = tmp_path / "ran"
+    proc = _run(lock, "t", "touch", str(marker), MAC_HEAVY_LOAD_CMD="echo 0")
+    assert proc.returncode == 64
+    assert "MAC_HEAVY_LOAD_CMD" in proc.stderr
+    assert not marker.exists()
+    assert not lock.exists()
