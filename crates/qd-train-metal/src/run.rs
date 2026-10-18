@@ -139,6 +139,54 @@ fn check_out_dir(out: &Path) -> Result<(), RunError> {
     }
 }
 
+/// sha256 of the file at `path`'s bytes, lowercase hex (Python's `data_access._file_sha256`).
+fn file_sha256_hex(path: &Path) -> Result<String, RunError> {
+    let digest = qd_export::safetensors::sha256_file(path)
+        .map_err(|e| RunError::Refused(format!("{}: cannot hash the train manifest: {e}", path.display())))?;
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Run `read` (the one thing that opens the train manifest) between two hashes of the manifest
+/// file's bytes, as `data_access.open_training_data` does, and return what it read with the
+/// digest. A file whose bytes changed in between is refused: the digest a row records must be
+/// the file `read` read.
+pub fn read_with_manifest_sha256<T>(
+    manifest: &Path,
+    read: impl FnOnce() -> Result<T, RunError>,
+) -> Result<(T, String), RunError> {
+    let before = file_sha256_hex(manifest)?;
+    let value = read()?;
+    if file_sha256_hex(manifest)? != before {
+        return refused(format!(
+            "{}: the manifest's bytes changed between the hash and the read, refusing, so a \
+             recorded train_manifest_sha256 is the file read",
+            manifest.display()
+        ));
+    }
+    Ok((value, before))
+}
+
+/// The optional row fields this run records: the train manifest file's sha256.
+pub fn row_extras(train_manifest_sha256: &str) -> ledger::RowExtras {
+    ledger::RowExtras {
+        train_manifest_sha256: Some(train_manifest_sha256.to_owned()),
+        ..ledger::RowExtras::default()
+    }
+}
+
+/// [`ledger::append`] with `extras` ([`FtRow::line_with`]): the same `mac-ojas-*` path rule, the
+/// same locked, chained, fsynced append.
+pub fn append_row(
+    path: &Path,
+    row: &FtRow,
+    extras: &ledger::RowExtras,
+    row_id: String,
+    written_at: String,
+) -> Result<ledger::Stamp, ledger::LedgerError> {
+    ledger::check_ledger_path(path)?;
+    ledger::append_line(path, row_id, written_at, |stamp| row.line_with(stamp, extras))
+}
+
 /// Run `a` to completion. See the module docs for the order of checks.
 pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
     // ---- host-side refusals, before the GPU ------------------------------------------------
@@ -155,8 +203,10 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
     let mut opts = ShardOpen::new(config, a.data_root.clone(), a.qd_data.clone());
     opts.expect_rev = a.expect_rev.clone();
     opts.files = Arc::new(OsFiles);
-    let reader = ShardReader::open(&a.shards, &a.manifest, &opts)
-        .map_err(|e| RunError::Refused(format!("the shard door: {e}")))?;
+    let (reader, manifest_sha256) = read_with_manifest_sha256(&a.manifest, || {
+        ShardReader::open(&a.shards, &a.manifest, &opts)
+            .map_err(|e| RunError::Refused(format!("the shard door: {e}")))
+    })?;
     let header = reader.header().clone();
     if header.split != "train" {
         return refused(format!(
@@ -519,8 +569,14 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         ) + &resumed,
     };
     let written_at = ledger::isoformat_utc(SystemTime::now()).map_err(failed("written_at"))?;
-    ledger::append(&a.ledger, &row, row_id.clone(), written_at)
-        .map_err(failed("the ledger append"))?;
+    append_row(
+        &a.ledger,
+        &row,
+        &row_extras(&manifest_sha256),
+        row_id.clone(),
+        written_at,
+    )
+    .map_err(failed("the ledger append"))?;
     Ok(RunSummary {
         row_id,
         termination: result.termination,
