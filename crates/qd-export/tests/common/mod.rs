@@ -206,15 +206,29 @@ pub fn slot_shape_digest(entries: &[Value]) -> Value {
     let body: String = rows
         .iter()
         .map(|e| {
-            let keys: Vec<&str> = e["slot_shape"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
-            format!("{}\t{}\t{}\n", e["row_id"].as_str().unwrap(), e["content_hash"].as_str().unwrap(), keys.join(","))
+            let keys: Vec<&str> = e["slot_shape"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| k.as_str().unwrap())
+                .collect();
+            format!(
+                "{}\t{}\t{}\n",
+                e["row_id"].as_str().unwrap(),
+                e["content_hash"].as_str().unwrap(),
+                keys.join(",")
+            )
         })
         .collect();
     json!({"version": 1, "sha256": qd_runtime::hex(&qd_runtime::sha256(body.as_bytes()))})
 }
 
 /// [`write_train_manifest`] with every entry recording `shape` as its request shape.
-pub fn write_train_manifest_with_shape(path: &Path, families: &[&str], shape: &[String]) -> PathBuf {
+pub fn write_train_manifest_with_shape(
+    path: &Path,
+    families: &[&str],
+    shape: &[String],
+) -> PathBuf {
     let entries: Vec<Value> = families
         .iter()
         .enumerate()
@@ -329,7 +343,11 @@ pub fn build(
 /// for tests of everything else.
 pub fn calibrate(req: &mut ExportRequest, dir: &Path, table_path: &Path) {
     let report_path = gate_report(dir, table_path);
-    write_train_manifest_with_shape(&req.train_manifest, &TRAINED_FAMILIES, &first_shape(table_path));
+    write_train_manifest_with_shape(
+        &req.train_manifest,
+        &TRAINED_FAMILIES,
+        &first_shape(table_path),
+    );
     req.calibration = Some(table_path.to_path_buf());
     req.calibration_report = Some(report_path);
     req.uncalibrated_reason = None;
@@ -339,7 +357,13 @@ pub fn calibrate(req: &mut ExportRequest, dir: &Path, table_path: &Path) {
 /// table's first choice entry, plus span when the table has one.
 pub fn first_shape(table_path: &Path) -> Vec<String> {
     let doc: Value = serde_json::from_slice(&std::fs::read(table_path).unwrap()).unwrap();
-    let first = doc["letters"].as_object().expect("letters").keys().find(|k| k.starts_with("choice:")).expect("a choice entry").clone();
+    let first = doc["letters"]
+        .as_object()
+        .expect("letters")
+        .keys()
+        .find(|k| k.starts_with("choice:"))
+        .expect("a choice entry")
+        .clone();
     let mut one = vec![first];
     if !doc["span"].is_null() {
         one.push("span".to_string());

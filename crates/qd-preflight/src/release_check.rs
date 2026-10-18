@@ -35,9 +35,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 pub const RESULTS_FORMAT: &str = "qd-replay.v1";
@@ -67,13 +67,25 @@ pub struct Check {
 
 impl Check {
     fn pass(name: &'static str, detail: impl Into<String>) -> Self {
-        Self { name, verdict: Verdict::Pass, detail: detail.into() }
+        Self {
+            name,
+            verdict: Verdict::Pass,
+            detail: detail.into(),
+        }
     }
     fn fail(name: &'static str, detail: impl Into<String>) -> Self {
-        Self { name, verdict: Verdict::Fail, detail: detail.into() }
+        Self {
+            name,
+            verdict: Verdict::Fail,
+            detail: detail.into(),
+        }
     }
     fn not_run(name: &'static str, detail: impl Into<String>) -> Self {
-        Self { name, verdict: Verdict::NotRun, detail: detail.into() }
+        Self {
+            name,
+            verdict: Verdict::NotRun,
+            detail: detail.into(),
+        }
     }
 }
 
@@ -142,24 +154,40 @@ impl ReleaseView {
         let families = m
             .get("trained_families")
             .and_then(Value::as_array)
-            .ok_or_else(|| anyhow!("{MANIFEST_FILE} has no trained_families: the release admits no task"))?
+            .ok_or_else(|| {
+                anyhow!("{MANIFEST_FILE} has no trained_families: the release admits no task")
+            })?
             .iter()
-            .map(|v| v.as_str().map(str::to_string).ok_or_else(|| anyhow!("trained_families holds a non-string")))
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| anyhow!("trained_families holds a non-string"))
+            })
             .collect::<Result<Vec<_>>>()?;
         let shapes = match m.get("trained_slot_shapes") {
             None | Some(Value::Null) => None,
             Some(v) => {
-                let obj = v.as_object().ok_or_else(|| anyhow!("trained_slot_shapes is not an object"))?;
+                let obj = v
+                    .as_object()
+                    .ok_or_else(|| anyhow!("trained_slot_shapes is not an object"))?;
                 let mut out = BTreeMap::new();
                 for (family, shapes) in obj {
-                    let arr = shapes.as_array().ok_or_else(|| anyhow!("trained_slot_shapes[{family}] is not an array"))?;
+                    let arr = shapes
+                        .as_array()
+                        .ok_or_else(|| anyhow!("trained_slot_shapes[{family}] is not an array"))?;
                     let mut mine = Vec::new();
                     for shape in arr {
                         let keys = shape
                             .as_array()
-                            .ok_or_else(|| anyhow!("trained_slot_shapes[{family}] holds a non-array shape"))?
+                            .ok_or_else(|| {
+                                anyhow!("trained_slot_shapes[{family}] holds a non-array shape")
+                            })?
                             .iter()
-                            .map(|k| k.as_str().map(str::to_string).ok_or_else(|| anyhow!("a shape key is not a string")))
+                            .map(|k| {
+                                k.as_str()
+                                    .map(str::to_string)
+                                    .ok_or_else(|| anyhow!("a shape key is not a string"))
+                            })
                             .collect::<Result<Vec<_>>>()?;
                         let mut keys = keys;
                         keys.sort();
@@ -176,17 +204,30 @@ impl ReleaseView {
             .map(|a| {
                 a.iter()
                     .filter_map(|e| {
-                        Some((e.get("family")?.as_str()?.to_string(), e.get("reason")?.as_str()?.to_string()))
+                        Some((
+                            e.get("family")?.as_str()?.to_string(),
+                            e.get("reason")?.as_str()?.to_string(),
+                        ))
                     })
                     .collect()
             })
             .unwrap_or_default();
-        let ledger_binding = m.pointer("/train_manifest/ledger_binding").filter(|b| b.is_object()).map(|b| LedgerBinding {
-            verified: b.get("verified").and_then(Value::as_bool) == Some(true),
-            train_manifest_sha256: b.get("train_manifest_sha256").and_then(Value::as_str).map(str::to_string),
-            reason: b.get("reason").and_then(Value::as_str).map(str::to_string),
-        });
-        let id = |k: &str| m.pointer(&format!("/expected_identity/{k}")).and_then(Value::as_str).map(str::to_string);
+        let ledger_binding = m
+            .pointer("/train_manifest/ledger_binding")
+            .filter(|b| b.is_object())
+            .map(|b| LedgerBinding {
+                verified: b.get("verified").and_then(Value::as_bool) == Some(true),
+                train_manifest_sha256: b
+                    .get("train_manifest_sha256")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                reason: b.get("reason").and_then(Value::as_str).map(str::to_string),
+            });
+        let id = |k: &str| {
+            m.pointer(&format!("/expected_identity/{k}"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
         Ok(Self {
             dir: dir.to_path_buf(),
             trained_families: families,
@@ -209,7 +250,10 @@ pub fn request_shape(req: &Value) -> Option<Vec<String>> {
     let mut keys = Vec::with_capacity(slots.len());
     for s in slots {
         match s.get("type")?.as_str()? {
-            "choice" => keys.push(format!("choice:{}", s.get("options")?.as_array()?.len() + 1)),
+            "choice" => keys.push(format!(
+                "choice:{}",
+                s.get("options")?.as_array()?.len() + 1
+            )),
             "score" => keys.push(format!("score:{}", s.get("bins")?.as_u64()? + 1)),
             "span" => keys.push("span".to_string()),
             _ => return None,
@@ -258,7 +302,11 @@ impl PairBuilt {
 /// sorted by (family, shape, hash). Requests of families the release does not admit, or at shapes
 /// it did not train, are not emitted. A pair with fewer than `per_shape` is reported, never
 /// padded. `per_shape` has no default: no record states how many is enough.
-pub fn build_requests(release: &ReleaseView, val_requests: &str, per_shape: usize) -> Result<(String, Vec<PairBuilt>)> {
+pub fn build_requests(
+    release: &ReleaseView,
+    val_requests: &str,
+    per_shape: usize,
+) -> Result<(String, Vec<PairBuilt>)> {
     if per_shape == 0 {
         bail!("--per-shape 0 builds nothing");
     }
@@ -268,14 +316,24 @@ pub fn build_requests(release: &ReleaseView, val_requests: &str, per_shape: usiz
         .ok_or_else(|| anyhow!("the release records no trained_slot_shapes, so the (family, shape) set to build for cannot be enumerated; re-export with the gated qd-export"))?;
     let mut wanted: BTreeMap<(String, Vec<String>), BTreeMap<String, Value>> = BTreeMap::new();
     for family in &release.trained_families {
-        let mine = shapes.get(family).filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("admitted family {family} has no recorded slot shape"))?;
+        let mine = shapes
+            .get(family)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("admitted family {family} has no recorded slot shape"))?;
         for shape in mine {
             wanted.insert((family.clone(), shape.clone()), BTreeMap::new());
         }
     }
-    for (i, line) in val_requests.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
-        let req: Value = serde_json::from_str(line).with_context(|| format!("val requests line {}: not JSON", i + 1))?;
-        let (Some(task), Some(shape)) = (req.get("task").and_then(Value::as_str), request_shape(&req)) else {
+    for (i, line) in val_requests
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let req: Value = serde_json::from_str(line)
+            .with_context(|| format!("val requests line {}: not JSON", i + 1))?;
+        let (Some(task), Some(shape)) =
+            (req.get("task").and_then(Value::as_str), request_shape(&req))
+        else {
             continue;
         };
         if let Some(bucket) = wanted.get_mut(&(task.to_string(), shape)) {
@@ -291,7 +349,12 @@ pub fn build_requests(release: &ReleaseView, val_requests: &str, per_shape: usiz
             out.push('\n');
             emitted += 1;
         }
-        built.push(PairBuilt { family, shape, available: bucket.len(), emitted });
+        built.push(PairBuilt {
+            family,
+            shape,
+            available: bucket.len(),
+            emitted,
+        });
     }
     Ok((out, built))
 }
@@ -304,7 +367,12 @@ pub enum DocExample {
     /// A whole request in a ```json block.
     Full { source: String, request: Value },
     /// A row of the caller contract's request-shapes table: task, question and slots, no context.
-    Row { source: String, task: String, question: String, slots: Vec<Value> },
+    Row {
+        source: String,
+        task: String,
+        question: String,
+        slots: Vec<Value>,
+    },
 }
 
 impl DocExample {
@@ -318,10 +386,18 @@ impl DocExample {
     pub fn matches(&self, req: &Value) -> bool {
         match self {
             DocExample::Full { request, .. } => canonical(request) == canonical(req),
-            DocExample::Row { task, question, slots, .. } => {
+            DocExample::Row {
+                task,
+                question,
+                slots,
+                ..
+            } => {
                 req.get("task").and_then(Value::as_str) == Some(task)
                     && req.get("question").and_then(Value::as_str) == Some(question)
-                    && req.get("slots").and_then(Value::as_array).is_some_and(|s| slot_sig(s) == slot_sig(slots))
+                    && req
+                        .get("slots")
+                        .and_then(Value::as_array)
+                        .is_some_and(|s| slot_sig(s) == slot_sig(slots))
             }
         }
     }
@@ -335,7 +411,11 @@ fn slot_sig(slots: &[Value]) -> Vec<(String, String, Vec<String>)> {
             let opts = s
                 .get("options")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|o| o.as_str().map(str::to_string)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|o| o.as_str().map(str::to_string))
+                        .collect()
+                })
                 .unwrap_or_default();
             (get("name"), get("type"), opts)
         })
@@ -383,9 +463,14 @@ pub fn extract_examples(text: &str, file: &str) -> Vec<DocExample> {
         if let Some(rest) = line.trim_start().strip_prefix("```") {
             if in_json {
                 if let Ok(v) = serde_json::from_str::<Value>(&block) {
-                    let is_request = v.get("task").is_some() && v.get("slots").is_some() && v.get("schema_version").is_some();
+                    let is_request = v.get("task").is_some()
+                        && v.get("slots").is_some()
+                        && v.get("schema_version").is_some();
                     if is_request {
-                        out.push(DocExample::Full { source: format!("{file}:{start}"), request: v });
+                        out.push(DocExample::Full {
+                            source: format!("{file}:{start}"),
+                            request: v,
+                        });
                     }
                 }
                 in_json = false;
@@ -405,8 +490,17 @@ pub fn extract_examples(text: &str, file: &str) -> Vec<DocExample> {
             table = None;
             continue;
         }
-        let cells: Vec<&str> = line.trim().trim_matches('|').split('|').map(str::trim).collect();
-        if cells.len() >= 4 && cells[1].contains("task") && cells[2].contains("question") && cells[3].contains("slots") {
+        let cells: Vec<&str> = line
+            .trim()
+            .trim_matches('|')
+            .split('|')
+            .map(str::trim)
+            .collect();
+        if cells.len() >= 4
+            && cells[1].contains("task")
+            && cells[2].contains("question")
+            && cells[3].contains("slots")
+        {
             table = Some(true);
             continue;
         }
@@ -415,7 +509,12 @@ pub fn extract_examples(text: &str, file: &str) -> Vec<DocExample> {
             let question = backticks(cells[2]).first().map(|s| s.to_string());
             let slots = parse_table_slots(cells[3]);
             if let (Some(task), Some(question), Some(slots)) = (task, question, slots) {
-                out.push(DocExample::Row { source: format!("{file}:{n}"), task, question, slots });
+                out.push(DocExample::Row {
+                    source: format!("{file}:{n}"),
+                    task,
+                    question,
+                    slots,
+                });
             }
         }
     }
@@ -428,7 +527,9 @@ pub fn load_examples(repo: &Path) -> Result<Vec<DocExample>> {
         let text = std::fs::read_to_string(repo.join(f)).with_context(|| format!("reading {f}"))?;
         let found = extract_examples(&text, f);
         if found.is_empty() {
-            bail!("{f}: no documented example request found; the extractor and the document disagree");
+            bail!(
+                "{f}: no documented example request found; the extractor and the document disagree"
+            );
         }
         all.extend(found);
     }
@@ -441,12 +542,18 @@ pub fn documented_refusals(repo: &Path) -> Result<BTreeSet<String>> {
     let mut kinds = BTreeSet::new();
     for e in std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
         let name = e?.file_name().to_string_lossy().into_owned();
-        if let Some(k) = name.strip_prefix("refusal-").and_then(|n| n.strip_suffix(".json")) {
+        if let Some(k) = name
+            .strip_prefix("refusal-")
+            .and_then(|n| n.strip_suffix(".json"))
+        {
             kinds.insert(k.to_string());
         }
     }
     if kinds.is_empty() {
-        bail!("{} holds no refusal-<kind>.json: the documented refusal set is empty", dir.display());
+        bail!(
+            "{} holds no refusal-<kind>.json: the documented refusal set is empty",
+            dir.display()
+        );
     }
     Ok(kinds)
 }
@@ -471,7 +578,12 @@ impl Replayed {
     /// The model was asked and answered (possibly by abstaining) and the answer is not degraded.
     pub fn answered(&self) -> bool {
         self.status() == Some("ok")
-            && self.reply.as_ref().and_then(|r| r.get("degraded")).and_then(Value::as_bool) == Some(false)
+            && self
+                .reply
+                .as_ref()
+                .and_then(|r| r.get("degraded"))
+                .and_then(Value::as_bool)
+                == Some(false)
     }
     pub fn refusal_kind(&self) -> Option<&str> {
         if self.status() != Some("refused") {
@@ -492,35 +604,74 @@ pub struct Results {
 }
 
 pub fn load_results(path: &Path) -> Result<Results> {
-    let len = std::fs::metadata(path).with_context(|| format!("reading {}", path.display()))?.len();
+    let len = std::fs::metadata(path)
+        .with_context(|| format!("reading {}", path.display()))?
+        .len();
     if len > MAX_RESULTS_BYTES {
-        bail!("{} is {len} bytes, over the {MAX_RESULTS_BYTES}-byte bound", path.display());
+        bail!(
+            "{} is {len} bytes, over the {MAX_RESULTS_BYTES}-byte bound",
+            path.display()
+        );
     }
-    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut out = Results::default();
-    for (i, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
-        let v: Value = serde_json::from_str(line).with_context(|| format!("{}:{}: not JSON", path.display(), i + 1))?;
+    for (i, line) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let v: Value = serde_json::from_str(line)
+            .with_context(|| format!("{}:{}: not JSON", path.display(), i + 1))?;
         match v.get("kind").and_then(Value::as_str) {
             Some("header") => {
                 if v.get("format").and_then(Value::as_str) != Some(RESULTS_FORMAT) {
-                    bail!("{}:{}: header format is not {RESULTS_FORMAT}", path.display(), i + 1);
+                    bail!(
+                        "{}:{}: header format is not {RESULTS_FORMAT}",
+                        path.display(),
+                        i + 1
+                    );
                 }
-                let s = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+                let s = |k: &str| {
+                    v.get(k)
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                };
                 out.weight_hash = s("weight_hash");
                 out.calibration_hash = s("calibration_hash");
             }
             Some("replay") => {
-                let request = v.get("request").cloned().ok_or_else(|| anyhow!("{}:{}: no request", path.display(), i + 1))?;
+                let request = v
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| anyhow!("{}:{}: no request", path.display(), i + 1))?;
                 out.records.push(Replayed {
-                    id: v.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
-                    source: v.get("source").and_then(Value::as_str).unwrap_or("").to_string(),
+                    id: v
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    source: v
+                        .get("source")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                     request,
                     exit_code: v.get("exit_code").and_then(Value::as_i64),
-                    served_by: v.get("served_by").and_then(Value::as_str).unwrap_or("unknown").to_string(),
+                    served_by: v
+                        .get("served_by")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string(),
                     reply: v.get("reply").filter(|r| !r.is_null()).cloned(),
                 });
             }
-            other => bail!("{}:{}: unknown record kind {other:?}", path.display(), i + 1),
+            other => bail!(
+                "{}:{}: unknown record kind {other:?}",
+                path.display(),
+                i + 1
+            ),
         }
     }
     Ok(out)
@@ -548,7 +699,9 @@ pub fn coverage(release: &ReleaseView, results: &Results) -> Option<Vec<Coverage
             let mut refused = BTreeSet::new();
             let mut kinds = BTreeSet::new();
             for r in results.records.iter().filter(|r| r.via_socket()) {
-                if r.request.get("task").and_then(Value::as_str) != Some(family) || request_shape(&r.request).as_ref() != Some(&shape) {
+                if r.request.get("task").and_then(Value::as_str) != Some(family)
+                    || request_shape(&r.request).as_ref() != Some(&shape)
+                {
                     continue;
                 }
                 let h = request_hash(&r.request);
@@ -588,17 +741,26 @@ pub fn run_checks(inp: &Inputs<'_>) -> (Vec<Check>, Option<Vec<Coverage>>) {
     let mut bad = Vec::new();
     for (what, release, replay) in [
         ("weight_hash", &r.weight_hash, &res.weight_hash),
-        ("calibration_hash", &r.calibration_hash, &res.calibration_hash),
+        (
+            "calibration_hash",
+            &r.calibration_hash,
+            &res.calibration_hash,
+        ),
     ] {
         match (release, replay) {
             (Some(a), Some(b)) if a == b => {}
             (Some(a), Some(b)) => bad.push(format!("{what}: release {a}, replay {b}")),
             (None, _) => bad.push(format!("{what}: the release records none")),
-            (_, None) => bad.push(format!("{what}: the replay recorded none (no status reply from the warm build)")),
+            (_, None) => bad.push(format!(
+                "{what}: the replay recorded none (no status reply from the warm build)"
+            )),
         }
     }
     checks.push(if bad.is_empty() {
-        Check::pass("c_identity", "replay weight_hash and calibration_hash equal the release's")
+        Check::pass(
+            "c_identity",
+            "replay weight_hash and calibration_hash equal the release's",
+        )
     } else {
         Check::fail("c_identity", bad.join("; "))
     });
@@ -676,28 +838,50 @@ pub fn run_checks(inp: &Inputs<'_>) -> (Vec<Check>, Option<Vec<Coverage>>) {
     let mut missing = Vec::new();
     let mut wrong = Vec::new();
     for ex in inp.examples {
-        let hits: Vec<&Replayed> = res.records.iter().filter(|x| x.via_socket() && ex.matches(&x.request)).collect();
+        let hits: Vec<&Replayed> = res
+            .records
+            .iter()
+            .filter(|x| x.via_socket() && ex.matches(&x.request))
+            .collect();
         if hits.is_empty() {
             missing.push(ex.source().to_string());
             continue;
         }
-        let ok = hits.iter().any(|h| {
-            h.answered() || h.refusal_kind().is_some_and(|k| inp.refusals.contains(k))
-        });
+        let ok = hits
+            .iter()
+            .any(|h| h.answered() || h.refusal_kind().is_some_and(|k| inp.refusals.contains(k)));
         if !ok {
             let seen: Vec<String> = hits
                 .iter()
-                .map(|h| h.status().map_or("no status".to_string(), |s| format!("{s}/{}", h.refusal_kind().unwrap_or("-"))))
+                .map(|h| {
+                    h.status().map_or("no status".to_string(), |s| {
+                        format!("{s}/{}", h.refusal_kind().unwrap_or("-"))
+                    })
+                })
                 .collect();
             wrong.push(format!("{} -> {seen:?}", ex.source()));
         }
     }
     checks.push(if inp.examples.is_empty() {
-        Check::not_run("b_documented_examples", "no documented example request was extracted")
+        Check::not_run(
+            "b_documented_examples",
+            "no documented example request was extracted",
+        )
     } else if missing.is_empty() && wrong.is_empty() {
-        Check::pass("b_documented_examples", format!("{} documented examples replayed, each answered or documentedly refused", inp.examples.len()))
+        Check::pass(
+            "b_documented_examples",
+            format!(
+                "{} documented examples replayed, each answered or documentedly refused",
+                inp.examples.len()
+            ),
+        )
     } else {
-        Check::fail("b_documented_examples", format!("not replayed: {missing:?}; neither answered nor a documented refusal: {wrong:?}"))
+        Check::fail(
+            "b_documented_examples",
+            format!(
+                "not replayed: {missing:?}; neither answered nor a documented refusal: {wrong:?}"
+            ),
+        )
     });
 
     (checks, cov)
@@ -751,29 +935,47 @@ pub fn metrics(
 ) -> Result<Metrics> {
     let mut abst: BTreeMap<(String, String), bool> = BTreeMap::new();
     if let Some(p) = calib_rows {
-        for (i, line) in std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?.lines().enumerate() {
-            let v: Value = serde_json::from_str(line).with_context(|| format!("{}:{}", p.display(), i + 1))?;
+        for (i, line) in std::fs::read_to_string(p)
+            .with_context(|| format!("reading {}", p.display()))?
+            .lines()
+            .enumerate()
+        {
+            let v: Value =
+                serde_json::from_str(line).with_context(|| format!("{}:{}", p.display(), i + 1))?;
             if v.get("scored").and_then(Value::as_bool) != Some(true) {
                 continue;
             }
             if let (Some(row), Some(slot), Some(a)) = (
                 v.get("row_id").and_then(Value::as_str),
                 v.get("slot_name").and_then(Value::as_str),
-                v.get("abstained_noul_row_or_margin").and_then(Value::as_bool),
+                v.get("abstained_noul_row_or_margin")
+                    .and_then(Value::as_bool),
             ) {
                 abst.insert((row.to_string(), slot.to_string()), a);
             }
         }
     }
-    let mut adm = Population { families: admitted.iter().cloned().collect(), ..Default::default() };
-    let mut shown = Population { families: shown_served.iter().cloned().collect(), ..Default::default() };
+    let mut adm = Population {
+        families: admitted.iter().cloned().collect(),
+        ..Default::default()
+    };
+    let mut shown = Population {
+        families: shown_served.iter().cloned().collect(),
+        ..Default::default()
+    };
     let mut all = Fraction::default();
     let mut excluded = 0u64;
     let mut excluded_families = BTreeSet::new();
-    let text = std::fs::read_to_string(verdicts).with_context(|| format!("reading {}", verdicts.display()))?;
+    let text = std::fs::read_to_string(verdicts)
+        .with_context(|| format!("reading {}", verdicts.display()))?;
     let mut saw_family = false;
-    for (i, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
-        let v: Value = serde_json::from_str(line).with_context(|| format!("{}:{}", verdicts.display(), i + 1))?;
+    for (i, line) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let v: Value = serde_json::from_str(line)
+            .with_context(|| format!("{}:{}", verdicts.display(), i + 1))?;
         if v.get("kind").and_then(Value::as_str) != Some("choice") {
             continue;
         }
@@ -785,7 +987,11 @@ pub fn metrics(
         let family = v.get("family_id").and_then(Value::as_str);
         let correct = v.get("correct").and_then(Value::as_bool);
         let (Some(family), Some(correct)) = (family, correct) else {
-            bail!("{}:{}: a choice verdict without family_id or correct", verdicts.display(), i + 1);
+            bail!(
+                "{}:{}: a choice verdict without family_id or correct",
+                verdicts.display(),
+                i + 1
+            );
         };
         saw_family = true;
         all.denominator += 1;
@@ -797,11 +1003,20 @@ pub fn metrics(
             continue;
         }
         let key = (
-            v.get("row_id").and_then(Value::as_str).unwrap_or("").to_string(),
-            v.get("slot_name").and_then(Value::as_str).unwrap_or("").to_string(),
+            v.get("row_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            v.get("slot_name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
         );
         let answered = abst.get(&key).map(|a| !a);
-        for (pop, member) in [(&mut adm, true), (&mut shown, shown_served.contains(family))] {
+        for (pop, member) in [
+            (&mut adm, true),
+            (&mut shown, shown_served.contains(family)),
+        ] {
             if !member {
                 continue;
             }
@@ -821,7 +1036,10 @@ pub fn metrics(
         }
     }
     if !saw_family {
-        bail!("{}: no choice verdict rows with family_id", verdicts.display());
+        bail!(
+            "{}: no choice verdict rows with family_id",
+            verdicts.display()
+        );
     }
     Ok(Metrics {
         target_precision,
@@ -847,9 +1065,17 @@ pub struct ReplayConfig {
 }
 
 /// Run `cmd` with `stdin`, killing the child we started if it outlives `limit`.
-fn run_bounded(mut cmd: Command, stdin: &[u8], limit: Duration) -> Result<(Option<i32>, Vec<u8>, Vec<u8>)> {
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().with_context(|| format!("spawning {:?}", cmd.get_program()))?;
+fn run_bounded(
+    mut cmd: Command,
+    stdin: &[u8],
+    limit: Duration,
+) -> Result<(Option<i32>, Vec<u8>, Vec<u8>)> {
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("spawning {:?}", cmd.get_program()))?;
     let mut sin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
     let payload = stdin.to_vec();
     let writer = std::thread::spawn(move || {
@@ -859,7 +1085,10 @@ fn run_bounded(mut cmd: Command, stdin: &[u8], limit: Duration) -> Result<(Optio
     let mut se = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
     let out = std::thread::spawn(move || {
         let mut b = Vec::new();
-        let _ = so.by_ref().take(MAX_REPLY_BYTES as u64 + 1).read_to_end(&mut b);
+        let _ = so
+            .by_ref()
+            .take(MAX_REPLY_BYTES as u64 + 1)
+            .read_to_end(&mut b);
         b
     });
     let err = std::thread::spawn(move || {
@@ -893,7 +1122,8 @@ fn oneshot(cfg: &ReplayConfig, line: &[u8]) -> Result<(Option<i32>, String, Opti
         .arg("--socket-timeout-ms")
         .arg(cfg.socket_timeout.as_millis().max(1).to_string());
     let t = Instant::now();
-    let (code, stdout, stderr) = run_bounded(cmd, line, cfg.socket_timeout * 3 + Duration::from_secs(5))?;
+    let (code, stdout, stderr) =
+        run_bounded(cmd, line, cfg.socket_timeout * 3 + Duration::from_secs(5))?;
     let secs = t.elapsed().as_secs_f64();
     let stderr = String::from_utf8_lossy(&stderr);
     let served_by = stderr
@@ -925,8 +1155,15 @@ pub fn replay(cfg: &ReplayConfig) -> Result<String> {
     let mut work: Vec<(String, Value)> = Vec::new();
     for ex in &examples {
         match ex {
-            DocExample::Full { source, request } => work.push((format!("doc:{source}"), request.clone())),
-            DocExample::Row { source, task, question, slots } => {
+            DocExample::Full { source, request } => {
+                work.push((format!("doc:{source}"), request.clone()))
+            }
+            DocExample::Row {
+                source,
+                task,
+                question,
+                slots,
+            } => {
                 // A row carries no context. One that a full example already covers is replayed
                 // there; the others get a neutral context, so what is measured is admission of
                 // the task and shape.
@@ -947,14 +1184,24 @@ pub fn replay(cfg: &ReplayConfig) -> Result<String> {
         }
     }
     for f in &cfg.request_files {
-        let text = std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?;
-        for (i, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
-            let v: Value = serde_json::from_str(line).with_context(|| format!("{}:{}: not JSON", f.display(), i + 1))?;
+        let text =
+            std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?;
+        for (i, line) in text
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| !l.trim().is_empty())
+        {
+            let v: Value = serde_json::from_str(line)
+                .with_context(|| format!("{}:{}: not JSON", f.display(), i + 1))?;
             work.push((format!("file:{}:{}", f.display(), i + 1), v));
         }
     }
     if work.len() > cfg.max_requests {
-        bail!("{} requests is over --max-requests {}", work.len(), cfg.max_requests);
+        bail!(
+            "{} requests is over --max-requests {}",
+            work.len(),
+            cfg.max_requests
+        );
     }
 
     let mut lines = Vec::with_capacity(work.len() + 1);
@@ -966,8 +1213,16 @@ pub fn replay(cfg: &ReplayConfig) -> Result<String> {
         }));
     }
     let (code, served_by, status, _) = oneshot(cfg, br#"{"op":"status"}"#)?;
-    let backend = status.as_ref().and_then(|s| s.get("backend")).filter(|b| !b.is_null());
-    let hash = |k: &str| backend.and_then(|b| b.get(k)).and_then(Value::as_str).map(str::to_string);
+    let backend = status
+        .as_ref()
+        .and_then(|s| s.get("backend"))
+        .filter(|b| !b.is_null());
+    let hash = |k: &str| {
+        backend
+            .and_then(|b| b.get(k))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
     let header = json!({
         "kind": "header", "format": RESULTS_FORMAT,
         "release_dir": cfg.release.display().to_string(), "socket": cfg.socket.display().to_string(),
@@ -989,7 +1244,9 @@ fn b64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for c in bytes.chunks(3) {
-        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*c.get(2).unwrap_or(&0));
         for (i, shift) in [18, 12, 6, 0].iter().enumerate() {
             if i <= c.len() {
                 s.push(T[((n >> shift) & 63) as usize] as char);
@@ -1019,13 +1276,18 @@ mod tests {
         let md = "| Decision point | `task` | `question` | slots | context |\n| --- | --- | --- | --- | --- |\n| A | `x.y` | `Q?` | `c` choice `[a, b]`; `s` span | ctx |\n\n```json\n{\"schema_version\":1,\"task\":\"x.y\",\"slots\":[]}\n```\n";
         let ex = extract_examples(md, "t.md");
         assert_eq!(ex.len(), 2);
-        assert!(matches!(&ex[0], DocExample::Row { task, slots, .. } if task == "x.y" && slots.len() == 2));
+        assert!(
+            matches!(&ex[0], DocExample::Row { task, slots, .. } if task == "x.y" && slots.len() == 2)
+        );
         assert!(matches!(&ex[1], DocExample::Full { .. }));
     }
 
     #[test]
     fn shapes_count_the_reserved_row() {
         let req = json!({"slots": [{"name": "a", "type": "choice", "options": ["x", "y", "z", "w"]}, {"name": "s", "type": "span"}]});
-        assert_eq!(request_shape(&req), Some(vec!["choice:5".to_string(), "span".to_string()]));
+        assert_eq!(
+            request_shape(&req),
+            Some(vec!["choice:5".to_string(), "span".to_string()])
+        );
     }
 }

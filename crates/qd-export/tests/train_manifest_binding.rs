@@ -16,7 +16,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use qd_export::export;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const DIGEST_VECTOR: &str = "ac5cb778fa420b231bf726ea7bf8e99d7d8e8319c29090c075fa4bc2aa6bfa39";
 
@@ -27,8 +27,18 @@ fn digest(entries: &[Value]) -> String {
     let body: String = rows
         .iter()
         .map(|e| {
-            let keys: Vec<&str> = e["slot_shape"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
-            format!("{}\t{}\t{}\n", e["row_id"].as_str().unwrap(), e["content_hash"].as_str().unwrap(), keys.join(","))
+            let keys: Vec<&str> = e["slot_shape"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| k.as_str().unwrap())
+                .collect();
+            format!(
+                "{}\t{}\t{}\n",
+                e["row_id"].as_str().unwrap(),
+                e["content_hash"].as_str().unwrap(),
+                keys.join(",")
+            )
         })
         .collect();
     qd_runtime::hex(&qd_runtime::sha256(body.as_bytes()))
@@ -80,7 +90,8 @@ fn ledger(dir: &Path, rows: &[Value]) -> PathBuf {
 }
 
 fn ft_row(id: &str, seed: u64, sha: Option<&str>) -> Value {
-    let mut row = json!({"row_id": id, "run_kind": "ft", "status": "completed", "protocol": {"seed": seed}});
+    let mut row =
+        json!({"row_id": id, "run_kind": "ft", "status": "completed", "protocol": {"seed": seed}});
     if let Some(sha) = sha {
         row["train_manifest_sha256"] = json!(sha);
     }
@@ -88,12 +99,20 @@ fn ft_row(id: &str, seed: u64, sha: Option<&str>) -> Value {
 }
 
 fn rows_with(sha: &str) -> Vec<Value> {
-    common::FT_ROW_IDS.iter().enumerate().map(|(i, id)| ft_row(id, i as u64, Some(sha))).collect()
+    common::FT_ROW_IDS
+        .iter()
+        .enumerate()
+        .map(|(i, id)| ft_row(id, i as u64, Some(sha)))
+        .collect()
 }
 
 fn refused(req: &qd_export::ExportRequest, needle: &str) {
     let err = export(req).expect_err("this export must be refused");
-    assert!(err.detail.contains(needle), "{needle:?} not in {}", err.detail);
+    assert!(
+        err.detail.contains(needle),
+        "{needle:?} not in {}",
+        err.detail
+    );
     assert!(!req.out.exists(), "a refused export left a release");
 }
 
@@ -103,7 +122,8 @@ fn release_manifest(out: &Path) -> Value {
 
 #[test]
 fn the_digest_definition_has_the_pinned_value() {
-    let e = json!({"row_id": "r1", "content_hash": "0".repeat(64), "slot_shape": ["choice:5", "span"]});
+    let e =
+        json!({"row_id": "r1", "content_hash": "0".repeat(64), "slot_shape": ["choice:5", "span"]});
     assert_eq!(digest(&[e]), DIGEST_VECTOR);
 }
 
@@ -144,8 +164,14 @@ fn a_ledger_whose_rows_record_this_manifests_sha_binds_it_and_the_release_says_s
     req.ft_ledger = Some(ledger(&fx.dir.0, &rows_with(&sha)));
     export(&req).expect("bound");
     let m = release_manifest(&fx.out);
-    assert_eq!(m["train_manifest"]["ledger_binding"]["verified"], json!(true));
-    assert_eq!(m["train_manifest"]["ledger_binding"]["train_manifest_sha256"], json!(sha));
+    assert_eq!(
+        m["train_manifest"]["ledger_binding"]["verified"],
+        json!(true)
+    );
+    assert_eq!(
+        m["train_manifest"]["ledger_binding"]["train_manifest_sha256"],
+        json!(sha)
+    );
 }
 
 #[test]

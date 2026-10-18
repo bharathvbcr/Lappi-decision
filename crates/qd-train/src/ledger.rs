@@ -905,7 +905,9 @@ pub fn append_with(
     written_at: String,
 ) -> Result<Stamp, LedgerError> {
     check_ledger_path(path)?;
-    append_line(path, row_id, written_at, |stamp| row.line_with(stamp, extras))
+    append_line(path, row_id, written_at, |stamp| {
+        row.line_with(stamp, extras)
+    })
 }
 
 /// `Ledger.append`: take the write lock, refuse a duplicate `row_id`, chain to the last line,
