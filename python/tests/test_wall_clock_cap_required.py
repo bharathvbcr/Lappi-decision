@@ -83,7 +83,7 @@ def test_quick_gets_the_quick_cap_and_a_named_cap_needs_no_quick(tmp_path: Path)
 
     for argv in (["--quick"], ["--wall-clock-cap-s", "32400"]):
         # Past every argv check, the first thing the run reads is the (absent) shard set.
-        with pytest.raises(FileNotFoundError, match="header.json"):
+        with pytest.raises(FileNotFoundError, match=r"header\.json"):
             real_ft_run.main(["--out", str(tmp_path), "--epoch", *argv])
 
 

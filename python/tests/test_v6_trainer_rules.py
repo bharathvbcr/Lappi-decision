@@ -120,7 +120,8 @@ def test_the_flag_reaches_the_corpus_check_and_the_rebuild(
     monkeypatch.setattr(rft, "check_exclusion_source", lambda *a, **k: None)
     monkeypatch.setattr(rft, "corpus_facts", facts)
     with pytest.raises(_Reached):
-        rft.main(["--out", str(tmp_path), "--rev", "a" * 40, "--devices", "cpu",
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+                  "--rev", "a" * 40, "--devices", "cpu",
                   "--seeds", "0", *extra])
     assert seen["config"] == want
 
