@@ -13,10 +13,13 @@
 //! the sibling or the lock could not be read). A sibling that is absent is `NotRun`, never a
 //! pass.
 //!
-//! What this does not establish: that the sibling's working tree is clean. It compares HEAD.
+//! [`check_pin`] compares HEAD alone. [`check_pin_full`], which `qd-pin` runs, also refuses a
+//! sibling whose tracked files differ from HEAD (HEAD then does not pin what builds) and a pin
+//! with no delta report; that part shells out to `git status` with optional locks off.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -223,6 +226,194 @@ pub fn check_pin(lock_path: &Path, key: &str, sibling: &Path) -> PinOutcome {
     }
 }
 
+/// Pins that predate the delta-report convention (`AUDIT/ojas-pin-<sha7>-<date>/delta-report.md`,
+/// first written for 5b67cdd). Each entry is a full commit id and the Lappi commit that set it in
+/// `upstream.lock.json`. The list is closed: a new pin needs a delta report, not an entry here.
+pub const DELTA_REPORT_ALLOWANCE: &[(&str, &str)] = &[
+    ("bc498c4375c2e4753d784e6e9fc267a8d18b038a", "7362473"),
+    ("132b46ea63e87868f468c016e02fe99acf2bb164", "21fb7ad"),
+];
+
+/// How long `git status` in the sibling may run before it is killed and the check is `NotRun`.
+const GIT_STATUS_TIMEOUT: Duration = Duration::from_secs(120);
+/// Upper bound on the bytes of `git status` output read; more is a sibling in no state to pin.
+const GIT_STATUS_MAX_BYTES: u64 = 4 * 1024 * 1024;
+/// How many dirty paths a failure line names.
+const NAMED_FILES: usize = 10;
+
+/// What the full pin gate decided. [`PinOutcome`] is the HEAD comparison alone; the two extra
+/// failures are checks that HEAD cannot answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PinGate {
+    /// HEAD matches, the tracked files are clean and the pin has a delta report (or an allowance).
+    Pass { sha: String, evidence: String },
+    /// The HEAD comparison alone failed or could not run.
+    Head(PinOutcome),
+    /// HEAD matches but tracked files differ from it: HEAD does not pin what builds.
+    Dirty { sha: String, files: Vec<String> },
+    /// HEAD matches and is clean, but no delta report covers the pinned commit.
+    NoDeltaReport { sha: String },
+    /// HEAD matches but git could not say whether the tree is clean.
+    DirtyUnknown { sha: String, reason: String },
+}
+
+impl PinGate {
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            PinGate::Pass { .. } => 0,
+            PinGate::Head(o) => o.exit_code(),
+            PinGate::Dirty { .. } | PinGate::NoDeltaReport { .. } => 1,
+            PinGate::DirtyUnknown { .. } => EXIT_NOT_RUN,
+        }
+    }
+
+    pub fn line(&self, key: &str) -> String {
+        match self {
+            PinGate::Pass { sha, evidence } => {
+                format!("pin PASS: {key} is at the locked commit {sha}, tracked files clean, {evidence}")
+            }
+            PinGate::Head(o) => o.line(key),
+            PinGate::Dirty { sha, files } => {
+                let shown: Vec<&str> = files.iter().take(NAMED_FILES).map(String::as_str).collect();
+                let more = files.len().saturating_sub(NAMED_FILES);
+                format!(
+                    "pin FAILED: {key} is at {sha} but {} tracked file(s) differ from it, so the pin \
+                     does not describe what builds: {}{}. Commit or revert them in the sibling.",
+                    files.len(),
+                    shown.join(", "),
+                    if more > 0 { format!(" (+{more} more)") } else { String::new() }
+                )
+            }
+            PinGate::NoDeltaReport { sha } => format!(
+                "pin FAILED: upstream.lock.json pins {key} {sha} and no AUDIT/{key}-pin-{}-<date>/\
+                 delta-report.md covers it. Write the delta report in the bump commit.",
+                &sha[..7]
+            ),
+            PinGate::DirtyUnknown { sha, reason } => format!(
+                "pin NotRun: {key} is at {sha} but whether its tracked files are clean is unknown: {reason}"
+            ),
+        }
+    }
+}
+
+/// The delta report covering `sha`: a file `<audit_dir>/<key>-pin-<prefix>-<date>/delta-report.md`
+/// where `<prefix>` is at least 7 hex characters and a prefix of `sha`.
+pub fn find_delta_report(audit_dir: &Path, key: &str, sha: &str) -> Result<Option<PathBuf>, String> {
+    let entries = fs::read_dir(audit_dir)
+        .map_err(|e| format!("cannot list the audit directory {}: {e}", audit_dir.display()))?;
+    let head = format!("{key}-pin-");
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("cannot list {}: {e}", audit_dir.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix(&head) else {
+            continue;
+        };
+        let prefix = rest.split('-').next().unwrap_or("");
+        if prefix.len() >= 7 && is_hex_prefix(prefix) && sha.starts_with(prefix) {
+            let report = entry.path().join("delta-report.md");
+            if report.is_file() {
+                return Ok(Some(report));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn is_hex_prefix(s: &str) -> bool {
+    s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Tracked files of `dir` that differ from HEAD, via `git status` with the optional index lock
+/// off so it writes nothing in a tree this repo does not own. Untracked files are ignored: they
+/// are not in HEAD and `cargo` only follows what the manifests name. Bounded in time and output;
+/// the child is the one this call started and the only one it kills.
+pub fn dirty_tracked_files(dir: &Path) -> Result<Vec<String>, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("git")
+        .arg("--no-optional-locks")
+        .arg("-C")
+        .arg(dir)
+        .args(["status", "--porcelain=v1", "-z", "--untracked-files=no"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run git: {e}"))?;
+    let stdout = child.stdout.take().ok_or("git stdout was not captured")?;
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.take(GIT_STATUS_MAX_BYTES + 1).read_to_end(&mut buf);
+        buf
+    });
+    let deadline = Instant::now() + GIT_STATUS_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break s,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("git status in {} timed out", dir.display()));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(format!("waiting for git failed: {e}")),
+        }
+    };
+    let out = reader.join().map_err(|_| "git reader thread panicked".to_owned())?;
+    if !status.success() {
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = e.read_to_string(&mut err);
+        }
+        return Err(format!("git status in {} exited {status}: {}", dir.display(), err.trim()));
+    }
+    if out.len() as u64 > GIT_STATUS_MAX_BYTES {
+        return Err(format!("git status in {} printed over {GIT_STATUS_MAX_BYTES} bytes", dir.display()));
+    }
+    // `-z`: entries are "XY path\0"; a rename or copy is followed by one extra "orig\0" field.
+    let text = String::from_utf8_lossy(&out);
+    let mut files = Vec::new();
+    let mut fields = text.split('\0').filter(|f| !f.is_empty());
+    while let Some(field) = fields.next() {
+        let (xy, path) = field.split_at(field.len().min(3));
+        files.push(path.to_owned());
+        if xy.starts_with(['R', 'C']) || xy.as_bytes().get(1).is_some_and(|b| matches!(b, b'R' | b'C')) {
+            fields.next();
+        }
+    }
+    Ok(files)
+}
+
+/// The whole gate: HEAD against the lock, then a clean tracked tree, then a delta report (or a
+/// listed allowance) for the pinned commit.
+pub fn check_pin_full(lock_path: &Path, key: &str, sibling: &Path, audit_dir: &Path) -> PinGate {
+    let sha = match check_pin(lock_path, key, sibling) {
+        PinOutcome::Match { sha } => sha,
+        other => return PinGate::Head(other),
+    };
+    match dirty_tracked_files(sibling) {
+        Ok(files) if !files.is_empty() => return PinGate::Dirty { sha, files },
+        Ok(_) => {}
+        Err(reason) => return PinGate::DirtyUnknown { sha, reason },
+    }
+    if let Some((_, set_by)) = DELTA_REPORT_ALLOWANCE.iter().find(|(s, _)| *s == sha) {
+        return PinGate::Pass {
+            sha,
+            evidence: format!("pin predates delta reports (allowance, set by commit {set_by})"),
+        };
+    }
+    match find_delta_report(audit_dir, key, &sha) {
+        Ok(Some(report)) => PinGate::Pass {
+            evidence: format!("delta report {}", report.display()),
+            sha,
+        },
+        Ok(None) => PinGate::NoDeltaReport { sha },
+        Err(reason) => PinGate::Head(PinOutcome::NotRun { reason }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +567,90 @@ mod tests {
                 3,
                 "{body}"
             );
+        }
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    }
+
+    /// A real one-commit repo with a tracked file; returns its HEAD.
+    fn real_repo(dir: &Path) -> String {
+        fs::create_dir_all(dir).unwrap();
+        git(dir, &["init", "-q"]);
+        write(&dir.join("lib.rs"), "fn a() {}\n");
+        git(dir, &["add", "lib.rs"]);
+        git(dir, &["commit", "-q", "-m", "one"]);
+        git(dir, &["rev-parse", "HEAD"])
+    }
+
+    fn audit_with_report(d: &Path, sha: &str) -> PathBuf {
+        let audit = d.join("AUDIT");
+        write(&audit.join(format!("ojas-pin-{}-2026-10-17/delta-report.md", &sha[..7])), "delta\n");
+        audit
+    }
+
+    #[test]
+    fn a_clean_pinned_sibling_with_a_delta_report_passes() {
+        let d = scratch("full-pass");
+        let sha = real_repo(&d.join("sib"));
+        let out = check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit_with_report(&d, &sha));
+        assert_eq!(out.exit_code(), 0, "{}", out.line("ojas"));
+        assert!(matches!(out, PinGate::Pass { .. }));
+    }
+
+    #[test]
+    fn a_dirty_tracked_file_fails_and_names_it_but_an_untracked_one_does_not() {
+        let d = scratch("full-dirty");
+        let sha = real_repo(&d.join("sib"));
+        let audit = audit_with_report(&d, &sha);
+        write(&d.join("sib/untracked.txt"), "x");
+        assert_eq!(check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit).exit_code(), 0);
+        write(&d.join("sib/lib.rs"), "fn changed() {}\n");
+        let out = check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit);
+        assert_eq!(out.exit_code(), 1);
+        let line = out.line("ojas");
+        assert!(line.contains("lib.rs") && line.contains("pin FAILED"), "{line}");
+        assert!(!line.contains("untracked.txt"), "{line}");
+    }
+
+    #[test]
+    fn a_pin_with_no_delta_report_fails() {
+        let d = scratch("full-nodelta");
+        let sha = real_repo(&d.join("sib"));
+        let audit = d.join("AUDIT");
+        fs::create_dir_all(&audit).unwrap();
+        // A report for a different commit, and a prefix shorter than 7, cover nothing.
+        write(&audit.join("ojas-pin-0123456-2026-10-17/delta-report.md"), "x");
+        write(&audit.join(format!("ojas-pin-{}-2026-10-17/delta-report.md", &sha[..6])), "x");
+        let out = check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit);
+        assert!(matches!(out, PinGate::NoDeltaReport { .. }), "{out:?}");
+        assert_eq!(out.exit_code(), 1);
+    }
+
+    #[test]
+    fn a_sibling_git_cannot_read_is_not_run_never_a_pass() {
+        let d = scratch("full-nogit");
+        write(&d.join("sib/.git/HEAD"), &format!("{A}\n"));
+        let out = check_pin_full(&lock(&d, A), "ojas", &d.join("sib"), &audit_with_report(&d, A));
+        assert!(matches!(out, PinGate::DirtyUnknown { .. }), "{out:?}");
+        assert_eq!(out.exit_code(), 3);
+    }
+
+    #[test]
+    fn the_allowance_is_closed_and_cites_a_commit_for_every_entry() {
+        assert_eq!(DELTA_REPORT_ALLOWANCE.len(), 2);
+        for (sha, set_by) in DELTA_REPORT_ALLOWANCE {
+            assert!(is_hex_sha(sha) && sha.len() == 40, "{sha}");
+            assert!(set_by.len() == 7 && is_hex_prefix(set_by), "{set_by}");
         }
     }
 }

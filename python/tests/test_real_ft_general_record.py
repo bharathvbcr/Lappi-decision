@@ -364,7 +364,9 @@ def test_main_forwards_the_record_and_pairs_a_general_set_by_its_index(
         )),
     )
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
-    monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: facts.append(kw))
+    monkeypatch.setattr(
+        rft, "corpus_facts", lambda out, **kw: (facts.append(kw), rft.CorpusFacts(None, {}))[1]
+    )
     with pytest.raises(_Stop):
         rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
                   "--max-pairs", "7", "--rev", rev,

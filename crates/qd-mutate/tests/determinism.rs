@@ -116,6 +116,8 @@ fn generate(dir: &Path, pool: &Path, tag: &str, seed: &str) -> (String, String, 
     let output = Command::new(BIN)
         .args([
             "generate",
+            "--max-per-function",
+            "1000",
             "--pool",
             &pool.display().to_string(),
             "--out",
@@ -252,6 +254,8 @@ fn a_limit_is_honoured_and_an_unreadable_pool_is_a_failure_not_an_empty_run() {
     let status = Command::new(BIN)
         .args([
             "generate",
+            "--max-per-function",
+            "1000",
             "--pool",
             &pool.display().to_string(),
             "--out",
@@ -276,6 +280,8 @@ fn a_limit_is_honoured_and_an_unreadable_pool_is_a_failure_not_an_empty_run() {
     let missing = Command::new(BIN)
         .args([
             "generate",
+            "--max-per-function",
+            "1000",
             "--pool",
             &dir.join("not-here.jsonl").display().to_string(),
             "--out",
