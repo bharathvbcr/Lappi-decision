@@ -76,9 +76,9 @@ def test_a_shard_file_symlinked_into_heldout_is_refused(env, tmp_path, monkeypat
     tok = out / "shards" / "train" / "tokens.u32"
     shutil.move(str(tok), held / "tokens.u32")
     tok.symlink_to(held / "tokens.u32")
+    # The reader is another lane's; the driver's own held-out check resolves each shard file.
     with pytest.raises(HeldOutViolation):
-        drv.ShardReader(out / "shards" / "train", config=drv.DataConfig(), repo_root=out,
-                        expect_rev=rg.REV)
+        drv.validate_inputs(_cfg(env, tmp_path / "w", out=out))
 
 
 # 3 output clobbering -------------------------------------------------------------------------
@@ -181,13 +181,20 @@ def test_a_full_epoch_run_is_still_quick(env, tmp_path):  # noqa: F811 - the fix
 def _tiny_two_orders():
     from torch import nn
 
-    class Block(nn.Module):
+    class Attn(nn.Module):
+        """Named ``self_attn`` so the pair's names end with the suffixes lora.py adapts."""
+
         def __init__(self, first_q: bool):
             super().__init__()
             if first_q:
                 self.q_proj, self.o_proj = nn.Linear(8, 8, bias=False), nn.Linear(16, 8, bias=False)
             else:
                 self.o_proj, self.q_proj = nn.Linear(16, 8, bias=False), nn.Linear(8, 8, bias=False)
+
+    class Block(nn.Module):
+        def __init__(self, first_q: bool):
+            super().__init__()
+            self.self_attn = Attn(first_q)
 
     class M(nn.Module):
         def __init__(self, first_q: bool):
@@ -296,7 +303,7 @@ def _bad_snapshot(env, dst: Path, blob: bytes) -> Path:  # noqa: F811 - the fixt
 )
 def test_a_malformed_safetensors_header_is_a_typed_refusal(env, tmp_path, blob):  # noqa: F811 - the fixture imported from test_lora_reference_driver
     snap = _bad_snapshot(env, tmp_path / "snap", blob)
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(drv.LoraDriverRefusal) as exc:
         drv.run(_cfg(env, tmp_path / "w", backbone=snap))
     assert type(exc.value) is not UnicodeDecodeError
     assert not (tmp_path / "w" / "ckpt").exists()

@@ -86,11 +86,11 @@ from real_tokenizer_pipeline import data_rules
 from qd_data.config import DataConfig
 from qd_data.schema import NOUL_LETTER, OPTION_LETTERS
 from qd_train import lora
-from qd_train.backbone import load_text_tower, remap_text_tower
+from qd_train.backbone import BackboneContractViolation, load_text_tower, remap_text_tower
 from qd_train.data_access import assert_path_not_held_out
 from qd_train.heads import SpanPointerHead
 from qd_train.ledger import Environment, Ledger, RunRecorder
-from qd_train.memory import ADAMW_BF16, ADAMW_FP32, spec_from_checkpoint
+from qd_train.memory import ADAMW_BF16, ADAMW_FP32, CheckpointRefused, spec_from_checkpoint
 from qd_train.run_control import RunControl, WallClockCap
 from qd_train.shards import ShardReader
 from qd_train.trainer import train_ft
@@ -103,6 +103,8 @@ DEVICE_DTYPES: Final[tuple[tuple[str, str], ...]] = (("mps", "bf16"), ("cpu", "f
 ANSWER_LETTERS: Final[tuple[str, ...]] = (*OPTION_LETTERS, NOUL_LETTER)
 #: The attention kernel, named as real_ft_run names it.
 ATTN_IMPLEMENTATION: Final[str] = "sdpa"
+#: Entries of the shard directory the held-out check resolves one by one.
+MAX_SHARD_DIR_ENTRIES: Final[int] = 4096
 #: The environment variable naming the ``qd-prereg-bind`` binary: an absolute path, never searched
 #: for (the convention ``QD_PREP_BIN`` sets). ``LoraRunConfig.prereg_bind_bin`` beats it.
 PREREG_BIND_ENV: Final[str] = "QD_PREREG_BIND_BIN"
@@ -184,7 +186,9 @@ def check_bounds(cfg: LoraRunConfig) -> None:
             f"--wall-clock-cap-s must be in (0, {MAX_WALL_CLOCK_CAP_S}], got {cfg.wall_clock_cap_s}"
         )
     for what, path in (("--loss-log", cfg.loss_log), ("--checkpoint", cfg.checkpoint)):
-        if path.exists() or Path(f"{path}.partial").exists():
+        # lexists: a dangling symlink is not `exists()`, and `open('w')` would follow it and
+        # create its target, a write outside every validated path.
+        if os.path.lexists(path) or os.path.lexists(f"{path}.partial"):
             raise LoraDriverRefusal(f"{what} {path} already exists: refusing to overwrite a result")
 
 
@@ -202,6 +206,13 @@ def check_not_held_out(cfg: LoraRunConfig, config: DataConfig) -> None:
         ("--checkpoint", cfg.checkpoint),
     ):
         assert_path_not_held_out(Path(path), config=config, repo_root=REPO)
+    # A shard file symlinked into held-out data is invisible to the directory check (the reader
+    # opens files by plain open); resolve each one. The set is a handful of files, and the listing
+    # is bounded all the same.
+    shard_dir = cfg.out / "shards" / "train"
+    if shard_dir.is_dir():
+        for entry in itertools.islice(sorted(shard_dir.iterdir()), MAX_SHARD_DIR_ENTRIES):
+            assert_path_not_held_out(entry, config=config, repo_root=REPO)
 
 
 def answer_ids(reader: ShardReader, tokenizer_json: Path) -> list[int]:
@@ -333,7 +344,12 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
     init = read_span_head_init(cfg.span_head_init, cfg.span_head_init_manifest)
 
     # --- model: frozen base (stored-F32 tensors kept), remap, adapters --------------------------
-    stored = lora.stored_dtypes(cfg.backbone)
+    try:
+        stored = lora.stored_dtypes(cfg.backbone)
+    except (BackboneContractViolation, CheckpointRefused) as exc:
+        raise LoraDriverRefusal(
+            f"the snapshot's safetensors headers are unreadable: {exc}"
+        ) from exc
     if cfg.expect_base_sha256 is not None and stored.safetensors_sha256 != cfg.expect_base_sha256:
         raise LoraDriverRefusal(
             f"the snapshot's safetensors sha256 is {stored.safetensors_sha256}, not the "
@@ -361,8 +377,11 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
     adapter = lora.attach_lora(model, seed=cfg.seed)
     a_digest = lora.lora_a_digest(model)
     rule_digest = lora.lora_a_rule_digest(lora.adapted_in_features(model), seed=cfg.seed)
+    # The three pre-training digest checks are collected and raised once the recorder exists, so a
+    # refusal after the expensive load leaves a failed row rather than nothing.
+    drift: list[str] = []
     if a_digest != rule_digest:
-        raise LoraDriverRefusal(
+        drift.append(
             f"the LoRA-A digest {a_digest} is not the pre-registered rule's {rule_digest} at seed "
             f"{cfg.seed}: the row would be void"
         )
@@ -370,7 +389,7 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
     span_head = SpanPointerHead(hidden).to(device=tower.device, dtype=torch.float32)
     head_digest = load_span_head_init(types.SimpleNamespace(span_head=span_head), init)
     if head_digest != span_head_digest(types.SimpleNamespace(span_head=span_head)):
-        raise LoraDriverRefusal("the span head's digest moved between the load and the check")
+        drift.append("the span head's digest moved between the load and the check")
 
     cfg.loss_log.parent.mkdir(parents=True, exist_ok=True)
     partial = Path(f"{cfg.loss_log}.partial")
@@ -386,7 +405,7 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
     )
     d17_digest = lora.d17_init_digest(hidden)
     if lora._tensor_ref(step.delta.delta).digest() != d17_digest:
-        raise LoraDriverRefusal("D17 did not start at the pre-registered all-zero float32 tensor")
+        drift.append("D17 did not start at the pre-registered all-zero float32 tensor")
 
     digests = {
         "span_head_init_content_digest": head_digest,
@@ -475,6 +494,11 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
             "ojas's (ft-2bbced18 criterion 7), so no budget was applied"
         ),
     )
+    if drift:
+        step.close_log()
+        partial.unlink(missing_ok=True)
+        with recorder:  # writes the started row and a failed row; nothing was trained
+            raise LoraDriverRefusal("; ".join(drift))
     control = RunControl(
         schedule=lora.lora_schedule(cfg.max_steps), cap=WallClockCap(cap_s=cap_s), cost=cost,
         grad_accum=1, checkpoint_every=0,
@@ -488,8 +512,15 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
             f"stopped by {result.termination!r} after {result.optimizer_steps} of "
             f"{cfg.max_steps} steps (row {result.row_id}); no checkpoint and no finished log"
         )
-    result.checkpoint.write(cfg.checkpoint)
+    # The log is finished first: a checkpoint must never exist beside a log still named .partial
+    # (ckpt_average would read it as a complete run). If the checkpoint then fails to write, the
+    # log goes back to .partial, so nothing that looks finished is left.
     partial.replace(cfg.loss_log)
+    try:
+        result.checkpoint.write(cfg.checkpoint)
+    except BaseException:
+        cfg.loss_log.replace(partial)
+        raise
     return LoraRunResult(
         row_id=result.row_id,
         optimizer_steps=result.optimizer_steps,

@@ -153,9 +153,18 @@ def test_the_a_digest_moves_with_the_seed(env, tmp_path):
 
 
 def test_the_checkpoint_round_trips_through_ckpt_averages_lora_merged_reader(env, tmp_path):
-    paths = [drv.run(_cfg(env, tmp_path / f"s{s}", seed=s)).checkpoint for s in (0, 1)]
+    runs = [
+        drv.run(_cfg(env, tmp_path / f"s{s}", seed=s, ledger=tmp_path / "ledger.jsonl"))
+        for s in (0, 1)
+    ]
+    paths = [r.checkpoint for r in runs]
     out = tmp_path / "avg" / "m.safetensors"
-    assert ckpt_average.main([*map(str, paths), "--out", str(out), "--from", "lora-merged"]) == 0
+    # Two inputs need the span-head proof ckpt_average now demands: take seed 0's head, with the
+    # two ft rows read from the ledger.
+    assert ckpt_average.main([
+        *map(str, paths), "--out", str(out), "--from", "lora-merged", "--span-head-seed", "0",
+        "--ft-ledger", str(tmp_path / "ledger.jsonl"), "--ft-row-ids", *(r.row_id for r in runs),
+    ]) == 0
     from safetensors.torch import load_file
 
     averaged = load_file(str(out))
