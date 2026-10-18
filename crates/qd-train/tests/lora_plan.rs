@@ -6,7 +6,7 @@
 mod common;
 
 use qd_train::recipe::{
-    self, D17_ENTRY_NAME, EntryHyper, HEAD_LR_SCALE, LORA_TARGET_SUFFIXES,
+    self, EntryHyper, HEAD_LR_SCALE, LORA_TARGET_SUFFIXES,
     LORA_UNADAPTED_LINEAR_SUFFIXES, LORA_WEIGHT_DECAY, LowerLayers, OptimizerRecipe,
     lora_optimizer_table, lora_param_groups, optimizer_table,
 };
@@ -61,7 +61,7 @@ fn the_constants_are_the_torch_references_and_the_preregistrations() {
     assert_eq!(HEAD_LR_SCALE, common::fhex(&c["HEAD_LR_SCALE"]));
     assert_eq!(HEAD_LR_SCALE, 0.5);
     assert_eq!(LORA_WEIGHT_DECAY, common::fhex(&c["LORA_WEIGHT_DECAY"]));
-    assert_eq!(D17_ENTRY_NAME, "d17.delta");
+    assert_eq!(qd_train::d17::D17_ENTRY, "d17.delta");
     let strs = |v: &Value| -> Vec<String> {
         v.as_array()
             .unwrap()

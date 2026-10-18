@@ -1008,7 +1008,7 @@ pub fn lora_ft_row(
     .map_err(|e| LedgerError::Refused(e.to_string()))?;
     let d17 = host
         .iter()
-        .find(|h| h.name == crate::recipe::D17_ENTRY_NAME)
+        .find(|h| h.name == crate::d17::D17_ENTRY)
         .ok_or_else(|| {
             LedgerError::Refused(
                 "the host holds no D17 entry, so its init digest cannot be recorded".into(),
@@ -1050,7 +1050,7 @@ pub fn lora_ft_row(
             TriState::ran(true, d17_digest).with_detail(format!(
                 "TensorRef.digest of a float32 zero tensor [{d17_rows}, {d17_hidden}], computed \
                  from the host entry {}",
-                crate::recipe::D17_ENTRY_NAME
+                crate::d17::D17_ENTRY
             )),
         ),
         (
