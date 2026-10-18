@@ -44,6 +44,7 @@ use sha2::{Digest, Sha256};
 
 use crate::pyjson::{CANONICAL, CANONICAL_ASCII, PyJsonError, dumps, float, obj};
 use crate::run_control::hex;
+use crate::step::ParamSpec;
 use crate::trainer::{EtaRule, TrainResult};
 use crate::tristate::{TriState, TriStateError};
 
@@ -891,6 +892,204 @@ pub fn ojas_ledger_path(repo: &Path, lane: &str, date: &str) -> Result<PathBuf, 
         .join(format!("mac-ojas-{lane}-{date}.jsonl"));
     check_ledger_path(&p)?;
     Ok(p)
+}
+
+/// `recipe.optimizer_recipe` of a LoRA-2B run (D6): AdamW over f32 adapters, D17 and the span
+/// head over a frozen base. It is in Python's `real_ft_run.OPTIMIZER_RECIPES` so a ledger reader
+/// never pools it with `master`, `bf16`, `kahan` or `f32`.
+pub const LORA_OPTIMIZER_RECIPE: &str = "lora";
+
+/// Why a LoRA row is quick (rule 8), named rather than left as a bare `quick=true`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoraQuickReason {
+    /// The 0.8B or tiny smoke: a mechanics check, never a result.
+    Smoke,
+    /// The schedule was cut short of the registered full recipe.
+    TruncatedSchedule,
+    /// `seeds` seeds were run; promotion needs three on the full schedule.
+    FewerThanThreeSeeds { seeds: u32 },
+}
+
+impl LoraQuickReason {
+    fn text(&self) -> Result<String, LedgerError> {
+        Ok(match self {
+            Self::Smoke => "smoke run, not a result".to_owned(),
+            Self::TruncatedSchedule => "truncated schedule, not the full recipe".to_owned(),
+            Self::FewerThanThreeSeeds { seeds } if *seeds < 3 => {
+                format!("fewer than 3 seeds ({seeds})")
+            }
+            Self::FewerThanThreeSeeds { seeds } => {
+                return refuse(format!(
+                    "{seeds} seeds is not fewer than 3: that is not a reason this row is quick"
+                ));
+            }
+        })
+    }
+}
+
+/// The init identities `campaign/lora-2b-preregistered.json` `init.record_in_every_row` names
+/// that a caller supplies. The D17 digest is computed from the host entry's shape, the LoRA-A
+/// digest is recomputed by `attach_lora`'s rule and compared, and the base snapshot and the
+/// train shard hash are the row's own recipe's (`backbone_snapshot`, `shard_hash`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoraInit<'a> {
+    /// `ft_data::span_head_content_digest` of the head the run started from.
+    pub span_head_content_digest: &'a str,
+    /// The digest of the A matrices the run started from, claimed; refused unless the rule at
+    /// the row's seed gives it ([`crate::lora_init::verify_lora_a_digest`]).
+    pub lora_a_digest: &'a str,
+    /// sha256 of the base model's safetensors file.
+    pub base_safetensors_sha256: &'a str,
+    /// The pre-registration's `dtype_map_sha256` of the base's tensor dtypes.
+    pub dtype_map_sha256: &'a str,
+    /// `corpus.plan_seed`: the seed the batch order was drawn at.
+    pub plan_seed: u64,
+}
+
+fn is_hex64(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Turn an assembled `ft` row into a `lora` row: the checks a LoRA run owes, then the digests
+/// in its metrics. `row.recipe.optimizer_recipe` must already be [`LORA_OPTIMIZER_RECIPE`] and
+/// name no lower-layer split; `entries` and `host` are the plan the run trained
+/// ([`crate::recipe::lora_param_groups`] refuses a plan the pre-registration does not allow, so a
+/// row cannot be written for one); the row's seed is `row.protocol.seed`, the seed
+/// `attach_lora` is recomputed at. Every row is quick, and `reasons` must name why.
+///
+/// Metrics added (none may already be present): `train.span_head_init_digest` (Python's name),
+/// `lora.d17_init_digest`, `lora.a_init_digest`, `lora.base_safetensors_sha256`,
+/// `lora.dtype_map_sha256`, `corpus.plan_seed` (Python's name) and `lora.param_groups`. They are
+/// metrics, not recipe keys, so the recipe hash is the recipe's alone.
+pub fn lora_ft_row(
+    mut row: FtRow,
+    init: &LoraInit<'_>,
+    entries: &[ParamSpec],
+    host: &[ParamSpec],
+    reasons: &[LoraQuickReason],
+) -> Result<FtRow, LedgerError> {
+    if row.recipe.optimizer_recipe != LORA_OPTIMIZER_RECIPE {
+        return refuse(format!(
+            "recipe.optimizer_recipe is {:?}, not {LORA_OPTIMIZER_RECIPE:?}: this writer labels a \
+             LoRA run and nothing else",
+            row.recipe.optimizer_recipe
+        ));
+    }
+    if row.recipe.lower_layers.is_some() {
+        return refuse("a lora row names no lower-layer split: D6 dropped the 0.1x split for LoRA");
+    }
+    if reasons.is_empty() {
+        return refuse(
+            "a lora row is quick (rule 8) and says why: smoke, truncated schedule, or fewer than \
+             3 seeds",
+        );
+    }
+    for (what, v) in [
+        ("recipe.shard_hash (the train shard hash)", row.recipe.shard_hash.as_str()),
+        ("span-head init content digest", init.span_head_content_digest),
+        ("LoRA-A digest", init.lora_a_digest),
+        ("base safetensors sha256", init.base_safetensors_sha256),
+        ("dtype_map_sha256", init.dtype_map_sha256),
+    ] {
+        if !is_hex64(v) {
+            return refuse(format!("{what} {v:?} is not a lowercase hex sha256"));
+        }
+    }
+    let groups = crate::recipe::lora_param_groups(entries, host)
+        .map_err(|e| LedgerError::Refused(format!("the lora plan: {e}")))?;
+    let (rank, modules) = crate::recipe::lora_adapter_layout(entries)
+        .map_err(|e| LedgerError::Refused(format!("the lora plan: {e}")))?;
+    let a_digest = crate::lora_init::verify_lora_a_digest(
+        row.protocol.seed,
+        rank,
+        &modules,
+        init.lora_a_digest,
+    )
+    .map_err(|e| LedgerError::Refused(e.to_string()))?;
+    let d17 = host
+        .iter()
+        .find(|h| h.name == crate::recipe::D17_ENTRY_NAME)
+        .ok_or_else(|| {
+            LedgerError::Refused(
+                "the host holds no D17 entry, so its init digest cannot be recorded".into(),
+            )
+        })?;
+    let &[d17_rows, d17_hidden] = d17.shape.as_slice() else {
+        return refuse(format!("D17 has shape {:?}, not [17, hidden]", d17.shape));
+    };
+    if d17_rows != 17 {
+        return refuse(format!("D17 has {d17_rows} rows, the registered readout has 17"));
+    }
+    let d17_digest = crate::lora_init::d17_zero_init_digest(d17_rows, d17_hidden)
+        .map_err(|e| LedgerError::Refused(e.to_string()))?;
+    let reason_text = reasons
+        .iter()
+        .map(LoraQuickReason::text)
+        .collect::<Result<Vec<_>, _>>()?
+        .join("; ");
+    row.quick_reason = if row.quick_reason.trim().is_empty() {
+        format!("lora: {reason_text}")
+    } else {
+        format!("lora: {reason_text}; {}", row.quick_reason)
+    };
+    let summary = groups
+        .iter()
+        .map(|g| format!("{} x{} at lr_scale {}", g.name, g.params.len(), g.lr_scale))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let additions = [
+        (
+            "train.span_head_init_digest",
+            TriState::ran(true, init.span_head_content_digest).with_detail(
+                "run_control._sidecar_digest over the qd-tensor-ref-v1 digests of the span head \
+                 the run started from",
+            ),
+        ),
+        (
+            "lora.d17_init_digest",
+            TriState::ran(true, d17_digest).with_detail(format!(
+                "TensorRef.digest of a float32 zero tensor [{d17_rows}, {d17_hidden}], computed \
+                 from the host entry {}",
+                crate::recipe::D17_ENTRY_NAME
+            )),
+        ),
+        (
+            "lora.a_init_digest",
+            TriState::ran(true, a_digest).with_detail(format!(
+                "recomputed by attach_lora's rule (one CPU mt19937 at seed {}, kaiming_uniform_ \
+                 a=sqrt(5), {} module(s) in named_modules order, rank {rank}) and equal to the \
+                 digest the run recorded",
+                row.protocol.seed,
+                modules.len()
+            )),
+        ),
+        (
+            "lora.base_safetensors_sha256",
+            TriState::ran(true, init.base_safetensors_sha256).with_detail(format!(
+                "sha256 of the base's safetensors at snapshot {}",
+                row.recipe.backbone_snapshot
+            )),
+        ),
+        (
+            "lora.dtype_map_sha256",
+            TriState::ran(true, init.dtype_map_sha256)
+                .with_detail("the pre-registration's dtype_map_sha256 formula over the base"),
+        ),
+        (
+            "corpus.plan_seed",
+            TriState::ran(true, init.plan_seed)
+                .with_detail("the seed the plan was drawn at, as real_ft_run records it"),
+        ),
+        ("lora.param_groups", TriState::ran(true, summary)),
+    ];
+    for (name, state) in additions {
+        if row.metrics.insert(name.to_owned(), state).is_some() {
+            return refuse(format!(
+                "metric {name} is already on the row; a lora digest is never overwritten"
+            ));
+        }
+    }
+    Ok(row)
 }
 
 #[cfg(test)]

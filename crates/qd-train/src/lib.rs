@@ -22,6 +22,7 @@ pub mod files;
 pub mod ft_data;
 pub mod held_out;
 pub mod ledger;
+pub mod lora_init;
 pub mod mock;
 pub mod np_random;
 pub mod npy;
