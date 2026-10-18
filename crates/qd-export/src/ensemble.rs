@@ -142,7 +142,11 @@ fn read_member(i: usize, dir: &Path) -> Result<Member> {
             manifest_path.display()
         ))
     })?;
-    let shapes = parse_family_shapes(shapes, &manifest_path.display().to_string(), RefusalKind::Ensemble)?;
+    let shapes = parse_family_shapes(
+        shapes,
+        &manifest_path.display().to_string(),
+        RefusalKind::Ensemble,
+    )?;
     Ok(Member {
         source: dir.to_path_buf(),
         tower,
@@ -372,7 +376,17 @@ pub fn export_ensemble(req: &EnsembleRequest) -> Result<EnsembleSummary> {
         .tower
         .trained_families()
         .map(<[String]>::to_vec)
-        .ok_or_else(|| ensemble_refusal("the members record no trained_families, so the ensemble admits nothing to gate"))?;
-    let gate = calibration_gate::check(&calibration.0, &calibration.1, &req.calibration_report, &members[0].shapes, &admitted)?;
+        .ok_or_else(|| {
+            ensemble_refusal(
+                "the members record no trained_families, so the ensemble admits nothing to gate",
+            )
+        })?;
+    let gate = calibration_gate::check(
+        &calibration.0,
+        &calibration.1,
+        &req.calibration_report,
+        &members[0].shapes,
+        &admitted,
+    )?;
     staging.publish(|dir| write_ensemble(req, &members, &calibration, &gate, dir))
 }

@@ -1109,9 +1109,18 @@ fn the_commit_pool_compose_path_is_byte_identical_to_the_pre_change_binary() {
     // the compose manifest has no `function_cap` (that block is the generator's).
     let mut manifest = read(&out.join("manifest.json"));
     for (now, stripped) in [
-        (sha256_hex(read(&out.join("examples.jsonl")).as_bytes()), &rows),
-        (sha256_hex(read(&f.corpus.join("examples.jsonl")).as_bytes()), &base),
-        (sha256_hex(read(&f.aux.join("examples.jsonl")).as_bytes()), &aux),
+        (
+            sha256_hex(read(&out.join("examples.jsonl")).as_bytes()),
+            &rows,
+        ),
+        (
+            sha256_hex(read(&f.corpus.join("examples.jsonl")).as_bytes()),
+            &base,
+        ),
+        (
+            sha256_hex(read(&f.aux.join("examples.jsonl")).as_bytes()),
+            &aux,
+        ),
     ] {
         assert!(manifest.contains(&now), "the manifest does not name {now}");
         manifest = manifest.replace(&now, &sha256_hex(stripped.as_bytes()));
@@ -1128,10 +1137,17 @@ fn strip_cluster_keys(text: &str) -> (String, usize) {
     let mut out = String::with_capacity(text.len());
     let mut rows = 0;
     for line in text.lines() {
-        assert_eq!(line.matches(MEMBER).count(), 1, "not exactly one cluster_key: {line:.200}");
+        assert_eq!(
+            line.matches(MEMBER).count(),
+            1,
+            "not exactly one cluster_key: {line:.200}"
+        );
         let at = line.find(MEMBER).expect("counted above");
         let value_at = at + MEMBER.len();
-        let value_end = value_at + line[value_at..].find("\",").expect("a key is followed by a member");
+        let value_end = value_at
+            + line[value_at..]
+                .find("\",")
+                .expect("a key is followed by a member");
         let value = &line[value_at..value_end];
         let hex = value.strip_prefix("fk1:").unwrap_or("");
         assert!(
@@ -1169,7 +1185,10 @@ fn generate_with_no_id_prefix_is_byte_identical_to_the_pre_change_binary() {
     // the pre-change binary's.
     let (stripped, rows) = strip_cluster_keys(&text);
     assert!(rows > 0);
-    assert_eq!(sha256_hex(stripped.as_bytes()), GENERATE_DEFAULT_EXAMPLES_SHA256);
+    assert_eq!(
+        sha256_hex(stripped.as_bytes()),
+        GENERATE_DEFAULT_EXAMPLES_SHA256
+    );
 }
 
 #[test]
@@ -1284,10 +1303,17 @@ fn a_composed_row_carries_its_needles_cluster_key() {
     examples.extend(corpus_rows(&f.aux));
     let mut checked = 0;
     for row in &rows {
-        assert!(!row.cluster_key.is_empty(), "{} carries no cluster_key", row.id);
+        assert!(
+            !row.cluster_key.is_empty(),
+            "{} carries no cluster_key",
+            row.id
+        );
         if let Some(at) = row.needle_index {
             let needle = &row.constituents[at as usize];
-            let id = needle.example_id.as_ref().expect("a needle names its example");
+            let id = needle
+                .example_id
+                .as_ref()
+                .expect("a needle names its example");
             assert_eq!(row.cluster_key, examples[id].cluster_key, "{}", row.id);
             checked += 1;
         }
@@ -1311,7 +1337,10 @@ fn generate_without_max_per_function_is_refused_and_a_keyless_corpus_is_not_comp
         "--seed",
         "0",
     ]);
-    assert!(!r.status.success(), "generate ran without --max-per-function");
+    assert!(
+        !r.status.success(),
+        "generate ran without --max-per-function"
+    );
     assert!(!out.join("examples.jsonl").exists());
 
     // The same corpus with its keys stripped, re-pinned so only the missing key can refuse it.

@@ -26,7 +26,11 @@ fn main() -> ExitCode {
     println!(
         "qd-train-data: train={} targets={:?} n={} threshold={}",
         inputs.train.display(),
-        inputs.targets.iter().map(|(n, p)| format!("{n}={}", p.display())).collect::<Vec<_>>(),
+        inputs
+            .targets
+            .iter()
+            .map(|(n, p)| format!("{n}={}", p.display()))
+            .collect::<Vec<_>>(),
         inputs.n,
         inputs.threshold
     );
@@ -63,10 +67,14 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Inputs, String> {
             "--forbid-family" => extra_families.push(value),
             "--n" => inputs.n = value.parse().map_err(|e| format!("--n {value:?}: {e}"))?,
             "--threshold" => {
-                inputs.threshold = value.parse().map_err(|e| format!("--threshold {value:?}: {e}"))?;
+                inputs.threshold = value
+                    .parse()
+                    .map_err(|e| format!("--threshold {value:?}: {e}"))?;
             }
             "--threads" => {
-                inputs.threads = value.parse().map_err(|e| format!("--threads {value:?}: {e}"))?;
+                inputs.threads = value
+                    .parse()
+                    .map_err(|e| format!("--threads {value:?}: {e}"))?;
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -79,7 +87,10 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Inputs, String> {
         return Err(format!("--n {} is outside 1..=64", inputs.n));
     }
     if !(inputs.threshold > 0.0 && inputs.threshold <= 1.0) {
-        return Err(format!("--threshold {} is outside (0, 1]", inputs.threshold));
+        return Err(format!(
+            "--threshold {} is outside (0, 1]",
+            inputs.threshold
+        ));
     }
     if inputs.threads == 0 || inputs.threads > 256 {
         return Err(format!("--threads {} is outside 1..=256", inputs.threads));

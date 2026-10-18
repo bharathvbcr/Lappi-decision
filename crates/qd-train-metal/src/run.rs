@@ -141,8 +141,12 @@ fn check_out_dir(out: &Path) -> Result<(), RunError> {
 
 /// sha256 of the file at `path`'s bytes, lowercase hex (Python's `data_access._file_sha256`).
 fn file_sha256_hex(path: &Path) -> Result<String, RunError> {
-    let digest = qd_export::safetensors::sha256_file(path)
-        .map_err(|e| RunError::Refused(format!("{}: cannot hash the train manifest: {e}", path.display())))?;
+    let digest = qd_export::safetensors::sha256_file(path).map_err(|e| {
+        RunError::Refused(format!(
+            "{}: cannot hash the train manifest: {e}",
+            path.display()
+        ))
+    })?;
     Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
 

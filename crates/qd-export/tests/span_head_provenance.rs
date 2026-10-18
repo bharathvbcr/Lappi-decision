@@ -95,7 +95,9 @@ fn committed_prereg() -> std::path::PathBuf {
 fn ledger(fx: &Fixture, edit: impl Fn(usize, &mut Value)) -> std::path::PathBuf {
     // Every row records the train manifest the fixture's export reads: a ledger given to the
     // export also binds that manifest (`train_manifest_sha256`).
-    let train_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(&fx.train_manifest).unwrap()));
+    let train_sha = qd_runtime::hex(&qd_runtime::sha256(
+        &std::fs::read(&fx.train_manifest).unwrap(),
+    ));
     let lines: Vec<String> = common::FT_ROW_IDS
         .iter()
         .enumerate()

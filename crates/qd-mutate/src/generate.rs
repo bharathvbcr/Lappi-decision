@@ -899,7 +899,6 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
 }
 ";
 
-
     /// Tests run uncapped unless they are about the cap: `usize::MAX` is a test fixture, not a
     /// default (`Options` has none).
     fn test_options() -> Options {
@@ -940,10 +939,14 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         let mut per: HashMap<(String, &str), usize> = HashMap::new();
         for e in &capped.examples {
             assert!(!e.cluster_key.is_empty());
-            *per.entry((e.cluster_key.clone(), e.class.as_str())).or_insert(0) += 1;
+            *per.entry((e.cluster_key.clone(), e.class.as_str()))
+                .or_insert(0) += 1;
         }
         assert!(per.values().all(|n| *n <= 2), "{per:?}");
-        assert!(uncapped.examples.len() > capped.examples.len(), "the cap dropped nothing");
+        assert!(
+            uncapped.examples.len() > capped.examples.len(),
+            "the cap dropped nothing"
+        );
         let report = &capped.manifest.function_cap;
         assert_eq!(report.max_per_function, 2);
         assert_eq!(report.rows_before as usize, uncapped.examples.len());
@@ -958,7 +961,9 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         // run, with at least one pair holding more than K rows (else the cap bound nothing).
         let mut per_pair: HashMap<(String, &str), u64> = HashMap::new();
         for e in &uncapped.examples {
-            *per_pair.entry((e.cluster_key.clone(), e.class.as_str())).or_insert(0) += 1;
+            *per_pair
+                .entry((e.cluster_key.clone(), e.class.as_str()))
+                .or_insert(0) += 1;
         }
         let mut expected = std::collections::BTreeMap::new();
         for n in per_pair.values() {
@@ -966,9 +971,18 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         }
         assert_eq!(report.rows_per_key_class_before, expected);
         assert!(expected.keys().any(|n| *n > 2), "{expected:?}");
-        assert_eq!(report.rows_per_key_before.values().sum::<u64>(), report.keys_seen);
-        assert_eq!(report.rows_per_key_after.values().sum::<u64>(), report.keys_seen);
-        assert_eq!(capped.manifest.totals.examples as usize, capped.examples.len());
+        assert_eq!(
+            report.rows_per_key_before.values().sum::<u64>(),
+            report.keys_seen
+        );
+        assert_eq!(
+            report.rows_per_key_after.values().sum::<u64>(),
+            report.keys_seen
+        );
+        assert_eq!(
+            capped.manifest.totals.examples as usize,
+            capped.examples.len()
+        );
         assert!(uncapped.manifest.function_cap.dropped_by_class.is_empty());
     }
 
@@ -990,7 +1004,10 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
         })
         .run(&records, pool_report());
         assert_eq!(run.examples.len(), 2);
-        assert_eq!(run.manifest.function_cap.dropped_by_class.get("clean"), Some(&3));
+        assert_eq!(
+            run.manifest.function_cap.dropped_by_class.get("clean"),
+            Some(&3)
+        );
     }
 
     #[test]

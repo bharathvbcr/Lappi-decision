@@ -18,7 +18,7 @@ Read-only, under the standing delegation. Navigation: `devmap_status` fresh (gen
 
 ## Q17. Load: keep 48; make mac_heavy see the slot gate; two asks
 
-**Decision.** `MAX_LOAD=48` stands. Load at 95 is 5.3/core on 18 cores and memory pressure is the guarded failure; but the real cost of running under load is false timeouts (`stress_v6.rs:34` CLI_LIMIT 1800 s; W5-d's d9bfbcf-vs-879933c timing is not an A/B unless interleaved, so treat its result as `quick`). Raising 48 buys nothing but more such failures.
+**Decision.** `MAX_LOAD=48` stands. Load at 95 is 5.3/core on 18 cores and memory pressure is the guarded failure; but the real cost of running under load is false timeouts (`stress_v6.rs:34` CLI_LIMIT 1800 s; W5-d's d9bfbcf-vs-879933c timing is not an A/B unless interleaved, so treat its result as `quick`). Raising 48 buys nothing but more such failures. [W8-a citation tag, not Fable's text: GAP-FABLE-RULINGS-FIGURES-FROM-SOURCES-OUTSIDE-THE-REPO-2026-10-18]
 
 **Lappi's own fix.** The slot gate is `~/.claude-bin/cargo`: 2 lockf slots (:48), waits ≤1800 s then runs ungated (:49, :77-79), active only under `CLAUDECODE=1` (:25). So a Lappi holder waits up to 30 min holding the lock, then builds anyway, which is W5-b's defect one layer down (GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE-2026-10-18). Add "no cargo slot free" to mac_heavy's busy predicate, probed before `mkdir`, with a test that a waiter at 2/2 does not own `$LOCK/owner`. **Ask the owner:** (a) whether a job under the mac_heavy lock should run with `CARGO_SLOT_HELD` set, since the lock already serializes Lappi to one build; (b) sibling-repo builds (GAP-MAC-HEAVY-LOCK-AND-LOAD-GATE-BIND-LAPPI-ONLY-2026-10-18).
 
@@ -40,6 +40,23 @@ Read-only, under the standing delegation. Navigation: `devmap_status` fresh (gen
 6. **Box-queue guard deploy** (GAP-BOX-QUEUE-WAITERS-NEED-THE-GUARD-DEPLOYED-2026-10-18): every `box_q_*` waiter exits 78 on the next box unless `require_driver.sh` ships and the waiters run under a campaign unit. Likely at the next rental.
 
 Release-check seam (GAP-QD-EXPORT-NO-TRACKED-PER-FAMILY-SLOT-SHAPE-REGISTRY-2026-10-17, GAP-QD-EXPORT-ENSEMBLE-TABLE-NOT-GATED-2026-10-17, GAP-QD-RELEASE-CHECK-NO-TRACKED-REQUEST-BUILDER-2026-10-17): release-time, below the cut. Pushing main (302 ahead, GAP-AGENT-WORKTREE-ISOLATION-CUTS-FROM-STALE-ORIGIN-MAIN-2026-10-17): the owner's, one command.
+
+## Q20. W2-d data build at MAX_LOAD=48: yes, bounded; memory pressure is the new condition
+
+(Asked after lane W2-d's rebuild waited 4 h at the default MAX_LOAD=12 and exited 76. Fable's answer, verbatim.)
+
+**Decision.** (a) Yes. `MAC_HEAVY_MAX_LOAD=48` in the wrapper's environment (mac_heavy.sh:162), footprint cap untouched, no wait for the owner. (b) Conditions below. (c) Content does not depend on load; timings and failure modes do.
+
+**Reason.** Q8 excluded data builds because their guarded failure is memory, and this one is large: v5's identical argv peaked at ~25 GiB RSS, `ft_split_rows` 26.0-26.5 GiB (HANDOFF/v6-startup-2026-10-04.md:152, :217) against the 28,672 MiB default cap (mac_heavy.sh:34-35), footprint ≥ RSS. That margin is load-independent. What load adds is memguard's critical-pressure rule (policy.go:83-85: after 3 critical samples, the largest process ≥ 2 GiB dies), and a 25 GiB build is the largest process on the box. Both kills are loud (exit 70/79, no row: the row is written only after `run()` returns, real_tokenizer_pipeline.py:4688-4706), so the worst case is a rerun, not a wrong shard. Note the first launch did get the lock at load 10.55 after 65 min and failed at stage 3 on a missing input (`commitpackft-corpus-v3/examples.jsonl`, launch.log 13:41-13:42Z); only chain2 waited 4 h (launch2.log, exit 76). [W8-a citation tag, not Fable's text: [V: HANDOFF/v6-startup-2026-10-04.md]]
+
+**Conditions.**
+1. `sysctl kern.memorystatus_vm_pressure_level` reads normal at launch; mac_heavy has no pressure gate (:51 is a comment).
+2. Stage 0 checks every `CORPUS` path exists before a slot is spent.
+3. The full launch line, with the raised value and the worktree HEAD, as the launch log's first line and in the HANDOFF; the ledger row carries neither.
+4. Exit 70/76/79 or a hang-detector timeout (PREP_TIMEOUT_S 600 s, pipeline:1939; containment 4 h, containment_scan.py:105; PHASE_LIMIT 3600 s, team.rs:41) means rerun; raising any limit or the cap is the owner's.
+5. The row is already `quick=True` (pipeline:4715); the HANDOFF states wall_clock_s was taken under load 17-177 and is not comparable to v5's 2729/2888 s. [W8-a citation tag, not Fable's text: GAP-FABLE-RULINGS-C-V5-WALL-CLOCK-FIGURE-NOT-IN-REPO-2026-10-18]
+
+**(c) Verified:** containment output is oracle-ordered and "does not depend on `threads`" (containment.rs:16-19, :564); threads default to cores, not load (main.rs:210); minhash canaries re-signed by the Python reference refuse drift (pipeline:1940-1944); two separate v5 processes gave the same canonical digest (v6-startup:217). **Unverified:** `train_examples_export.py` exists only in the worktree, untested (HANDOFF/harden-2026-10-17.md:55); check it orders rows by input, not by time. Proof is a quiet-machine rerun matching `data_snapshot_hash` and shard shas.
 
 ## Lead's notes (lappi-decision-ce)
 

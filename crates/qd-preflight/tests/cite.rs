@@ -11,7 +11,11 @@ const ABSENT: &str = concat!("GAP", "-NO-SUCH-THING-2026-10-18");
 static N: AtomicU64 = AtomicU64::new(0);
 
 fn root() -> PathBuf {
-    let p = std::env::temp_dir().join(format!("qd-cite-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let p = std::env::temp_dir().join(format!(
+        "qd-cite-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(p.join("ledger")).unwrap();
     std::fs::create_dir_all(p.join("HANDOFF")).unwrap();
     std::fs::create_dir_all(p.join("AUDIT/sub")).unwrap();
@@ -29,17 +33,32 @@ fn doc(root: &Path, rel: &str, text: &str) -> PathBuf {
 }
 
 fn run(root: &Path, files: &[&Path]) -> (Option<i32>, String) {
-    let o = Command::new(BIN).arg("--root").arg(root).args(files).output().unwrap();
-    (o.status.code(), String::from_utf8_lossy(&o.stdout).into_owned())
+    let o = Command::new(BIN)
+        .arg("--root")
+        .arg(root)
+        .args(files)
+        .output()
+        .unwrap();
+    (
+        o.status.code(),
+        String::from_utf8_lossy(&o.stdout).into_owned(),
+    )
 }
 
 #[test]
 fn an_uncited_measured_number_in_a_new_handoff_fails() {
     let r = root();
-    let f = doc(&r, "HANDOFF/x-2026-10-18.md", "# T\n\nThe model scored 0.857 on val.\n");
+    let f = doc(
+        &r,
+        "HANDOFF/x-2026-10-18.md",
+        "# T\n\nThe model scored 0.857 on val.\n",
+    );
     let (code, out) = run(&r, &[&f]);
     assert_eq!(code, Some(1), "{out}");
-    assert!(out.contains("x-2026-10-18.md:3") && out.contains("0.857"), "{out}");
+    assert!(
+        out.contains("x-2026-10-18.md:3") && out.contains("0.857"),
+        "{out}"
+    );
     assert_eq!(out.trim_end().lines().last(), Some("RESULT: FAIL"));
 }
 
@@ -49,7 +68,9 @@ fn each_kind_of_citation_in_the_same_paragraph_passes() {
     let f = doc(
         &r,
         "HANDOFF/y-2026-10-19.md",
-        &format!("The score is 0.857 (14779/17254), row 6af73bef.\n\nPrecision 87.0% per {REAL}.\n\nECE 0.079 [V: evidence/run.log].\n\n| row | value |\n| --- | --- |\n| a | 0.5 [V: evidence/run.log] |\n"),
+        &format!(
+            "The score is 0.857 (14779/17254), row 6af73bef.\n\nPrecision 87.0% per {REAL}.\n\nECE 0.079 [V: evidence/run.log].\n\n| row | value |\n| --- | --- |\n| a | 0.5 [V: evidence/run.log] |\n"
+        ),
     );
     let (code, out) = run(&r, &[&f]);
     assert_eq!(code, Some(0), "{out}");
@@ -59,10 +80,17 @@ fn each_kind_of_citation_in_the_same_paragraph_passes() {
 #[test]
 fn a_table_row_needs_its_own_citation() {
     let r = root();
-    let f = doc(&r, "HANDOFF/z-2026-10-19.md", "| a | b |\n| --- | --- |\n| x | 0.5 [V: evidence/run.log] |\n| y | 0.6 |\n");
+    let f = doc(
+        &r,
+        "HANDOFF/z-2026-10-19.md",
+        "| a | b |\n| --- | --- |\n| x | 0.5 [V: evidence/run.log] |\n| y | 0.6 |\n",
+    );
     let (code, out) = run(&r, &[&f]);
     assert_eq!(code, Some(1), "{out}");
-    assert!(out.contains("z-2026-10-19.md:4") && !out.contains("z-2026-10-19.md:3"), "{out}");
+    assert!(
+        out.contains("z-2026-10-19.md:4") && !out.contains("z-2026-10-19.md:3"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -71,12 +99,20 @@ fn an_id_that_resolves_to_nothing_fails_even_beside_a_number() {
     let f = doc(
         &r,
         "AUDIT/sub/w-2026-10-20.md",
-        &format!("Score row 6af73bef gives 0.857 and row deadbeef1 is cited.\n\nSee {ABSENT} and [V: evidence/missing.log].\n"),
+        &format!(
+            "Score row 6af73bef gives 0.857 and row deadbeef1 is cited.\n\nSee {ABSENT} and [V: evidence/missing.log].\n"
+        ),
     );
     let (code, out) = run(&r, &[&f]);
     assert_eq!(code, Some(1), "{out}");
-    assert!(out.contains(&format!("{ABSENT} is not in gaps.jsonl")), "{out}");
-    assert!(out.contains("[V: evidence/missing.log] does not exist"), "{out}");
+    assert!(
+        out.contains(&format!("{ABSENT} is not in gaps.jsonl")),
+        "{out}"
+    );
+    assert!(
+        out.contains("[V: evidence/missing.log] does not exist"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -92,19 +128,57 @@ fn dates_versions_shas_lines_and_identifiers_are_not_measured_numbers() {
 }
 
 #[test]
+fn a_registered_constant_quoted_with_its_value_is_not_a_measured_number() {
+    let r = root();
+    let ok = doc(
+        &r,
+        "HANDOFF/c-2026-10-18.md",
+        "Applied at `ECE_THRESHOLD` 0.05 and MAX_LOAD_FRACTION = 0.94, also `DEVICE_USABLE_FRACTION`: 0.94.\n",
+    );
+    let (code, out) = run(&r, &[&ok]);
+    assert_eq!(code, Some(0), "{out}");
+    // The same value with no constant name before it, or after a lower-case or unnamed label, is
+    // still a claim.
+    for (name, text) in [
+        ("d", "Applied at the threshold of exactly 0.05 here\n"),
+        ("e", "The val_accuracy 0.857 came out of the run.\n"),
+        ("f", "It reached ECE 0.05 on the held-out set.\n"),
+    ] {
+        let f = doc(&r, &format!("HANDOFF/{name}-2026-10-18.md"), text);
+        let (code, out) = run(&r, &[&f]);
+        assert_eq!(code, Some(1), "{text}: {out}");
+    }
+}
+
+#[test]
 fn historical_files_are_not_flagged_and_the_count_says_so() {
     let r = root();
-    let old = doc(&r, "HANDOFF/old-2026-10-06.md", "Scored 0.857 with nothing cited.\n");
-    let undated = doc(&r, "HANDOFF/undated.md", "Scored 0.857 with nothing cited.\n");
+    let old = doc(
+        &r,
+        "HANDOFF/old-2026-10-06.md",
+        "Scored 0.857 with nothing cited.\n",
+    );
+    let undated = doc(
+        &r,
+        "HANDOFF/undated.md",
+        "Scored 0.857 with nothing cited.\n",
+    );
     let (code, out) = run(&r, &[&old, &undated]);
     assert_eq!(code, Some(0), "{out}");
-    assert!(out.contains("files in scope (dated >= 2026-10-18): 0; before the cutoff: 1; undated: 1"), "{out}");
+    assert!(
+        out.contains("files in scope (dated >= 2026-10-18): 0; before the cutoff: 1; undated: 1"),
+        "{out}"
+    );
 }
 
 #[test]
 fn a_fenced_code_block_is_not_prose() {
     let r = root();
-    let f = doc(&r, "HANDOFF/c-2026-10-18.md", "Run it:\n\n```\nqd --threshold 0.05 --n 14/17\n```\n");
+    let f = doc(
+        &r,
+        "HANDOFF/c-2026-10-18.md",
+        "Run it:\n\n```\nqd --threshold 0.05 --n 14/17\n```\n",
+    );
     let (code, out) = run(&r, &[&f]);
     assert_eq!(code, Some(0), "{out}");
 }

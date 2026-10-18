@@ -138,7 +138,10 @@ fn request(paths: Vec<PathBuf>, table: &Path, out: &Path) -> EnsembleRequest {
         trained_width_source: SOURCE.to_string(),
         calibration: table.to_path_buf(),
         // A passing fit for every entry of the table: the gate itself is `ensemble_gate.rs`.
-        calibration_report: common::gate_report(table.parent().expect("a table in a directory"), table),
+        calibration_report: common::gate_report(
+            table.parent().expect("a table in a directory"),
+            table,
+        ),
         out: out.to_path_buf(),
     }
 }
@@ -713,7 +716,10 @@ fn run(members: &[&Path], widths: &[u64], table: &Path, out: &Path) -> std::proc
         .arg("--calibration")
         .arg(table)
         .arg("--calibration-report")
-        .arg(common::gate_report(table.parent().expect("a table in a directory"), table))
+        .arg(common::gate_report(
+            table.parent().expect("a table in a directory"),
+            table,
+        ))
         .arg("--out")
         .arg(out);
     cmd.output().expect("the binary runs")

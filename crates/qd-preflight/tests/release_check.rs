@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use qd_preflight::release_check::{load_examples, request_shape, DocExample, RESULTS_FORMAT};
-use serde_json::{json, Value};
+use qd_preflight::release_check::{DocExample, RESULTS_FORMAT, load_examples, request_shape};
+use serde_json::{Value, json};
 
 const BIN: &str = env!("CARGO_BIN_EXE_qd-release-check");
 const WEIGHT: &str = "6f7b9ba73bca3a0b2e4ec9b2c0fc2aa6e7459f7e3286b26386633a222667dfcb";
@@ -21,7 +21,11 @@ fn repo() -> PathBuf {
 }
 
 fn tmp(tag: &str) -> PathBuf {
-    let p = std::env::temp_dir().join(format!("qd-rc-{tag}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let p = std::env::temp_dir().join(format!(
+        "qd-rc-{tag}-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&p).unwrap();
     p
 }
@@ -31,9 +35,15 @@ fn b64(s: &str) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for c in s.as_bytes().chunks(3) {
-        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*c.get(2).unwrap_or(&0));
         for (i, sh) in [18, 12, 6, 0].iter().enumerate() {
-            out.push(if i <= c.len() { T[((n >> sh) & 63) as usize] as char } else { '=' });
+            out.push(if i <= c.len() {
+                T[((n >> sh) & 63) as usize] as char
+            } else {
+                '='
+            });
         }
     }
     out
@@ -91,14 +101,23 @@ fn good_results(n_b: usize) -> Vec<Value> {
     for ex in &examples {
         let req = match ex {
             DocExample::Full { request, .. } => request.clone(),
-            DocExample::Row { task, question, slots, .. } => json!({
+            DocExample::Row {
+                task,
+                question,
+                slots,
+                ..
+            } => json!({
                 "schema_version": 1, "task": task, "context_b64": "eA==", "context_len": 1,
                 "question": question, "slots": slots, "route": "generic",
                 "example_id": "t", "metadata": {}}),
         };
         k += 1;
         // The caller contract's rows name tasks this fixture release does not admit.
-        let reply = if matches!(req["task"].as_str(), Some("code.defect_class" | "fam.b")) { ok_reply() } else { refused_reply("task_not_trained") };
+        let reply = if matches!(req["task"].as_str(), Some("code.defect_class" | "fam.b")) {
+            ok_reply()
+        } else {
+            refused_reply("task_not_trained")
+        };
         lines.push(replay_line(k, &req, "socket", reply));
     }
     for i in 0..n_b {
@@ -110,20 +129,34 @@ fn good_results(n_b: usize) -> Vec<Value> {
 
 fn write_results(dir: &Path, lines: &[Value]) -> PathBuf {
     let p = dir.join("results.jsonl");
-    std::fs::write(&p, lines.iter().map(|l| l.to_string() + "\n").collect::<String>()).unwrap();
+    std::fs::write(
+        &p,
+        lines
+            .iter()
+            .map(|l| l.to_string() + "\n")
+            .collect::<String>(),
+    )
+    .unwrap();
     p
 }
 
 fn check(rel: &Path, results: &Path, n: usize, extra: &[&str]) -> (Option<i32>, String) {
     let out: Output = Command::new(BIN)
-        .args(["check", "--release"]).arg(rel)
-        .arg("--results").arg(results)
-        .arg("--min-answered").arg(n.to_string())
-        .arg("--repo").arg(repo())
+        .args(["check", "--release"])
+        .arg(rel)
+        .arg("--results")
+        .arg(results)
+        .arg("--min-answered")
+        .arg(n.to_string())
+        .arg("--repo")
+        .arg(repo())
         .args(extra)
         .output()
         .unwrap();
-    (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+    )
 }
 
 fn last_line(s: &str) -> &str {
@@ -146,12 +179,20 @@ fn a_family_that_was_only_ever_refused_is_not_served() {
     release(&d.join("rel"), Some(good_shapes()), WEIGHT);
     let mut lines = good_results(0);
     for i in 0..4 {
-        lines.push(replay_line(900 + i, &fam_b(i), "socket", refused_reply("calibration_entry_missing")));
+        lines.push(replay_line(
+            900 + i,
+            &fam_b(i),
+            "socket",
+            refused_reply("calibration_entry_missing"),
+        ));
     }
     let r = write_results(&d, &lines);
     let (code, out) = check(&d.join("rel"), &r, 1, &[]);
     assert_eq!(code, Some(1), "{out}");
-    assert!(out.contains("fam.b") && out.contains("calibration_entry_missing"), "{out}");
+    assert!(
+        out.contains("fam.b") && out.contains("calibration_entry_missing"),
+        "{out}"
+    );
     assert_eq!(last_line(&out), "RESULT: FAIL");
 }
 
@@ -205,7 +246,10 @@ fn a_documented_example_that_was_never_replayed_fails() {
     let r = write_results(&d, &lines);
     let (code, out) = check(&d.join("rel"), &r, 0, &[]);
     assert_eq!(code, Some(1), "{out}");
-    assert!(out.contains("not replayed") && out.contains("docs/schema-api.md"), "{out}");
+    assert!(
+        out.contains("not replayed") && out.contains("docs/schema-api.md"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -255,30 +299,60 @@ fn headline_figures_are_over_the_admitted_families_with_numerators_and_denominat
     let r = write_results(&d, &good_results(3));
     // fam.b: 2 of 3 correct; code.defect_class: 1 of 2; an unadmitted family: 3 of 3.
     let rows = [
-        ("fam.b", true), ("fam.b", true), ("fam.b", false),
-        ("code.defect_class", true), ("code.defect_class", false),
-        ("other.family", true), ("other.family", true), ("other.family", true),
+        ("fam.b", true),
+        ("fam.b", true),
+        ("fam.b", false),
+        ("code.defect_class", true),
+        ("code.defect_class", false),
+        ("other.family", true),
+        ("other.family", true),
+        ("other.family", true),
     ];
     let verdicts: String = rows.iter().enumerate().map(|(i, (f, c))| {
         json!({"family_id": f, "kind": "choice", "correct": c, "row_id": format!("row{i}"), "slot_name": "x"}).to_string() + "\n"
     }).collect();
-    let calib: String = rows.iter().enumerate().map(|(i, (_, c))| {
-        // Row 2 abstains; every other row answers.
-        json!({"row_id": format!("row{i}"), "slot_name": "x", "scored": true, "correct": c,
-               "abstained_noul_row_or_margin": i == 2}).to_string() + "\n"
-    }).collect();
+    let calib: String = rows
+        .iter()
+        .enumerate()
+        .map(|(i, (_, c))| {
+            // Row 2 abstains; every other row answers.
+            json!({"row_id": format!("row{i}"), "slot_name": "x", "scored": true, "correct": c,
+               "abstained_noul_row_or_margin": i == 2})
+            .to_string()
+                + "\n"
+        })
+        .collect();
     let v = d.join("verdicts.jsonl");
     let c = d.join("calib-rows.jsonl");
     std::fs::write(&v, verdicts).unwrap();
     std::fs::write(&c, calib).unwrap();
-    let (code, out) = check(&d.join("rel"), &r, 1, &["--verdicts", v.to_str().unwrap(), "--calib-rows", c.to_str().unwrap()]);
+    let (code, out) = check(
+        &d.join("rel"),
+        &r,
+        1,
+        &[
+            "--verdicts",
+            v.to_str().unwrap(),
+            "--calib-rows",
+            c.to_str().unwrap(),
+        ],
+    );
     assert_eq!(code, Some(0), "{out}");
-    assert!(out.contains("headline over admitted_population (2 families)"), "{out}");
+    assert!(
+        out.contains("headline over admitted_population (2 families)"),
+        "{out}"
+    );
     assert!(out.contains("choice_top1: 0.6000 (3/5)"), "{out}");
     assert!(out.contains("coverage: 0.8000 (4/5)"), "{out}");
     assert!(out.contains("precision_on_answered: 0.7500 (3/4)"), "{out}");
-    assert!(out.contains("excluded rows (families not admitted): 3"), "{out}");
-    assert!(out.contains("NOT_THE_RELEASES_all_rows_choice_top1: 0.7500 (6/8)"), "{out}");
+    assert!(
+        out.contains("excluded rows (families not admitted): 3"),
+        "{out}"
+    );
+    assert!(
+        out.contains("NOT_THE_RELEASES_all_rows_choice_top1: 0.7500 (6/8)"),
+        "{out}"
+    );
 }
 
 /// A stand-in for `qd`: answers a status op with the release's hashes and every other request with
@@ -297,12 +371,18 @@ fn fake_qd(dir: &Path, served_by: &str) -> PathBuf {
 fn replay(d: &Path, qd: &Path, requests: &Path) -> (Option<i32>, PathBuf) {
     let out = d.join("replayed.jsonl");
     let o = Command::new(BIN)
-        .args(["replay", "--release"]).arg(d.join("rel"))
-        .arg("--socket").arg(d.join("q.sock"))
-        .arg("--out").arg(&out)
-        .arg("--requests").arg(requests)
-        .arg("--qd").arg(qd)
-        .arg("--repo").arg(repo())
+        .args(["replay", "--release"])
+        .arg(d.join("rel"))
+        .arg("--socket")
+        .arg(d.join("q.sock"))
+        .arg("--out")
+        .arg(&out)
+        .arg("--requests")
+        .arg(requests)
+        .arg("--qd")
+        .arg(qd)
+        .arg("--repo")
+        .arg(repo())
         .args(["--socket-timeout-ms", "2000"])
         .output()
         .unwrap();
@@ -312,16 +392,29 @@ fn replay(d: &Path, qd: &Path, requests: &Path) -> (Option<i32>, PathBuf) {
 #[test]
 fn one_replay_command_produces_a_results_file_the_check_accepts() {
     let d = tmp("replay");
-    release(&d.join("rel"), Some(json!({"code.defect_class": [["choice:5", "span"]], "fam.b": [["choice:4"]]})), WEIGHT);
+    release(
+        &d.join("rel"),
+        Some(json!({"code.defect_class": [["choice:5", "span"]], "fam.b": [["choice:4"]]})),
+        WEIGHT,
+    );
     let reqs = d.join("requests.jsonl");
-    std::fs::write(&reqs, (0..3).map(|i| fam_b(i).to_string() + "\n").collect::<String>()).unwrap();
+    std::fs::write(
+        &reqs,
+        (0..3)
+            .map(|i| fam_b(i).to_string() + "\n")
+            .collect::<String>(),
+    )
+    .unwrap();
     let qd = fake_qd(&d, "socket");
     let (code, results) = replay(&d, &qd, &reqs);
     assert_eq!(code, Some(0));
     let (code, out) = check(&d.join("rel"), &results, 3, &[]);
     // fam.b has 3 distinct answered requests and the documented defect example is answered once.
     assert_eq!(code, Some(1), "{out}");
-    assert!(out.contains("code.defect_class") && out.contains("1 answered"), "{out}");
+    assert!(
+        out.contains("code.defect_class") && out.contains("1 answered"),
+        "{out}"
+    );
     let (code, out) = check(&d.join("rel"), &results, 1, &[]);
     assert_eq!(code, Some(0), "{out}");
 }

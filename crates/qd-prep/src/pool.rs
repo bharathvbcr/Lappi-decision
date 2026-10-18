@@ -109,7 +109,10 @@ pub fn read_example_texts(
             .ok_or_else(|| format!("{what}: \"options\" is not a list"))?;
         for o in options {
             text.push('\n');
-            text.push_str(o.as_str().ok_or_else(|| format!("{what}: an option is not a string"))?);
+            text.push_str(
+                o.as_str()
+                    .ok_or_else(|| format!("{what}: an option is not a string"))?,
+            );
         }
         rows.push(ExampleText {
             id,
@@ -120,7 +123,10 @@ pub fn read_example_texts(
         Ok(())
     })?;
     if rows.is_empty() {
-        return Err(format!("{}: no rows: a scan of nothing is not a check", path.display()));
+        return Err(format!(
+            "{}: no rows: a scan of nothing is not a check",
+            path.display()
+        ));
     }
     Ok((rows, got))
 }
@@ -143,7 +149,15 @@ pub fn decontaminate<'c>(
     targets: &[TargetSet],
     threads: usize,
 ) -> Result<Scanned<'c>, String> {
-    let scanned = scan(ngram_n, threshold, tool, candidate_set, candidates, targets, threads)?;
+    let scanned = scan(
+        ngram_n,
+        threshold,
+        tool,
+        candidate_set,
+        candidates,
+        targets,
+        threads,
+    )?;
     if scanned.clean.is_empty() {
         return Err("no row survived decontamination: a pool of nothing is refused".into());
     }

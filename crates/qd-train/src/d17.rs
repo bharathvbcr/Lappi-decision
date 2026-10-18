@@ -53,7 +53,11 @@ pub enum D17Error {
     #[error("non-finite: {0}")]
     NonFinite(String),
     #[error("answer id {id} appears at rows {first} and {second}; the 17 ids must be distinct")]
-    DuplicateId { id: u32, first: usize, second: usize },
+    DuplicateId {
+        id: u32,
+        first: usize,
+        second: usize,
+    },
     #[error("answer id {id} is outside the vocabulary ({vocab})")]
     IdOutOfVocab { id: u32, vocab: usize },
     #[error(
@@ -166,7 +170,8 @@ impl D17 {
         embed_name: &str,
         ids: [u32; D17_ROWS],
     ) -> Result<Self, D17Error> {
-        let ck = |e: &dyn std::fmt::Display| D17Error::Checkpoint(format!("{}: {e}", path.display()));
+        let ck =
+            |e: &dyn std::fmt::Display| D17Error::Checkpoint(format!("{}: {e}", path.display()));
         let file = SafeTensorsFile::open(path).map_err(|e| ck(&e))?;
         let info = file.tensors().get(embed_name).ok_or_else(|| {
             D17Error::Checkpoint(format!(
@@ -194,16 +199,22 @@ impl D17 {
                 .map_err(|e| ck(&e))?;
             match info.dtype {
                 Dtype::F32 => rows.extend(
-                    raw.chunks_exact(4)
-                        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+                    raw.as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|b| f32::from_le_bytes(*b)),
                 ),
                 Dtype::Bf16 => rows.extend(
-                    raw.chunks_exact(2)
-                        .map(|b| bf16_bits_to_f32(u16::from_le_bytes([b[0], b[1]]))),
+                    raw.as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|b| bf16_bits_to_f32(u16::from_le_bytes(*b))),
                 ),
                 Dtype::F16 => rows.extend(
-                    raw.chunks_exact(2)
-                        .map(|b| f16_bits_to_f32(u16::from_le_bytes([b[0], b[1]]))),
+                    raw.as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|b| f16_bits_to_f32(u16::from_le_bytes(*b))),
                 ),
                 other => {
                     return Err(D17Error::Checkpoint(format!(
@@ -261,7 +272,7 @@ impl D17 {
     }
 
     fn positions_of(&self, hidden: &[f32]) -> Result<usize, D17Error> {
-        if hidden.is_empty() || hidden.len() % self.hidden != 0 {
+        if hidden.is_empty() || !hidden.len().is_multiple_of(self.hidden) {
             return Err(D17Error::Shape(format!(
                 "{} hidden values is not a non-empty multiple of the width {}",
                 hidden.len(),
@@ -278,7 +289,11 @@ impl D17 {
             let hp = &h[p * width..(p + 1) * width];
             for k in 0..D17_ROWS {
                 let rk = &r[k * width..(k + 1) * width];
-                z[p * D17_ROWS + k] = hp.iter().zip(rk).map(|(a, b)| f64::from(*a) * f64::from(*b)).sum();
+                z[p * D17_ROWS + k] = hp
+                    .iter()
+                    .zip(rk)
+                    .map(|(a, b)| f64::from(*a) * f64::from(*b))
+                    .sum();
             }
         }
         z

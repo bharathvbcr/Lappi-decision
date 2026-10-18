@@ -593,8 +593,7 @@ impl Request<'_> {
                 ));
             }
             let grams = per_row(rows, self.n, threads)?;
-            let checkable: Vec<usize> =
-                (0..rows.len()).filter(|&i| !grams[i].is_empty()).collect();
+            let checkable: Vec<usize> = (0..rows.len()).filter(|&i| !grams[i].is_empty()).collect();
             if checkable.is_empty() {
                 return Err(format!(
                     "target set {name}: none of its {} rows has {} words, so no source row can \
@@ -621,7 +620,11 @@ impl Request<'_> {
                 same_family_not_enforced: Vec::new(),
                 checks: Vec::new(),
                 set_names: vec!["positive-control", name],
-                scans: vec![Scan { source: 0, target: 1, enforced: true }],
+                scans: vec![Scan {
+                    source: 0,
+                    target: 1,
+                    enforced: true,
+                }],
                 sets: vec![planted.clone(), rows.clone()],
             };
             let found = control.scan_unguarded(threads)?;
@@ -744,7 +747,11 @@ impl Request<'_> {
                 digest: set_digest(rows),
             });
         }
-        Ok(Found { pairs, sets, controls: Vec::new() })
+        Ok(Found {
+            pairs,
+            sets,
+            controls: Vec::new(),
+        })
     }
 }
 
@@ -1308,11 +1315,19 @@ mod tests {
         ];
         let buf = request(&["src", "tgt"], &[(0, 1, true)], &[], &rows);
         let req = parse(&buf).expect("parses");
-        let blind = req.scan_unguarded(1).expect("the unguarded scan 'succeeds'");
-        assert!(blind.pairs.is_empty(), "zero hits, indistinguishable from a clean corpus");
+        let blind = req
+            .scan_unguarded(1)
+            .expect("the unguarded scan 'succeeds'");
+        assert!(
+            blind.pairs.is_empty(),
+            "zero hits, indistinguishable from a clean corpus"
+        );
         let err = req.scan(1).expect_err("the guarded scan refuses");
         assert!(err.contains("none of its 2 rows has 8 words"), "{err}");
-        assert!(run(&buf, 1).is_err(), "the CLI path goes through the same scan");
+        assert!(
+            run(&buf, 1).is_err(),
+            "the CLI path goes through the same scan"
+        );
     }
 
     #[test]
@@ -1328,7 +1343,13 @@ mod tests {
         assert_eq!(found.pairs.len(), 1);
         assert_eq!(
             found.controls,
-            vec![Control { target_set: "tgt".into(), rows: 3, checkable: 2, planted: 2, hit: 2 }]
+            vec![Control {
+                target_set: "tgt".into(),
+                rows: 3,
+                checkable: 2,
+                planted: 2,
+                hit: 2
+            }]
         );
     }
 
@@ -1409,7 +1430,12 @@ mod tests {
         // the scan outright, which is stronger: no attestation exists to be misread.
         assert!(
             run(
-                &request(&["train", "val"], &[(0, 1, true)], &[("a", 2)], &short_target),
+                &request(
+                    &["train", "val"],
+                    &[(0, 1, true)],
+                    &[("a", 2)],
+                    &short_target
+                ),
                 1
             )
             .is_err(),

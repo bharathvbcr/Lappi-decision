@@ -1,0 +1,5 @@
+{
+  "schema": "qd-mutate-build-config/v1",
+  "max_per_function": 2,
+  "basis": "Fable Q3 (AUDIT/harden-2026-10-17/fable-rulings-2026-10-18.md): K = 2 rows per (cluster_key, label class) for the v6 qd-mutate generate build, the clean twin counting as its own class. A construction cap, not an eval gate; revising K after reading the first build's manifest function_cap is a human decision. This file is the one source every v6 mutant build reads (python/qd_data/mutate_build.py); qd-prep's strict reader of v6-allocation.json cannot carry it."
+}

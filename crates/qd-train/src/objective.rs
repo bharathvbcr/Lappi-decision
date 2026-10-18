@@ -427,11 +427,10 @@ where
         }
         let mut d17_part: Option<([u32; 1], Vec<f32>)> = None;
         if let Some((pos, target)) = d17_row {
-            let d17 = self
-                .host
-                .d17
-                .as_mut()
-                .ok_or_else(|| TrainError::Refused("a D17 row was planned without a D17".into()))?;
+            let d17 =
+                self.host.d17.as_mut().ok_or_else(|| {
+                    TrainError::Refused("a D17 row was planned without a D17".into())
+                })?;
             if width != d17.hidden() {
                 return Err(TrainError::Refused(format!(
                     "sequence {seq}: the provider's hidden width is {width}, D17 is {} wide",
@@ -440,7 +439,11 @@ where
             }
             let at = union.iter().position(|&u| u == pos).unwrap_or(0);
             let (loss, dh) = d17
-                .loss_and_grad(&hidden[at * width..(at + 1) * width], &[target], planned.d17_scale)
+                .loss_and_grad(
+                    &hidden[at * width..(at + 1) * width],
+                    &[target],
+                    planned.d17_scale,
+                )
                 .map_err(|e| d17_refusal(format!("sequence {seq}"), &e))?;
             planned.d17_sum += loss;
             planned.d17_seen += 1;
@@ -452,8 +455,14 @@ where
             (Some((sp, sg)), Some((dp, dg))) => merge_hidden_grads(
                 &union,
                 &[
-                    HiddenPart { positions: sp, grad: &sg },
-                    HiddenPart { positions: &dp, grad: &dg },
+                    HiddenPart {
+                        positions: sp,
+                        grad: &sg,
+                    },
+                    HiddenPart {
+                        positions: &dp,
+                        grad: &dg,
+                    },
                 ],
                 width,
             )

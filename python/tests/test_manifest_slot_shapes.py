@@ -32,12 +32,18 @@ def test_every_entry_records_the_shape_of_its_request() -> None:
         assert list(e.slot_shape) == sorted(e.slot_shape)
         for key in e.slot_shape:
             kind, _, rows = key.partition(":")
-            assert key == "span" or (kind in ("choice", "score") and rows.isdigit() and int(rows) >= 3)
+            assert key == "span" or (
+                kind in ("choice", "score") and rows.isdigit() and int(rows) >= 3
+            )
 
 
 def test_the_choice_key_counts_the_reserved_noul_row() -> None:
     keys = slot_shape_keys(
-        (ChoiceSlot(name="a", options=("x", "y", "z", "w")), SpanSlot(name="s"), ScoreSlot(name="q", bins=4))
+        (
+            ChoiceSlot(name="a", options=("x", "y", "z", "w")),
+            SpanSlot(name="s"),
+            ScoreSlot(name="q", bins=4),
+        )
     )
     assert keys == ("choice:5", "score:5", "span")
 
@@ -65,7 +71,9 @@ def test_editing_one_slot_shape_after_writing_is_refused_on_read(tmp_path: Path)
 def test_the_digest_has_a_pinned_value() -> None:
     """crates/qd-export/tests/train_manifest_shapes.rs pins the same vector for the Rust reader."""
     train = _train()
-    e = dataclasses.replace(train.entries[0], row_id="r1", content_hash="0" * 64, slot_shape=("choice:5", "span"))
+    e = dataclasses.replace(
+        train.entries[0], row_id="r1", content_hash="0" * 64, slot_shape=("choice:5", "span")
+    )
     one = dataclasses.replace(train, entries=(e,))
     assert one.slot_shape_digest() == {
         "version": 1,

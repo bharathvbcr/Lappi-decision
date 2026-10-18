@@ -79,6 +79,7 @@ from run_cost import n_gpus_for_device  # noqa: E402
 
 from qd_data.caller_records import jsonl_lines  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
+from qd_data.mutate_build import V6_MUTATE_CONFIG, generate_command  # noqa: E402
 from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa: E402
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
@@ -222,7 +223,13 @@ def build_pool(*, rev: str, max_files: int) -> tuple[list[dict[str, object]], bo
 
 
 def generate_examples(
-    pool: Sequence[dict[str, object]], *, out_dir: Path, seed: int, limit: int, binary: Path
+    pool: Sequence[dict[str, object]],
+    *,
+    out_dir: Path,
+    seed: int,
+    limit: int,
+    binary: Path,
+    mutate_config: Path = V6_MUTATE_CONFIG,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     """Run qd-mutate over the pool and read back its examples and manifest."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -233,16 +240,11 @@ def generate_examples(
     examples_path = out_dir / "examples.jsonl"
     manifest_path = out_dir / "manifest.json"
     subprocess.run(
-        [
-            str(binary), "generate",
-            "--pool", str(pool_path),
-            "--out", str(examples_path),
-            "--manifest", str(manifest_path),
-            "--seed", str(seed),
-            "--limit", str(limit),
-            # Fable Q3 (2026-10-18): K = 2 rows per (cluster_key, class); the flag has no default.
-            "--max-per-function", "2",
-        ],
+        # Fable Q3: K comes from the v6 config (data/decisions/v6-mutate.json), never a literal.
+        generate_command(
+            binary, pool=pool_path, out=examples_path, manifest=manifest_path,
+            seed=seed, limit=limit, config=mutate_config,
+        ),
         check=True, capture_output=True, text=True,
     )
     examples = [json.loads(line) for line in jsonl_lines(examples_path) if line.strip()]

@@ -28,7 +28,8 @@ def test_the_release_check_step_runs_check_over_the_release_and_results() -> Non
         "GATES_VIA_MAKE_CMD=true",
     )
     assert proc.returncode == 0, proc.stderr
-    assert "--bin qd-release-check -- check --release \"/rel\" --results \"/results.jsonl\"" in proc.stdout
+    expected = '--bin qd-release-check -- check --release "/rel" --results "/results.jsonl"'
+    assert expected in proc.stdout
     assert "--min-answered \"3\"" in proc.stdout
 
 

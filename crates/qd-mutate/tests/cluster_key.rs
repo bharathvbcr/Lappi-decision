@@ -74,9 +74,14 @@ fn keys_by_symbol(rows: &[Row]) -> BTreeMap<String, BTreeSet<String>> {
     let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for row in rows {
         let key = row.key.as_ref().unwrap_or_else(|| {
-            panic!("a {} row of `{}` carries no cluster_key", row.class, row.symbol)
+            panic!(
+                "a {} row of `{}` carries no cluster_key",
+                row.class, row.symbol
+            )
         });
-        out.entry(row.symbol.clone()).or_default().insert(key.clone());
+        out.entry(row.symbol.clone())
+            .or_default()
+            .insert(key.clone());
     }
     out
 }
@@ -128,7 +133,10 @@ pub fn beta(x: i64) -> i64 { let y = x + 1;
 fn every_row_carries_a_key_and_a_function_has_one_across_mutated_and_clean_rows() {
     let mutated = rows(RUST_TWO_FNS, "o/r", "src/lib.rs", 0, 12);
     let clean = rows(RUST_TWO_FNS, "o/r", "src/lib.rs", 1000, 1);
-    assert!(mutated.iter().any(|r| r.class != "clean"), "no mutants were produced");
+    assert!(
+        mutated.iter().any(|r| r.class != "clean"),
+        "no mutants were produced"
+    );
     assert!(clean.iter().all(|r| r.class == "clean"));
     let mut all = mutated;
     all.extend(clean);
@@ -187,7 +195,11 @@ fn a_nested_function_has_its_own_key_distinct_from_its_parent_and_from_a_namesak
     let keys = keys_by_symbol(&rows(RUST_NESTED, "o/r", "src/n.rs", 0, 24));
     // `helper` is a nested function of two different parents: two functions, so two keys under
     // one symbol, and neither is a parent's key.
-    assert_eq!(keys["helper"].len(), 2, "outer::helper and other::helper differ: {keys:?}");
+    assert_eq!(
+        keys["helper"].len(),
+        2,
+        "outer::helper and other::helper differ: {keys:?}"
+    );
     let outer = one_key(&keys, "outer");
     let other = one_key(&keys, "other");
     assert!(!keys["helper"].contains(&outer) && !keys["helper"].contains(&other));
@@ -245,7 +257,11 @@ func (b *B) Get(x int) int {
 #[test]
 fn methods_of_the_same_name_on_different_receivers_have_different_keys() {
     let keys = keys_by_symbol(&rows(GO_METHODS, "o/r", "p.go", 0, 24));
-    assert_eq!(keys["Get"].len(), 2, "A.Get and B.Get are different functions: {keys:?}");
+    assert_eq!(
+        keys["Get"].len(),
+        2,
+        "A.Get and B.Get are different functions: {keys:?}"
+    );
     // The receiver's variable name is layout-level, not identity.
     let renamed_receiver = GO_METHODS.replace("(a *A)", "(self *A)");
     let again = keys_by_symbol(&rows(&renamed_receiver, "o/r", "p.go", 0, 24));

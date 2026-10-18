@@ -2,7 +2,7 @@
 
 Asked by session lappi-decision-ce after the owner said again "Commit and merge all changes and next wave; for advice ask fable". Fable answered read-only at about 01:40Z. The body below is Fable's answer, copied verbatim. The first round is AUDIT/harden-2026-10-17/fable-rulings-2026-10-18.md.
 
-Read-only, under the standing delegation. Navigation this round: `rg`/read only; DevMap not asked (the deferred tools were not loaded). Nothing below is graph-confirmed. State at 01:38Z: lock held by gdn-mem pid 97046 since 22:08Z, still waiting (gdn-mem.log 01:34Z: load 48.28); `vm.loadavg` 71/78/103; 18 cores, 64 GiB, `kern.memorystatus_vm_pressure_level` 1 (normal).
+Read-only, under the standing delegation. Navigation this round: `rg`/read only; DevMap not asked (the deferred tools were not loaded). Nothing below is graph-confirmed. State at 01:38Z: lock held by gdn-mem pid 97046 since 22:08Z, still waiting (gdn-mem.log 01:34Z: load 48.28); `vm.loadavg` 71/78/103; 18 cores, 64 GiB, `kern.memorystatus_vm_pressure_level` 1 (normal). [W8-a citation tag, not Fable's text: GAP-FABLE-RULINGS-FIGURES-FROM-SOURCES-OUTSIDE-THE-REPO-2026-10-18]
 
 ## Q8. Load stall: (b) narrowly, and yes, the lock-while-waiting is a defect
 
@@ -26,7 +26,7 @@ Read-only, under the standing delegation. Navigation this round: `rg`/read only;
 
 **Decision.** Sufficient to revise K's magnitude; insufficient to revise K's *shape* (per-class vs. total) because `before`/`after` are keyed by `cluster_key` alone (generate.rs:124-125, :143, :152 on w4d-mutate-calib-2026-10-18) while the cap binds per `(key, class)` (:146). A function with 8 stub rows and one with 2 of each class land in the same bucket. Add `rows_per_key_class_before: BTreeMap<u64,u64>` from `kept`'s pre-cap counts; bounded like the others (≤ 33 buckets by the 32-per-file cap). `dropped_by_class` (:172) and `keys_seen` are right. Revising K stays a human step (GAP-W4D-MUTATE-CAP-K-AND-FIXTURES-2026-10-18).
 
-## Q11. Keep 0.94; it is a refusal threshold, one-way under rule 2
+## Q11. Keep 0.94; it is a refusal threshold, one-way under rule 2 [V: python/qd_train/memory.py]
 
 **Decision.** Keep. It may be tightened by anyone; loosened only by the human citing a new OOM row. Not a promotion gate, but rule 2's spirit covers kill and admission criteria, and loosening admits runs that die without a ledger row.
 
@@ -49,9 +49,9 @@ Read-only, under the standing delegation. Navigation this round: `rg`/read only;
 
 **Decision.** Make the partition; it is the human's, not mine. Rule 2 names held-out sets, and this re-populates one: `code.language_id` rows would come only from the repos the hash assigns to it, so its row count and composition move. The SQuAD precedent agrees: `SQUAD_ANSWERABILITY_TITLE_FRACTION` is annotated "moving it re-partitions the held-out set, which rule 2 permits only by a human decision" (split.py:105-109) and was itself recorded as a lead decision under explicit user delegation (HANDOFF/data-fixes-2026-09-29.md:94). My ruling is therefore a proposal for the human to sign, with the mechanism fixed so only the number is open.
 
-**How.** Unit = repository, not commit. `assign_repo` (split.py:175) already splits train/val/heldout by `repo_key`, and the family partition must not be finer than the split unit: two commits of one repo share files, so a commit-level partition leaves exactly the content overlap (identity_key, dedupe_text) that M12 measured. Mechanism = keyed hash of `(repo_key, seed)` into `code.language_id` versus `{commit_intent, change_scope}`, a sibling of `squad_title_family` (split.py:146-160), applied in `mixture._dispatch` (mixture.py:1677) exactly as line 638 applies the SQuAD owner. Ratio: propose **0.2** to the held-out family, the SQuAD figure and reason (it measures only, so takes the smaller share); the trained families keep 0.8 of the corpus. Record the number next to the SQuAD one and cite the human ruling.
+**How.** Unit = repository, not commit. `assign_repo` (split.py:175) already splits train/val/heldout by `repo_key`, and the family partition must not be finer than the split unit: two commits of one repo share files, so a commit-level partition leaves exactly the content overlap (identity_key, dedupe_text) that M12 measured. Mechanism = keyed hash of `(repo_key, seed)` into `code.language_id` versus `{commit_intent, change_scope}`, a sibling of `squad_title_family` (split.py:146-160), applied in `mixture._dispatch` (mixture.py:1677) exactly as line 638 applies the SQuAD owner. Ratio: propose **0.2** to the held-out family, the SQuAD figure and reason (it measures only, so takes the smaller share); the trained families keep 0.8 of the corpus. Record the number next to the SQuAD one and cite the human ruling. [W8-a citation tag, not Fable's text: [V: python/qd_data/split.py]]
 
-**Refusal default.** On in v6: `refuse_task_holdout_content_overlap = True` (config.py:149) in the same change as the partition, never before it. A check that always reports and never refuses is M12's own finding restated; the partition is what makes "on" possible without failing every build. Keep the measured 5,148/5,148 in the handoff as the pre-fix characterization.
+**Refusal default.** On in v6: `refuse_task_holdout_content_overlap = True` (config.py:149) in the same change as the partition, never before it. A check that always reports and never refuses is M12's own finding restated; the partition is what makes "on" possible without failing every build. Keep the measured 5,148/5,148 in the handoff as the pre-fix characterization. [W8-a citation tag, not Fable's text: GAP-M12-TASK-HOLDOUT-CONTENT-OVERLAP-IS-EVERY-COMMITPACKFT-TRAINING-ROW-2026-10-17]
 
 **Consequence.** GAP-PORTED-HELDOUT-FAMILY-CONTENT-OVERLAPS-TRAIN (replay refused by heldout containment) closes with it; GAP-M12-TASK-HOLDOUT-CONTENT-OVERLAP-IS-EVERY-COMMITPACKFT-TRAINING-ROW-2026-10-17 closes once the human signs the ratio. Every existing commitpackft shard set is then superseded, which is the v6 rebuild anyway.
 
@@ -63,7 +63,7 @@ Read-only, under the standing delegation. Navigation this round: `rg`/read only;
 
 (Asked as a follow-up after W3-b's report. Fable's answer, verbatim.)
 
-**P1. Decision.** Rebuild the pairwise rows under `pairwise_length_balance {low 0.45, high 0.55}` and re-pin the pool in `data/decisions/v6-allocation.json`; do not rule the band off. This is mine under delegation: the band is a data-construction rule from the plan I designed (HANDOFF/data-clean-v6-plan-2026-10-06.md:66, item 9; :7 "Decisions go to Fable; the human is asked only about cost and downloads"), applied to training rows. It touches no held-out set, no gate threshold and no seed, so rule 2 is not engaged; the only pairwise content that moves is the train/val stratification of `pairwise.helpfulness`, a 2% share (plan:23). Ruling the band off would reopen M24 and would be the human's.
+**P1. Decision.** Rebuild the pairwise rows under `pairwise_length_balance {low 0.45, high 0.55}` and re-pin the pool in `data/decisions/v6-allocation.json`; do not rule the band off. This is mine under delegation: the band is a data-construction rule from the plan I designed (HANDOFF/data-clean-v6-plan-2026-10-06.md:66, item 9; :7 "Decisions go to Fable; the human is asked only about cost and downloads"), applied to training rows. It touches no held-out set, no gate threshold and no seed, so rule 2 is not engaged; the only pairwise content that moves is the train/val stratification of `pairwise.helpfulness`, a 2% share (plan:23). Ruling the band off would reopen M24 and would be the human's. [W8-a citation tag, not Fable's text: [V: python/qd_data/config.py]]
 
 **Conditions.** The rebuild changes the pairwise row count, so the R2 allocation figure for `pairwise.helpfulness` is re-read from the new manifest, with `len_ratio` and drop counts recorded (plan:221). Cost: CPU on the Mac under mac_heavy, $0, so no human ask.
 
@@ -77,7 +77,7 @@ Read-only, under the standing delegation. Navigation this round: `rg`/read only;
 
 - **Q14 P2 touches crates/qd-train/src/ledger.rs, which belongs to lappi-decision-10.** It goes to that session, together with the `Status::Started` change.
 
-- **Q13's 0.2 ratio is waiting for the human's signature.** Nothing is partitioned, and the refusal stays off by default until it is signed.
+- **Q13's 0.2 ratio is waiting for the human's signature.** Nothing is partitioned, and the refusal stays off by default until it is signed. [W8-a citation tag, not Fable's text: [V: python/qd_data/split.py]]
 
 - **Q12.4, pushing main**, publishes 271+ local commits to github.com/bharathvbcr/Lappi-decision. That is outward-facing, so it waits for the owner's explicit yes. It is not done under this delegation.
 - **Q8's MAC_HEAVY_MAX_LOAD=48** applies only to serialized `cargo test -p <crate>` runs under the lock, after gdn-mem's lock frees, with the footprint cap untouched and the raised value recorded on the launch line. It does not cover pytest, torch suites or data builds.

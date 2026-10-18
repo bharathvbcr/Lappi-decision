@@ -38,14 +38,13 @@
 
 mod artifacts;
 mod cuda;
-mod tristate;
 
 use std::path::PathBuf;
 
 use clap::Parser;
 use serde::Serialize;
 
-use tristate::{TriState, aggregate};
+use qd_preflight::tristate::{TriState, aggregate};
 
 #[derive(Parser, Debug)]
 #[command(

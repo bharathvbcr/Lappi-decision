@@ -10,14 +10,18 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use qd_preflight::release_check::request_shape;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const BIN: &str = env!("CARGO_BIN_EXE_qd-release-check");
 
 static N: AtomicU64 = AtomicU64::new(0);
 
 fn tmp() -> PathBuf {
-    let p = std::env::temp_dir().join(format!("qd-br-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let p = std::env::temp_dir().join(format!(
+        "qd-br-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&p).unwrap();
     p
 }
@@ -50,7 +54,11 @@ fn req(task: &str, id: usize, slots: Vec<Value>) -> Value {
 }
 
 fn defect(id: usize) -> Value {
-    req("code.defect_class", id, vec![choice(4), json!({"name": "s", "type": "span"})])
+    req(
+        "code.defect_class",
+        id,
+        vec![choice(4), json!({"name": "s", "type": "span"})],
+    )
 }
 
 /// 3 defect rows, 4 of fam.b at choice:4, 1 at choice:6; and rows the release does not admit: a
@@ -71,16 +79,24 @@ fn write_lines(path: &Path, rows: &[Value]) {
 
 fn run(release_dir: &Path, val: &Path, out: &Path, per_shape: &str) -> Output {
     Command::new(BIN)
-        .args(["build-requests", "--release"]).arg(release_dir)
-        .arg("--val-requests").arg(val)
-        .arg("--per-shape").arg(per_shape)
-        .arg("--out").arg(out)
+        .args(["build-requests", "--release"])
+        .arg(release_dir)
+        .arg("--val-requests")
+        .arg(val)
+        .arg("--per-shape")
+        .arg(per_shape)
+        .arg("--out")
+        .arg(out)
         .output()
         .unwrap()
 }
 
 fn lines(path: &Path) -> Vec<Value> {
-    std::fs::read_to_string(path).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
 }
 
 #[test]
@@ -94,11 +110,19 @@ fn it_emits_per_shape_requests_for_exactly_the_admitted_pairs() {
     write_lines(&d.join("val.jsonl"), &rows);
     let out = run(&d, &d.join("val.jsonl"), &d.join("req.jsonl"), "2");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(0), "{stderr}{}", String::from_utf8_lossy(&out.stdout));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{stderr}{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
     let got = lines(&d.join("req.jsonl"));
     let mut count = std::collections::BTreeMap::<(String, Vec<String>), usize>::new();
     for r in &got {
-        let key = (r["task"].as_str().unwrap().to_string(), request_shape(r).unwrap());
+        let key = (
+            r["task"].as_str().unwrap().to_string(),
+            request_shape(r).unwrap(),
+        );
         *count.entry(key).or_default() += 1;
     }
     let want: std::collections::BTreeMap<(String, Vec<String>), usize> = [
@@ -107,7 +131,12 @@ fn it_emits_per_shape_requests_for_exactly_the_admitted_pairs() {
         (("fam.b", vec!["choice:6"]), 2),
     ]
     .into_iter()
-    .map(|((f, s), n)| ((f.to_string(), s.into_iter().map(String::from).collect()), n))
+    .map(|((f, s), n)| {
+        (
+            (f.to_string(), s.into_iter().map(String::from).collect()),
+            n,
+        )
+    })
     .collect();
     assert_eq!(count, want, "{got:?}");
 }
@@ -119,11 +148,24 @@ fn a_pair_with_fewer_rows_than_asked_is_reported_and_fails() {
     write_lines(&d.join("val.jsonl"), &val_rows());
     let out = run(&d, &d.join("val.jsonl"), &d.join("req.jsonl"), "2");
     // fam.b at choice:6 has a single val row, so two cannot be built.
-    assert_eq!(out.status.code(), Some(1), "{}", String::from_utf8_lossy(&out.stderr));
-    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
-    assert!(text.contains("fam.b") && text.contains("choice:6") && text.contains("short"), "{text}");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert!(
+        text.contains("fam.b") && text.contains("choice:6") && text.contains("short"),
+        "{text}"
+    );
     let got = lines(&d.join("req.jsonl"));
-    assert_eq!(got.len(), 2 + 2 + 1, "what exists is still written: {got:?}");
+    assert_eq!(
+        got.len(),
+        2 + 2 + 1,
+        "what exists is still written: {got:?}"
+    );
 }
 
 #[test]
@@ -133,15 +175,24 @@ fn nothing_outside_the_admitted_pairs_is_emitted() {
     write_lines(&d.join("val.jsonl"), &val_rows());
     run(&d, &d.join("val.jsonl"), &d.join("req.jsonl"), "10");
     let admitted = [
-        ("code.defect_class".to_string(), vec!["choice:5".to_string(), "span".to_string()]),
+        (
+            "code.defect_class".to_string(),
+            vec!["choice:5".to_string(), "span".to_string()],
+        ),
         ("fam.b".to_string(), vec!["choice:4".to_string()]),
         ("fam.b".to_string(), vec!["choice:6".to_string()]),
     ];
     let got = lines(&d.join("req.jsonl"));
     assert!(!got.is_empty());
     for r in got {
-        let key = (r["task"].as_str().unwrap().to_string(), request_shape(&r).unwrap());
-        assert!(admitted.contains(&key), "{key:?} is not an admitted (family, shape)");
+        let key = (
+            r["task"].as_str().unwrap().to_string(),
+            request_shape(&r).unwrap(),
+        );
+        assert!(
+            admitted.contains(&key),
+            "{key:?} is not an admitted (family, shape)"
+        );
     }
 }
 
@@ -184,7 +235,12 @@ fn a_release_that_records_no_shapes_is_not_run_and_writes_nothing() {
     release(&d, None);
     write_lines(&d.join("val.jsonl"), &val_rows());
     let out = run(&d, &d.join("val.jsonl"), &d.join("req.jsonl"), "2");
-    assert_eq!(out.status.code(), Some(3), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(String::from_utf8_lossy(&out.stderr).contains("trained_slot_shapes"));
     assert!(!d.join("req.jsonl").exists());
 }
@@ -195,14 +251,22 @@ fn per_shape_is_required_and_zero_is_refused() {
     release(&d, Some(shapes()));
     write_lines(&d.join("val.jsonl"), &val_rows());
     let none = Command::new(BIN)
-        .args(["build-requests", "--release"]).arg(&d)
-        .arg("--val-requests").arg(d.join("val.jsonl"))
-        .arg("--out").arg(d.join("req.jsonl"))
+        .args(["build-requests", "--release"])
+        .arg(&d)
+        .arg("--val-requests")
+        .arg(d.join("val.jsonl"))
+        .arg("--out")
+        .arg(d.join("req.jsonl"))
         .output()
         .unwrap();
     assert_eq!(none.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&none.stderr).contains("--per-shape"));
     let zero = run(&d, &d.join("val.jsonl"), &d.join("req.jsonl"), "0");
-    assert_eq!(zero.status.code(), Some(3), "{}", String::from_utf8_lossy(&zero.stderr));
+    assert_eq!(
+        zero.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&zero.stderr)
+    );
     assert!(!d.join("req.jsonl").exists());
 }

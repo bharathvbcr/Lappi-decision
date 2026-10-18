@@ -38,7 +38,11 @@ fn entry(i: usize, split: &str, family: &str) -> Value {
 
 /// A data manifest in `Manifest.to_json()`'s shape, one entry per `(split, family)`.
 fn manifest_json(split: &str, rows: &[(&str, &str)]) -> Value {
-    let entries: Vec<Value> = rows.iter().enumerate().map(|(i, (s, f))| entry(i, s, f)).collect();
+    let entries: Vec<Value> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, (s, f))| entry(i, s, f))
+        .collect();
     json!({
         "manifest_format_version": 1,
         "split": split,
@@ -82,7 +86,8 @@ fn run(fx: &common::Fixture, train_manifest: Option<&Path>) -> Output {
         // The gate needs every (family, shape) the manifest records calibrated; what these tests
         // exercise is the families, so it is given a passing fit for every entry of the table
         // (the entries here all record choice:5, which the reference table holds).
-        cmd.arg("--calibration-report").arg(common::gate_report(&fx.dir.0, &table_path));
+        cmd.arg("--calibration-report")
+            .arg(common::gate_report(&fx.dir.0, &table_path));
     }
     cmd.output().expect("the binary runs")
 }
