@@ -137,6 +137,8 @@ fn fixture(name: &str) -> Fixture {
     std::fs::create_dir_all(&corpus).expect("mkdir");
     ok(&[
         "generate",
+        "--max-per-function",
+        "1000",
         "--pool",
         s(&pool),
         "--out",
@@ -169,6 +171,8 @@ fn fixture(name: &str) -> Fixture {
     std::fs::create_dir_all(&aux).expect("mkdir");
     ok(&[
         "generate",
+        "--max-per-function",
+        "1000",
         "--pool",
         s(&aux_pool),
         "--out",
@@ -498,6 +502,8 @@ fn an_auxiliary_corpus_generated_from_other_records_is_refused() {
     std::fs::create_dir_all(&other).expect("mkdir");
     ok(&[
         "generate",
+        "--max-per-function",
+        "1000",
         "--pool",
         s(&f.pool),
         "--out",
@@ -735,6 +741,8 @@ fn single_version_fixture_clean(
     std::fs::create_dir_all(&corpus).expect("mkdir");
     ok(&[
         "generate",
+        "--max-per-function",
+        "1000",
         "--pool",
         s(&pool),
         "--out",
@@ -1122,6 +1130,8 @@ fn generate_id_prefix_changes_only_the_id() {
     std::fs::create_dir_all(&out).expect("mkdir");
     ok(&[
         "generate",
+        "--max-per-function",
+        "1000",
         "--pool",
         s(&f.pool),
         "--out",
@@ -1155,6 +1165,8 @@ fn a_prefix_with_whitespace_is_refused() {
     std::fs::create_dir_all(&out).expect("mkdir");
     let r = run(&[
         "generate",
+        "--max-per-function",
+        "1000",
         "--pool",
         s(&f.pool),
         "--out",
@@ -1212,5 +1224,71 @@ fn the_shortfall_names_both_the_files_with_a_rendering_and_the_files_that_fit_a_
     assert!(
         err.contains("files have a mutated rendering and") && err.contains("of them fit a row"),
         "{err}"
+    );
+}
+
+#[test]
+fn a_composed_row_carries_its_needles_cluster_key() {
+    let f = fixture("cluster-key");
+    let (rows, _, _) = compose_ok(&f, "out");
+    let mut examples = corpus_rows(&f.corpus);
+    examples.extend(corpus_rows(&f.aux));
+    let mut checked = 0;
+    for row in &rows {
+        assert!(!row.cluster_key.is_empty(), "{} carries no cluster_key", row.id);
+        if let Some(at) = row.needle_index {
+            let needle = &row.constituents[at as usize];
+            let id = needle.example_id.as_ref().expect("a needle names its example");
+            assert_eq!(row.cluster_key, examples[id].cluster_key, "{}", row.id);
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no mutated row was checked");
+}
+
+#[test]
+fn generate_without_max_per_function_is_refused_and_a_keyless_corpus_is_not_composed() {
+    let f = fixture("cluster-key-refusals");
+    let out = f.dir.join("nocap");
+    std::fs::create_dir_all(&out).expect("mkdir");
+    let r = run(&[
+        "generate",
+        "--pool",
+        s(&f.pool),
+        "--out",
+        s(&out.join("examples.jsonl")),
+        "--manifest",
+        s(&out.join("manifest.json")),
+        "--seed",
+        "0",
+    ]);
+    assert!(!r.status.success(), "generate ran without --max-per-function");
+    assert!(!out.join("examples.jsonl").exists());
+
+    // The same corpus with its keys stripped, re-pinned so only the missing key can refuse it.
+    let path = f.corpus.join("examples.jsonl");
+    let stripped: String = std::fs::read_to_string(&path)
+        .expect("reading the corpus")
+        .lines()
+        .map(|l| {
+            let mut v: serde_json::Value = serde_json::from_str(l).expect("a row");
+            v.as_object_mut().expect("an object").remove("cluster_key");
+            format!("{}\n", serde_json::to_string(&v).expect("a row"))
+        })
+        .collect();
+    std::fs::write(&path, &stripped).expect("writing the stripped corpus");
+    let manifest_path = f.corpus.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).expect("read")).expect("json");
+    manifest["examples_sha256"] = sha256_hex(stripped.as_bytes()).into();
+    std::fs::write(&manifest_path, serde_json::to_vec(&manifest).expect("json"))
+        .expect("writing the manifest");
+    let composed = f.dir.join("keyless");
+    let r = run(&compose_args(&f, &composed, &f.aux));
+    assert!(!r.status.success(), "a keyless corpus was composed");
+    assert!(
+        String::from_utf8_lossy(&r.stderr).contains("cluster_key"),
+        "{}",
+        String::from_utf8_lossy(&r.stderr)
     );
 }

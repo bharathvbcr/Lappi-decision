@@ -240,6 +240,8 @@ def generate_examples(
             "--manifest", str(manifest_path),
             "--seed", str(seed),
             "--limit", str(limit),
+            # Fable Q3 (2026-10-18): K = 2 rows per (cluster_key, class); the flag has no default.
+            "--max-per-function", "2",
         ],
         check=True, capture_output=True, text=True,
     )

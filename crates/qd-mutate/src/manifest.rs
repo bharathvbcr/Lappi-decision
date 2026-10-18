@@ -192,6 +192,25 @@ impl DiffReport {
     }
 }
 
+/// What the per-function cap did (Fable Q3: K rows per `(cluster_key, class)`).
+///
+/// Histograms are rows-per-key -> number of keys, so the manifest stays bounded however many
+/// functions the pool holds. `rows_before` counts every row that would have been emitted without
+/// the cap, so `rows_before - rows_after == sum(dropped_by_class)` is checkable, and nothing the
+/// cap removed is unaccounted for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FunctionCapReport {
+    /// K, the most rows one function contributes of one class (the clean twin is its own class).
+    pub max_per_function: usize,
+    pub keys_seen: u64,
+    pub rows_before: u64,
+    pub rows_after: u64,
+    pub rows_per_key_before: BTreeMap<u64, u64>,
+    pub rows_per_key_after: BTreeMap<u64, u64>,
+    /// Rows the cap removed, by class.
+    pub dropped_by_class: BTreeMap<String, u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub tool_version: String,
@@ -207,6 +226,10 @@ pub struct Manifest {
     /// empty report with no renderer named, which is what that run recorded.
     #[serde(default)]
     pub diff: DiffReport,
+    /// `serde(default)` so a manifest written before the cap existed still reads: with
+    /// `max_per_function` 0, which no capped run records.
+    #[serde(default)]
+    pub function_cap: FunctionCapReport,
     pub languages: Vec<LanguageReport>,
     /// Every refusal in the run, by key. The per-language tables must agree with this; they are
     /// kept separately so a disagreement is visible rather than impossible.
@@ -268,6 +291,7 @@ impl Manifest {
             examples_sha256: String::new(),
             totals: Totals::default(),
             diff: DiffReport::default(),
+            function_cap: FunctionCapReport::default(),
             languages,
             refusals: BTreeMap::new(),
         }

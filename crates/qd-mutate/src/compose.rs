@@ -275,6 +275,9 @@ pub struct CorpusRow {
     #[serde(default)]
     pub span: Option<LineSpan>,
     pub function: FunctionIdentity,
+    /// The generator's `cluster_key`; `load_corpus` refuses a row without one.
+    #[serde(default)]
+    pub cluster_key: String,
     pub after: String,
     pub diff: String,
     pub hunk_constrained: bool,
@@ -389,13 +392,25 @@ pub fn load_corpus(dir: &Path) -> Result<LoadedCorpus, ComposeError> {
         if line.trim().is_empty() {
             continue;
         }
-        rows.push(serde_json::from_str::<CorpusRow>(line).map_err(|e| {
+        let row = serde_json::from_str::<CorpusRow>(line).map_err(|e| {
             ComposeError::Input(format!(
                 "{}/examples.jsonl:{}: {e}",
                 dir.display(),
                 lineno + 1
             ))
-        })?);
+        })?;
+        // A composed row inherits its needle's key. A corpus written before the key existed has
+        // none to inherit, and a composed row with no function identity is the row the cap and the
+        // split-disjointness checks cannot see.
+        if row.cluster_key.is_empty() {
+            return Err(ComposeError::Input(format!(
+                "{}/examples.jsonl:{}: row {} carries no cluster_key; regenerate the corpus",
+                dir.display(),
+                lineno + 1,
+                row.id
+            )));
+        }
+        rows.push(row);
     }
     if let Some(n) = manifest
         .get("totals")
@@ -1347,6 +1362,10 @@ pub struct ComposedRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub span: Option<LineSpan>,
     pub function: FunctionIdentity,
+    /// The needle's `cluster_key` (a clean row: its anchor file's clean example's). A composed
+    /// row has no single function, so the key names the one the label is about.
+    #[serde(default)]
+    pub cluster_key: String,
     pub after: String,
     pub diff: String,
     pub hunk_constrained: bool,
@@ -2468,6 +2487,7 @@ fn build_row(
                 repo,
                 after: nd.after.clone(),
                 diff: rendered.diff,
+                cluster_key: nd.cluster_key.clone(),
                 hunk_constrained: nd.hunk_constrained,
                 detail: format!("{} of {n_files} files; needle {}", needle_index + 1, nd.id),
                 seed: opts.seed,
@@ -2507,6 +2527,7 @@ fn build_row(
                 },
                 after: unit.after.clone(),
                 diff: rendered.diff,
+                cluster_key: unit.renderings[0].row.cluster_key.clone(),
                 hunk_constrained: true,
                 detail: format!("{n_files} unmodified commits"),
                 seed: opts.seed,

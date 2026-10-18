@@ -18,6 +18,7 @@ fn options(clean_permille: u32) -> Options {
         limit: None,
         languages: Vec::new(),
         max_examples_per_file: 64,
+        max_per_function: usize::MAX,
         diff_shape: DiffShape::default(),
     }
 }
