@@ -15,7 +15,7 @@ use qd_train::held_out::DataConfig;
 use qd_train::shards::{ShardOpen, ShardReader};
 use qd_train_metal::remap::{REMAP_CHECK, require_identity_remap};
 use qd_train_metal::run::{RECIPE_FILE, RunError, run};
-use run_v64::{BATCH_TOKENS, args, fixture, scratch};
+use run_v64::{BATCH_TOKENS, args, fixture, repo, scratch};
 
 /// The fixture through the door as `run()` opens it: no `allow_stale_code`.
 fn reader() -> ShardReader {
