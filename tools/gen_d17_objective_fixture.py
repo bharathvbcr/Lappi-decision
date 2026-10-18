@@ -37,7 +37,8 @@ from qd_train.lora import D17_ROWS, AnswerRowDelta
 
 
 def bits32(t: torch.Tensor) -> list[int]:
-    return t.detach().to(torch.float32).contiguous().view(torch.int32).flatten().tolist()
+    raw = t.detach().to(torch.float32).contiguous().view(torch.int32).flatten().tolist()
+    return [b & 0xFFFFFFFF for b in raw]
 
 
 def bits16(t: torch.Tensor) -> list[int]:
