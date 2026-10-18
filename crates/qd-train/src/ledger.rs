@@ -323,6 +323,10 @@ impl Protocol {
 /// How the run ended, as the row records it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
+    /// The one non-terminal status (`ledger.Status`): a run's lifecycle marker, written by
+    /// Python's `RunRecorder.__enter__`. A reader skips it by default, as `Ledger.rows()` does;
+    /// this crate never writes one ([`Row::line`] refuses it).
+    Started,
     Completed,
     Killed,
     Failed,
@@ -331,11 +335,133 @@ pub enum Status {
 impl Status {
     fn as_str(&self) -> &'static str {
         match self {
+            Status::Started => "started",
             Status::Completed => "completed",
             Status::Killed => "killed",
             Status::Failed => "failed",
         }
     }
+
+    /// The status a row line names; an unknown one is refused, never mapped to a default.
+    pub fn parse(s: &str) -> Result<Self, LedgerError> {
+        match s {
+            "started" => Ok(Status::Started),
+            "completed" => Ok(Status::Completed),
+            "killed" => Ok(Status::Killed),
+            "failed" => Ok(Status::Failed),
+            other => refuse(format!(
+                "status {other:?} is not one of started, completed, killed, failed"
+            )),
+        }
+    }
+}
+
+/// The two optional row fields Python's `LedgerRow` carries beyond the core row. Absent means
+/// "not recorded" and the key is omitted from the line, so a row recording neither is the line
+/// it always was. Neither is a `Protocol` field: that would move every protocol hash.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RowExtras {
+    /// `LedgerRow.val_without_train`: the data build's block naming families with val rows and
+    /// no train rows (Fable Q14 P2). An object; its inner shape belongs to its producer.
+    pub val_without_train: Option<Value>,
+    /// `LedgerRow.train_manifest_sha256`: sha256 of the train manifest file's bytes, lowercase hex.
+    pub train_manifest_sha256: Option<String>,
+}
+
+impl RowExtras {
+    fn validate(&self) -> Result<(), LedgerError> {
+        match &self.val_without_train {
+            None => {}
+            Some(Value::Object(o)) => {
+                if o.get("families").is_some_and(|f| !f.is_object()) {
+                    return refuse("val_without_train.families is not a mapping of family to val rows");
+                }
+            }
+            Some(_) => return refuse("val_without_train is not an object"),
+        }
+        if let Some(d) = &self.train_manifest_sha256
+            && !is_hex64(d)
+        {
+            return refuse(format!(
+                "train_manifest_sha256 {d:?} is not a lowercase hex sha256"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Read the two keys off a parsed row line, refusing what [`Self::validate`] refuses. An
+    /// absent key and a `null` are the same: not recorded.
+    fn from_line(v: &Value) -> Result<Self, LedgerError> {
+        let extras = Self {
+            val_without_train: v.get("val_without_train").filter(|x| !x.is_null()).cloned(),
+            train_manifest_sha256: match v.get("train_manifest_sha256") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(s)) => Some(s.clone()),
+                Some(_) => return refuse("train_manifest_sha256 is not a string"),
+            },
+        };
+        extras.validate()?;
+        Ok(extras)
+    }
+}
+
+/// One ledger line as a reader sees it: which row, how it ended, the optional fields it
+/// records, and the hash the next line chains to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LedgerEntry {
+    pub row_id: String,
+    pub status: Status,
+    pub extras: RowExtras,
+    /// sha256 of the raw line's bytes (`prev_row_hash` of the line after it).
+    pub line_sha256: String,
+}
+
+/// The most a reader will load: one ledger file, so a corrupt or runaway file is refused rather
+/// than allocated.
+pub const MAX_LEDGER_BYTES: u64 = 256 * 1024 * 1024;
+
+/// `Ledger.rows(include_started=...)` for the fields a Rust reader needs. A missing file is an
+/// empty ledger (`raw_lines` returns `[]`). `started` rows are skipped unless `include_started`,
+/// but every raw line is parsed and hashed either way, so a malformed line is refused in both
+/// modes and the chain a writer extends is the one over all lines.
+pub fn read_entries(path: &Path, include_started: bool) -> Result<Vec<LedgerEntry>, LedgerError> {
+    let ioe = |e: std::io::Error| LedgerError::Io(format!("{}: {e}", path.display()));
+    let len = match fs::metadata(path) {
+        Ok(m) => m.len(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(ioe(e)),
+    };
+    if len > MAX_LEDGER_BYTES {
+        return refuse(format!(
+            "{}: {len} bytes exceeds the {MAX_LEDGER_BYTES}-byte reader bound",
+            path.display()
+        ));
+    }
+    let bytes = fs::read(path).map_err(ioe)?;
+    let mut out = Vec::new();
+    for (i, line) in raw_lines(&bytes).into_iter().enumerate() {
+        let bad = |why: String| {
+            LedgerError::Refused(format!("{}: line {}: {why}", path.display(), i + 1))
+        };
+        let v: Value = serde_json::from_slice(line).map_err(|e| bad(e.to_string()))?;
+        let field = |k: &str| {
+            v.get(k)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| bad(format!("no string field `{k}`")))
+        };
+        let status = Status::parse(&field("status")?).map_err(|e| bad(e.to_string()))?;
+        let extras = RowExtras::from_line(&v).map_err(|e| bad(e.to_string()))?;
+        if include_started || status != Status::Started {
+            out.push(LedgerEntry {
+                row_id: field("row_id")?,
+                status,
+                extras,
+                line_sha256: hex(&Sha256::digest(line)),
+            });
+        }
+    }
+    Ok(out)
 }
 
 /// Who measured `wall_clock_s` (`WallClockSource`).
@@ -454,6 +580,19 @@ impl Row {
     /// excluded. Refuses what `LedgerRow.__post_init__` refuses, and a recipe that does not
     /// reproduce `protocol.recipe_hash`.
     pub fn line(&self, stamp: &Stamp) -> Result<String, LedgerError> {
+        self.line_with(stamp, &RowExtras::default())
+    }
+
+    /// [`Self::line`] with the optional fields `extras` records, written under their Python
+    /// names after the core row and sorted into place by the canonical dump.
+    pub fn line_with(&self, stamp: &Stamp, extras: &RowExtras) -> Result<String, LedgerError> {
+        extras.validate()?;
+        if self.status == Status::Started {
+            return refuse(
+                "status `started` is the lifecycle row Python's RunRecorder.__enter__ writes, \
+                 with its six lifecycle metrics; the Rust trainer writes only rows that end a run",
+            );
+        }
         if !RUN_KINDS.contains(&self.run_kind.as_str()) {
             return refuse(format!(
                 "run_kind {:?} is not one of {RUN_KINDS:?}",
@@ -504,7 +643,7 @@ impl Row {
                 )
             })
             .collect();
-        let row = obj([
+        let mut fields: Vec<(&str, Value)> = vec![
             ("row_id", Value::from(stamp.row_id.as_str())),
             ("written_at", Value::from(stamp.written_at.as_str())),
             (
@@ -534,7 +673,14 @@ impl Row {
             ("cost_usd", float(0.0)?),
             ("notes", Value::from(self.notes.as_str())),
             ("recipe", self.recipe.clone()),
-        ])?;
+        ];
+        if let Some(b) = &extras.val_without_train {
+            fields.push(("val_without_train", b.clone()));
+        }
+        if let Some(d) = &extras.train_manifest_sha256 {
+            fields.push(("train_manifest_sha256", Value::from(d.as_str())));
+        }
+        let row = obj(fields)?;
         Ok(dumps(&row, CANONICAL)?)
     }
 }
@@ -544,6 +690,11 @@ impl FtRow {
     /// excluded. A [`Row`] of kind `ft`, with the trainer's own rule on top: a schedule that did
     /// not run to its end is quick for that reason too.
     pub fn line(&self, stamp: &Stamp) -> Result<String, LedgerError> {
+        self.line_with(stamp, &RowExtras::default())
+    }
+
+    /// [`Self::line`] with the optional fields `extras` records ([`Row::line_with`]).
+    pub fn line_with(&self, stamp: &Stamp, extras: &RowExtras) -> Result<String, LedgerError> {
         if self.quick_reason.trim().is_empty() {
             return refuse("quick=True requires quick_reason; every ojas row is quick (rule 8)");
         }
@@ -572,7 +723,7 @@ impl FtRow {
             notes: self.notes.clone(),
             recipe: self.recipe.to_json()?,
         }
-        .line(stamp)
+        .line_with(stamp, extras)
     }
 }
 
@@ -739,8 +890,20 @@ pub fn append(
     row_id: String,
     written_at: String,
 ) -> Result<Stamp, LedgerError> {
+    append_with(path, row, &RowExtras::default(), row_id, written_at)
+}
+
+/// [`append`] recording the optional fields `extras` carries ([`FtRow::line_with`]). With
+/// `RowExtras::default()` it writes the line [`append`] always wrote.
+pub fn append_with(
+    path: &Path,
+    row: &FtRow,
+    extras: &RowExtras,
+    row_id: String,
+    written_at: String,
+) -> Result<Stamp, LedgerError> {
     check_ledger_path(path)?;
-    append_line(path, row_id, written_at, |stamp| row.line(stamp))
+    append_line(path, row_id, written_at, |stamp| row.line_with(stamp, extras))
 }
 
 /// `Ledger.append`: take the write lock, refuse a duplicate `row_id`, chain to the last line,

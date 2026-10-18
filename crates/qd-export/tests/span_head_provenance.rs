@@ -93,12 +93,16 @@ fn committed_prereg() -> std::path::PathBuf {
 
 /// An ft ledger with one completed ft row per fixture seed, edited by `edit(seed, row)`.
 fn ledger(fx: &Fixture, edit: impl Fn(usize, &mut Value)) -> std::path::PathBuf {
+    // Every row records the train manifest the fixture's export reads: a ledger given to the
+    // export also binds that manifest (`train_manifest_sha256`).
+    let train_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(&fx.train_manifest).unwrap()));
     let lines: Vec<String> = common::FT_ROW_IDS
         .iter()
         .enumerate()
         .map(|(seed, id)| {
             let mut row = json!({
                 "row_id": id, "run_kind": "ft", "status": "completed", "protocol": {"seed": seed},
+                "train_manifest_sha256": train_sha,
                 "recipe": {"span_head_init": {"sha256": "a".repeat(64), "content_digest": "c0".repeat(32), "shared": true}},
             });
             edit(seed, &mut row);

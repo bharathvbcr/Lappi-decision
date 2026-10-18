@@ -2867,6 +2867,9 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     family; its own settings are in ``recipe``. Every other row hashes its own recipe.
     """
     reasons = [r for r in quick_reasons if r.strip()]
+    # Only an ft row is a model trained from the train manifest; an eval, smoke or verdict row
+    # states nothing about it, and the manifest it would name is not the one it read.
+    manifest_fields = _RUN_TRAIN_MANIFEST if run_kind == "ft" else {}
     recorder = RunRecorder(
         ledger,
         entry_point=Path(__file__),
@@ -2885,6 +2888,8 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
         quick=bool(reasons),
         quick_reason="; ".join(reasons) if reasons else None,
         notes=notes,
+        train_manifest_sha256=manifest_fields.get("train_manifest_sha256"),
+        val_without_train=manifest_fields.get("val_without_train"),
     )
     for name, value in _RUN_METRICS.items():
         recorder.metric(name, value)
@@ -2897,6 +2902,11 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
 #: recipe key, so a cached and an uncached run of one arm keep one recipe_hash. Off, nothing
 #: is set and every row is what it was, as ``native_spancheck`` is absent when its flag is.
 _RUN_METRICS: dict[str, TriState] = {}
+#: What ``main`` read from the train manifest, for every ft row this run writes: set from
+#: :class:`CorpusFacts` (``train_manifest_sha256``, ``val_without_train``), cleared when main
+#: starts. Empty means no manifest was read by this process, and a row then omits both fields
+#: (not recorded), never a hash of whatever file is on the path now.
+_RUN_TRAIN_MANIFEST: dict[str, Any] = {}
 
 
 def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
@@ -4920,6 +4930,13 @@ class CorpusFacts:
     snapshot_not_run: str | None
     #: ``{source: rows}`` read from this repository's git history.
     history_rows: dict[str, int]
+    #: sha256 of the train manifest file's bytes -- the bytes ``corpus_facts`` parsed, hashed
+    #: once from the same read, never from a second read of the path. Recorded on every ft row
+    #: as ``train_manifest_sha256``. ``None`` only for a facts object built without a read.
+    train_manifest_sha256: str | None = None
+    #: The manifest's own ``val_without_train`` block (``None`` when the manifest predates it),
+    #: recorded on every ft row so the population reading can name a family with no train rows.
+    val_without_train: dict[str, Any] | None = None
 
 
 def general_record_datasets(record: Path | None) -> frozenset[str] | None:
@@ -4971,7 +4988,9 @@ def corpus_facts(
     path = out / TRAIN_MANIFEST
     if not path.is_file():
         raise SystemExit(f"{path} is absent, so the corpus behind this shard set cannot be read")
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw_bytes = path.read_bytes()
+    manifest_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+    raw = json.loads(raw_bytes.decode("utf-8"))
     recorded = raw.get("data_snapshot_hash")
     if recorded != data_snapshot_hash:
         raise SystemExit(
@@ -5074,6 +5093,8 @@ def corpus_facts(
     return CorpusFacts(
         snapshot_not_run=status.reason if isinstance(status, NotRun) else None,
         history_rows=history_rows,
+        train_manifest_sha256=manifest_sha256,
+        val_without_train=raw.get("val_without_train"),
     )
 
 
@@ -11035,6 +11056,7 @@ VERDICT_FAMILY_KEYS: Final[tuple[str, ...]] = (
 
 def main(argv: list[str] | None = None) -> int:
     _RUN_METRICS.clear()
+    _RUN_TRAIN_MANIFEST.clear()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, help="the pipeline's --out directory")
     parser.add_argument("--passes", type=int, default=60)
@@ -12162,6 +12184,10 @@ def main(argv: list[str] | None = None) -> int:
         replay_partition=args.replay_partition,
         decisions_pool=args.decisions_pool is not None,
         config=rebuild_config,
+    )
+    _RUN_TRAIN_MANIFEST.update(
+        train_manifest_sha256=corpus.train_manifest_sha256,
+        val_without_train=corpus.val_without_train,
     )
     # One set of arguments for the rebuild and for the split cache's key, so what is keyed is
     # what is rebuilt. The module global is read here, at call time, as it always was.

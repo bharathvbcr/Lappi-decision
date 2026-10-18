@@ -43,6 +43,7 @@
 
 use crate::calibration::{CalibrationEntry, calibrate};
 use crate::schema::RESERVED_NOUL_ROWS;
+use serde_json::{Value, json};
 
 /// `fit_temperature`'s lower search bound (`calibration_fit.py`, `lo`).
 pub const TEMPERATURE_LO: f64 = 0.05;
@@ -500,6 +501,26 @@ pub enum EceState {
     },
 }
 
+impl EceState {
+    /// The report's shape, which `qd-export`'s calibration gate reads
+    /// (`calibration_gate.rs::check_ece`): `ran` with its value and verdict, or `not_run` with
+    /// the reason. One writer, so a letter entry and the span entry cannot drift apart.
+    pub fn to_json(&self) -> Value {
+        match self {
+            EceState::Ran {
+                value,
+                n,
+                populated_bins,
+                passed,
+            } => json!({
+                "state": "ran", "value": value, "n": n, "populated_bins": populated_bins,
+                "passed": passed, "threshold": ECE_THRESHOLD, "bins": ECE_BINS,
+            }),
+            EceState::NotRun { reason } => json!({"state": "not_run", "reason": reason}),
+        }
+    }
+}
+
 /// `ece_gate` at its defaults: not run below [`ECE_MIN_SAMPLES`], otherwise the ECE against
 /// [`ECE_THRESHOLD`] over [`ECE_BINS`] bins.
 pub fn ece_state(confidence: &[f64], correct: &[bool]) -> Result<EceState> {
@@ -741,6 +762,13 @@ pub struct SpanScore {
     pub p_gold_end: f64,
     pub gold_in_set_start: bool,
     pub gold_in_set_end: bool,
+    /// Each pointer's top probability after the entry's temperature: what ECE bins, as a letter
+    /// row's [`RowScore::confidence`] is. A pointer is a choice over the context's rows.
+    pub p_top_start: f64,
+    pub p_top_end: f64,
+    /// Whether each pointer's winning row is its gold row (the abstention row included).
+    pub start_hit: bool,
+    pub end_hit: bool,
 }
 
 impl SpanScore {
@@ -787,9 +815,80 @@ pub fn score_span_rows(rows: &SpanRows, entry: &CalibrationEntry) -> Result<Vec<
             p_gold_end: end.probs[ge],
             gold_in_set_start: start.set.contains(&gs),
             gold_in_set_end: end.set.contains(&ge),
+            p_top_start: start.probs[start.top],
+            p_top_end: end.probs[end.top],
+            start_hit: start.top == gs,
+            end_hit: end.top == ge,
         });
     }
     Ok(out)
+}
+
+/// The span entry's calibration check (Fable Q4, 2026-10-18): the letter check applied to what a
+/// pointer is, a choice over rows. Confidence is each pointer's top probability after the fitted
+/// temperature, correct is that pointer hitting its gold row, and both pointers are pooled
+/// (2n samples, as [`fit_span_entry`] pools `p(gold)` for the conformal cutoff). The registered
+/// constants of [`ece_state`] apply unchanged: [`ECE_BINS`], [`ECE_THRESHOLD`], and not run
+/// below [`ECE_MIN_SAMPLES`] samples. No threshold is set here.
+pub fn span_ece_state(scored: &[SpanScore]) -> Result<EceState> {
+    let mut confidence = Vec::with_capacity(2 * scored.len());
+    let mut correct = Vec::with_capacity(2 * scored.len());
+    for s in scored {
+        confidence.extend([s.p_top_start, s.p_top_end]);
+        correct.extend([s.start_hit, s.end_hit]);
+    }
+    ece_state(&confidence, &correct)
+}
+
+/// What scoring span rows with fitted parameters measured, by `answer.rs`'s span rule: the
+/// report's `span.scored` section. `ece_after` is [`span_ece_state`] over the scored rows, which
+/// is where `qd-export`'s gate reads a span entry's check (`/span/scored/ece_after`).
+/// `pointer_conformal_coverage` is reported, not gated: its target `1 - alpha` is not a
+/// registered gate.
+pub fn summarise_spans(
+    scored: &[Option<(SpanScore, CalibrationEntry)>],
+    how: &str,
+) -> Result<Value> {
+    let rows: Vec<&(SpanScore, CalibrationEntry)> = scored.iter().flatten().collect();
+    let n = rows.len();
+    let count = |f: &dyn Fn(&SpanScore, &CalibrationEntry) -> bool| {
+        rows.iter().filter(|(s, e)| f(s, e)).count()
+    };
+    let answered = count(&|s, e| s.answered(e.noul_margin));
+    let answered_correct = count(&|s, e| s.answered(e.noul_margin) && s.correct);
+    let ratio = |num: usize, den: usize| -> Value {
+        if den == 0 {
+            Value::Null
+        } else {
+            json!(num as f64 / den as f64)
+        }
+    };
+    let pointers_covered = rows
+        .iter()
+        .map(|(s, _)| usize::from(s.gold_in_set_start) + usize::from(s.gold_in_set_end))
+        .sum::<usize>();
+    let ece = if n == 0 {
+        json!({"state": "not_run", "reason": "no row of this entry could be scored"})
+    } else {
+        let scores: Vec<SpanScore> = rows.iter().map(|(s, _)| *s).collect();
+        span_ece_state(&scores)?.to_json()
+    };
+    Ok(json!({
+        "how": how,
+        "n_scored": n,
+        "n_not_scored": scored.len() - n,
+        "ece_after": ece,
+        "gold_abstains": count(&|s, _| s.gold_abstains),
+        "verdict_correct": count(&|s, _| s.correct),
+        "abstained_by_rule": count(&|s, _| s.abstains_by_rule),
+        "abstained_by_margin": count(&|s, e| !s.abstains_by_rule && s.margin < e.noul_margin),
+        "answered": answered,
+        "answered_correct": answered_correct,
+        "answered_precision": ratio(answered_correct, answered),
+        "served_correct": count(&|s, e| s.served_correct(e.noul_margin)),
+        "served_accuracy": ratio(count(&|s, e| s.served_correct(e.noul_margin)), n),
+        "pointer_conformal_coverage": ratio(pointers_covered, 2 * n),
+    }))
 }
 
 /// Fit the span entry: the temperature on both pointers' NLL ([`fit_span_temperature`]); then, on
@@ -1074,6 +1173,90 @@ mod tests {
         // Served: answered above the margin, abstained (and right only on gold abstention) below.
         assert!(s[0].served_correct(0.0) && !s[0].served_correct(1.0));
         assert!(s[1].served_correct(0.0) && !s[2].served_correct(0.0));
+    }
+
+    /// Span rows over six rows (five lines and the abstention), grouped by how sure the pointers
+    /// are and how often they hit: `(confidence, hits per 20)`, `per` rows each. A pointer's
+    /// logits put `confidence` on its winner and the rest uniform, and it hits exactly
+    /// `hits / 20` of the time by a fixed pattern, so the data has no sampling noise. Where
+    /// `hits / 20 == confidence` the pointers are calibrated at temperature 1.
+    fn grouped_spans(groups: &[(f64, usize)], per: usize) -> SpanRows {
+        const W: usize = 6;
+        let mut out = SpanRows::new();
+        for (g, (confidence, hits)) in groups.iter().enumerate() {
+            let winner_logit = (confidence * (W - 1) as f64 / (1.0 - confidence)).ln() as f32;
+            for j in 0..per {
+                let gs = (j + g) % 5;
+                let ge = gs + (j / 5) % (5 - gs);
+                let pointer = |gold: usize, hit: bool| {
+                    let winner = if hit { gold } else { (gold + 1 + j % (W - 1)) % W };
+                    let mut logits = vec![0.0f32; W];
+                    logits[winner] = winner_logit;
+                    logits
+                };
+                let start = pointer(gs, j % 20 < *hits);
+                let end = pointer(ge, (j * 7 + 3) % 20 < *hits);
+                out.push(&start, &end, gs, ge).unwrap();
+            }
+        }
+        out
+    }
+
+    fn span_ece_after_fit(rows: &SpanRows) -> EceState {
+        let fit = fit_span_entry(rows, DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION).unwrap();
+        span_ece_state(&score_span_rows(rows, &fit.entry()).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_calibrated_span_fit_passes_its_check_and_a_miscalibrated_one_does_not() {
+        // Confidence matches the hit rate in every group.
+        let good = grouped_spans(&[(0.55, 11), (0.7, 14), (0.85, 17), (0.95, 19)], 100);
+        match span_ece_after_fit(&good) {
+            EceState::Ran { value, n, passed, .. } => {
+                assert_eq!(n, 800, "two pointers per row, pooled");
+                assert!(passed && value <= ECE_THRESHOLD, "ECE {value}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // Confidence says nothing about the hits: the unsure pointers are right, the sure ones
+        // half the time. One temperature cannot repair that.
+        let bad = grouped_spans(&[(0.5, 18), (0.9, 10)], 200);
+        match span_ece_after_fit(&bad) {
+            EceState::Ran { value, passed, .. } => {
+                assert!(!passed && value > ECE_THRESHOLD, "ECE {value}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_span_fit_over_too_few_pointers_is_not_run_rather_than_passed() {
+        let state = |per: usize| {
+            let rows = grouped_spans(&[(0.7, 14)], per);
+            span_ece_state(&score_span_rows(&rows, &temperature_only(1.0)).unwrap()).unwrap()
+        };
+        // 49 rows = 98 pointer samples, one under ECE_MIN_SAMPLES.
+        assert!(matches!(state(49), EceState::NotRun { .. }));
+        assert!(matches!(state(50), EceState::Ran { n: 100, .. }));
+    }
+
+    #[test]
+    fn the_span_summary_records_ece_where_the_export_gate_reads_it() {
+        let rows = grouped_spans(&[(0.55, 11), (0.7, 14), (0.85, 17), (0.95, 19)], 100);
+        let fit = fit_span_entry(&rows, DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION).unwrap();
+        let entry = fit.entry();
+        let scored: Vec<_> = score_span_rows(&rows, &entry)
+            .unwrap()
+            .into_iter()
+            .map(|s| Some((s, entry)))
+            .collect();
+        let summary = summarise_spans(&scored, "in_sample").unwrap();
+        assert_eq!(summary["ece_after"]["state"], "ran");
+        assert_eq!(summary["ece_after"]["n"], 800);
+        assert_eq!(summary["ece_after"]["threshold"], ECE_THRESHOLD);
+        assert!(summary["pointer_conformal_coverage"].is_number());
+        let none = summarise_spans(&[None, None], "in_sample").unwrap();
+        assert_eq!(none["ece_after"]["state"], "not_run");
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! `qd-pin` gate and `qd-train-metal`'s refusal resolve a sibling's commit through one
 //! implementation rather than two that could drift.
 
+pub mod base_fresh;
 pub mod cite;
 pub mod pin;
 pub mod prereg_bind;

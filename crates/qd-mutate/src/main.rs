@@ -158,6 +158,12 @@ struct GenerateArgs {
     /// Examples one file may contribute.
     #[arg(long, default_value_t = qd_mutate::generate::MAX_EXAMPLES_PER_FILE)]
     max_per_file: usize,
+    /// Rows one function (one `cluster_key`) may contribute per label class; the clean twin is its
+    /// own class. Required, no default. The v6 build passes 2 (Fable Q3, 2026-10-18; recorded in
+    /// `data/decisions/v6-allocation.json`). The manifest's `function_cap` carries the rows per
+    /// key before and after, and the rows dropped per class.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    max_per_function: u64,
     /// Print the coverage table to stderr when the run finishes.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     report: bool,
@@ -320,6 +326,8 @@ fn generate(args: GenerateArgs) -> Result<()> {
         languages: args.language,
         limit: args.limit,
         max_examples_per_file: args.max_per_file,
+        max_per_function: usize::try_from(args.max_per_function)
+            .context("--max-per-function does not fit this platform's usize")?,
         diff_shape: if args.single_hunk {
             DiffShape::SingleHunk
         } else {
@@ -459,6 +467,8 @@ fn one(args: OneArgs) -> Result<()> {
         languages: vec![language],
         limit: Some(args.limit),
         max_examples_per_file: args.limit,
+        // One lone file, never capped: `inspect` is for looking at mutations.
+        max_per_function: usize::MAX,
         // A lone file has no pre-image, so either shape diffs it against its own post-image.
         diff_shape: DiffShape::default(),
     });

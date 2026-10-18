@@ -1028,6 +1028,22 @@ class LedgerRow:
     #: than `{}`: a row that says nothing about its recipe is not a row that ran without
     #: settings.
     recipe: Mapping[str, Any] | None = None
+    #: The families the data build found with val rows and no train rows, as the producer's
+    #: manifest block states it (``Manifest.val_without_train``: ``{"count", "families"}``;
+    #: qd-prep's block also carries ``strata``). It lets a population reading that cannot run a
+    #: family say the family had nothing to fit a control on, rather than only "absent" (Fable
+    #: Q14 P2, GAP-W3B-LEDGER-POPULATION-GATE-READING-DOES-NOT-NAME-VAL-WITHOUT-TRAIN-2026-10-17).
+    #: It excludes nothing. ``None`` is "not recorded" -- every row written before this field
+    #: existed -- and is not the same claim as an empty block (no such family). Omitted from the
+    #: line when ``None``, so every existing line re-serialises byte for byte.
+    val_without_train: Mapping[str, Any] | None = None
+    #: sha256 of the train manifest *file's bytes* the run's data came from. The protocol's
+    #: ``data_snapshot_hash`` is a hash of the manifest's re-derived content, not of the file,
+    #: so it cannot say the file a release is built from is the file the run read
+    #: (GAP-QD-EXPORT-TRAIN-MANIFEST-BINDING-BLOCKS-RE-EXPORT-OF-EXISTING-MODELS-2026-10-18).
+    #: It is deliberately not a ``Protocol`` field: that would change every existing protocol hash.
+    #: ``None`` is "not recorded", never a pass; omitted from the line when ``None``.
+    train_manifest_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if self.run_kind not in _RUN_KINDS:
@@ -1054,7 +1070,54 @@ class LedgerRow:
         if self.wall_clock_s < 0 or self.cost_usd < 0:
             raise ValueError("wall_clock_s and cost_usd are measured, non-negative quantities")
         self._validate_recipe(self.recipe)
+        self._validate_val_without_train(self.val_without_train)
+        self._validate_train_manifest_sha256(self.train_manifest_sha256)
         self._check_build_marker()
+
+    @staticmethod
+    def _validate_val_without_train(block: Mapping[str, Any] | None) -> None:
+        """A recorded block is a string-keyed mapping that survives the trip to JSON.
+
+        The block's inner shape belongs to its producer (Python's manifest writes ``count`` and
+        ``families``, qd-prep's adds ``strata``), so this checks only what the ledger itself
+        needs: a mapping, ``families`` a mapping when present, and serialisable. ``None`` says
+        "not recorded"."""
+        if block is None:
+            return
+        if not isinstance(block, Mapping):
+            raise ValueError(
+                f"val_without_train={block!r} is not a mapping; pass None to say it is not recorded"
+            )
+        bad_keys = sorted(repr(k) for k in block if not isinstance(k, str))
+        if bad_keys:
+            raise ValueError(f"val_without_train keys must be strings; got {bad_keys}")
+        if "families" in block and not isinstance(block["families"], Mapping):
+            raise ValueError(
+                f"val_without_train.families={block['families']!r} is not a mapping of family "
+                "to its val row count"
+            )
+        try:
+            _canonical(dict(block))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"val_without_train is not JSON-serialisable ({exc})") from exc
+
+    @staticmethod
+    def _validate_train_manifest_sha256(digest: str | None) -> None:
+        if digest is None:
+            return
+        if (not isinstance(digest, str) or len(digest) != 64
+                or any(c not in "0123456789abcdef" for c in digest)):
+            raise ValueError(
+                f"train_manifest_sha256={digest!r} is not a lowercase hex sha256; pass None to "
+                "say the manifest file was not hashed"
+            )
+
+    def families_without_train(self) -> frozenset[str]:
+        """The families this row's recorded block names as val-without-train. Empty when the
+        row records none, which does not tell "no such family" from "not recorded": read
+        ``val_without_train is None`` for that."""
+        fams = (self.val_without_train or {}).get("families")
+        return frozenset(fams) if isinstance(fams, Mapping) else frozenset()
 
     @staticmethod
     def _validate_recipe(recipe: Mapping[str, Any] | None) -> None:
@@ -1124,7 +1187,7 @@ class LedgerRow:
         return self.protocol.hash()
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "row_id": self.row_id,
             "written_at": self.written_at,
             "prev_row_hash": self.prev_row_hash,
@@ -1146,6 +1209,13 @@ class LedgerRow:
             "notes": self.notes,
             "recipe": dict(self.recipe) if self.recipe is not None else None,
         }
+        # Optional keys are written only when recorded, so a row that records neither is the
+        # line it always was (and its successor's `prev_row_hash` is unchanged).
+        if self.val_without_train is not None:
+            out["val_without_train"] = dict(self.val_without_train)
+        if self.train_manifest_sha256 is not None:
+            out["train_manifest_sha256"] = self.train_manifest_sha256
+        return out
 
     @classmethod
     def from_json(cls, raw: dict[str, Any]) -> Self:
@@ -1196,6 +1266,9 @@ class LedgerRow:
             # does not record its recipe. Every row written before 2026-09-21 is in that
             # position, and none of them should read as having run with no settings.
             recipe=raw.get("recipe"),
+            # Absent and null both read back as None ("not recorded").
+            val_without_train=raw.get("val_without_train"),
+            train_manifest_sha256=raw.get("train_manifest_sha256"),
         )
 
 
@@ -1833,6 +1906,18 @@ def _record_rule(decisions: PromotionDecisions, name: str, rule: str) -> str:
     return f"record {decisions.sha256[:12]}, {name} = {rule}"
 
 
+def _val_without_train_cause(unit: Sequence[LedgerRow], family: str) -> str:
+    """The sentence naming why a family cannot have been scored, when a row of the unit records
+    it as a family with val rows and no train rows (``LedgerRow.val_without_train``); empty
+    when none does, which also covers rows that do not record the block."""
+    named = [r.row_id for r in unit if family in r.families_without_train()]
+    if not named:
+        return ""
+    return (f"; cause: {family} is recorded as a family with val rows and no train rows "
+            f"(val_without_train on rows {', '.join(named)}), so it had nothing to fit a "
+            "control on")
+
+
 def _population_paired_margin(
     unit: Sequence[LedgerRow], families: tuple[str, ...]
 ) -> TriState:
@@ -1846,12 +1931,13 @@ def _population_paired_margin(
         name = PAIRED_MARGIN_FAMILY_PREFIX + family
         m = _joined(None, [r.metrics.get(name) for r in unit])
         where = ", ".join(r.row_id for r in unit)
+        cause = _val_without_train_cause(unit, family)
         if m is None:
             return NotRun(reason=f"paired_margin_vs_linear over the promotion population: "
-                          f"{name} is absent from rows {where}")
+                          f"{name} is absent from rows {where}{cause}")
         if isinstance(m, NotRun):
             return NotRun(reason=f"paired_margin_vs_linear over the promotion population: "
-                          f"{name} did not run on rows {where} ({m.reason})")
+                          f"{name} did not run on rows {where} ({m.reason}){cause}")
         states.append(m)
     chosen = _joined(None, list(states))
     if not isinstance(chosen, Ran):  # pragma: no cover - families is non-empty, all Ran
@@ -2405,6 +2491,8 @@ class RunRecorder:
         registration_id: str | None = None,
         run_cap_s: float | None = None,
         decision_record_path: str | os.PathLike[str] | None = None,
+        train_manifest_sha256: str | None = None,
+        val_without_train: Mapping[str, Any] | None = None,
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
@@ -2431,6 +2519,13 @@ class RunRecorder:
         # once the run was over, and would take the row with it.
         LedgerRow._validate_recipe(recipe)
         self.recipe = recipe
+        # What the terminal row records about the train manifest the run read
+        # (`LedgerRow.train_manifest_sha256`, `.val_without_train`). Validated here for the
+        # same reason as `recipe`: refused at construction, not once the run is spent.
+        LedgerRow._validate_train_manifest_sha256(train_manifest_sha256)
+        LedgerRow._validate_val_without_train(val_without_train)
+        self.train_manifest_sha256 = train_manifest_sha256
+        self.val_without_train = val_without_train
         if cost is None and self.env.device not in CostEstimate.LOCAL_DEVICES:
             # The GH200 case, made impossible rather than discouraged: 13 rung 0 rows
             # recorded cost_usd 0.0 for real GPU hours because nothing required a rate.
@@ -2745,6 +2840,8 @@ class RunRecorder:
                 cost_usd=0.0 if self.cost is None else self.cost.cost_for(wall),
                 notes=note,
                 recipe=self.recipe,
+                val_without_train=self.val_without_train,
+                train_manifest_sha256=self.train_manifest_sha256,
             )
         )
 

@@ -250,6 +250,7 @@ fn run_language(id: LangId) -> Run {
         languages: vec![id],
         limit: None,
         max_examples_per_file: 8,
+        max_per_function: usize::MAX,
         diff_shape: DiffShape::default(),
     })
     .run(
