@@ -38,10 +38,9 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, ValueEnum};
 use qd_runtime::calibration::{CalibrationEntry, CalibrationTable};
 use qd_runtime::calibration_fit::{
-    DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION, ECE_BINS, ECE_MIN_SAMPLES, ECE_THRESHOLD, EceState,
-    EntryFit, LetterRows, RowScore, SpanRows, SpanScore, TEMPERATURE_HI, TEMPERATURE_ITERS,
+    DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION, ECE_BINS, ECE_MIN_SAMPLES, ECE_THRESHOLD, EntryFit, LetterRows, RowScore, SpanRows, SpanScore, TEMPERATURE_HI, TEMPERATURE_ITERS,
     TEMPERATURE_LO, ece_state, fit_entry, fit_span_entry, score_rows, score_span_rows,
-    temperature_only,
+    summarise_spans, temperature_only,
 };
 use qd_runtime::schema::{
     MAX_BINS, MAX_OPTIONS, MIN_BINS, MIN_OPTIONS, RESERVED_NOUL_ROWS, SlotKind,
@@ -498,21 +497,6 @@ fn group(letters: Vec<LetterLine>) -> Result<Vec<Group>> {
     Ok(groups.into_values().collect())
 }
 
-fn ece_json(state: &EceState) -> Value {
-    match state {
-        EceState::Ran {
-            value,
-            n,
-            populated_bins,
-            passed,
-        } => json!({
-            "state": "ran", "value": value, "n": n, "populated_bins": populated_bins,
-            "passed": passed, "threshold": ECE_THRESHOLD, "bins": ECE_BINS,
-        }),
-        EceState::NotRun { reason } => json!({"state": "not_run", "reason": reason}),
-    }
-}
-
 fn fit_json(fit: &EntryFit) -> Value {
     json!({
         "n": fit.n,
@@ -561,7 +545,7 @@ fn summarise(
     let ece = if n == 0 {
         json!({"state": "not_run", "reason": "no row of this entry could be scored"})
     } else {
-        ece_json(&ece_state(&confidence, &correct)?)
+        ece_state(&confidence, &correct)?.to_json()
     };
     Ok(json!({
         "how": how,
@@ -610,43 +594,6 @@ fn row_line(
     Value::Object(out)
 }
 
-/// What scoring span rows with fitted parameters measured, by `answer.rs`'s span rule.
-fn summarise_spans(scored: &[Option<(SpanScore, CalibrationEntry)>], how: &str) -> Value {
-    let rows: Vec<&(SpanScore, CalibrationEntry)> = scored.iter().flatten().collect();
-    let n = rows.len();
-    let count = |f: &dyn Fn(&SpanScore, &CalibrationEntry) -> bool| {
-        rows.iter().filter(|(s, e)| f(s, e)).count()
-    };
-    let answered = count(&|s, e| s.answered(e.noul_margin));
-    let answered_correct = count(&|s, e| s.answered(e.noul_margin) && s.correct);
-    let ratio = |num: usize, den: usize| -> Value {
-        if den == 0 {
-            Value::Null
-        } else {
-            json!(num as f64 / den as f64)
-        }
-    };
-    let pointers_covered = rows
-        .iter()
-        .map(|(s, _)| usize::from(s.gold_in_set_start) + usize::from(s.gold_in_set_end))
-        .sum::<usize>();
-    json!({
-        "how": how,
-        "n_scored": n,
-        "n_not_scored": scored.len() - n,
-        "gold_abstains": count(&|s, _| s.gold_abstains),
-        "verdict_correct": count(&|s, _| s.correct),
-        "abstained_by_rule": count(&|s, _| s.abstains_by_rule),
-        "abstained_by_margin": count(&|s, e| !s.abstains_by_rule && s.margin < e.noul_margin),
-        "answered": answered,
-        "answered_correct": answered_correct,
-        "answered_precision": ratio(answered_correct, answered),
-        "served_correct": count(&|s, e| s.served_correct(e.noul_margin)),
-        "served_accuracy": ratio(count(&|s, e| s.served_correct(e.noul_margin)), n),
-        "pointer_conformal_coverage": ratio(pointers_covered, 2 * n),
-    })
-}
-
 fn span_row_line(
     line: &SpanLine,
     fold: Option<Fold>,
@@ -669,6 +616,7 @@ fn span_row_line(
                 ("answered", json!(s.answered(e.noul_margin))),
                 ("served_correct", json!(s.served_correct(e.noul_margin))),
                 ("p_gold", json!([s.p_gold_start, s.p_gold_end])),
+                ("p_top", json!([s.p_top_start, s.p_top_end])),
             ] {
                 v[k] = x;
             }
@@ -731,7 +679,7 @@ fn fit_spans(
                 scored[i] = Some((s, e));
             }
             report["fit"] = fit_json(&fit);
-            report["scored"] = summarise_spans(&scored, "in_sample");
+            report["scored"] = summarise_spans(&scored, "in_sample")?;
             for (line, s) in spans.iter().zip(&scored) {
                 out.rows
                     .extend(span_row_line(line, None, Some("all"), s.as_ref())?);
@@ -779,7 +727,7 @@ fn fit_spans(
                 }
             }
             report["folds"] = Value::Object(folds_json);
-            report["scored"] = summarise_spans(&scored, "out_of_fold");
+            report["scored"] = summarise_spans(&scored, "out_of_fold")?;
             for (i, line) in spans.iter().enumerate() {
                 let params = scored[i].as_ref().map(|_| {
                     if folds[i] == Fold::A {
@@ -938,7 +886,7 @@ fn run(args: &Args) -> Result<Outputs> {
             "n": g.rows.len(),
             "gold_noul": gold_noul,
             "verdict_top_disagreements": disagreements,
-            "ece_before": ece_json(&ece_before),
+            "ece_before": ece_before.to_json(),
         });
 
         let mut scored: Vec<Option<(RowScore, CalibrationEntry)>> = vec![None; g.rows.len()];
