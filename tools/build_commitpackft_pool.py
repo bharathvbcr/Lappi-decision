@@ -51,6 +51,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 from qd_data.caller_records import assert_no_caller_records, jsonl_lines  # noqa: E402
 from qd_data.licences import LicenceTier, classify  # noqa: E402
+from qd_data.lines import lf_lines  # noqa: E402
 from qd_data.loaders import parse_commitpackft  # noqa: E402
 
 #: A record with no recoverable hunk is dropped rather than written with `hunks: null`.
@@ -70,8 +71,8 @@ def changed_line_spans(old: str, new: str) -> list[tuple[int, int]]:
     Line numbers are 1-based inclusive at both ends, matching `LineSpan::new(2, 4)` in
     `pool.rs`'s own round-trip test.
     """
-    old_lines = old.splitlines()
-    new_lines = new.splitlines()
+    old_lines = lf_lines(old)
+    new_lines = lf_lines(new)
     spans: list[tuple[int, int]] = []
     for tag, _i1, _i2, j1, j2 in difflib.SequenceMatcher(
         a=old_lines, b=new_lines, autojunk=False
