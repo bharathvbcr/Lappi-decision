@@ -125,7 +125,7 @@ from .artifacts import (
     line_start_indices,
     padding_waste,
 )
-from .data_access import open_training_data
+from .data_access import assert_path_not_held_out, open_training_data
 from .tristate import NotRun, Ran, TriState, parse_tristate
 
 __all__ = [
@@ -2019,6 +2019,15 @@ class ShardReader:
         self.root = Path(root)
         self._config = config
         self._repo_root = Path(repo_root)
+
+        # Rule 3 per FILE, before any is opened. The directory check in
+        # ``assert_shard_trainable`` sees only where the set lives; a member symlinked into a
+        # held-out root or marker directory resolves elsewhere and was read unchecked. Every
+        # entry is checked (given and resolved form, dangling links included), not a fixed
+        # name list, so a file added to the format later is covered without a second edit.
+        assert_path_not_held_out(self.root, config=config, repo_root=self._repo_root)
+        for entry in sorted(self.root.iterdir()):
+            assert_path_not_held_out(entry, config=config, repo_root=self._repo_root)
 
         raw = json.loads((self.root / HEADER_NAME).read_text(encoding="utf-8"))
         # from_json recomputes shard_hash and refuses a header edited after it was written.

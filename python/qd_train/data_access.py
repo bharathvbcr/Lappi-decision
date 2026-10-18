@@ -42,6 +42,7 @@ caller cannot mistake it for an abstention or for an empty dataset.
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -98,30 +99,37 @@ def assert_path_not_held_out(path: Path, *, config: DataConfig, repo_root: Path)
     resolved = _resolve(path)
     root_abs = _resolve(repo_root)
 
+    # Both forms are checked: a symlink can hide a marker the given path spells out
+    # (``heldout/ -> clean/``), and the given path can hide the target resolution finds.
+    # abspath, not resolve: it normalises ``..`` lexically and follows no symlink.
+    given = Path(os.path.abspath(Path(path).expanduser()))  # noqa: PTH100
+
     for root in config.held_out_roots:
         root_path = Path(root)
         absolute_root = _resolve(root_path if root_path.is_absolute() else root_abs / root_path)
-        if resolved == absolute_root or _is_within(resolved, absolute_root):
-            raise HeldOutViolation(
-                expected=f"a path outside the held-out root {absolute_root}",
-                actual=str(resolved),
-                detail=(
-                    "CLAUDE.md rule 3: held-out data is never read by a training process. "
-                    "Removing this check is a refused change."
-                ),
-            )
+        for candidate in (resolved, given):
+            if candidate == absolute_root or _is_within(candidate, absolute_root):
+                raise HeldOutViolation(
+                    expected=f"a path outside the held-out root {absolute_root}",
+                    actual=str(candidate),
+                    detail=(
+                        "CLAUDE.md rule 3: held-out data is never read by a training process. "
+                        "Removing this check is a refused change."
+                    ),
+                )
 
     markers = {m.casefold() for m in config.held_out_path_markers}
-    for segment in resolved.parts:
-        if segment.casefold() in markers:
-            raise HeldOutViolation(
-                expected=f"no path segment in {sorted(markers)}",
-                actual=str(resolved),
-                detail=(
-                    f"path segment {segment!r} marks this as held-out data wherever it "
-                    "sits. CLAUDE.md rule 3."
-                ),
-            )
+    for candidate in (resolved, given, Path(path).expanduser()):
+        for segment in candidate.parts:
+            if segment.casefold() in markers:
+                raise HeldOutViolation(
+                    expected=f"no path segment in {sorted(markers)}",
+                    actual=str(candidate),
+                    detail=(
+                        f"path segment {segment!r} marks this as held-out data wherever it "
+                        "sits. CLAUDE.md rule 3."
+                    ),
+                )
 
 
 def assert_manifest_trainable(manifest: Manifest, *, config: DataConfig, path: Path) -> None:
