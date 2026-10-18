@@ -212,6 +212,12 @@ def test_the_rule_digest_is_independent_of_the_attached_a(env):  # noqa: F811 - 
     assert lora.lora_a_digest(m) != lora.lora_a_rule_digest(lora.adapted_in_features(m), seed=3)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="GAP-W2-2-LORA-A-DIGEST-DEPENDS-ON-MODULE-REGISTRATION-ORDER-2026-10-18: "
+    "named_modules() order pinned at campaign/lora-2b-preregistered.json:169; canonical order "
+    "(layer index, then LORA_TARGET_SUFFIXES) needs an owner-approved amendment",
+)
 def test_the_a_digest_does_not_depend_on_module_registration_order():
     """The pre-registration pins named_modules() order, so a same-architecture model registered in
     another order (an ojas-side enumeration) silently gets a different A and digest; the driver
