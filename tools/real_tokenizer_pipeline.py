@@ -2189,14 +2189,24 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
     # file-level near-duplicate check, M9) each composed row's file blocks. A text outside this
     # table is refused below, so a check that shingles a new kind of text fails loudly here
     # instead of running in Python outside the table.
+    # Word 5-gram shingles recur across near-duplicate texts (the files of composed rows, forks):
+    # measured on a subsample (W2-d, 2026-10-18, tracemalloc), the shingle frozensets were 5.96 of
+    # 7.5 live GiB (48.3M ``bytes`` objects for 82k distinct sets) and the signature tuples 0.4 GiB.
+    # One ``bytes`` object per distinct shingle, shared by every set that holds it, is the same
+    # value (set equality, hashing and ``exact_jaccard`` are by content), at a fraction of the size.
+    interned: dict[bytes, bytes] = {}
     for row in rows:
         for text in (row.dedupe_text, *composed_file_blocks(row.dedupe_text)):
             if text in shingled:
                 continue
             result = shingle(text, k=config.shingle_size)
+            result = dataclasses.replace(result, shingles=frozenset(
+                interned.setdefault(g, g) for g in result.shingles
+            ))
             shingled[text] = result
             if result.shingles:
                 index.setdefault(result.shingles, None)
+    del interned
     sets = list(index)
     reference = MinHasher(num_perm=config.num_perm, seed=config.seed)
     matrix = _prep_signature_matrix(Path(named), sets, reference)
