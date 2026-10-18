@@ -77,11 +77,14 @@ def test_a_shard_file_symlinked_into_heldout_is_refused(env, tmp_path, monkeypat
     shutil.move(str(tok), held / "tokens.u32")
     tok.symlink_to(held / "tokens.u32")
     # The reader is the one owner of the per-file rule-3 check (the driver's copy was removed in
-    # the same change that added it there), so the attack is run against the reader every caller
-    # goes through. test_shard_reader_heldout_symlink.py carries the full variant matrix.
+    # the same change that added it there). run() opens the reader after validate_inputs, so the
+    # attack goes through the whole driver: the refusal must come from the reader, and it must
+    # come before anything is written. test_shard_reader_heldout_symlink.py carries the matrix.
+    work = tmp_path / "w"
     with pytest.raises(HeldOutViolation):
-        drv.ShardReader(out / "shards" / "train", config=drv.DataConfig(), repo_root=out,
-                        expect_rev=rg.REV)
+        drv.run(_cfg(env, work, out=out))
+    written = [p for p in work.rglob("*")] if work.exists() else []
+    assert written == [], f"a refused run wrote {written}: no ledger row, loss log or checkpoint"
 
 
 # 3 output clobbering -------------------------------------------------------------------------
