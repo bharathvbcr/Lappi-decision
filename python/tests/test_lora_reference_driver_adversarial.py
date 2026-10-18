@@ -76,9 +76,12 @@ def test_a_shard_file_symlinked_into_heldout_is_refused(env, tmp_path, monkeypat
     tok = out / "shards" / "train" / "tokens.u32"
     shutil.move(str(tok), held / "tokens.u32")
     tok.symlink_to(held / "tokens.u32")
-    # The reader is another lane's; the driver's own held-out check resolves each shard file.
+    # The reader is the one owner of the per-file rule-3 check (the driver's copy was removed in
+    # the same change that added it there), so the attack is run against the reader every caller
+    # goes through. test_shard_reader_heldout_symlink.py carries the full variant matrix.
     with pytest.raises(HeldOutViolation):
-        drv.validate_inputs(_cfg(env, tmp_path / "w", out=out))
+        drv.ShardReader(out / "shards" / "train", config=drv.DataConfig(), repo_root=out,
+                        expect_rev=rg.REV)
 
 
 # 3 output clobbering -------------------------------------------------------------------------
