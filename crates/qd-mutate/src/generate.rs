@@ -122,6 +122,7 @@ struct FunctionCap {
     max: usize,
     kept: HashMap<(String, &'static str), usize>,
     before: HashMap<String, u64>,
+    before_class: HashMap<(String, &'static str), u64>,
     after: HashMap<String, u64>,
     dropped: std::collections::BTreeMap<String, u64>,
 }
@@ -132,6 +133,7 @@ impl FunctionCap {
             max,
             kept: HashMap::new(),
             before: HashMap::new(),
+            before_class: HashMap::new(),
             after: HashMap::new(),
             dropped: std::collections::BTreeMap::new(),
         }
@@ -141,6 +143,10 @@ impl FunctionCap {
     /// of its class, in which case the drop is counted here.
     fn admit(&mut self, key: &str, class: MutationClass) -> bool {
         *self.before.entry(key.to_string()).or_insert(0) += 1;
+        *self
+            .before_class
+            .entry((key.to_string(), class.as_str()))
+            .or_insert(0) += 1;
         let slot = self
             .kept
             .entry((key.to_string(), class.as_str()))
@@ -169,6 +175,13 @@ impl FunctionCap {
             rows_after: self.after.values().sum(),
             rows_per_key_before: histogram(&self.before),
             rows_per_key_after: histogram(&self.after),
+            rows_per_key_class_before: {
+                let mut out = std::collections::BTreeMap::new();
+                for n in self.before_class.values() {
+                    *out.entry(*n).or_insert(0u64) += 1;
+                }
+                out
+            },
             dropped_by_class: self.dropped,
         }
     }
@@ -941,6 +954,18 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             "rows the cap removed must be the rows it reports"
         );
         assert_eq!(report.keys_seen, 1, "one function, one key: {report:?}");
+        // The unit the cap binds on: rows per (key, class) before the cap, read off the uncapped
+        // run, with at least one pair holding more than K rows (else the cap bound nothing).
+        let mut per_pair: HashMap<(String, &str), u64> = HashMap::new();
+        for e in &uncapped.examples {
+            *per_pair.entry((e.cluster_key.clone(), e.class.as_str())).or_insert(0) += 1;
+        }
+        let mut expected = std::collections::BTreeMap::new();
+        for n in per_pair.values() {
+            *expected.entry(*n).or_insert(0u64) += 1;
+        }
+        assert_eq!(report.rows_per_key_class_before, expected);
+        assert!(expected.keys().any(|n| *n > 2), "{expected:?}");
         assert_eq!(report.rows_per_key_before.values().sum::<u64>(), report.keys_seen);
         assert_eq!(report.rows_per_key_after.values().sum::<u64>(), report.keys_seen);
         assert_eq!(capped.manifest.totals.examples as usize, capped.examples.len());

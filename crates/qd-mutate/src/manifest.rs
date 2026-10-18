@@ -207,6 +207,11 @@ pub struct FunctionCapReport {
     pub rows_after: u64,
     pub rows_per_key_before: BTreeMap<u64, u64>,
     pub rows_per_key_after: BTreeMap<u64, u64>,
+    /// Rows-per-(key, class) -> number of (key, class) pairs, before the cap: the unit the cap binds
+    /// on, so K can be read against it. `rows_per_key_before` alone hides a function whose rows
+    /// are spread over classes.
+    #[serde(default)]
+    pub rows_per_key_class_before: BTreeMap<u64, u64>,
     /// Rows the cap removed, by class.
     pub dropped_by_class: BTreeMap<String, u64>,
 }
