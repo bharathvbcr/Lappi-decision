@@ -72,6 +72,10 @@
 #   exit status stays the command's. A process that calls setsid leaves the group and the
 #   tree, and is not covered.
 #
+# - Arrival order. Waiters take numbered tickets in $MAC_HEAVY_LOCK.q and only the lowest live
+#   ticket that load allows may try the lock (rules and bounds at take_ticket below;
+#   $MAC_HEAVY_MAX_QUEUE, default 256 live tickets, is refused above with exit 75).
+#
 # It never breaks another holder's lock. A holder whose pid is gone is reported as STALE every
 # 5 minutes, and the lead clears it by hand. A hold taken by hand (for another session's run)
 # carries no pid and is never reported stale.
@@ -103,6 +107,8 @@ LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/build/mac-hea
 MAX_WAIT=${MAC_HEAVY_MAX_WAIT_S:-14400}
 MIN_FREE_GB=${MAC_HEAVY_MIN_FREE_GB:-15}
 POLL=${MAC_HEAVY_POLL_S:-20}
+QUEUE=$LOCK.q
+MAX_QUEUE=${MAC_HEAVY_MAX_QUEUE:-256}
 if [ -n "${MAC_HEAVY_MAX_RSS_MB+x}" ]; then
   echo "mac_heavy: MAC_HEAVY_MAX_RSS_MB is retired; the cap is now on phys_footprint, so use MAC_HEAVY_MAX_FOOTPRINT_MB (default 53248). Refusing rather than running uncapped" >&2
   exit 64
@@ -146,10 +152,10 @@ MAX_PROCS=${MAC_HEAVY_MAX_PROCS-2500}
 # lock loop then fell through and the job ran without the lock) and 0900 as 0 (a free-space floor
 # of nothing). Bounded too: a value too wide for bash's integer tests makes `[ -gt ]` error, and
 # an error read as "not over" is a guard that fails open.
-for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS"; do
+for v in "$MAX_WAIT" "$MIN_FREE_GB" "$POLL" "$MAX_FP_MB" "$RSS_POLL" "$MAX_LOAD" "$MAX_PROCS" "$MAX_QUEUE"; do
   case "$v" in
     0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-    *) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD and _MAX_PROCS must each be a canonical non-negative decimal integer of at most 9 digits (no leading zeros, no sign, no fraction); got '$v'. Refusing" >&2; exit 64 ;;
+    *) echo "mac_heavy: MAC_HEAVY_MAX_WAIT_S, _MIN_FREE_GB, _POLL_S, _MAX_FOOTPRINT_MB, _RSS_POLL_S, _MAX_LOAD, _MAX_PROCS and _MAX_QUEUE must each be a canonical non-negative decimal integer of at most 9 digits (no leading zeros, no sign, no fraction); got '$v'. Refusing" >&2; exit 64 ;;
   esac
 done
 if [ -n "${MAC_HEAVY_FOOTPRINT_CMD:-}" ] && [ "${MAC_HEAVY_TEST_HOOK:-}" != 1 ]; then
@@ -231,7 +237,78 @@ stop_job() {
   JOB=""
 }
 
-trap release EXIT
+# Arrival order. A bare mkdir lock polled by everyone is won by whoever polls first after a release,
+# and a job chain that re-enters at once polls first every time (2026-10-18: an ojas chain took it
+# three times running while earlier Lappi waiters sat; GAP-MAC-HEAVY-LOCK-IS-NOT-FIFO-A-JOB-CHAIN-
+# STARVES-WAITERS-2026-10-18). On arrival a waiter takes a ticket: a hard link (atomic, and never
+# visible without its pid) named by a zero-padded number one above the highest in $QUEUE
+# ($LOCK.q, so every caller of this script, ojas included, shares it). A waiter may try the mkdir
+# only when no LOWER live ticket is ready to. A ticket whose pid is dead is reaped by whoever sees
+# it. A ticket is dropped when its owner takes the lock or exits, so a chain's next job queues
+# behind everyone already waiting.
+# Load-blocked waiters: a waiter that load stops keeps its ticket and marks it "$ticket.busy"; a
+# lower ticket so marked does not hold up the waiters behind it. Otherwise one load-blocked job
+# would block everyone, which is what moving the load wait out of the lock fixed. The mark is the
+# waiter's last answer, so a waiter whose load just fell may be passed once, for up to one poll.
+# Bounded: at most $MAX_QUEUE live tickets (more is refused with 75), reaping is one pass over them,
+# and the wait budget below still applies.
+TICKET=""
+TICKET_TMP=""
+ticket_pid() { sed -n 's/^pid=//p' "$1" 2>/dev/null; }
+drop_ticket() {
+  [ -z "$TICKET" ] || rm -f "$TICKET" "$TICKET.busy"
+  [ -z "$TICKET_TMP" ] || rm -f "$TICKET_TMP"
+  TICKET=""
+}
+cleanup() { release; drop_ticket; }
+take_ticket() {
+  local t name p n count=0 last=0 tries=0
+  if ! mkdir -p "$QUEUE" 2>/dev/null; then
+    echo "mac_heavy: cannot create the queue directory $QUEUE; '$LABEL' did NOT run" >&2
+    exit 75
+  fi
+  for t in "$QUEUE"/[0-9]*; do
+    name=${t##*/}
+    case "$name" in *[!0-9]*|'') continue ;; esac
+    [ -e "$t" ] || continue
+    p=$(ticket_pid "$t")
+    if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then rm -f "$t" "$t.busy"; continue; fi
+    count=$((count + 1))
+    n=$((10#$name))
+    [ "$n" -le "$last" ] || last=$n
+  done
+  if [ "$count" -ge "$MAX_QUEUE" ]; then
+    echo "mac_heavy: the queue is full ($count live tickets in $QUEUE, max $MAX_QUEUE); '$LABEL' did NOT run" >&2
+    exit 75
+  fi
+  TICKET_TMP=$QUEUE/.tmp.$$
+  { echo "pid=$$"; echo "label=$LABEL"; echo "arrival=$(now)"; } > "$TICKET_TMP"
+  while [ "$tries" -lt 100 ]; do
+    last=$((last + 1))
+    name=$(printf '%010d' "$last")
+    if ln "$TICKET_TMP" "$QUEUE/$name" 2>/dev/null; then TICKET=$QUEUE/$name; rm -f "$TICKET_TMP"; return 0; fi
+    tries=$((tries + 1))
+  done
+  echo "mac_heavy: could not take a ticket in $QUEUE after $tries tries; '$LABEL' did NOT run" >&2
+  exit 75
+}
+# True when a lower live ticket that is not load-blocked is ahead of ours. Reaps dead ones on the way.
+ticket_ahead() {
+  local t name p
+  for t in "$QUEUE"/[0-9]*; do
+    name=${t##*/}
+    case "$name" in *[!0-9]*|'') continue ;; esac
+    [ "$t" \< "$TICKET" ] || return 1
+    [ -e "$t" ] || continue
+    p=$(ticket_pid "$t")
+    if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then rm -f "$t" "$t.busy"; continue; fi
+    [ ! -e "$t.busy" ] || continue
+    return 0
+  done
+  return 1
+}
+
+trap cleanup EXIT
 trap 'stop_job; exit 130' INT
 trap 'stop_job; exit 143' TERM
 
@@ -254,10 +331,14 @@ machine_busy() {
 waited=0
 last_note=-300
 busy_note=-300
+take_ticket
 while :; do
   blocker=""
   if machine_busy; then
+    : > "$TICKET.busy"
     blocker=busy
+  elif rm -f "$TICKET.busy"; ticket_ahead; then
+    blocker=lock
   elif mkdir "$LOCK" 2>/dev/null; then
     {
       echo "label=$LABEL"
@@ -267,6 +348,7 @@ while :; do
     } > "$LOCK/owner"
     machine_busy || break
     release
+    : > "$TICKET.busy"
     blocker=busy
   else
     blocker=lock
@@ -296,6 +378,7 @@ while :; do
   sleep "$POLL"
   waited=$((waited + 10#$POLL))
 done
+drop_ticket
 
 vol=/System/Volumes/Data
 [ -d "$vol" ] || vol=/
