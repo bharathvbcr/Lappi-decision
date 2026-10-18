@@ -13,6 +13,7 @@ import dataclasses
 import json
 from pathlib import Path
 
+import pytest
 from test_manifest import _snapshot
 
 from qd_data.manifest import Manifest, data_snapshot_hash
@@ -48,6 +49,28 @@ def test_the_shape_is_written_and_read_back(tmp_path: Path) -> None:
     on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert all(isinstance(e["slot_shape"], list) and e["slot_shape"] for e in on_disk["entries"])
     assert Manifest.read(path).entries == train.entries
+
+
+def test_editing_one_slot_shape_after_writing_is_refused_on_read(tmp_path: Path) -> None:
+    path = tmp_path / "train.json"
+    _train().write(path, allow_not_run=True)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    assert doc["slot_shape_digest"]["version"] == 1
+    doc["entries"][0]["slot_shape"] = ["choice:16"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(ValueError, match="slot_shape"):
+        Manifest.read(path)
+
+
+def test_the_digest_has_a_pinned_value() -> None:
+    """crates/qd-export/tests/train_manifest_shapes.rs pins the same vector for the Rust reader."""
+    train = _train()
+    e = dataclasses.replace(train.entries[0], row_id="r1", content_hash="0" * 64, slot_shape=("choice:5", "span"))
+    one = dataclasses.replace(train, entries=(e,))
+    assert one.slot_shape_digest() == {
+        "version": 1,
+        "sha256": "ac5cb778fa420b231bf726ea7bf8e99d7d8e8319c29090c075fa4bc2aa6bfa39",
+    }
 
 
 def test_recording_shapes_does_not_move_the_snapshot_hash() -> None:
