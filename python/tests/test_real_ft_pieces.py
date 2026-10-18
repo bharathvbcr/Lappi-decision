@@ -195,7 +195,8 @@ def test_the_no_mask_switch_with_replay_is_refused_at_argv_time(tmp_path):
     """Replay's KL term runs its own forward through `hidden()`, which keeps the mask, so the
     switch would cover only part of training while the recipe claimed all of it."""
     with pytest.raises(SystemExit, match="--replay-shards"):
-        rft.main(["--out", str(tmp_path), "--real-backbone", str(tmp_path),
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+                  "--real-backbone", str(tmp_path),
                   "--train-attention-mask", "none", "--replay-shards", str(tmp_path)])
 
 
@@ -222,13 +223,13 @@ def test_piece_flags_that_would_determine_nothing_are_refused_at_argv_time(
     tmp_path, flags, match
 ):
     with pytest.raises(SystemExit, match=match):
-        rft.main(["--out", str(tmp_path), *flags])
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800", *flags])
 
 
 def test_replay_needs_the_epoch_arm_and_a_positive_weight(tmp_path):
     attestation = tmp_path / "att.json"
     attestation.write_text("{}")
-    base = ["--out", str(tmp_path), "--replay-shards", str(tmp_path),
+    base = ["--out", str(tmp_path), "--wall-clock-cap-s", "1800", "--replay-shards", str(tmp_path),
             "--replay-attestation", str(attestation), "--replay-cache", str(tmp_path / "c.npz")]
     with pytest.raises(SystemExit, match="epoch arm only"):
         rft.main([*base, "--replay-weight", "0.1"])
@@ -242,7 +243,7 @@ def test_an_existing_verdicts_file_is_refused_before_anything_runs(tmp_path):
     existing = tmp_path / "v.jsonl"
     existing.write_text("")
     with pytest.raises(SystemExit, match="already exists"):
-        rft.main(["--out", str(tmp_path), "--epoch", "--score-val",
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800", "--epoch", "--score-val",
                   "--verdicts-out", str(existing)])
 
 
@@ -381,7 +382,8 @@ def _spy_main(tmp_path, monkeypatch, *extra: str) -> tuple[list[dict], object, o
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: None)
     with pytest.raises(_Stop) as got:
-        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", rev, *extra])
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+                  "--max-pairs", "7", "--rev", rev, *extra])
     return calls, got.value.args[0], sentinel_train
 
 

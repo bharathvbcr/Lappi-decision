@@ -366,7 +366,8 @@ def test_main_forwards_the_record_and_pairs_a_general_set_by_its_index(
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: facts.append(kw))
     with pytest.raises(_Stop):
-        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", rev,
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+                  "--max-pairs", "7", "--rev", rev,
                   "--general-record", str(record), "--general-max-rows", "50",
                   "--replay-partition"])
     assert [(c["general_record"], c["general_max_rows"], c["replay_partition"])
@@ -378,7 +379,7 @@ def test_main_forwards_the_record_and_pairs_a_general_set_by_its_index(
 @pytest.mark.parametrize("flags", [["--general-max-rows", "5"], ["--replay-partition"]])
 def test_main_refuses_general_options_without_a_record(tmp_path: Path, flags: list[str]) -> None:
     with pytest.raises(SystemExit, match="without --general-record read nothing"):
-        rft.main(["--out", str(tmp_path), "--rev", "a" * 40, *flags])
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800", "--rev", "a" * 40, *flags])
 
 
 @pytest.mark.usefixtures("qd_prep")
