@@ -165,12 +165,15 @@ def main() -> int:
     args = ap.parse_args()
     blocks = [seed_block(s) for s in SEEDS]
     base_names = sorted(
-        n for n, _ in Model().named_parameters() if not n.endswith(("lora_A.weight", "lora_B.weight"))
+        n
+        for n, _ in Model().named_parameters()
+        if not n.endswith(("lora_A.weight", "lora_B.weight"))
     )
     doc = {
         "what": "qd_train.lora.lora_param_groups and attach_lora over a tiny Qwen3.5-shaped tree",
         "command": "PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python "
-        "tools/qd_train_oracle_lora_plan.py --out crates/qd-train/tests/fixtures/lora-plan-oracle.json",
+        "tools/qd_train_oracle_lora_plan.py "
+        "--out crates/qd-train/tests/fixtures/lora-plan-oracle.json",
         "generated_with": {"python": sys.version.split()[0], "torch": torch.__version__},
         "constants": {
             "LORA_LR": float(lora.LORA_LR).hex(),
