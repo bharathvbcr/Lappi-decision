@@ -137,6 +137,8 @@ fn request(paths: Vec<PathBuf>, table: &Path, out: &Path) -> EnsembleRequest {
         members: paths,
         trained_width_source: SOURCE.to_string(),
         calibration: table.to_path_buf(),
+        // A passing fit for every entry of the table: the gate itself is `ensemble_gate.rs`.
+        calibration_report: common::gate_report(table.parent().expect("a table in a directory"), table),
         out: out.to_path_buf(),
     }
 }

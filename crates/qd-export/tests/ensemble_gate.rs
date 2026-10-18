@@ -52,6 +52,7 @@ fn train_manifest(path: &Path, rows: &[(&str, &[&str])]) -> PathBuf {
         &json!({
             "manifest_format_version": 1, "split": "train", "data_snapshot_hash": "ab".repeat(32),
             "n_rows": entries.len(), "held_out_families": ["code.language_id", "qa.answerability"],
+            "slot_shape_digest": common::slot_shape_digest(&entries),
             "entries": entries,
         }),
     )

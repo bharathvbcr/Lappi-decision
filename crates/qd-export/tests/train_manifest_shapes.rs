@@ -51,14 +51,17 @@ fn train_manifest(path: &Path, rows: &[(&str, Option<&[&str]>)]) -> PathBuf {
             e
         })
         .collect();
-    write_json(
-        path,
-        &json!({
-            "manifest_format_version": 1, "split": "train", "data_snapshot_hash": "ab".repeat(32),
-            "n_rows": entries.len(), "held_out_families": ["code.language_id", "qa.answerability"],
-            "entries": entries,
-        }),
-    )
+    let mut doc = json!({
+        "manifest_format_version": 1, "split": "train", "data_snapshot_hash": "ab".repeat(32),
+        "n_rows": entries.len(), "held_out_families": ["code.language_id", "qa.answerability"],
+        "entries": entries,
+    });
+    // The digest is over the shapes as written; an entry with none has nothing to bind, and the
+    // refusal that case expects comes before the digest is read.
+    if rows.iter().all(|(_, shape)| shape.is_some_and(|s| !s.is_empty())) {
+        doc["slot_shape_digest"] = common::slot_shape_digest(doc["entries"].as_array().unwrap());
+    }
+    write_json(path, &doc)
 }
 
 struct Case {

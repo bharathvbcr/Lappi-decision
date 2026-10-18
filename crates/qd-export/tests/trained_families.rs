@@ -28,6 +28,7 @@ fn entry(i: usize, split: &str, family: &str) -> Value {
         "source_id": "test/source",
         "host": "test",
         "family_id": family,
+        "slot_shape": ["choice:5"],
         "repo_key": format!("repo-{i}"),
         "identity_key": format!("id-{i}"),
         "licence_id": "MIT",
@@ -37,17 +38,15 @@ fn entry(i: usize, split: &str, family: &str) -> Value {
 
 /// A data manifest in `Manifest.to_json()`'s shape, one entry per `(split, family)`.
 fn manifest_json(split: &str, rows: &[(&str, &str)]) -> Value {
+    let entries: Vec<Value> = rows.iter().enumerate().map(|(i, (s, f))| entry(i, s, f)).collect();
     json!({
         "manifest_format_version": 1,
         "split": split,
         "data_snapshot_hash": SNAPSHOT_HASH,
         "n_rows": rows.len(),
         "held_out_families": HELD_OUT,
-        "entries": rows
-            .iter()
-            .enumerate()
-            .map(|(i, (s, f))| entry(i, s, f))
-            .collect::<Vec<_>>(),
+        "slot_shape_digest": common::slot_shape_digest(&entries),
+        "entries": entries,
     })
 }
 
@@ -80,22 +79,10 @@ fn run(fx: &common::Fixture, train_manifest: Option<&Path>) -> Output {
     cmd.arg("--calibration").arg(&table_path);
     if let Some(path) = train_manifest {
         cmd.arg("--train-manifest").arg(path);
-        // The gate needs every family the manifest holds declared and calibrated; what these
-        // tests exercise is the families, so it is given a passing fit for all of them.
-        let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= qd_export::export::MAX_TRAIN_MANIFEST_BYTES);
-        let doc: Value = if small {
-            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap_or(Value::Null)
-        } else {
-            Value::Null
-        };
-        let mut families: Vec<String> = doc["entries"]
-            .as_array()
-            .map(|es| es.iter().filter_map(|e| e["family_id"].as_str().map(str::to_string)).collect())
-            .unwrap_or_default();
-        families.sort();
-        families.dedup();
-        let (report, shapes) = common::gate_files(&fx.dir.0, &table_path, &families);
-        cmd.arg("--calibration-report").arg(report).arg("--trained-slot-shapes").arg(shapes);
+        // The gate needs every (family, shape) the manifest records calibrated; what these tests
+        // exercise is the families, so it is given a passing fit for every entry of the table
+        // (the entries here all record choice:5, which the reference table holds).
+        cmd.arg("--calibration-report").arg(common::gate_report(&fx.dir.0, &table_path));
     }
     cmd.output().expect("the binary runs")
 }

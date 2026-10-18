@@ -71,8 +71,46 @@ fn case(with_span: bool) -> Case {
     Case { fx, table: path, table_sha }
 }
 
-fn shapes(c: &Case, doc: &Value) -> PathBuf {
-    write_json(&c.fx.dir.0.join("shapes.json"), doc)
+/// The train manifest the export reads: one entry per (family, shape) of `doc`
+/// (`{family: [[key, ...], ...]}`), or entries recording no shape at all when `doc` is `None`.
+fn train_manifest(c: &Case, doc: Option<&Value>) -> PathBuf {
+    let mut entries: Vec<Value> = Vec::new();
+    let mut push = |family: &str, shape: Option<&Value>| {
+        let i = entries.len();
+        let mut e = json!({
+            "row_id": format!("train-row-{i}"), "content_hash": format!("{i:064x}"), "split": "train",
+            "source_id": "test/source", "host": "test", "family_id": family,
+            "repo_key": format!("repo-{i}"), "identity_key": format!("identity-{i}"),
+            "licence_id": "MIT", "obligations": [],
+        });
+        if let Some(shape) = shape {
+            e["slot_shape"] = shape.clone();
+        }
+        entries.push(e);
+    };
+    match doc {
+        Some(doc) => {
+            for (family, shapes) in doc.as_object().unwrap() {
+                for shape in shapes.as_array().unwrap() {
+                    push(family, Some(shape));
+                }
+            }
+        }
+        None => {
+            for family in common::TRAINED_FAMILIES {
+                push(family, None);
+            }
+        }
+    }
+    let mut m = json!({
+        "manifest_format_version": 1, "split": "train", "data_snapshot_hash": "ab".repeat(32),
+        "n_rows": entries.len(), "held_out_families": ["code.language_id", "qa.answerability"],
+        "entries": entries,
+    });
+    if doc.is_some() {
+        m["slot_shape_digest"] = common::slot_shape_digest(m["entries"].as_array().unwrap());
+    }
+    write_json(&c.fx.dir.0.join("train-shapes.json"), &m)
 }
 
 fn default_shapes() -> Value {
@@ -85,21 +123,14 @@ fn run(c: &Case, report: Option<&Value>, shapes: Option<&Value>, extra: &[&str])
         .arg("--base-snapshot").arg(&c.fx.snapshot)
         .arg("--tokenizer-sha256").arg(common::tokenizer_sha256(&c.fx.snapshot))
         .arg("--expect-vocab-size").arg(common::VOCAB.to_string())
-        .arg("--train-manifest").arg(&c.fx.train_manifest)
+        .arg("--train-manifest").arg(train_manifest(c, shapes))
         .arg("--calibration").arg(&c.table)
         .arg("--out").arg(&c.fx.out);
     if let Some(r) = report {
         cmd.arg("--calibration-report").arg(write_json(&c.fx.dir.0.join("report.json"), r));
     }
-    if let Some(s) = shapes {
-        cmd.arg("--trained-slot-shapes").arg(shapes_path(c, s));
-    }
     cmd.args(extra);
     cmd.output().expect("the binary runs")
-}
-
-fn shapes_path(c: &Case, doc: &Value) -> PathBuf {
-    shapes(c, doc)
 }
 
 fn refused(c: &Case, out: &Output, needle: &str) {
@@ -123,10 +154,10 @@ fn a_table_with_no_fit_report_is_refused() {
 }
 
 #[test]
-fn a_table_with_no_declared_slot_shapes_is_refused() {
+fn a_train_manifest_that_records_no_slot_shapes_is_refused() {
     let c = case(true);
     let out = run(&c, Some(&all_passing(&c)), None, &[]);
-    refused(&c, &out, "--trained-slot-shapes");
+    refused(&c, &out, "slot_shape");
 }
 
 #[test]
@@ -178,11 +209,14 @@ fn a_shape_the_table_has_no_entry_for_is_refused() {
 }
 
 #[test]
-fn a_trained_family_with_no_declared_shapes_is_refused() {
+fn a_family_the_train_manifest_has_no_rows_for_is_not_admitted_and_so_not_gated() {
     let c = case(true);
     let shapes = json!({"devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&all_passing(&c)), Some(&shapes), &[]);
-    refused(&c, &out, "code.defect_class");
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    assert_eq!(m["trained_families"], json!(["devcouncil.verdict"]));
+    assert_eq!(m["trained_slot_shapes"], shapes);
 }
 
 #[test]

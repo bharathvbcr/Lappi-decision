@@ -322,7 +322,6 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
         expect_vocab_size: 248_320,
         calibration: None,
         calibration_report: None,
-        trained_slot_shapes: None,
         exclude_families: Vec::new(),
         uncalibrated_reason: Some("unserved round-trip fixture".to_string()),
         train_manifest: common::write_train_manifest(
