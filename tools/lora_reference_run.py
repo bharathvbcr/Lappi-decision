@@ -103,8 +103,6 @@ DEVICE_DTYPES: Final[tuple[tuple[str, str], ...]] = (("mps", "bf16"), ("cpu", "f
 ANSWER_LETTERS: Final[tuple[str, ...]] = (*OPTION_LETTERS, NOUL_LETTER)
 #: The attention kernel, named as real_ft_run names it.
 ATTN_IMPLEMENTATION: Final[str] = "sdpa"
-#: Entries of the shard directory the held-out check resolves one by one.
-MAX_SHARD_DIR_ENTRIES: Final[int] = 4096
 #: The environment variable naming the ``qd-prereg-bind`` binary: an absolute path, never searched
 #: for (the convention ``QD_PREP_BIN`` sets). ``LoraRunConfig.prereg_bind_bin`` beats it.
 PREREG_BIND_ENV: Final[str] = "QD_PREREG_BIND_BIN"
@@ -206,13 +204,8 @@ def check_not_held_out(cfg: LoraRunConfig, config: DataConfig) -> None:
         ("--checkpoint", cfg.checkpoint),
     ):
         assert_path_not_held_out(Path(path), config=config, repo_root=REPO)
-    # A shard file symlinked into held-out data is invisible to the directory check (the reader
-    # opens files by plain open); resolve each one. The set is a handful of files, and the listing
-    # is bounded all the same.
-    shard_dir = cfg.out / "shards" / "train"
-    if shard_dir.is_dir():
-        for entry in itertools.islice(sorted(shard_dir.iterdir()), MAX_SHARD_DIR_ENTRIES):
-            assert_path_not_held_out(entry, config=config, repo_root=REPO)
+    # Each shard FILE is checked by ShardReader itself (qd_train.shards), the one owner of that
+    # rule; this driver checks only the paths it is given.
 
 
 def answer_ids(reader: ShardReader, tokenizer_json: Path) -> list[int]:
