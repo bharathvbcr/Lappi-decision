@@ -4673,7 +4673,7 @@ def ft_split_report(
         # The pipeline's admission for a pool build (its opt-in sources, with the human's call);
         # without it build_mixture refuses an opt-in source's rows at load.
         config = pool_data_config(config)
-        pool = load_decision_pool(decisions_pool)
+        pool = load_decision_pool(decisions_pool, config=config)
         clash = sorted(set(pool.raw) & set(raw))
         if clash:
             raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
