@@ -595,7 +595,7 @@ impl Lcg {
 
 #[test]
 fn random_shapes_match_a_direct_f64_reference() {
-    let mut rng = Lcg(0x5EED_D17);
+    let mut rng = Lcg(0x05EE_DD17);
     for trial in 0..200 {
         let hidden = 1 + (rng.next() % 40) as usize;
         let n = 1 + (rng.next() % 20) as usize;

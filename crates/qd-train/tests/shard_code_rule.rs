@@ -172,7 +172,7 @@ fn a_stale_v2_set_is_refused_and_the_refusal_names_the_module() {
     let qd = mini_qd_data("v2-stale");
     let shards = set_with_fingerprint("v2-stale-set", 2, &fp_of(PY_V2));
     std::fs::write(qd.join("b.py"), b"b = 'edited'\n").unwrap();
-    let err = open(&shards, &qd).err().expect("a stale v2 set is refused");
+    let err = open(&shards, &qd).expect_err("a stale v2 set is refused");
     assert!(err.to_string().contains("changed: b.py"), "{err}");
     assert!(!err.to_string().contains("c.py"), "{err}");
 }
@@ -183,10 +183,10 @@ fn a_v1_set_still_uses_rule_1_every_module() {
     let shards = set_with_fingerprint("v1-set", 1, &fp_of(PY_V1));
     open(&shards, &qd).unwrap_or_else(|e| panic!("a current v1 set is refused: {e}"));
     std::fs::write(qd.join("c.py"), b"c = 'edited'\n").unwrap();
-    let err = open(&shards, &qd).err().expect("rule 1 sees the unlisted module");
+    let err = open(&shards, &qd).expect_err("rule 1 sees the unlisted module");
     assert!(err.to_string().contains("changed: c.py"), "{err}");
     std::fs::write(qd.join("c.py"), C_PY).unwrap();
     std::fs::write(qd.join("d.py"), b"d = 4\n").unwrap();
-    let err = open(&shards, &qd).err().expect("rule 1 sees a new module");
+    let err = open(&shards, &qd).expect_err("rule 1 sees a new module");
     assert!(err.to_string().contains("added since: d.py"), "{err}");
 }

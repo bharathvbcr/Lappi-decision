@@ -670,10 +670,10 @@ pub fn metrics(
         if v.get("kind").and_then(Value::as_str) != Some("choice") {
             continue;
         }
-        if let Some(want) = eval_row_id {
-            if v.get("eval_row_id").and_then(Value::as_str) != Some(want) {
-                continue;
-            }
+        if let Some(want) = eval_row_id
+            && v.get("eval_row_id").and_then(Value::as_str) != Some(want)
+        {
+            continue;
         }
         let family = v.get("family_id").and_then(Value::as_str);
         let correct = v.get("correct").and_then(Value::as_bool);

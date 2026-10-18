@@ -247,20 +247,20 @@ fn strip_non_prose(line: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         // [V: ...]
-        if line[i..].starts_with("[V:") {
-            if let Some(end) = line[i..].find(']') {
-                out.push(' ');
-                i += end + 1;
-                continue;
-            }
+        if line[i..].starts_with("[V:")
+            && let Some(end) = line[i..].find(']')
+        {
+            out.push(' ');
+            i += end + 1;
+            continue;
         }
         // ](target)
-        if line[i..].starts_with("](") {
-            if let Some(end) = line[i..].find(')') {
-                out.push_str("] ");
-                i += end + 1;
-                continue;
-            }
+        if line[i..].starts_with("](")
+            && let Some(end) = line[i..].find(')')
+        {
+            out.push_str("] ");
+            i += end + 1;
+            continue;
         }
         // GAP-... ids
         if line[i..].starts_with("GAP-") {

@@ -26,10 +26,8 @@ use std::process::Command;
 
 use serde_json::Value;
 
-#[path = "tristate.rs"]
-pub mod tristate;
 
-use tristate::{aggregate, TriState};
+use crate::tristate::{TriState, aggregate};
 
 /// Directories whose files a registration cites as decision records.
 const CITED_ROOTS: [&str; 5] = ["AUDIT/", "HANDOFF/", "campaign/", "docs/", "ledger/"];

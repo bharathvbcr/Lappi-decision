@@ -194,16 +194,16 @@ impl D17 {
                 .map_err(|e| ck(&e))?;
             match info.dtype {
                 Dtype::F32 => rows.extend(
-                    raw.chunks_exact(4)
-                        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+                    raw.as_chunks::<4>().0.iter()
+                        .map(|b| f32::from_le_bytes(*b)),
                 ),
                 Dtype::Bf16 => rows.extend(
-                    raw.chunks_exact(2)
-                        .map(|b| bf16_bits_to_f32(u16::from_le_bytes([b[0], b[1]]))),
+                    raw.as_chunks::<2>().0.iter()
+                        .map(|b| bf16_bits_to_f32(u16::from_le_bytes(*b))),
                 ),
                 Dtype::F16 => rows.extend(
-                    raw.chunks_exact(2)
-                        .map(|b| f16_bits_to_f32(u16::from_le_bytes([b[0], b[1]]))),
+                    raw.as_chunks::<2>().0.iter()
+                        .map(|b| f16_bits_to_f32(u16::from_le_bytes(*b))),
                 ),
                 other => {
                     return Err(D17Error::Checkpoint(format!(
@@ -261,7 +261,7 @@ impl D17 {
     }
 
     fn positions_of(&self, hidden: &[f32]) -> Result<usize, D17Error> {
-        if hidden.is_empty() || hidden.len() % self.hidden != 0 {
+        if hidden.is_empty() || !hidden.len().is_multiple_of(self.hidden) {
             return Err(D17Error::Shape(format!(
                 "{} hidden values is not a non-empty multiple of the width {}",
                 hidden.len(),

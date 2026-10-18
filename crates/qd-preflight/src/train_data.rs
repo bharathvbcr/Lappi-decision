@@ -37,11 +37,8 @@ use qd_prep::pyunicode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-#[allow(dead_code)]
-#[path = "tristate.rs"]
-mod tristate;
 
-pub use tristate::{TriState, aggregate};
+pub use crate::tristate::{TriState, aggregate};
 
 /// The exit code of a verdict that found a benchmark target in the train set.
 pub const EXIT_FAILED: u8 = 1;
@@ -742,7 +739,7 @@ mod tests {
         let v = check(&inputs(set, write_targets(&dir)));
         assert!(!v.overall.is_pass());
         assert_eq!(v.exit_code(), EXIT_NOT_RUN, "{:?}", v.overall);
-        assert!(tier(&v, "ngram").state.did_run() == false);
+        assert!(!tier(&v, "ngram").state.did_run());
         assert!(v.coverage.unscanned > 0);
     }
 
