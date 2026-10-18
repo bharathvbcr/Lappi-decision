@@ -56,6 +56,43 @@ fn the_v64_fixture_passes_the_door_and_is_the_identity_over_the_snapshots_64_ids
     );
 }
 
+/// A v2 shard set (`code_fingerprint_version` 2, fingerprint over the live `python/qd_data`'s
+/// `SHARD_CONTENT_MODULES`) opens through the same door `run()` uses, which is `qd-train`'s
+/// reader: no `allow_stale_code`, and the live package carries unlisted modules the v64
+/// fixture's frozen copy never had. Before `qd-train` read the version it hashed every `*.py` and
+/// refused this set as "added since", so no v6 set could reach a LoRA lane.
+#[test]
+fn a_v2_shard_set_opens_through_the_door_run_uses() {
+    use qd_train::shards::{ShardHeader, shard_code_fingerprint};
+    let a = args(&scratch("v2-door"), 1);
+    let live_qd_data = repo().join("python").join("qd_data");
+    let shards = scratch("v2-door-set").join("train");
+    std::fs::create_dir_all(&shards).unwrap();
+    for entry in std::fs::read_dir(&a.shards).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), shards.join(entry.file_name())).unwrap();
+    }
+    let path = shards.join("header.json");
+    let mut raw: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut header = ShardHeader::from_json(&raw).expect("the v64 fixture header");
+    let fingerprint = shard_code_fingerprint(&live_qd_data).expect("the live qd_data fingerprint");
+    header.code_fingerprint = fingerprint.clone();
+    header.code_fingerprint_version = 2;
+    raw["code_fingerprint"] = serde_json::to_value(&fingerprint).unwrap();
+    raw["code_fingerprint_version"] = serde_json::json!(2);
+    raw["shard_hash"] = serde_json::json!(header.shard_hash().unwrap());
+    std::fs::write(&path, serde_json::to_vec_pretty(&raw).unwrap()).unwrap();
+
+    let mut opts = ShardOpen::new(DataConfig::default(), a.data_root.clone(), live_qd_data);
+    opts.expect_rev = a.expect_rev.clone();
+    opts.files = Arc::new(OsFiles);
+    let reader = ShardReader::open(&shards, &a.manifest, &opts)
+        .unwrap_or_else(|e| panic!("a v2 set is refused at the door: {e}"));
+    assert!(reader.check("shard_code_current").unwrap().is_pass());
+    assert_eq!(reader.header().code_fingerprint_version, 2);
+}
+
 /// A checkpoint root as `run()` leaves one: `<root>/recipe.json` beside `<root>/ckpt-<step>/`.
 fn checkpoint_root(
     tag: &str,
