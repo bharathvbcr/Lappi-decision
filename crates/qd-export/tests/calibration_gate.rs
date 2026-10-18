@@ -71,8 +71,46 @@ fn case(with_span: bool) -> Case {
     Case { fx, table: path, table_sha }
 }
 
-fn shapes(c: &Case, doc: &Value) -> PathBuf {
-    write_json(&c.fx.dir.0.join("shapes.json"), doc)
+/// The train manifest the export reads: one entry per (family, shape) of `doc`
+/// (`{family: [[key, ...], ...]}`), or entries recording no shape at all when `doc` is `None`.
+fn train_manifest(c: &Case, doc: Option<&Value>) -> PathBuf {
+    let mut entries: Vec<Value> = Vec::new();
+    let mut push = |family: &str, shape: Option<&Value>| {
+        let i = entries.len();
+        let mut e = json!({
+            "row_id": format!("train-row-{i}"), "content_hash": format!("{i:064x}"), "split": "train",
+            "source_id": "test/source", "host": "test", "family_id": family,
+            "repo_key": format!("repo-{i}"), "identity_key": format!("identity-{i}"),
+            "licence_id": "MIT", "obligations": [],
+        });
+        if let Some(shape) = shape {
+            e["slot_shape"] = shape.clone();
+        }
+        entries.push(e);
+    };
+    match doc {
+        Some(doc) => {
+            for (family, shapes) in doc.as_object().unwrap() {
+                for shape in shapes.as_array().unwrap() {
+                    push(family, Some(shape));
+                }
+            }
+        }
+        None => {
+            for family in common::TRAINED_FAMILIES {
+                push(family, None);
+            }
+        }
+    }
+    let mut m = json!({
+        "manifest_format_version": 1, "split": "train", "data_snapshot_hash": "ab".repeat(32),
+        "n_rows": entries.len(), "held_out_families": ["code.language_id", "qa.answerability"],
+        "entries": entries,
+    });
+    if doc.is_some() {
+        m["slot_shape_digest"] = common::slot_shape_digest(m["entries"].as_array().unwrap());
+    }
+    write_json(&c.fx.dir.0.join("train-shapes.json"), &m)
 }
 
 fn default_shapes() -> Value {
@@ -85,21 +123,14 @@ fn run(c: &Case, report: Option<&Value>, shapes: Option<&Value>, extra: &[&str])
         .arg("--base-snapshot").arg(&c.fx.snapshot)
         .arg("--tokenizer-sha256").arg(common::tokenizer_sha256(&c.fx.snapshot))
         .arg("--expect-vocab-size").arg(common::VOCAB.to_string())
-        .arg("--train-manifest").arg(&c.fx.train_manifest)
+        .arg("--train-manifest").arg(train_manifest(c, shapes))
         .arg("--calibration").arg(&c.table)
         .arg("--out").arg(&c.fx.out);
     if let Some(r) = report {
         cmd.arg("--calibration-report").arg(write_json(&c.fx.dir.0.join("report.json"), r));
     }
-    if let Some(s) = shapes {
-        cmd.arg("--trained-slot-shapes").arg(shapes_path(c, s));
-    }
     cmd.args(extra);
     cmd.output().expect("the binary runs")
-}
-
-fn shapes_path(c: &Case, doc: &Value) -> PathBuf {
-    shapes(c, doc)
 }
 
 fn refused(c: &Case, out: &Output, needle: &str) {
@@ -123,10 +154,10 @@ fn a_table_with_no_fit_report_is_refused() {
 }
 
 #[test]
-fn a_table_with_no_declared_slot_shapes_is_refused() {
+fn a_train_manifest_that_records_no_slot_shapes_is_refused() {
     let c = case(true);
     let out = run(&c, Some(&all_passing(&c)), None, &[]);
-    refused(&c, &out, "--trained-slot-shapes");
+    refused(&c, &out, "slot_shape");
 }
 
 #[test]
@@ -157,8 +188,8 @@ fn a_family_whose_trained_span_slot_has_no_entry_is_refused() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("span"));
 }
 
-/// What qd-calib-fit writes for a fitted span entry today (`summarise_spans`): no ECE. A check the
-/// fit did not record is not one that passed.
+/// What qd-calib-fit wrote for a fitted span entry before `summarise_spans` recorded `ece_after`:
+/// no ECE. A check the fit did not record is not one that passed.
 #[test]
 fn a_fitted_span_entry_with_no_recorded_check_is_refused() {
     let c = case(true);
@@ -178,11 +209,14 @@ fn a_shape_the_table_has_no_entry_for_is_refused() {
 }
 
 #[test]
-fn a_trained_family_with_no_declared_shapes_is_refused() {
+fn a_family_the_train_manifest_has_no_rows_for_is_not_admitted_and_so_not_gated() {
     let c = case(true);
     let shapes = json!({"devcouncil.verdict": [["choice:5"]]});
     let out = run(&c, Some(&all_passing(&c)), Some(&shapes), &[]);
-    refused(&c, &out, "code.defect_class");
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    assert_eq!(m["trained_families"], json!(["devcouncil.verdict"]));
+    assert_eq!(m["trained_slot_shapes"], shapes);
 }
 
 #[test]
@@ -258,4 +292,59 @@ fn a_release_without_a_table_needs_a_recorded_reason() {
     let m: Value = serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
     assert_eq!(m["calibration"], Value::Null);
     assert_eq!(m["calibration_absent_reason"], json!("trial export for a tower round trip; not served"));
+}
+
+/// The `span` section of a report as `qd-calib-fit` writes it: fitted by `fit_span_entry` over
+/// `rows`, scored in sample through the library's `summarise_spans`, not typed by hand. `groups`
+/// is `(confidence, hits per 20)`, `per` rows each: a pointer puts `confidence` on its winner and
+/// hits exactly `hits / 20` of the time by a fixed pattern.
+fn fitted_span_section(groups: &[(f64, usize)], per: usize) -> Value {
+    use qd_runtime::calibration_fit::{
+        DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION, SpanRows, fit_span_entry, score_span_rows,
+        summarise_spans,
+    };
+    const W: usize = 6;
+    let mut rows = SpanRows::new();
+    for (g, (confidence, hits)) in groups.iter().enumerate() {
+        let winner_logit = (confidence * (W - 1) as f64 / (1.0 - confidence)).ln() as f32;
+        for j in 0..per {
+            let gs = (j + g) % 5;
+            let ge = gs + (j / 5) % (5 - gs);
+            let pointer = |gold: usize, hit: bool| {
+                let winner = if hit { gold } else { (gold + 1 + j % (W - 1)) % W };
+                let mut logits = vec![0.0f32; W];
+                logits[winner] = winner_logit;
+                logits
+            };
+            rows.push(&pointer(gs, j % 20 < *hits), &pointer(ge, (j * 7 + 3) % 20 < *hits), gs, ge)
+                .unwrap();
+        }
+    }
+    let entry = fit_span_entry(&rows, DEFAULT_ALPHA, DEFAULT_TARGET_PRECISION).unwrap().entry();
+    let scored: Vec<_> =
+        score_span_rows(&rows, &entry).unwrap().into_iter().map(|s| Some((s, entry))).collect();
+    json!({"fitted": true, "rows": rows.len(), "scored": summarise_spans(&scored, "in_sample").unwrap()})
+}
+
+/// A well-calibrated synthetic span fit is admitted, a miscalibrated one is refused. Before
+/// `summarise_spans` recorded `/span/scored/ece_after`, the gate refused both: it found no check.
+#[test]
+fn a_span_fit_is_admitted_on_its_recorded_check_and_refused_when_miscalibrated() {
+    let c = case(true);
+    let mut r = all_passing(&c);
+    r["span"] = fitted_span_section(&[(0.55, 11), (0.7, 14), (0.85, 17), (0.95, 19)], 100);
+    assert_eq!(r["span"]["scored"]["ece_after"]["state"], "ran");
+    let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    let m: Value =
+        serde_json::from_slice(&std::fs::read(c.fx.out.join("release_manifest.json")).unwrap()).unwrap();
+    assert!(m["calibration"]["gate"]["ece_after_by_shape"]["span"].as_f64().unwrap() <= ECE_THRESHOLD);
+
+    let c = case(true);
+    let mut r = all_passing(&c);
+    r["span"] = fitted_span_section(&[(0.5, 18), (0.9, 10)], 200);
+    let out = run(&c, Some(&r), Some(&default_shapes()), &[]);
+    refused(&c, &out, "code.defect_class/span");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("passed=false"));
 }

@@ -16,6 +16,7 @@
 //! teach the pointer head to point one line off on 40% of the training mixture, so agreement is
 //! checked on every example, never sampled.
 
+pub mod cluster;
 pub mod compose;
 pub mod diffspan;
 pub mod edit;

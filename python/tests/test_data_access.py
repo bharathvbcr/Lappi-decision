@@ -84,6 +84,20 @@ def test_a_training_manifest_opens_and_reports_which_checks_cleared_it(
         assert isinstance(check, Ran) and check.passed, name
 
 
+def test_the_handle_carries_the_sha256_of_the_manifest_file_bytes(
+    snapshot: tuple[Path, DataConfig, dict[str, Path]],
+) -> None:
+    """``train_manifest_sha256`` on a ledger row is this: the file's bytes, which
+    ``data_snapshot_hash`` (a re-derived content hash) is not."""
+    import hashlib
+
+    root, config, paths = snapshot
+    handle = open_training_data(paths["train"], config=config, repo_root=root)
+    assert handle.manifest_file_sha256 == hashlib.sha256(paths["train"].read_bytes()).hexdigest()
+    assert handle.manifest_file_sha256 != handle.data_snapshot_hash
+    assert handle.to_json()["manifest_file_sha256"] == handle.manifest_file_sha256
+
+
 def test_no_held_out_family_identifier_appears_in_a_training_shard(
     snapshot: tuple[Path, DataConfig, dict[str, Path]],
 ) -> None:

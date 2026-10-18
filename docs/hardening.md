@@ -143,3 +143,35 @@ Covered in full by the plan's parity suite. The load-bearing ones:
 
 Note the portability limit already established on this machine: bit-identical replay is macOS-only;
 `exp`/`ln`/`tanh`/`powf` differ from glibc. Determinism claims are per-platform.
+
+## 8. Preflight entry points
+
+Two targets run every guard a launch needs, each as a subshell with its true 0/1/3 status, and print a
+summary and a `RESULT:` line (the human's ruling of 2026-10-17, plan step 1,
+`AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md`). **FAILED outranks NotRun, and NotRun is never a
+pass:** one failed check fails the target (recipe exit 1); otherwise one NotRun check makes it NotRun
+(recipe exit 3, "this is not a pass"). GNU make shows both as exit 2, so read the `RESULT:` line. A check
+whose required argument is missing is NotRun and names the argument; none of the arguments has a default.
+
+| Target | Checks | Arguments |
+| --- | --- | --- |
+| `make preflight-train` | `gates`, `qd-base-fresh`, `qd-train-data`, `qd-prereg-bind` | `TRAIN_SHARDS`, `BENCHMARK_TARGETS="NAME=FILE ..."`, `PREREG`, `SHARD_DIR`; optional `TRAIN_EXAMPLES`, `BASE_INTO` (default `main`) |
+| `make preflight-release` | `gates`, `qd-base-fresh`, `qd-release-check check`, `qd-cite` (HANDOFF/ and AUDIT/), `gpu-pins` | `RELEASE_DIR`, `REPLAY_RESULTS`, `MIN_ANSWERED`; optional `BASE_INTO` |
+
+- **Orphaned `started` rows** are not a separate check: `gates` runs `qd_train.ledger verify`, which fails
+  a started row whose process is gone and NotRuns one it cannot check (`reconcile` records them).
+- **`qd-base-fresh --repo PATH [--into main]`** fails (exit 1) when the target branch has commits HEAD
+  lacks, `git merge-base --is-ancestor <into> HEAD` being false, and prints how many. Git unable to answer
+  (not a repository, the branch does not resolve, a hang) is NotRun (3). It exists because three lanes were
+  built on a base 221 commits stale (GAP-AGENT-WORKTREE-ISOLATION-CUTS-FROM-STALE-ORIGIN-MAIN-2026-10-17).
+- **`make pin`** (in `gates`) now also fails when the ojas checkout has modified tracked files, because HEAD
+  then does not pin what builds (the files are named; untracked files do not count), and when
+  `upstream.lock.json`'s ojas commit has no `AUDIT/ojas-pin-<sha7>-<date>/delta-report.md`. The pins that
+  predate delta reports are a closed list in `crates/qd-preflight/src/pin.rs`
+  (`DELTA_REPORT_ALLOWANCE`: bc498c4 from commit 7362473, 132b46e from commit 21fb7ad). `qd-train-metal`'s
+  own refusal still compares HEAD only.
+- **`make gpu-pins`** runs the `#[ignore]`d GPU digest pin `gpu_prefix_state_digest_v1_is_pinned`
+  (`crates/qd-metal/tests/gpu.rs`) and is in `preflight-release`, not in `gates`
+  (GAP-MAIN-UNCOMMITTED-BATCHED-DECODE-FAILS-ITS-DIGEST-PIN-2026-10-06). It is NotRun unless `GPU_WINDOW=1`
+  says an agreed GPU window is open, this is Apple-silicon macOS with Metal, and the Qwen3.5-2B-Base
+  snapshot is present. A run that does not report `1 passed` is FAILED. Run it under `tools/mac_heavy.sh`.

@@ -45,6 +45,7 @@ fn release(dir: &Path, shapes: Option<Value>, weight: &str) {
         "format": "qd-release.v2",
         "trained_families": ["code.defect_class", "fam.b"],
         "excluded_families": [],
+        "train_manifest": {"ledger_binding": {"verified": true, "train_manifest_sha256": "ab".repeat(32)}},
         "expected_identity": {"weight_hash": weight, "calibration_hash": CALIB},
     });
     if let Some(s) = shapes {

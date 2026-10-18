@@ -29,6 +29,7 @@ use qd_runtime::release::{
     Tower, describe_trained_families,
 };
 
+use crate::calibration_gate::{self, FamilyShapes, GateRecord, parse_family_shapes};
 use crate::export::{
     Staging, is_hex64, len64, read_calibration, read_small, refuse, write_verified,
 };
@@ -49,6 +50,11 @@ pub struct EnsembleRequest {
     pub trained_width_source: String,
     /// The ensemble's calibration table (`qd_runtime` `CalibrationTable` JSON).
     pub calibration: PathBuf,
+    /// The fit's own report for that table (`qd-calib-fit`'s `report.json`). The table goes
+    /// through the same calibration gate a single release's does: the report is bound to the
+    /// table by sha256 and every (family, shape) the members record as trained has an entry whose
+    /// recorded check ran and passed.
+    pub calibration_report: PathBuf,
     /// The ensemble directory; must not exist.
     pub out: PathBuf,
 }
@@ -72,6 +78,9 @@ struct Member {
     source: PathBuf,
     tower: Tower,
     files: BTreeMap<String, String>,
+    /// The member's recorded `trained_slot_shapes`: what its train manifest said each admitted
+    /// family trained on. The ensemble's table is gated against these.
+    shapes: FamilyShapes,
 }
 
 fn plain_file_name(name: &str) -> bool {
@@ -126,10 +135,19 @@ fn read_member(i: usize, dir: &Path) -> Result<Member> {
             })?;
         files.insert(name.clone(), sha.to_ascii_lowercase());
     }
+    let shapes = doc.get("trained_slot_shapes").ok_or_else(|| {
+        ensemble_refusal(format!(
+            "member {i} ({}) records no trained_slot_shapes, so the ensemble's table cannot be \
+             gated per (family, shape); re-export the member with the current qd-export",
+            manifest_path.display()
+        ))
+    })?;
+    let shapes = parse_family_shapes(shapes, &manifest_path.display().to_string(), RefusalKind::Ensemble)?;
     Ok(Member {
         source: dir.to_path_buf(),
         tower,
         files,
+        shapes,
     })
 }
 
@@ -201,6 +219,13 @@ fn check_members(members: &[Member], widths: &[u64]) -> Result<()> {
                 describe_trained_families(first.trained_families())
             )));
         }
+        if member.shapes != members[0].shapes {
+            return Err(ensemble_refusal(format!(
+                "member {i} has trained_slot_shapes {:?}, member 0 has {:?}; towers trained on \
+                 different request shapes are not one ensemble",
+                member.shapes, members[0].shapes
+            )));
+        }
         if let Some(j) = members[..i]
             .iter()
             .position(|other| other.tower.weight_hash() == tower.weight_hash())
@@ -218,6 +243,7 @@ fn write_ensemble(
     req: &EnsembleRequest,
     members: &[Member],
     calibration: &(Vec<u8>, qd_runtime::calibration::CalibrationTable),
+    gate: &GateRecord,
     dir: &Path,
 ) -> Result<EnsembleSummary> {
     let mut entries = Vec::with_capacity(members.len());
@@ -269,7 +295,9 @@ fn write_ensemble(
             "file_sha256": table_sha,
             "name": table.name,
             "table_hash": table_hash,
+            "gate": gate.block,
         },
+        "trained_slot_shapes": members[0].shapes,
         "expected_identity": {
             "weight_hash": weight_hash,
             "member_weight_hashes": member_hashes,
@@ -340,5 +368,11 @@ pub fn export_ensemble(req: &EnsembleRequest) -> Result<EnsembleSummary> {
         .collect::<Result<Vec<_>>>()?;
     check_members(&members, &req.trained_widths)?;
     let calibration = read_calibration(&req.calibration)?;
-    staging.publish(|dir| write_ensemble(req, &members, &calibration, dir))
+    let admitted: Vec<String> = members[0]
+        .tower
+        .trained_families()
+        .map(<[String]>::to_vec)
+        .ok_or_else(|| ensemble_refusal("the members record no trained_families, so the ensemble admits nothing to gate"))?;
+    let gate = calibration_gate::check(&calibration.0, &calibration.1, &req.calibration_report, &members[0].shapes, &admitted)?;
+    staging.publish(|dir| write_ensemble(req, &members, &calibration, &gate, dir))
 }

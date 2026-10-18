@@ -6,7 +6,8 @@
 //!                    --member REL1 --trained-width 1105 \
 //!                    --member REL2 --trained-width 1105 \
 //!                    --trained-width-source "ledger rows ..." \
-//!                    --calibration ENSEMBLE_TABLE.json --out ENSEMBLE
+//!                    --calibration ENSEMBLE_TABLE.json --calibration-report REPORT.json \
+//!                    --out ENSEMBLE
 //! ```
 //!
 //! `--member` and `--trained-width` pair by position. Exit codes: 0 written; 2 refused (nothing
@@ -43,6 +44,12 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     calibration: PathBuf,
 
+    /// The fit's own report for that table (qd-calib-fit report.json). Required: the ensemble's
+    /// table goes through the calibration gate a single release's does, over the (family, shape)
+    /// pairs the members record as trained.
+    #[arg(long, value_name = "PATH")]
+    calibration_report: PathBuf,
+
     /// The ensemble directory to create. It must not exist.
     #[arg(long, value_name = "DIR")]
     out: PathBuf,
@@ -55,6 +62,7 @@ fn main() -> ExitCode {
         trained_widths: cli.trained_widths,
         trained_width_source: cli.trained_width_source,
         calibration: cli.calibration,
+        calibration_report: cli.calibration_report,
         out: cli.out,
     };
     match export_ensemble(&req) {

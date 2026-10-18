@@ -19,6 +19,9 @@
 //!   corpus `fixtures/wire/refusal-<kind>.json` documents.
 //! * (c) the replay's `weight_hash` and `calibration_hash` (the build's own `status` reply) equal
 //!   the release's `expected_identity`.
+//! * (d) `ledger_binding`: the release manifest's `train_manifest.ledger_binding.verified` is true
+//!   and names the train manifest sha256 it verified against the ft rows. A release exported
+//!   without `--ft-ledger`, or before the block existed, was not checked and fails here.
 //!
 //! Exit codes (see the binary): 0 PASS, 1 FAIL, 3 NOT_RUN (an input is missing or unreadable). A
 //! check that could not run is never a pass.
@@ -115,6 +118,17 @@ pub struct ReleaseView {
     pub excluded_families: Vec<(String, String)>,
     pub weight_hash: Option<String>,
     pub calibration_hash: Option<String>,
+    /// `train_manifest.ledger_binding` in the manifest: `None` when the block is absent (every
+    /// release exported before W7-a).
+    pub ledger_binding: Option<LedgerBinding>,
+}
+
+/// What `qd-export` recorded about tying the train manifest to the ft ledger.
+#[derive(Debug, Clone)]
+pub struct LedgerBinding {
+    pub verified: bool,
+    pub train_manifest_sha256: Option<String>,
+    pub reason: Option<String>,
 }
 
 fn read_json(path: &Path) -> Result<Value> {
@@ -167,6 +181,11 @@ impl ReleaseView {
                     .collect()
             })
             .unwrap_or_default();
+        let ledger_binding = m.pointer("/train_manifest/ledger_binding").filter(|b| b.is_object()).map(|b| LedgerBinding {
+            verified: b.get("verified").and_then(Value::as_bool) == Some(true),
+            train_manifest_sha256: b.get("train_manifest_sha256").and_then(Value::as_str).map(str::to_string),
+            reason: b.get("reason").and_then(Value::as_str).map(str::to_string),
+        });
         let id = |k: &str| m.pointer(&format!("/expected_identity/{k}")).and_then(Value::as_str).map(str::to_string);
         Ok(Self {
             dir: dir.to_path_buf(),
@@ -175,6 +194,7 @@ impl ReleaseView {
             excluded_families: excluded,
             weight_hash: id("weight_hash"),
             calibration_hash: id("calibration_hash"),
+            ledger_binding,
         })
     }
 }
@@ -207,6 +227,73 @@ fn canonical(v: &Value) -> String {
 fn request_hash(req: &Value) -> String {
     let d = Sha256::digest(canonical(req).as_bytes());
     d.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+// ---------------------------------------------------------------------------------------------
+// The request builder
+
+/// One (admitted family, trained shape) pair of the release and what the builder found for it.
+#[derive(Debug, Clone)]
+pub struct PairBuilt {
+    pub family: String,
+    pub shape: Vec<String>,
+    /// Distinct val requests of this family and shape.
+    pub available: usize,
+    pub emitted: usize,
+}
+
+impl PairBuilt {
+    pub fn short(&self, per_shape: usize) -> bool {
+        self.emitted < per_shape
+    }
+}
+
+/// Build the request file `replay --requests` sends (GAP-QD-RELEASE-CHECK-NO-TRACKED-REQUEST-BUILDER-2026-10-17).
+///
+/// `val_requests` is JSONL, one val row's wire request per line (`qd_data.val_requests`). For
+/// every (admitted family, shape) the release records as trained, it takes up to `per_shape`
+/// DISTINCT requests of that family and shape. Distinct means a different canonical request;
+/// the choice is by ascending sha256 of that canonical form, so the output depends on the set of
+/// val requests and on nothing else: not their order, not a seed, not the clock. Lines come out
+/// sorted by (family, shape, hash). Requests of families the release does not admit, or at shapes
+/// it did not train, are not emitted. A pair with fewer than `per_shape` is reported, never
+/// padded. `per_shape` has no default: no record states how many is enough.
+pub fn build_requests(release: &ReleaseView, val_requests: &str, per_shape: usize) -> Result<(String, Vec<PairBuilt>)> {
+    if per_shape == 0 {
+        bail!("--per-shape 0 builds nothing");
+    }
+    let shapes = release
+        .trained_slot_shapes
+        .as_ref()
+        .ok_or_else(|| anyhow!("the release records no trained_slot_shapes, so the (family, shape) set to build for cannot be enumerated; re-export with the gated qd-export"))?;
+    let mut wanted: BTreeMap<(String, Vec<String>), BTreeMap<String, Value>> = BTreeMap::new();
+    for family in &release.trained_families {
+        let mine = shapes.get(family).filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("admitted family {family} has no recorded slot shape"))?;
+        for shape in mine {
+            wanted.insert((family.clone(), shape.clone()), BTreeMap::new());
+        }
+    }
+    for (i, line) in val_requests.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        let req: Value = serde_json::from_str(line).with_context(|| format!("val requests line {}: not JSON", i + 1))?;
+        let (Some(task), Some(shape)) = (req.get("task").and_then(Value::as_str), request_shape(&req)) else {
+            continue;
+        };
+        if let Some(bucket) = wanted.get_mut(&(task.to_string(), shape)) {
+            bucket.insert(request_hash(&req), req);
+        }
+    }
+    let mut out = String::new();
+    let mut built = Vec::with_capacity(wanted.len());
+    for ((family, shape), bucket) in wanted {
+        let mut emitted = 0;
+        for req in bucket.values().take(per_shape) {
+            out.push_str(&canonical(req));
+            out.push('\n');
+            emitted += 1;
+        }
+        built.push(PairBuilt { family, shape, available: bucket.len(), emitted });
+    }
+    Ok((out, built))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -514,6 +601,26 @@ pub fn run_checks(inp: &Inputs<'_>) -> (Vec<Check>, Option<Vec<Coverage>>) {
         Check::pass("c_identity", "replay weight_hash and calibration_hash equal the release's")
     } else {
         Check::fail("c_identity", bad.join("; "))
+    });
+
+    // The train manifest's tie to the ft ledger. A release exported without a ledger, or before the
+    // binding was recorded, was not checked, and a release that was not checked does not pass.
+    checks.push(match &r.ledger_binding {
+        None => Check::fail(
+            "ledger_binding",
+            "the release manifest has no ledger_binding block in train_manifest (exported before the binding was recorded): nothing ties its train manifest to the ft rows it came from; re-export with --ft-ledger",
+        ),
+        Some(b) if !b.verified => Check::fail(
+            "ledger_binding",
+            format!("the train manifest was not verified against the ft ledger: {}", b.reason.as_deref().unwrap_or("no reason recorded")),
+        ),
+        Some(LedgerBinding { train_manifest_sha256: None, .. }) => {
+            Check::fail("ledger_binding", "ledger_binding.verified is true but records no train_manifest_sha256, so what was verified is not stated")
+        }
+        Some(b) => Check::pass(
+            "ledger_binding",
+            format!("train manifest sha256 {} equals the one every ft row records", b.train_manifest_sha256.as_deref().unwrap_or_default()),
+        ),
     });
 
     // Path: a replay that fell back in-process is not the product path.
