@@ -81,7 +81,7 @@ def test_the_plan_seed_is_the_training_seed_only_under_the_flag():
 
 
 _OFF = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-        "permutation": None, "replay": None}
+        "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
 
 
 def test_the_recipe_names_the_constant_only_when_the_flag_is_given():

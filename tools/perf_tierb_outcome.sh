@@ -139,7 +139,8 @@ case "$ACTION" in
     link_ignored || exit 3
     echo "$CODE at $(cd "$CODE" && git rev-parse HEAD) dirty=[$(cd "$CODE" && git status --porcelain)]"
     exit 0 ;;
-  --run) ;;
+  # Only --run bills the GPU (real_ft_run at $2.29/h); --print, --build and --link are local.
+  --run) . "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh" ;;
   *) echo "usage: $0 fused|nomask --build | --link | --run | --print"; exit 2 ;;
 esac
 

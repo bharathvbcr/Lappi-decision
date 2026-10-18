@@ -81,11 +81,11 @@ __all__ = [
     "max_positions_that_fit",
     "refuse_if_over_host_ceiling",
     "refuse_unless_it_fits",
-    "usable_fraction_caveat",
     "safetensors_header",
     "spec_from_checkpoint",
     "tensor_ranges",
     "usable_device_bytes",
+    "usable_fraction_caveat",
 ]
 
 #: Bytes per element, by the names this repository uses for dtypes. ``float8`` is absent on

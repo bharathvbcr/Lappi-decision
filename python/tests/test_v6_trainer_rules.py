@@ -210,7 +210,7 @@ def test_a_shared_head_starts_three_seeds_and_the_recipe_says_shared(tmp_path: P
     }
     pieces = rft._recipe_pieces(
         lower_layers_n=0, lower_lr_scale=1.0, beta2=rft.DEFAULT_BETA2, permutation=None,
-        replay=None, span_head_init=init.recipe(),
+        replay=None, span_head_init=init.recipe(), cap_s=rft.WALL_CLOCK_CAP_S,
     )
     assert pieces["span_head_init"]["shared"] is True
 

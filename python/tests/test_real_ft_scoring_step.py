@@ -27,10 +27,12 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "python"))
 
-import ckpt_average  # noqa: E402
 import real_ft_run  # noqa: E402
 import test_backbone as tb  # noqa: E402
-from test_real_ft_score_checkpoint import tiny_master_checkpoints  # noqa: E402
+from test_real_ft_score_checkpoint import (  # noqa: E402
+    average_masters_with_proof,
+    tiny_master_checkpoints,
+)
 from test_real_ft_shuffled_label import REV  # noqa: E402
 from torch.utils import _pytree as pytree  # noqa: E402
 from torch.utils._python_dispatch import TorchDispatchMode  # noqa: E402
@@ -283,9 +285,7 @@ def _score_average(tiny, tmp_path: Path, tag: str) -> list[str]:
     """Average the tiny checkpoints, score the average, and return its verdict lines with the
     one volatile field (the eval row's uuid) removed."""
     avg = tmp_path / f"avg-{tag}" / "avg.safetensors"
-    assert ckpt_average.main(
-        [*map(str, tiny.paths), "--out", str(avg), "--from", "masters", "--ft-row-ids", *tiny.ids]
-    ) == 0
+    assert average_masters_with_proof(tmp_path, tiny, avg) == 0
     verdicts = tmp_path / f"verdicts-{tag}.jsonl"
     assert real_ft_run.main([
         "--out", str(tiny.out), "--rev", REV, "--devices", "cpu", "--seeds", "0", "1", "2",

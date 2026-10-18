@@ -1,5 +1,6 @@
 """tools/hooks/guard_branch_switch.sh: the PreToolUse hook that refuses a branch switch over
-uncommitted work (owner rule 2026-10-17; Fable ruling Q6, AUDIT/harden-2026-10-17/fable-rulings-2026-10-18.md).
+uncommitted work (owner rule 2026-10-17; Fable ruling Q6,
+AUDIT/harden-2026-10-17/fable-rulings-2026-10-18.md).
 
 Exit 2 blocks the tool call; exit 0 lets it run. Every case runs the real script against a
 real throwaway git repository, so the dirty test is git's own answer, not a mock.

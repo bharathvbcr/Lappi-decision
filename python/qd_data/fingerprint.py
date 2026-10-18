@@ -25,7 +25,8 @@ Two rules, named by ``FINGERPRINT_VERSION``.
 **Version 1** (every header written before 2026-10-18; ``code_fingerprint(directory)``):
 every ``*.py`` in ``qd_data``, by source bytes. It over-invalidated -- any edit, to a comment
 or to a module no shard builder imports, made every pinned set unreadable, and all 89 sets
-on the campaign host already drifted (GAP-LDATA-ALL-89-SHARD-HEADERS-DRIFT-FROM-QD-DATA-HEAD-2026-10-17).
+on the campaign host already drifted
+(GAP-LDATA-ALL-89-SHARD-HEADERS-DRIFT-FROM-QD-DATA-HEAD-2026-10-17).
 A guard that is always red ends with someone bypassing it.
 
 **Version 2** (``shard_code_fingerprint()``): only the modules that determine shard content,
@@ -36,6 +37,11 @@ relative, top level and in-function) of the shard-building entry points
 ``qd_train/shards.py`` and ``tools/real_ft_run.py`` restricted to ``qd_data``, and fails if a
 module in it is missing from the list or the list names one outside it. The one named
 exemption is this module, which describes the code and runs in no row pipeline.
+
+Containment attestations (``qd_train.exclusions.containment_corpus``) have the same two rules
+under their own number, ``CONTAINMENT_FINGERPRINT_VERSION``: rule 1 is every module, rule 2 is
+:data:`CONTAINMENT_CONTENT_MODULES`, the closure of ``qd_train/exclusions.py``'s ``qd_data``
+imports. An attestation that records no version is rule 1 and stays checked by it.
 
 *Source bytes, so comments and docstrings of listed modules count.* An AST or token digest
 would make every fingerprint a function of the running Python's ``ast``/``tokenize``
@@ -53,10 +59,13 @@ from pathlib import Path
 from typing import Final
 
 __all__ = [
+    "CONTAINMENT_CONTENT_MODULES",
+    "CONTAINMENT_FINGERPRINT_VERSION",
     "FINGERPRINT_SUFFIX",
     "FINGERPRINT_VERSION",
     "SHARD_CONTENT_MODULES",
     "code_fingerprint",
+    "containment_code_fingerprint",
     "describe_drift",
     "drifted_modules",
     "shard_code_fingerprint",
@@ -86,6 +95,28 @@ SHARD_CONTENT_MODULES: Final[tuple[str, ...]] = (
     "minhash.py",
     "mixture.py",
     "render.py",
+    "rows.py",
+    "schema.py",
+    "sources.py",
+    "split.py",
+)
+
+#: The fingerprint rule a new containment attestation's corpus records
+#: (``qd_data_fingerprint_version``; ``qd_train.exclusions.containment_corpus``). An attestation
+#: whose corpus records none was written under rule 1: every module, by ``code_fingerprint()``.
+#: Its own number: it moves with :data:`CONTAINMENT_CONTENT_MODULES`, not with the shard rule.
+CONTAINMENT_FINGERPRINT_VERSION: Final[int] = 2
+
+#: The ``qd_data`` modules that decide which rows a containment scan can exclude, sorted: the
+#: import closure of ``qd_train/exclusions.py``'s ``qd_data`` imports (config, rows, split and
+#: what they import), less this module. Checked by
+#: ``tests/test_containment_code_fingerprint.py`` the way the shard list is.
+CONTAINMENT_CONTENT_MODULES: Final[tuple[str, ...]] = (
+    "config.py",
+    "dedupe.py",
+    "errors.py",
+    "licences.py",
+    "minhash.py",
     "rows.py",
     "schema.py",
     "sources.py",
@@ -142,23 +173,30 @@ def code_fingerprint(directory: Path | None = None) -> dict[str, str]:
     return fingerprint
 
 
-def shard_code_fingerprint(directory: Path | None = None) -> dict[str, str]:
-    """Rule 2: ``{module: sha256}`` over :data:`SHARD_CONTENT_MODULES` only.
-
-    A listed module that is not on disk is refused, never skipped: a missing module would
-    otherwise fingerprint as a smaller, passing set.
-    """
+def _listed_fingerprint(
+    modules: tuple[str, ...], directory: Path | None, what: str
+) -> dict[str, str]:
+    """``{module: sha256}`` over a named module list. A listed module that is not on disk is
+    refused, never skipped: a missing module would otherwise fingerprint as a smaller,
+    passing set."""
     directory = _package_dir() if directory is None else Path(directory)
-    missing = [m for m in SHARD_CONTENT_MODULES if not (directory / m).is_file()]
+    missing = [m for m in modules if not (directory / m).is_file()]
     if missing:
         raise RuntimeError(
-            f"shard-content module(s) {', '.join(missing)} not found in {directory}; "
+            f"{what} module(s) {', '.join(missing)} not found in {directory}; "
             "refusing to fingerprint a partial set"
         )
-    return {
-        name: hashlib.sha256((directory / name).read_bytes()).hexdigest()
-        for name in SHARD_CONTENT_MODULES
-    }
+    return {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in modules}
+
+
+def shard_code_fingerprint(directory: Path | None = None) -> dict[str, str]:
+    """Rule 2: ``{module: sha256}`` over :data:`SHARD_CONTENT_MODULES` only."""
+    return _listed_fingerprint(SHARD_CONTENT_MODULES, directory, "shard-content")
+
+
+def containment_code_fingerprint(directory: Path | None = None) -> dict[str, str]:
+    """Containment rule 2: ``{module: sha256}`` over :data:`CONTAINMENT_CONTENT_MODULES`."""
+    return _listed_fingerprint(CONTAINMENT_CONTENT_MODULES, directory, "containment-content")
 
 
 def drifted_modules(

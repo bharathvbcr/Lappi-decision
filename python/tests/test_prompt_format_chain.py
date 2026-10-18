@@ -70,7 +70,7 @@ def test_format_2_is_what_this_build_renders():
 # --- the recipe ---------------------------------------------------------------------------
 
 _OFF = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-        "permutation": None, "replay": None}
+        "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
 
 
 def test_the_recipe_names_a_format_other_than_1_and_1_is_absent():
@@ -172,9 +172,21 @@ def _ckpt(tmp_path: Path, seed: int, **state: object) -> Path:
     return path
 
 
+def _shared_init_proof(tmp_path: Path, *paths: Path) -> list[str]:
+    """``--span-head-shared-init`` and its proof: a ledger of one completed ft row per input,
+    each recording the one shared ``span_head_init`` (R7), which ``ckpt_average`` reads instead
+    of trusting the caller. These tests are about the prompt format a checkpoint states, not
+    about span heads, but ``ckpt_average`` refuses to average heads without that proof."""
+    from test_ckpt_average_shared_init import shared_init_args
+
+    return shared_init_args(tmp_path, list(paths))
+
+
 def _average(tmp_path: Path, *paths: Path) -> dict[str, object]:
     out = tmp_path / "avg.safetensors"
-    assert ckpt_average.main([*(str(p) for p in paths), "--out", str(out)]) == 0
+    assert ckpt_average.main([
+        *(str(p) for p in paths), "--out", str(out), *_shared_init_proof(tmp_path, *paths),
+    ]) == 0
     return json.loads(ckpt_average.manifest_path(out).read_text(encoding="utf-8"))
 
 
@@ -204,18 +216,19 @@ def test_an_average_of_format_1_inputs_writes_the_manifest_it_always_wrote(tmp_p
 )
 def test_inputs_of_two_formats_or_a_malformed_one_are_refused(tmp_path, a, b, match):
     out = tmp_path / "avg.safetensors"
+    first, second = _ckpt(tmp_path, 0, **a), _ckpt(tmp_path, 1, **b)
     with pytest.raises(SystemExit, match=match):
-        ckpt_average.main([str(_ckpt(tmp_path, 0, **a)), str(_ckpt(tmp_path, 1, **b)),
-                           "--out", str(out)])
+        ckpt_average.main([str(first), str(second), "--out", str(out),
+                           *_shared_init_proof(tmp_path, first, second)])
     assert not out.exists() and not ckpt_average.manifest_path(out).exists()
 
 
 @pytest.mark.parametrize("bad", [True, 2.0, "2", 0])
 def test_read_manifest_refuses_a_malformed_stated_format(tmp_path, bad):
     out = tmp_path / "avg.safetensors"
+    first, second = _ckpt(tmp_path, 0, prompt_format=2), _ckpt(tmp_path, 1, prompt_format=2)
     assert ckpt_average.main([
-        str(_ckpt(tmp_path, 0, prompt_format=2)), str(_ckpt(tmp_path, 1, prompt_format=2)),
-        "--out", str(out), "--ft-row-ids", ROW, ROW.replace("f", "e", 1),
+        str(first), str(second), "--out", str(out), *_shared_init_proof(tmp_path, first, second),
     ]) == 0
     assert ckpt_average.read_manifest(out).body["prompt_format"] == 2
     path = ckpt_average.manifest_path(out)

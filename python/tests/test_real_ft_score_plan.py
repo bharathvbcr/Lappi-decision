@@ -38,15 +38,15 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "python"))
 
-import ckpt_average  # noqa: E402
 import real_ft_run as rft  # noqa: E402
 from test_ood_abstain import PERM, PROSE, _v  # noqa: E402
 from test_real_ft_score_checkpoint import (  # noqa: E402
     _CapturedRecorder,
+    average_masters_with_proof,
     tiny_master_checkpoints,
 )
 
-from qd_train.ledger import Ledger  # noqa: E402
+from qd_train.ledger import LIFECYCLE_STARTED_ROW, Ledger  # noqa: E402
 from qd_train.ood import build_ood_suite  # noqa: E402
 from qd_train.tristate import NotRun  # noqa: E402
 
@@ -380,7 +380,12 @@ _VOLATILE = ("row_id", "written_at", "prev_row_hash", "wall_clock_s", "cost_usd"
 
 
 def _row_body(row) -> dict:
-    return {k: v for k, v in row.to_json().items() if k not in _VOLATILE}
+    """The row's body without what two runs of one thing differ in: the volatile fields, and
+    the metric that is identity by another name (``lifecycle.started_row_id``, the ``row_id``
+    of the `started` row this row terminates)."""
+    body = {k: v for k, v in row.to_json().items() if k not in _VOLATILE}
+    body["metrics"] = {k: v for k, v in body["metrics"].items() if k != LIFECYCLE_STARTED_ROW}
+    return body
 
 
 def _verdicts(path: Path) -> list[dict]:
@@ -392,8 +397,7 @@ def test_each_kind_of_a_plan_is_the_row_its_single_run_writes(tmp_path, monkeypa
 
     tiny = tiny_master_checkpoints(tmp_path, monkeypatch)
     avg = tmp_path / "avg" / "avg.safetensors"
-    assert ckpt_average.main([*map(str, tiny.paths), "--out", str(avg), "--from", "masters",
-                              "--ft-row-ids", *tiny.ids]) == 0
+    assert average_masters_with_proof(tmp_path, tiny, avg) == 0
     base = ["--out", str(tiny.out), "--rev", REV, "--devices", "cpu", "--score-val",
             "--real-backbone", str(tiny.snapshot), "--ft-ledger", str(tiny.ft_ledger),
             "--tokenizer-json", str(tiny.tokenizer)]

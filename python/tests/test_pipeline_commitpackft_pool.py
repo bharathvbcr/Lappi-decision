@@ -171,7 +171,10 @@ def test_the_row_carries_the_reason_the_run_measured(tmp_path, monkeypatch) -> N
         # A ledger row names its corpus revision by full sha (HEAD is refused).
         "--rev", "0632f693d3b765b726499e7b4bf19c67959b75cb",
     ]) == 0
-    row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
+    # The recorder writes a `started` row (never quick) and then the run's terminal row, which
+    # is the one that carries the reason.
+    row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])
+    assert row["status"] != "started"
     assert row["quick"] is True
     assert row["quick_reason"] == reason
     assert "4-of-8 sha256-ordered sample" in row["quick_reason"]
