@@ -89,8 +89,10 @@ fn it_emits_per_shape_requests_for_exactly_the_admitted_pairs() {
     release(&d, Some(shapes()));
     write_lines(&d.join("val.jsonl"), &val_rows());
     let out = run(&d, &d.join("val.jsonl"), &d.join("req.jsonl"), "2");
+    // fam.b at choice:6 has one val row, so asking for two leaves that pair short: exit 1. The
+    // other pairs are full, and the short one still gets what exists.
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(0), "{stderr}{}", String::from_utf8_lossy(&out.stdout));
+    assert_eq!(out.status.code(), Some(1), "{stderr}{}", String::from_utf8_lossy(&out.stdout));
     let got = lines(&d.join("req.jsonl"));
     let mut count = std::collections::BTreeMap::<(String, Vec<String>), usize>::new();
     for r in &got {

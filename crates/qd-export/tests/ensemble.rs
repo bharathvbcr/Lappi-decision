@@ -712,6 +712,8 @@ fn run(members: &[&Path], widths: &[u64], table: &Path, out: &Path) -> std::proc
         .arg(SOURCE)
         .arg("--calibration")
         .arg(table)
+        .arg("--calibration-report")
+        .arg(common::gate_report(table.parent().expect("a table in a directory"), table))
         .arg("--out")
         .arg(out);
     cmd.output().expect("the binary runs")
