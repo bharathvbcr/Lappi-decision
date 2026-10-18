@@ -143,9 +143,17 @@ def test_a_write_failure_midway_leaves_no_readable_checkpoint(env, tmp_path, mon
         drv.run(_cfg(env, tmp_path))
     ck = tmp_path / "ckpt" / "lora.json"
     assert not ck.exists()
-    with pytest.raises(Exception):
-        ckpt_average.main([str(ck), "--out", str(tmp_path / "m.safetensors"), "--from",
-                           "lora-merged"])
+    # A lone path is refused for having fewer than two inputs before the file is looked at, which
+    # would pass for any file. Two inputs, one absent, with the span-head arguments the averager
+    # demands for two inputs, so the read of the absent file is what refuses.
+    monkeypatch.setattr(Checkpoint, "write", real)
+    good = drv.run(_cfg(env, tmp_path / "good")).checkpoint
+    out = tmp_path / "m.safetensors"
+    with pytest.raises(FileNotFoundError):
+        ckpt_average.main([str(good), str(ck), "--out", str(out), "--from", "lora-merged",
+                           "--span-head-seed", "0", "--ft-ledger", str(tmp_path / "ledger.jsonl"),
+                           "--ft-row-ids", "a", "b"])
+    assert not out.exists()
 
 
 # 4 quick -------------------------------------------------------------------------------------
@@ -303,7 +311,11 @@ def test_a_nan_in_the_base_aborts_with_no_checkpoint_and_a_failed_row(env, tmp_p
     key = next(k for k in tensors if k.endswith("layers.0.mlp.gate_proj.weight"))
     tensors[key][0, 0] = float("nan")
     save_file(tensors, str(snap / "model.safetensors"), metadata={"format": "pt"})
-    with pytest.raises(Exception):
+    # The NaN reaches the loss first, and the accumulation group's rule 3 stops the run there with
+    # the trainer's own violation type (before lora.py's non-finite grad-norm check is reached).
+    from qd_train.trainer import TrainerContractViolation
+
+    with pytest.raises(TrainerContractViolation, match="non-finite loss"):
         drv.run(_cfg(env, tmp_path / "w", backbone=snap))
     assert not (tmp_path / "w" / "ckpt" / "lora.json").exists()
     assert not (tmp_path / "w" / "loss.jsonl").exists()

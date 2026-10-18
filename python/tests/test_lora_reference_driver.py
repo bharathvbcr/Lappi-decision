@@ -351,7 +351,7 @@ def test_the_mps_bf16_leg_runs_with_a_bf16_base_f32_stored_tensors_and_f32_adapt
     assert {r.dtype for r in states["lora_A"].values()} == {"float32"}
 
 
-# v6 data rules and the pre-registration binding (card ft-3b8126cd, lane W2-2) ----------------------
+# v6 data rules and the pre-registration binding (card ft-3b8126cd, lane W2-2) ---------------------
 #
 # Both are checked by validate_inputs, the one pre-read entry point. The binding calls
 # qd-prereg-bind as a subprocess; no tiny fixture matches the real pre-registration's shard

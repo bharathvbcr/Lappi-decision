@@ -45,6 +45,7 @@ import dataclasses
 import itertools
 import json
 import os
+import subprocess
 import sys
 import types
 from collections.abc import Sequence
@@ -80,6 +81,7 @@ from real_ft_run import (
     span_head_digest,
     vocab_letter_ids,
 )
+from real_tokenizer_pipeline import data_rules
 
 from qd_data.config import DataConfig
 from qd_data.schema import NOUL_LETTER, OPTION_LETTERS
@@ -101,10 +103,26 @@ DEVICE_DTYPES: Final[tuple[tuple[str, str], ...]] = (("mps", "bf16"), ("cpu", "f
 ANSWER_LETTERS: Final[tuple[str, ...]] = (*OPTION_LETTERS, NOUL_LETTER)
 #: The attention kernel, named as real_ft_run names it.
 ATTN_IMPLEMENTATION: Final[str] = "sdpa"
+#: The environment variable naming the ``qd-prereg-bind`` binary: an absolute path, never searched
+#: for (the convention ``QD_PREP_BIN`` sets). ``LoraRunConfig.prereg_bind_bin`` beats it.
+PREREG_BIND_ENV: Final[str] = "QD_PREREG_BIND_BIN"
+#: The pre-registration every run of this driver is bound to.
+PREREG_PATH: Final[Path] = REPO / "campaign" / "lora-2b-preregistered.json"
+#: Seconds the binding check may take: it reads two small files and runs a few ``git`` commands.
+PREREG_BIND_TIMEOUT_S: Final[float] = 120.0
 
 
 class LoraDriverRefusal(ValueError):
     """The run was asked for something this driver refuses, before any work was paid for."""
+
+
+class LegacyDataRulesRefusal(LoraDriverRefusal):
+    """The config carries v5's data rules; the human refused v5 for LoRA-2B on 2026-10-17."""
+
+
+class PreregBindRefusal(LoraDriverRefusal):
+    """``qd-prereg-bind`` did not exit 0 with ``RESULT: PASS``: FAILED and NOT_RUN alike refuse
+    step 0 (pre-registration amendment 3)."""
 
 
 class RunIncomplete(RuntimeError):
@@ -132,6 +150,10 @@ class LoraRunConfig:
     expect_rev: str | None = None
     expect_base_sha256: str | None = None
     tag: str = "lora-ref"
+    #: The data rules the shard set is read under; ``None`` is ``DataConfig()`` (v6).
+    data_config: DataConfig | None = None
+    #: The ``qd-prereg-bind`` binary; ``None`` reads :data:`PREREG_BIND_ENV`.
+    prereg_bind_bin: Path | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -209,15 +231,74 @@ def _stat(text: str, value: str, detail: str) -> Ran:
     return Ran(passed=True, value=value, detail=f"{text}: {detail}")
 
 
+def check_data_rules(config: DataConfig) -> DataConfig:
+    """``config`` if it is already under v6's data rules, else a typed refusal (v5r is refused for
+    LoRA-2B: human ruling 2026-10-17). ``data_rules`` is the one seam that says what v6 is."""
+    v6 = data_rules(config, v6=True)
+    if config != v6:
+        raise LegacyDataRulesRefusal(
+            "the data config is not under v6's data rules (v5's dedupe keep rule, no LSH "
+            "prefilter, or benchmark evaluation splits trainable); v5 is refused for LoRA-2B, "
+            "which is rebuilt on v6"
+        )
+    return v6
+
+
+def _prereg_bind_binary(cfg: LoraRunConfig) -> Path:
+    named = cfg.prereg_bind_bin if cfg.prereg_bind_bin is not None else os.environ.get(
+        PREREG_BIND_ENV
+    )
+    if not named:
+        raise PreregBindRefusal(
+            f"NOT_RUN: {PREREG_BIND_ENV} is unset and no prereg_bind_bin was given, so the "
+            "pre-registration binding was not checked"
+        )
+    binary = Path(named)
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise PreregBindRefusal(f"NOT_RUN: {binary} is not an executable file")
+    return binary
+
+
+def check_prereg_bound(cfg: LoraRunConfig) -> None:
+    """Run ``qd-prereg-bind`` over the pre-registration and the train shard set, before any tensor
+    is read. Only exit 0 with a final ``RESULT: PASS`` line passes; FAILED (1), NOT_RUN (3), a bad
+    command line (2), any other status, a missing binary and a timeout all refuse."""
+    binary = _prereg_bind_binary(cfg)
+    argv = [
+        str(binary), "--prereg", str(PREREG_PATH),
+        "--shard-dir", str(cfg.out / "shards" / "train"), "--repo", str(REPO),
+    ]
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, timeout=PREREG_BIND_TIMEOUT_S, check=False
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PreregBindRefusal(
+            f"NOT_RUN: qd-prereg-bind timed out after {PREREG_BIND_TIMEOUT_S}s"
+        ) from exc
+    except OSError as exc:
+        raise PreregBindRefusal(f"NOT_RUN: qd-prereg-bind could not be launched: {exc}") from exc
+    lines = done.stdout.strip().splitlines()
+    last = lines[-1].strip() if lines else ""
+    if done.returncode == 0 and last == "RESULT: PASS":
+        return
+    verdict = {1: "FAILED", 3: "NOT_RUN", 2: "usage error"}.get(done.returncode, "unexpected exit")
+    raise PreregBindRefusal(
+        f"{verdict}: qd-prereg-bind exit {done.returncode}, last line {last!r} "
+        f"(RESULT: PASS is required)\n{done.stdout.strip()}\n{done.stderr.strip()}"
+    )
+
+
 def validate_inputs(cfg: LoraRunConfig) -> DataConfig:
-    """The single entry check: device/dtype pair, bounds, outputs not yet present, and rule 3 over
-    every path. Opens nothing and reads no tensor; a launcher-side binding (for example a
-    pre-registration check) is added here, in one place.
-    Returns the ``DataConfig`` it checked with."""
+    """The single entry check, before any file is opened or tensor read: device/dtype pair,
+    bounds, outputs not yet present, v6 data rules, rule 3 over every path, and the
+    pre-registration binding (``qd-prereg-bind``, run as a subprocess, last because it is the only
+    check that spawns a process). Returns the v6 ``DataConfig`` it checked with."""
     check_device_dtype(cfg.device, cfg.dtype)
     check_bounds(cfg)
-    config = DataConfig()
+    config = check_data_rules(cfg.data_config if cfg.data_config is not None else DataConfig())
     check_not_held_out(cfg, config)
+    check_prereg_bound(cfg)
     return config
 
 
@@ -439,6 +520,8 @@ def parse_args(argv: Sequence[str] | None) -> LoraRunConfig:
     p.add_argument("--expect-rev", default=None)
     p.add_argument("--expect-base-sha256", default=None)
     p.add_argument("--tag", default="lora-ref")
+    p.add_argument("--prereg-bind-bin", type=Path, default=None,
+                   help=f"the qd-prereg-bind binary (default: ${PREREG_BIND_ENV})")
     a = p.parse_args(argv)
     return LoraRunConfig(
         out=a.out, backbone=a.backbone, tokenizer_json=a.tokenizer_json,
@@ -447,6 +530,7 @@ def parse_args(argv: Sequence[str] | None) -> LoraRunConfig:
         device=a.device, dtype=a.dtype, max_steps=a.max_steps,
         wall_clock_cap_s=a.wall_clock_cap_s, batch_tokens=a.batch_tokens,
         expect_rev=a.expect_rev, expect_base_sha256=a.expect_base_sha256, tag=a.tag,
+        prereg_bind_bin=a.prereg_bind_bin,
     )
 
 
