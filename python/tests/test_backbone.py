@@ -1130,6 +1130,15 @@ def _ckpt_average():
     return ckpt_average
 
 
+def _shared_init_proof(tmp_path, paths, ids):
+    """``--span-head-shared-init`` and its proof: a ledger of one completed ft row per input,
+    each recording the one shared ``span_head_init`` (R7), which ``ckpt_average`` reads instead
+    of trusting the caller. These tests average heads, so they state the proof they rest on."""
+    from test_ckpt_average_shared_init import shared_init_args
+
+    return shared_init_args(tmp_path, [Path(p) for p in paths], ids=list(ids))
+
+
 def test_checkpoint_averaging_is_the_fp32_mean_cast_back_and_writes_weights_only(tmp_path):
     """Two seeds of one configuration: the tower is loaded from one snapshot so it is
     identical, the span head is seeded so it differs. The average of the tower is the tower,
@@ -1141,7 +1150,9 @@ def test_checkpoint_averaging_is_the_fp32_mean_cast_back_and_writes_weights_only
     a, step_a = _written_checkpoint(tmp_path, seed=1)
     b, step_b = _written_checkpoint(tmp_path, seed=2)
     out = tmp_path / "avg" / "avg.safetensors"
-    assert tool.main([str(a), str(b), "--out", str(out), "--ft-row-ids", "r1", "r2"]) == 0
+    # Exercises --span-head-shared-init: the heads are averaged because the ledger proves one init.
+    proof = _shared_init_proof(tmp_path, [a, b], ["r1", "r2"])
+    assert tool.main([str(a), str(b), "--out", str(out), *proof]) == 0
     got = load_file(str(out))
     assert not any(k.startswith("optimizer") for k in got)
     emb = "tower.embed_tokens.weight"
@@ -1158,7 +1169,7 @@ def test_checkpoint_averaging_is_the_fp32_mean_cast_back_and_writes_weights_only
     assert manifest["resumable"] is False and manifest["n_inputs"] == 2
     assert manifest["ft_row_ids"] == ["r1", "r2"]
     with pytest.raises(SystemExit, match="already exists"):
-        tool.main([str(a), str(b), "--out", str(out)])
+        tool.main([str(a), str(b), "--out", str(out), *proof])
 
 
 def test_checkpoint_averaging_refuses_mismatched_schedules_steps_and_duplicates(tmp_path):
@@ -1169,10 +1180,14 @@ def test_checkpoint_averaging_refuses_mismatched_schedules_steps_and_duplicates(
     other_schedule, _ = _written_checkpoint(tmp_path, seed=2, total_steps=8)
     other_step, _ = _written_checkpoint(tmp_path, seed=3, step_at=2)
     out = tmp_path / "x.safetensors"
+    # Exercises --span-head-shared-init: each pair carries the proof, so the refusals below are
+    # the schedule's and the step's, not the span-head default's.
     with pytest.raises(SystemExit, match="Different schedules"):
-        tool.main([str(a), str(other_schedule), "--out", str(out)])
+        tool.main([str(a), str(other_schedule), "--out", str(out),
+                   *_shared_init_proof(tmp_path, [a, other_schedule], ["p1", "p2"])])
     with pytest.raises(SystemExit, match="optimizer step 2"):
-        tool.main([str(a), str(other_step), "--out", str(out)])
+        tool.main([str(a), str(other_step), "--out", str(out),
+                   *_shared_init_proof(tmp_path, [a, other_step], ["p1", "p3"])])
     with pytest.raises(SystemExit, match="named twice"):
         tool.main([str(a), str(a), "--out", str(out)])
     same = Checkpoint.read(a)
@@ -1294,8 +1309,9 @@ def test_a_masters_average_takes_each_parameters_own_master_by_name(tmp_path):
     assert set(masters[0]) == set(masters[1]) == set(masters[2])
     assert f"tower.{frozen}" not in masters[0]
     out = tmp_path / "avg" / "avg.safetensors"
+    # Exercises --span-head-shared-init: the span heads are averaged on the ledger's proof.
     argv = [*(str(p) for p, _, _ in made), "--out", str(out), "--from", "masters",
-            "--ft-row-ids", "r0", "r1", "r2"]
+            *_shared_init_proof(tmp_path, [p for p, _, _ in made], ["r0", "r1", "r2"])]
     assert tool.main(argv) == 0
     got = load_file(str(out))
     manifest = json.loads(tool.manifest_path(out).read_text(encoding="utf-8"))
@@ -1349,9 +1365,23 @@ def test_a_masters_average_refuses_inputs_with_no_masters(tmp_path):
         ).write(path)
         paths.append(str(path))
     out = tmp_path / "x.safetensors"
+    # Exercises --span-head-shared-init: with the proof given, the refusal is the masters'.
     with pytest.raises(SystemExit, match="no fp32 masters"):
-        tool.main([*paths, "--out", str(out), "--from", "masters"])
+        tool.main([*paths, "--out", str(out), "--from", "masters",
+                   *_shared_init_proof(tmp_path, paths, ["p1", "p2"])])
     assert not out.exists()
+
+
+def test_checkpoint_averaging_refuses_by_default_to_average_span_heads_without_proof(tmp_path):
+    """Neither --span-head-seed nor --span-head-shared-init: two seeds' heads grew from
+    independent inits, their mean collapses span, and nothing is written."""
+    tool = _ckpt_average()
+    a, _ = _written_checkpoint(tmp_path, seed=1)
+    b, _ = _written_checkpoint(tmp_path, seed=2)
+    out = tmp_path / "avg" / "avg.safetensors"
+    with pytest.raises(SystemExit, match="no proof they grew from one shared init"):
+        tool.main([str(a), str(b), "--out", str(out), "--ft-row-ids", "r1", "r2"])
+    assert not out.exists() and not out.parent.exists()
 
 
 def _ref(tensor: torch.Tensor):

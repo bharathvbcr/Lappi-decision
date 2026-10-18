@@ -234,8 +234,11 @@ from qd_train.memory import (
     ADAMW_KAHAN,
     ADAMW_MASTER,
     CheckpointRefused,
+    MemoryRefused,
     OptimizerSpec,
+    host_footprint_ceiling_bytes,
     spec_from_checkpoint,
+    usable_device_bytes,
 )
 from qd_train.needle import (
     NEEDLE_CASES_PER_DEPTH,
@@ -267,6 +270,7 @@ from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_atte
 from qd_train.run_control import (
     MAX_CAP_S,
     MAX_SIDECAR_BYTES,
+    QUICK_CAP_S,
     CostEstimate,
     LRSchedule,
     RunControl,
@@ -279,6 +283,7 @@ from qd_train.run_control import (
 from qd_train.shards import (
     HEADER_NAME,
     MAX_POSITIONS_PER_BATCH,
+    SequenceSpec,
     ShardReader,
     UnencodableGold,
     answer_letter,
@@ -287,6 +292,12 @@ from qd_train.shards import (
     encode_slot,
     rendered_training_texts,
     training_texts,
+)
+from qd_train.span_null import (
+    SPAN_END_TOP1_METRIC,
+    SPAN_NULL_METRIC,
+    SPAN_START_TOP1_METRIC,
+    plus_line_null,
 )
 from qd_train.trainer import (
     TRAIN_ATTENTION_MASKS,
@@ -416,10 +427,14 @@ SPAN_HEAD_PREFIX: Final[str] = "span_head."
 #: a bound on what a mistyped path can make this process read into memory.
 MAX_SPAN_HEAD_INIT_BYTES: Final[int] = 1 << 30
 
-#: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
-#: every row before 2026-09-29 was taken under. `RunControl` stops at a group boundary and the
-#: ledger row records `termination`, so a capped run is legible as capped, not as finished.
-WALL_CLOCK_CAP_S = 1_800.0
+#: The cap the ledger's canonical recipe omits (_recipe_pieces writes wall_clock_cap_s only
+#: when it differs). Equal to the quick cap. It is a recipe sentinel and nothing's default:
+#: _control, _train and _recipe_pieces take cap_s with no default, so a caller that forgets it
+#: is a TypeError, never a silent 1800 s stop
+#: (GAP-RUN-CONTROL-DEFAULT-CAP-CALLERS-OUTSIDE-L-OPS-2026-10-17). _cost keeps its default
+#: because it is protected; every caller in this tree passes cap_s (checked by AST in
+#: python/tests/test_helper_caps_have_no_default.py).
+WALL_CLOCK_CAP_S = QUICK_CAP_S
 
 #: The most ``--wall-clock-cap-s`` may be. The campaign approval is "up to 2-3 days" (72 h),
 #: but ``MAX_CAP_S`` -- the program's own cap, 40 h, read-only under rule 2 -- is lower, and
@@ -493,7 +508,7 @@ class NoulWeightPlan:
     def recipe(self) -> dict[str, object]:
         return _recipe_pieces(
             lower_layers_n=0, lower_lr_scale=1.0, beta2=DEFAULT_BETA2, permutation=None,
-            replay=None, noul_weight=self.weight,
+            replay=None, noul_weight=self.weight, cap_s=WALL_CLOCK_CAP_S,
         )
 
     def cut(self, n: int) -> NoulWeightPlan:
@@ -560,7 +575,7 @@ def noul_weight_plan(
 def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
-    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    cap_s: float, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
@@ -828,6 +843,21 @@ class Label:
     #: ``DataRow.metadata["language"]`` where the row has one -- ``code.defect_class`` rows
     #: do, the commitpackft rewriters' rows do not. What ``ece.lang.*`` groups by.
     language: str | None = None
+    #: A span label's candidate set as the first byte of each context line, in line order
+    #: (``SequenceSpec.line_char_starts`` read off the rendered text). What the
+    #: ``span_beats_null`` gate's random-``+``-line null is computed from, through
+    #: ``qd_train.span_null``. ``None`` on a letter label.
+    line_first_bytes: tuple[int, ...] | None = None
+
+
+def _line_first_bytes(spec: SequenceSpec) -> tuple[int, ...]:
+    """The first byte of every context line of a span spec, from its own rendered text."""
+    starts = spec.line_char_starts
+    if starts is None:
+        raise ValueError(f"span slot {spec.slot_name!r} carries no line_char_starts")
+    if any(not 0 <= c < len(spec.text) for c in starts):
+        raise ValueError(f"span slot {spec.slot_name!r} has a line start outside its text")
+    return tuple(spec.text[c].encode("utf-8")[0] for c in starts)
 
 
 def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], list[str]]:
@@ -883,6 +913,9 @@ def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], li
                         gold_letter=gold,
                         letters=letters,
                         language=language,
+                        line_first_bytes=(
+                            _line_first_bytes(spec) if spec.slot_kind == SLOT_SPAN else None
+                        ),
                     )
                 )
         except (UnencodableGold, QdRefusal) as exc:
@@ -2657,7 +2690,7 @@ def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
-    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S, min_lr: float | None = None,
+    approved_by: str = "", cap_s: float, min_lr: float | None = None,
 ) -> RunControl:
     """The cap, the schedule and the price of a local run.
 
@@ -2782,14 +2815,25 @@ def device_budget(estimate_bytes: int, device: str) -> TriState:
     gib = 1024**3
     if device == "cuda":
         available, source = int(torch.cuda.mem_get_info()[0]), "torch.cuda.mem_get_info free"
+        # The allocator cannot hand a step every free byte (memory.DEVICE_USABLE_FRACTION).
+        ceiling = usable_device_bytes(available)
     elif device == "mps":
         available, source = (
             int(torch.mps.recommended_max_memory()), "torch.mps.recommended_max_memory"
         )
+        # memguard kills a single process at its threshold and leaves no row, and mac_heavy's
+        # cap sits a margin below it: a step predicted at or above that is not admitted. A
+        # ceiling that cannot be read is a failed check, never a pass.
+        try:
+            host_ceiling = host_footprint_ceiling_bytes()
+        except MemoryRefused as exc:
+            return Ran(passed=False, value=estimate_bytes, detail=str(exc))
+        ceiling = min(available, host_ceiling - 1)  # "<= ceiling" is "< host_ceiling"
+        source = f"{source}, and memguard's ceiling {host_ceiling} B (mac_heavy.sh --print-limits)"
     else:
         return NotRun(reason=f"device {device!r} has no memory budget this tool can read")
     return Ran(
-        passed=estimate_bytes <= available,
+        passed=estimate_bytes <= ceiling,
         # The estimate is the value; the budget is in the detail. Not n / n_total: those
         # are a count examined out of a total, and an estimate over budget is exactly the
         # case where the first exceeds the second.
@@ -3301,7 +3345,7 @@ def _train(
     alphabets: Mapping[int, list[tuple[str, ...] | None]] | None = None,
     replay: ReplayPlan | None = None,
     eval_widths: Sequence[int] = (),
-    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    cap_s: float, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
@@ -4670,7 +4714,7 @@ def ft_split_report(
         # The pipeline's admission for a pool build (its opt-in sources, with the human's call);
         # without it build_mixture refuses an opt-in source's rows at load.
         config = pool_data_config(config)
-        pool = load_decision_pool(decisions_pool)
+        pool = load_decision_pool(decisions_pool, config=config)
         clash = sorted(set(pool.raw) & set(raw))
         if clash:
             raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
@@ -5061,7 +5105,7 @@ def probe_shapes_reason(margin_gib: float) -> str:
 def quick_reasons(
     *, tag: str, device: str, real_backbone: bool, corpus: CorpusFacts,
     termination: str | None = None, memorise_detail: str = "", max_steps: int | None = None,
-    probe_shapes: float | None = None,
+    probe_shapes: float | None = None, declared_quick: bool = False,
 ) -> list[str]:
     """Every rule-8 reason that stands for one row, from the run's facts. Empty means none.
 
@@ -5089,6 +5133,11 @@ def quick_reasons(
     Only ever a list of reasons to be quick; nothing here clears a flag a caller set.
     """
     reasons: list[str] = []
+    if declared_quick:
+        reasons.append(
+            "the run was declared --quick: it may omit its wall-clock cap, so it is excluded "
+            "from every decision"
+        )
     if tag == "memorise":
         reasons.append(
             "the memorisation arm is a subsample by construction"
@@ -5402,7 +5451,68 @@ def score_states(scored: dict[str, object], labels: list[Label]) -> dict[str, Tr
                 f"of {n} ({base_n / n:.1%}), a gap of {(correct - base_n) / n:+.1%}"
             ),
         )
+    states.update(span_pointer_states(scored, labels))
     return states
+
+
+def span_pointer_states(scored: dict[str, object], labels: list[Label]) -> dict[str, TriState]:
+    """The three metrics ``span_beats_null`` reads, over one val decode's pointing rows.
+
+    ``SPAN_START_TOP1_METRIC`` and ``SPAN_END_TOP1_METRIC`` are the head's start and end top-1
+    over the pointing rows (``n`` hits, ``n_total`` pointing rows); ``SPAN_NULL_METRIC`` is the
+    random-``+``-line null on the SAME rows, computed by ``qd_train.span_null.plus_line_null``
+    (``n`` the rows whose gold is an added line, ``n_total`` the pointing rows). A span row
+    whose label carries no candidate bytes, or whose candidate count is not the head's, makes
+    all three ``NotRun`` rather than a null over a different set.
+    """
+    names = (SPAN_START_TOP1_METRIC, SPAN_END_TOP1_METRIC, SPAN_NULL_METRIC)
+    by_key = {(label.row_id, label.slot_name): label for label in labels}
+    rows: list[tuple[tuple[int, ...], int]] = []
+    hits_start = hits_end = 0
+    uniform = 0.0
+    for v in scored["verdicts"]:  # type: ignore[union-attr]
+        if v["kind"] != "span" or v["expected_abstain"]:
+            continue
+        label = by_key.get((str(v["row_id"]), str(v["slot_name"])))
+        first = None if label is None else label.line_first_bytes
+        if first is None or len(first) != int(v["noul_row"]):
+            why = (
+                "has no label" if label is None else
+                "carries no candidate bytes" if first is None else
+                f"has {len(first)} candidate lines against the head's {v['noul_row']}"
+            )
+            gone = NotRun(reason=f"span row {v['row_id']} {why}: the random-+-line null is not "
+                          "computable over the head's candidate set")
+            return dict.fromkeys(names, gone)
+        gold = int(v["gold_start"])
+        rows.append((first, gold))
+        top_start, top_end = (int(t) for t in v["top"])
+        hits_start += int(top_start == gold)
+        hits_end += int(top_end == int(v["gold_end"]))
+        uniform += 1.0 / len(first)
+    pointing = len(rows)
+    if not pointing:
+        gone = NotRun(reason="the decode holds no pointing span row (every span gold abstains, "
+                      "or there is none), so there is nothing to measure a pointer over")
+        return dict.fromkeys(names, gone)
+    null, null_rows, gold_added = plus_line_null(rows)
+    if null_rows != pointing:  # pragma: no cover - plus_line_null counts the same rows
+        raise AssertionError(f"null over {null_rows} rows, top-1 over {pointing}")
+    chance = uniform / pointing
+    out: dict[str, TriState] = {}
+    for name, hits, what in ((SPAN_START_TOP1_METRIC, hits_start, "start"),
+                             (SPAN_END_TOP1_METRIC, hits_end, "end")):
+        out[name] = Ran(
+            passed=hits / pointing > chance, value=hits / pointing, n=hits, n_total=pointing,
+            detail=(f"span {what} top-1 {hits}/{pointing} over the pointing val rows; uniform "
+                    f"chance over the candidate line starts {chance:.2%}"),
+        )
+    out[SPAN_NULL_METRIC] = Ran(
+        passed=True, value=null, n=gold_added, n_total=pointing,
+        detail=(f"what 'point at a uniformly random ADDED line' scores on the same {pointing} "
+                f"pointing rows: {null:.2%} ({gold_added} with a gold that is an added line)"),
+    )
+    return out
 
 
 #: Why ``ece.lang.*`` cannot be computed from rows without a language, carried INTO the
@@ -11183,14 +11293,23 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--wall-clock-cap-s", type=float, default=WALL_CLOCK_CAP_S,
+        "--wall-clock-cap-s", type=float, default=None,
         help=(
-            f"the wall-clock cap on EACH arm of each seed, in seconds; default "
-            f"{WALL_CLOCK_CAP_S:g}. At most {MAX_WALL_CLOCK_CAP_S:g} "
+            f"the wall-clock cap on EACH arm of each seed, in seconds. Required for a run "
+            f"that trains, unless --quick (which carries {QUICK_CAP_S:g}). At most "
+            f"{MAX_WALL_CLOCK_CAP_S:g} "
             f"({MAX_WALL_CLOCK_CAP_S / 3600:g} h): the program's MAX_CAP_S, which is below "
             "the campaign's 72 h approval. The cost estimate is priced from it, so above "
             "rule 4's $20 line a run needs --approved-by and is armed with auto-terminate. "
             "Recorded in the recipe when it differs from the default"
+        ),
+    )
+    parser.add_argument(
+        "--quick", action="store_true",
+        help=(
+            f"declare this run quick (rule 8): it may omit --wall-clock-cap-s and then "
+            f"carries {QUICK_CAP_S:g} s, and every row it writes is marked quick, so it "
+            "is excluded from every decision"
         ),
     )
     parser.add_argument(
@@ -11905,6 +12024,21 @@ def main(argv: list[str] | None = None) -> int:
             "--resume-from is a 'memorise' checkpoint but --no-memorise was passed, so this "
             "run has no arm to resume it into"
         )
+    # A run that trains names its cap or says quick: no default stands in for a registration's
+    # cap (WallClockCap.resolve, the Rust trainer's refusal). A mode that trains nothing
+    # (scoring, probes, the needle control) only prices from the cap, and takes the quick one.
+    trains = (
+        args.score_checkpoint is None and args.score_plan is None
+        and args.needle_control is None and not args.probe
+        and args.arm_b_candidates is None and args.needle_predictions_out is None
+    )
+    if args.wall_clock_cap_s is None:
+        try:
+            args.wall_clock_cap_s = WallClockCap.resolve(
+                None, args.quick or not trains
+            ).cap_s
+        except ValueError as exc:
+            raise SystemExit(f"--wall-clock-cap-s: {exc}") from exc
     if not (math.isfinite(args.wall_clock_cap_s)
             and 0.0 < args.wall_clock_cap_s <= MAX_WALL_CLOCK_CAP_S):
         raise SystemExit(
@@ -12585,6 +12719,7 @@ def main(argv: list[str] | None = None) -> int:
             corpus=corpus, termination=termination, memorise_detail=memorise_detail,
             max_steps=args.max_steps if tag == "epoch" else None,
             probe_shapes=args.probe_shapes if tag == "epoch" else None,
+            declared_quick=args.quick,
         )
 
     report: dict[str, object] = {

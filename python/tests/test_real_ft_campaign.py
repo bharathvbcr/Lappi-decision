@@ -59,7 +59,7 @@ def test_the_control_and_its_cost_carry_the_same_cap():
 
 
 def test_the_default_is_the_cap_every_earlier_row_ran_under():
-    ctl = rft._control(100, device="cpu", lr=1e-5)
+    ctl = rft._control(100, device="cpu", lr=1e-5, cap_s=rft.WALL_CLOCK_CAP_S)
     assert ctl.cap.cap_s == rft.WALL_CLOCK_CAP_S == 1_800.0
     assert ctl.auto_terminate is None
 
@@ -93,14 +93,14 @@ def test_a_run_that_needs_a_human_yes_is_armed_with_auto_terminate():
     kw = {"device": "cuda", "lr": 1e-5, "n_gpus": 1, "usd_per_hour": 1.49,
           "instance": "lambda-1xGH200", "approved_by": "bharath"}
     assert rft._control(100, cap_s=30 * HOURS, **kw).auto_terminate is hard_exit_on_cap
-    assert rft._control(100, **kw).auto_terminate is None
+    assert rft._control(100, cap_s=rft.WALL_CLOCK_CAP_S, **kw).auto_terminate is None
 
 
 def test_the_cap_and_no_memorise_reach_the_recipe_only_when_they_differ():
     """So every row written before them hashes as it did."""
     base = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
             "permutation": None, "replay": None}
-    assert rft._recipe_pieces(**base) == {}
+    assert rft._recipe_pieces(**base, cap_s=rft.WALL_CLOCK_CAP_S) == {}
     assert rft._recipe_pieces(**base, cap_s=rft.WALL_CLOCK_CAP_S, no_memorise=False) == {}
     assert rft._recipe_pieces(**base, cap_s=30 * HOURS, no_memorise=True) == {
         "wall_clock_cap_s": 30 * HOURS, "no_memorise": True,
@@ -117,7 +117,7 @@ def test_batch_tokens_reaches_the_recipe_only_when_it_differs():
     leaves the GPU waiting on the host. A larger batch is a different recipe, so it hashes
     differently; the default hashes as every row before the flag did."""
     base = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-            "permutation": None, "replay": None}
+            "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
     assert rft._recipe_pieces(**base, batch_tokens=None) == {}
     assert rft._recipe_pieces(**base, batch_tokens=32768) == {"batch_tokens": 32768}
     assert "batch_tokens" in rft.RECIPE_PIECE_KEYS
@@ -161,12 +161,13 @@ def test_a_memorise_checkpoint_has_nowhere_to_go_under_no_memorise(tmp_path):
 def test_the_corpus_revision_is_a_full_sha(tmp_path, rev):
     """Every run of this tool writes ledger rows."""
     with pytest.raises(SystemExit, match="not a full 40-character commit sha"):
-        rft.main(["--out", str(tmp_path), "--rev", rev])
+        rft.main(["--out", str(tmp_path), "--rev", rev, "--wall-clock-cap-s", "1800"])
 
 
 def test_max_pairs_is_refused_where_the_rebuild_reads_nothing_it_bounds(tmp_path):
     with pytest.raises(SystemExit, match="would determine nothing"):
-        rft.main(["--out", str(tmp_path), "--no-repo-history", "--max-pairs", "400"])
+        rft.main(["--out", str(tmp_path), "--no-repo-history", "--max-pairs", "400",
+                  "--wall-clock-cap-s", "1800"])
 
 
 def test_ft_splits_rebuilds_through_the_pipelines_own_source_owner(monkeypatch):

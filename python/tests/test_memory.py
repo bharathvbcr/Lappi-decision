@@ -192,8 +192,11 @@ def test_every_component_sums_to_the_total_with_nothing_folded_in():
         + f.recurrent_state_bytes
         + f.safety_bytes
         + f.loss_head_bytes
+        + f.step_transient_bytes
     )
-    assert f.total_bytes == f.static_bytes + f.dynamic_bytes + f.loss_head_bytes
+    assert f.total_bytes == (
+        f.static_bytes + f.dynamic_bytes + f.loss_head_bytes + f.step_transient_bytes
+    )
 
 
 # --- the dynamic term --------------------------------------------------------------------
@@ -282,6 +285,25 @@ def test_a_step_that_does_not_fit_is_refused_with_the_arithmetic_in_the_message(
     assert "bucket width 34,522" in message
     assert "optimizer state" in message, "the breakdown must be in the refusal, not a total"
     assert "ARITHMETIC, not a measurement" in message, "rule 5 travels with the number"
+
+
+def _refusal_text(**kw) -> str:
+    f = estimate_step(
+        M, rows=1, width=34_522, vocab_size=REMAP_VOCAB,
+        activations=ActivationModel(recompute="none"), **BF16,
+    )
+    with pytest.raises(MemoryRefused) as excinfo:
+        refuse_unless_it_fits(f, device_bytes=96 * GB, where="w", **kw)
+    return str(excinfo.value)
+
+
+def test_the_usable_fraction_caveat_names_gh200_unless_the_device_is_one():
+    """DEVICE_USABLE_FRACTION was measured on a GH200 only (Fable Q11, 2026-10-18)."""
+    said = "fraction measured on GH200 only"
+    assert said in _refusal_text()  # an unnamed device has not been shown to be the GH200
+    assert said in _refusal_text(device_name="NVIDIA H100 80GB HBM3")
+    assert said not in _refusal_text(device_name="NVIDIA GH200 480GB")
+    assert "94%" in _refusal_text(device_name="NVIDIA GH200 480GB")
 
 
 def test_a_step_that_fits_is_not_refused():
@@ -502,7 +524,11 @@ def test_the_capacity_answer_is_an_upper_bound_not_a_launch_target():
     gib = 1024 ** 3
     usable_bytes = int(91.42 * gib)  # what mem_get_info reported free on the measured box
     # (width, rows the device fitted, rows this function admits at that free figure)
-    measured = ((34_522, 8, 9), (8_192, 36, 38))
+    # Pre-fix this was ((34_522, 8, 9), (8_192, 36, 38)) and asserted the overshoot. The
+    # step transient and DEVICE_USABLE_FRACTION (2026-10-17, test_memory_upper_bound.py)
+    # retired it: the predictor now admits 8 and 34, never above what the device fitted.
+    # The 2 rows short at 8,192 are the price of a bound derived from two shapes.
+    measured = ((34_522, 8, 8), (8_192, 36, 34))
     for width, fitted, admitted in measured:
         positions = max_positions_that_fit(
             M, device_bytes=usable_bytes, width=width, optimizer=ADAMW_BF16,
@@ -510,14 +536,12 @@ def test_the_capacity_answer_is_an_upper_bound_not_a_launch_target():
         )
         predicted_rows = positions // width
         assert predicted_rows == admitted, (
-            f"width {width}: the predictor admits {predicted_rows} row(s), and the "
-            f"measurement recorded {admitted} against a device that fitted {fitted}. "
-            "If this changed, re-run tools/gh200_rows.py and update the measurement rather "
-            "than this number"
+            f"width {width}: the predictor admits {predicted_rows} row(s), expected "
+            f"{admitted} against a device that fitted {fitted}. If this changed, re-run "
+            "tools/gh200_rows.py and update the measurement rather than this number"
         )
-        assert predicted_rows > fitted, (
-            f"width {width}: the predictor no longer overshoots. That would be good news, "
-            "but it has to be measured on a device rather than asserted here"
+        assert predicted_rows <= fitted, (
+            f"width {width}: the predictor admits more rows than the device fitted"
         )
 
 

@@ -56,6 +56,10 @@ QUEUE = Path(os.environ.get("QD_V5_QUEUE_DIR", str(REPO / "campaign" / "post-f-q
 PREREG = REPO / "campaign" / "v5-preregistered.json"
 NOUL = REPO / "campaign" / "v4-noul-v3b-preregistered.json"
 BASH = "/bin/bash"
+#: post_f_common.sh and v5_common.sh refuse to load outside tools/campaign_driver.py (they
+#: source tools/require_driver.sh); every shell these tests start is standing in for a unit the
+#: driver started, and says so the way the driver does.
+UNDER_DRIVER = {"CAMPAIGN_DRIVER_RUN": "test"}
 WAITERS = ("box_q_v5.sh", "box_q_v5traj.sh")
 V5_FILES = (*WAITERS, "v5_common.sh")
 #: The GH200's sequential waiters, replaced by the lanes (their bodies are v5_common.sh's
@@ -171,7 +175,8 @@ def bash(script: str, *, env_path: str = PATH, timeout: float = 60) -> subproces
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={"PATH": env_path, "HOME": os.environ.get("HOME", "/tmp"), "LC_ALL": "C"},
+        env={"PATH": env_path, "HOME": os.environ.get("HOME", "/tmp"), "LC_ALL": "C",
+             **UNDER_DRIVER},
         check=False,
     )
 
@@ -1530,7 +1535,7 @@ def hold_lane_lock(tmp: Path, lane: str, tag: str, fakebin: Path) -> subprocess.
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        env={"PATH": f"{fakebin}:{PATH}", "HOME": str(tmp), "LC_ALL": "C"},
+        env={"PATH": f"{fakebin}:{PATH}", "HOME": str(tmp), "LC_ALL": "C", **UNDER_DRIVER},
     )
 
 
@@ -2165,7 +2170,9 @@ class Box:
         for src in QUEUE.glob("*.sh"):
             text = src.read_text(encoding="utf-8").replace("/home/ubuntu", str(root))
             (root / "post-f" / src.name).write_text(text, encoding="utf-8")
-        common = (root / "post-f" / "post_f_common.sh").read_text(encoding="utf-8")
+        # The box deploys the driver guard beside post_f_common.sh, which sources it.
+        shutil.copy(REPO / "tools" / "require_driver.sh", root / "post-f" / "require_driver.sh")
+        common =(root / "post-f" / "post_f_common.sh").read_text(encoding="utf-8")
         backbone = re.search(r"^BACKBONE=(.*)$", common, re.M)[1]
         tok = Path(backbone) / "tokenizer.json"
         tok.parent.mkdir(parents=True)
@@ -2242,7 +2249,10 @@ class Box:
 
     @property
     def env(self) -> dict[str, str]:
-        return {"PATH": f"{self.root}/fakebin:{PATH}", "HOME": str(self.root), "LC_ALL": "C"}
+        return {
+            "PATH": f"{self.root}/fakebin:{PATH}", "HOME": str(self.root), "LC_ALL": "C",
+            **UNDER_DRIVER,
+        }
 
     def popen(self, waiter: str, *args: str) -> subprocess.Popen:
         return subprocess.Popen(

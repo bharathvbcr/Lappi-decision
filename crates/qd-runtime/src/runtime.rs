@@ -239,6 +239,18 @@ impl Runtime {
             .map_err(|e| BackendError::Unavailable {
                 detail: format!("calibration table rejected: {e}"),
             })?;
+        let declared = &backend.identity().calibration_hash;
+        let table_hash = calibration.hash();
+        if *declared != table_hash {
+            return Err(BackendError::Unavailable {
+                detail: format!(
+                    "backend `{}` declares calibration_hash {declared}; the table this runtime \
+                     would calibrate with is {table_hash}. The identity `status` reports and the \
+                     table `expect.calibration_hash` pins must name the same table",
+                    backend.identity().name
+                ),
+            });
+        }
         let degraded = !backend.identity().is_model;
         Ok(Self {
             backend,

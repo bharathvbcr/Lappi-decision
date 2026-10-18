@@ -81,7 +81,7 @@ def test_the_plan_seed_is_the_training_seed_only_under_the_flag():
 
 
 _OFF = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-        "permutation": None, "replay": None}
+        "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
 
 
 def test_the_recipe_names_the_constant_only_when_the_flag_is_given():
@@ -168,7 +168,8 @@ def test_arm_2_trains_each_seed_on_its_own_plans_cut(corpus, tmp_path):  # noqa:
     width = min(int(p.width) for p in reader._plan(batch_tokens=tokens, seed=0, epoch=0))
     ledger = tmp_path / "m.jsonl"
     argv = [
-        "--out", str(corpus.out), "--rev", REV, "--devices", "cpu", "--seeds", "0", "1",
+        "--out", str(corpus.out), "--wall-clock-cap-s", "1800",
+        "--rev", REV, "--devices", "cpu", "--seeds", "0", "1",
         "--passes", "1", "--ledger", str(ledger), "--batch-order", "seed",
         "--max-width", str(width),
     ]

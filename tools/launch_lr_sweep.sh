@@ -17,6 +17,7 @@
 #
 # 3e-3 is the rate every arm so far used and is included as the control point, not assumed.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py

@@ -51,7 +51,11 @@ from pathlib import Path
 from typing import Any, Final
 
 from qd_data.config import DataConfig
-from qd_data.fingerprint import code_fingerprint
+from qd_data.fingerprint import (
+    CONTAINMENT_FINGERPRINT_VERSION,
+    code_fingerprint,
+    containment_code_fingerprint,
+)
 from qd_data.rows import DataRow
 from qd_data.split import SplitReport, planned_split
 
@@ -106,14 +110,33 @@ class Exclusions:
     attestation: Mapping[str, Any]
 
 
+#: The corpus keys of the ``qd_data`` fingerprint: its sha256, and the rule that produced it
+#: (``qd_data.fingerprint.CONTAINMENT_FINGERPRINT_VERSION``). A corpus that carries no version
+#: was named under rule 1, every ``qd_data`` module, and stays checked by it.
+QD_DATA_FINGERPRINT_KEY: Final[str] = "qd_data_fingerprint_sha256"
+QD_DATA_FINGERPRINT_VERSION_KEY: Final[str] = "qd_data_fingerprint_version"
+
+
+def _digest(fingerprint: Mapping[str, str]) -> str:
+    return hashlib.sha256(json.dumps(fingerprint, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def containment_corpus(identity: Mapping[str, object]) -> dict[str, object]:
     """What a containment attestation names as its corpus: ``identity`` (what ``ft_splits``
     was called with, ``real_tokenizer_pipeline.corpus_identity``) plus the sha256 of the
     ``qd_data`` sources that turned it into rows. The second is not optional: a ``qd_data``
     change (v5's CLINC re-keying) moves rows between splits without changing any input the
-    first names."""
-    fingerprint = json.dumps(code_fingerprint(), sort_keys=True).encode("utf-8")
-    return {**identity, "qd_data_fingerprint_sha256": hashlib.sha256(fingerprint).hexdigest()}
+    first names.
+
+    Rule 2 hashes only :data:`~qd_data.fingerprint.CONTAINMENT_CONTENT_MODULES`, the import
+    closure of this module's ``qd_data`` imports, and says so in
+    ``qd_data_fingerprint_version``; rule 1 hashed every module, so an edit to a module no
+    containment scan reads voided every attestation."""
+    return {
+        **identity,
+        QD_DATA_FINGERPRINT_KEY: _digest(containment_code_fingerprint()),
+        QD_DATA_FINGERPRINT_VERSION_KEY: CONTAINMENT_FINGERPRINT_VERSION,
+    }
 
 
 def _deciding(corpus: Mapping[str, object]) -> dict[str, object]:
@@ -133,8 +156,20 @@ def _deciding(corpus: Mapping[str, object]) -> dict[str, object]:
 def corpus_matches(attested: object, built: Mapping[str, object]) -> bool:
     """Whether an attestation's ``corpus`` names the corpus this build reads: equal once each
     side drops what decides no row (:func:`_deciding`). Every other key, and ``max_pairs``
-    wherever it bounds a row, must be equal."""
-    return isinstance(attested, Mapping) and _deciding(attested) == _deciding(built)
+    wherever it bounds a row, must be equal.
+
+    The ``qd_data`` fingerprint is compared by the rule the attestation names. One that names
+    none is rule 1 (every module): ``built`` is re-fingerprinted that way, so a rule-1
+    attestation keeps meaning what it attested and is never read under the narrower list."""
+    if not isinstance(attested, Mapping):
+        return False
+    if (
+        QD_DATA_FINGERPRINT_VERSION_KEY not in attested
+        and QD_DATA_FINGERPRINT_VERSION_KEY in built
+    ):
+        built = {k: v for k, v in built.items() if k != QD_DATA_FINGERPRINT_VERSION_KEY}
+        built[QD_DATA_FINGERPRINT_KEY] = _digest(code_fingerprint())
+    return _deciding(attested) == _deciding(built)
 
 
 def _keys_of(path: Path, raw: bytes) -> list[str]:

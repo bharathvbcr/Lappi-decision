@@ -14,6 +14,7 @@ that did it prints.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -122,7 +123,8 @@ def _run(monkeypatch, tmp_path, capsys, *, score: bool, val_labels, ood_labels=(
     backbone.mkdir(exist_ok=True)
     if tokenizer:
         (backbone / "tokenizer.json").write_text("{}", encoding="utf-8")
-    argv = ["--out", str(tmp_path), "--rev", "0" * 40, "--no-repo-history",
+    argv = ["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+            "--rev", "0" * 40, "--no-repo-history",
             "--real-backbone", str(backbone), "--score-val", "--devices", "cpu"]
     if score and plan:
         plan_json = tmp_path / "plan.json"
@@ -302,5 +304,15 @@ def test_labels_render_each_row_once_and_label_as_before(monkeypatch):
 
     monkeypatch.setattr(shards, "render", counting)
     monkeypatch.setattr(rft, "render", counting, raising=False)
-    assert rft._labels(rows, config=config) == want
+    got_labels, got_excluded = rft._labels(rows, config=config)
+    # W4-a (span null in FT rows) added `line_first_bytes` to span labels on purpose; the
+    # reference is 73bcf12's _labels, which has no such field. Every field 73bcf12 had must
+    # still be exactly as before, and the new one must be present exactly where it is meant to be.
+    assert ([dataclasses.replace(lb, line_first_bytes=None) for lb in got_labels], got_excluded) \
+        == want
+    for lb in got_labels:
+        if lb.slot_kind == SLOT_SPAN:
+            assert lb.line_first_bytes, f"{lb.row_id}: a span label carries no candidate lines"
+        else:
+            assert lb.line_first_bytes is None, f"{lb.row_id}: a letter label carries lines"
     assert len(renders) == len(rows)

@@ -1,0 +1,6 @@
+# gaps.jsonl is append-only, one JSON record per line, written by many lanes at once. Git's
+# built-in union driver keeps every line from both sides of a merge instead of conflicting;
+# python/tests/test_gaps_ledger.py still checks every line parses and every cited id exists.
+# ledger/*.jsonl is deliberately NOT here: its rows are hash-chained, and a line union would
+# merge two chains into one file that no longer verifies.
+gaps.jsonl merge=union

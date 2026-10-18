@@ -26,6 +26,15 @@
 # them at deploy time (HANDOFF/v5-2gpu-queue-2026-10-03.md, "Deploy"), stages the filled copy and
 # records its sha256. Never edit this file while a waiter that sources it runs.
 
+# Sourced by the waiters that start the v5 block's paid GPU work: refuse unless
+# tools/campaign_driver.py started it (see post_f_common.sh, which does the same, and which
+# explains where the guard is found).
+_qd_rd=$(dirname "${BASH_SOURCE[0]}")
+[ -r "$_qd_rd/require_driver.sh" ] || _qd_rd=$_qd_rd/../../tools
+# shellcheck source=../../tools/require_driver.sh
+. "$_qd_rd/require_driver.sh" || exit 78
+unset _qd_rd
+
 # The v5 rules build at a new path, built for the box's x86_64.
 RULES_V5=/home/ubuntu/bin/qd-post-f-rules-v5
 RULES_V5_SHA256=UNSET

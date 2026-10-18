@@ -32,13 +32,13 @@ def test_a_run_with_every_piece_off_adds_no_recipe_key():
     """So its recipe_hash is exactly what the rows before the pieces existed hashed to."""
     assert rft._recipe_pieces(
         lower_layers_n=0, lower_lr_scale=1.0, beta2=rft.DEFAULT_BETA2,
-        permutation=None, replay=None,
+        permutation=None, replay=None, cap_s=rft.WALL_CLOCK_CAP_S,
     ) == {}
 
 
 def test_fused_adamw_lands_in_the_recipe_only_when_on():
     pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-              "permutation": None, "replay": None}
+              "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
     assert rft._recipe_pieces(**pieces, fused_adamw=False) == {}
     assert rft._recipe_pieces(**pieces, fused_adamw=True) == {"optimizer_fused": True}
 
@@ -61,7 +61,7 @@ def test_fused_adamw_without_the_master_recipe_is_refused(backbone, optimizer):
 
 def test_selective_checkpointing_lands_in_the_recipe_only_when_on():
     pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-              "permutation": None, "replay": None}
+              "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
     assert rft._recipe_pieces(**pieces, checkpoint_skip_layers=0) == {}
     assert rft._recipe_pieces(**pieces, checkpoint_skip_layers=6) == {
         "checkpoint_skip_layers": 6
@@ -126,7 +126,7 @@ def test_each_piece_that_is_on_lands_in_the_recipe_under_a_mirrored_key(tmp_path
         lower_layers_n=8, lower_lr_scale=0.1, beta2=0.95,
         permutation=ChoicePermutation(seed=5, letter_ids={}, noul_id=0,
                                       line_end_ids=frozenset()),
-        replay=replay,
+        replay=replay, cap_s=rft.WALL_CLOCK_CAP_S,
     )
     assert pieces == {
         "lower_layers_n": 8, "lower_lr_scale": 0.1, "beta2": 0.95,
@@ -169,7 +169,7 @@ def test_training_without_the_mask_lands_in_the_recipe_only_when_on():
     """The padding mask is what every row so far trained with, so it adds nothing; dropping
     it is a Tier-B change and names itself on the ft row and every row scored after it."""
     pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
-              "permutation": None, "replay": None}
+              "permutation": None, "replay": None, "cap_s": rft.WALL_CLOCK_CAP_S}
     assert rft._recipe_pieces(**pieces, train_attention_mask="padding") == {}
     assert rft._recipe_pieces(**pieces, train_attention_mask="none") == {
         "train_attention_mask": "none"
@@ -187,7 +187,7 @@ def test_train_refuses_the_no_mask_switch_on_the_stand_in():
             reader=None, plan=[SimpleNamespace(tokens=np.zeros((1, 4), dtype=np.int32))],
             passes=1, device="cpu", seed=0, hidden=8, heads=1, lr=1e-3, span_weight=1.0,
             ledger=None, tag="t", quick_reasons=(), evaluate_plan=False,
-            train_attention_mask="none",
+            train_attention_mask="none", cap_s=rft.WALL_CLOCK_CAP_S,
         )
 
 
@@ -195,7 +195,8 @@ def test_the_no_mask_switch_with_replay_is_refused_at_argv_time(tmp_path):
     """Replay's KL term runs its own forward through `hidden()`, which keeps the mask, so the
     switch would cover only part of training while the recipe claimed all of it."""
     with pytest.raises(SystemExit, match="--replay-shards"):
-        rft.main(["--out", str(tmp_path), "--real-backbone", str(tmp_path),
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+                  "--real-backbone", str(tmp_path),
                   "--train-attention-mask", "none", "--replay-shards", str(tmp_path)])
 
 
@@ -222,13 +223,13 @@ def test_piece_flags_that_would_determine_nothing_are_refused_at_argv_time(
     tmp_path, flags, match
 ):
     with pytest.raises(SystemExit, match=match):
-        rft.main(["--out", str(tmp_path), *flags])
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800", *flags])
 
 
 def test_replay_needs_the_epoch_arm_and_a_positive_weight(tmp_path):
     attestation = tmp_path / "att.json"
     attestation.write_text("{}")
-    base = ["--out", str(tmp_path), "--replay-shards", str(tmp_path),
+    base = ["--out", str(tmp_path), "--wall-clock-cap-s", "1800", "--replay-shards", str(tmp_path),
             "--replay-attestation", str(attestation), "--replay-cache", str(tmp_path / "c.npz")]
     with pytest.raises(SystemExit, match="epoch arm only"):
         rft.main([*base, "--replay-weight", "0.1"])
@@ -242,7 +243,7 @@ def test_an_existing_verdicts_file_is_refused_before_anything_runs(tmp_path):
     existing = tmp_path / "v.jsonl"
     existing.write_text("")
     with pytest.raises(SystemExit, match="already exists"):
-        rft.main(["--out", str(tmp_path), "--epoch", "--score-val",
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800", "--epoch", "--score-val",
                   "--verdicts-out", str(existing)])
 
 
@@ -381,7 +382,8 @@ def _spy_main(tmp_path, monkeypatch, *extra: str) -> tuple[list[dict], object, o
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: None)
     with pytest.raises(_Stop) as got:
-        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", rev, *extra])
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+                  "--max-pairs", "7", "--rev", rev, *extra])
     return calls, got.value.args[0], sentinel_train
 
 

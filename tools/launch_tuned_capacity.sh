@@ -17,6 +17,7 @@
 # width-512 arm at 1e-4 already exists in gh200-lr-sweep-2026-09-22.jsonl and is not rerun;
 # it is the third point of the comparison and carries the same recipe.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py

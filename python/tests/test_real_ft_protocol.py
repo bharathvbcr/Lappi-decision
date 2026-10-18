@@ -410,7 +410,7 @@ def test_an_interval_without_a_destination_is_refused(tmp_path) -> None:
     is not: the first only finds out when it is killed."""
     with pytest.raises(SystemExit, match="nowhere to write"):
         real_ft_main([
-            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--wall-clock-cap-s", "1800",
             "--checkpoint-every", "10",
         ])
 
@@ -420,7 +420,7 @@ def test_a_destination_without_an_interval_is_refused(tmp_path) -> None:
     empty, which looks like a run that had nothing worth saving."""
     with pytest.raises(SystemExit, match="would never"):
         real_ft_main([
-            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--wall-clock-cap-s", "1800",
             "--checkpoint-dir", str(tmp_path / "ck"),
         ])
 
@@ -432,7 +432,7 @@ def test_resume_needs_a_step_that_can_restore_and_a_file_that_exists(tmp_path) -
         ])
     with pytest.raises(SystemExit, match="does not exist"):
         real_ft_main([
-            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--wall-clock-cap-s", "1800",
             "--resume-from", str(tmp_path / "nope.json"),
         ])
 
@@ -443,9 +443,11 @@ def test_the_control_carries_the_interval_into_the_loop(tmp_path) -> None:
     changed nothing."""
     from real_ft_run import _control
 
-    assert _control(100, device="cpu", lr=1e-5).checkpoint_every == 0
     assert _control(
-        100, device="cpu", lr=1e-5, checkpoint_every=25
+        100, device="cpu", lr=1e-5, cap_s=1800.0
+    ).checkpoint_every == 0
+    assert _control(
+        100, device="cpu", lr=1e-5, checkpoint_every=25, cap_s=1800.0
     ).checkpoint_every == 25
 
 
@@ -521,6 +523,7 @@ def test_a_checkpoint_is_refused_when_this_run_has_no_cell_for_it(tmp_path) -> N
     ckpt = tmp_path / "memorise-seed3-cuda.json"
     ckpt.write_text("{}", encoding="utf-8")
     common = ["--out", str(tmp_path), "--real-backbone", str(tmp_path),
+              "--wall-clock-cap-s", "1800",
               "--resume-from", str(ckpt)]
 
     with pytest.raises(SystemExit, match="checkpoint from cuda"):
@@ -532,7 +535,7 @@ def test_a_checkpoint_is_refused_when_this_run_has_no_cell_for_it(tmp_path) -> N
     epoch_ckpt.write_text("{}", encoding="utf-8")
     with pytest.raises(SystemExit, match="--epoch was not passed"):
         real_ft_main([
-            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--wall-clock-cap-s", "1800",
             "--resume-from", str(epoch_ckpt), "--devices", "cpu", "--seeds", "1",
         ])
 
@@ -646,12 +649,12 @@ def test_a_cuda_run_without_a_price_is_refused_before_the_tower_loads(tmp_path) 
     """
     with pytest.raises(SystemExit, match="needs --instance and --usd-per-hour"):
         real_ft_main([
-            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--wall-clock-cap-s", "1800",
             "--devices", "cuda",
         ])
     with pytest.raises(SystemExit, match="needs --instance and --usd-per-hour"):
         real_ft_main([
-            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--wall-clock-cap-s", "1800",
             "--devices", "cuda", "--instance", "lambda-1xGH200",
         ])
 
@@ -662,6 +665,7 @@ def test_the_refusal_says_why_the_default_was_not_harmless(tmp_path) -> None:
     with pytest.raises(SystemExit) as excinfo:
         real_ft_main([
             "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--devices", "cuda",
+            "--wall-clock-cap-s", "1800",
         ])
     message = str(excinfo.value)
     assert "requires_human_approval" in message and "ANY cap" in message

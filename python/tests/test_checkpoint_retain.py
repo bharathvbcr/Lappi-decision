@@ -241,7 +241,7 @@ def test_a_snapshot_already_on_disk_past_the_start_is_a_clash(tmp_path):
 def test_retention_argv_is_refused_before_anything_loads(tmp_path, extra, match):
     snap = tmp_path / "epoch-seed0-cpu-step2.json"
     snap.write_text("{}", encoding="utf-8")
-    argv = ["--out", str(tmp_path), "--rev", "0" * 40] + [
+    argv = ["--out", str(tmp_path), "--rev", "0" * 40, "--wall-clock-cap-s", "1800"] + [
         a.format(d=tmp_path / "ck", snap=snap) for a in extra
     ]
     if "--seeds" not in argv:
@@ -309,7 +309,8 @@ def test_retention_keeps_the_trajectory_and_changes_nothing_that_trains(
 
     # Scored: the final snapshot is the model the ft row trained.
     common = (
-        "--out", str(corpus.out), "--rev", REV, "--devices", "cpu", "--seeds", "0",
+        "--out", str(corpus.out), "--wall-clock-cap-s", "1800",
+        "--rev", REV, "--devices", "cpu", "--seeds", "0",
         "--score-val", "--real-backbone", str(corpus.snapshot),
         "--ft-ledger", str(tmp_path / "kept.jsonl"), "--ft-row-id", kept.row_id,
         "--tokenizer-json", str(_tokenizer_json(tmp_path / "tokenizer.json")),
@@ -335,7 +336,8 @@ def test_retention_alone_needs_no_checkpoint_every_and_will_not_overwrite(
     assert _on_disk(ck) == ([2, 3], None)
     stamps = {p.name: p.stat().st_mtime_ns for p in ck.iterdir()}
     with pytest.raises(SystemExit, match="already holds 2 epoch seed 0 cpu snapshot"):
-        _main(corpus, "--out", str(corpus.out), "--rev", REV, "--devices", "cpu", "--seeds", "0",
+        _main(corpus, "--out", str(corpus.out), "--wall-clock-cap-s", "1800",
+              "--rev", REV, "--devices", "cpu", "--seeds", "0",
               "--epoch", "--no-memorise", "--ledger", str(tmp_path / "b.jsonl"),
               "--real-backbone", str(corpus.snapshot), *_TRAIN, "--checkpoint-dir", str(ck),
               "--retain-tower-every", "2")

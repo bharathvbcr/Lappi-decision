@@ -222,7 +222,8 @@ def test_main_forwards_the_pool_and_pairs_a_pool_set_by_its_index(
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: facts.append(kw))
     with pytest.raises(_Stop):
-        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", rev,
+        rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
+                  "--max-pairs", "7", "--rev", rev,
                   "--decisions-pool", str(pool)])
     assert [c["decisions_pool"] for c in calls] == [pool]
     assert [f["decisions_pool"] for f in facts] == [True]
@@ -245,6 +246,9 @@ def test_containment_scan_rebuilds_and_names_the_corpus_with_the_pool(
     monkeypatch.setattr(cs, "prep_binary", lambda: tmp_path / "qd-prep")
     monkeypatch.setattr(cs, "resolve_rev", lambda repo, rev: rev)
     with pytest.raises(_Stop):
+        # The v6 rules (the default since e0d20af) scan the benchmark splits as targets and so
+        # need --general-record's real caches; this test's subject is only that the pool reaches
+        # the split rebuild, which the legacy rules reach with no record.
         cs.main(["--out-dir", str(tmp_path / "scan"), "--rev", "a" * 40,
-                 "--decisions-pool", str(pool)])
+                 "--decisions-pool", str(pool), "--legacy-v5-data-rules"])
     assert seen == {"split": pool}
