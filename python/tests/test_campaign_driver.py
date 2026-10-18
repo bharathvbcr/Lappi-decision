@@ -9,6 +9,7 @@ tools write -- never against ``ledger/runs.jsonl``. The "Mac" is the real
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -29,8 +30,6 @@ FAKE_TOOL = '''
 import argparse, os, sys, time
 from pathlib import Path
 REPO = Path(sys.argv[1]); sys.path.insert(0, str(REPO / "python"))
-from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder
-from qd_train.tristate import NotRun, Ran
 p = argparse.ArgumentParser()
 p.add_argument("repo"); p.add_argument("--ledger", required=True)
 p.add_argument("--kind", default="ft"); p.add_argument("--seed", type=int, default=0)
@@ -47,7 +46,13 @@ if a.count:
 if a.pidfile:
     Path(a.pidfile).write_text(str(os.getpid()))
 time.sleep(a.sleep)
+# The ledger modules are imported last, after the pidfile and count are written: under machine
+# load an import can outlast a 3 s phase cap, and a unit killed before it recorded its pid left
+# the cap test reading a file that was never written. Nothing a test observes about a unit
+# depends on the order.
 if not a.no_row:
+    from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder
+    from qd_train.tristate import NotRun, Ran
     proto = Protocol(data_snapshot_hash="d" * 64, tokenizer_hash="t" * 64,
                      backbone_commit="fake", recipe_hash="r" * 64, seed=a.seed)
     with RunRecorder(Ledger(a.ledger), protocol=proto, run_kind=a.kind, repo=REPO,
@@ -108,6 +113,19 @@ def pull_once(state_dir: Path, dest: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+#: The grace window of a campaign whose Mac is pulling. ``wait_for_pull`` returns the moment
+#: ``pulled-N.ok`` appears, so this is only the bound on a pull that never comes, never a
+#: sleep. It was 3 s, which a ``sync_box.sh pull`` subprocess outlasts on a loaded machine
+#: (GAP-CAMPAIGN-DRIVER-TESTS-FAIL-UNDER-MACHINE-LOAD-2026-10-17): the driver then saw no
+#: acknowledgement and kept the box alive, which these tests read as a failed handoff.
+ACK_GRACE_MIN = 10.0
+#: The grace window of a campaign with no Mac, whose subject is that the window expires.
+NO_MAC_GRACE_MIN = 0.05
+
+#: State dirs a ``puller`` is pulling for, which ``config`` reads to choose the grace window.
+_PULLED_STATE_DIRS: set[Path] = set()
+
+
 @pytest.fixture
 def puller() -> Iterator[Callable[[Path, Path], None]]:
     """Start a background Mac puller for a campaign's state dir; stopped at teardown."""
@@ -116,10 +134,13 @@ def puller() -> Iterator[Callable[[Path, Path], None]]:
 
     def start(state_dir: Path, dest: Path) -> None:
         stop = threading.Event()
+        _PULLED_STATE_DIRS.add(state_dir)
 
         def loop() -> None:
             while not stop.is_set():
-                pull_once(state_dir, dest)
+                # A pull that outlasted its bound is retried, not the end of the Mac.
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    pull_once(state_dir, dest)
                 stop.wait(0.2)
 
         t = threading.Thread(target=loop, daemon=True)
@@ -132,6 +153,7 @@ def puller() -> Iterator[Callable[[Path, Path], None]]:
         stop.set()
     for t in threads:
         t.join(timeout=30)
+    _PULLED_STATE_DIRS.clear()
 
 
 def unit(env: dict[str, Path], name: str, *args: str, **extra: object) -> dict[str, object]:
@@ -146,7 +168,10 @@ def config(env: dict[str, Path], phases: list[dict[str, object]], **over: object
         "device": "cpu", "instance": "local-cpu", "usd_per_hour": 0.0, "n_gpus": 0,
         "campaign_cap_hours": 1.0,
         "terminate_command": ["/usr/bin/touch", str(env["term"])],
-        "pull_grace_minutes": 0.05, "pull_poll_s": 0.1,
+        "pull_grace_minutes": (
+            ACK_GRACE_MIN if env["state"] in _PULLED_STATE_DIRS else NO_MAC_GRACE_MIN
+        ),
+        "pull_poll_s": 0.1,
         "kill_grace_s": 2, "phases": phases,
     }
     cfg.update(over)
@@ -305,9 +330,10 @@ def test_a_unit_past_its_phase_cap_is_killed_with_its_process_group(
     slow = {"name": "slow", "cap_hours": 3 / 3600,
             "units": [unit(env, "sleeper", "--sleep", "600", "--pidfile", str(pidfile))]}
     path = config(env, [slow, after_phase(env)])
-    started = time.monotonic()
+    # The unit sleeps 600 s, so only the cap can end it early: left alone it exits 0 and the
+    # campaign is EXIT_DONE, not EXIT_FAILED. That outcome is the proof the cap killed it; a
+    # wall-clock bound on the run measured the machine's load as much as the driver.
     assert cd.main(["--config", str(path)]) == cd.EXIT_FAILED
-    assert time.monotonic() - started < 60
     pid = int(pidfile.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
@@ -455,8 +481,9 @@ def test_a_real_backbone_unit_must_state_its_optimizer(env: dict[str, Path]) -> 
 def test_a_trainer_unit_states_a_cap_that_fits_its_phase(
     env: dict[str, Path], cap: list[str] | None, match: str
 ) -> None:
-    """real_ft_run's own default cap is 30 minutes; a phase unit that inherited it would
-    stop there and write only quick rows. One above the phase cap never gets to end it."""
+    """real_ft_run has no default cap for a run that trains, so a phase unit that left it out
+    would be refused by the trainer on the box (or, if quick, write only quick rows). One
+    above the phase cap never gets to end it."""
     argv = ["python", "tools/real_ft_run.py", "--devices", "cpu"]
     if cap is not None:
         argv += ["--wall-clock-cap-s", *cap]
@@ -520,14 +547,54 @@ def test_no_acknowledgement_and_no_durable_copy_keeps_the_box_alive(
     assert saved["finalized"] == "kept_alive"
 
 
+@pytest.mark.parametrize(
+    ("grace_min", "code", "terminated"),
+    [
+        # The old window: shorter than the Mac's pull, so the driver saw no acknowledgement
+        # and kept the box alive -- what a loaded machine did to every puller test.
+        (NO_MAC_GRACE_MIN, cd.EXIT_KEPT_ALIVE, False),
+        (ACK_GRACE_MIN, cd.EXIT_DONE, True),
+    ],
+)
+def test_a_pull_slower_than_the_short_grace_window_is_acknowledged_in_a_long_one(
+    env: dict[str, Path], grace_min: float, code: int, terminated: bool
+) -> None:
+    """The Mac pulls only once the newest ``phase-<n>.done`` is 4 s old, a stand-in for a pull
+    on a loaded machine and deterministic where a real one is not. ``wait_for_pull`` returns
+    when the acknowledgement does, so the long window costs only those 4 s."""
+    stop = threading.Event()
+
+    def slow_mac() -> None:
+        handled = 0.0
+        while not stop.is_set():
+            written = [p.stat().st_mtime for p in (env["state"] / "sync").glob("phase-*.done")]
+            newest = max(written, default=0.0)
+            if newest > handled and time.time() - newest >= 4.0:
+                pull_once(env["state"], env["mac"])
+                handled = newest
+            stop.wait(0.1)
+
+    thread = threading.Thread(target=slow_mac, daemon=True)
+    thread.start()
+    try:
+        phase = {"name": "p", "cap_hours": 0.5, "units": [unit(env, "smoke")]}
+        path = config(env, [phase], pull_grace_minutes=grace_min)
+        assert cd.main(["--config", str(path)]) == code
+        assert env["term"].exists() is terminated
+    finally:
+        stop.set()
+        thread.join(timeout=60)
+
+
 def test_a_late_pull_then_finalize_terminates(
     env: dict[str, Path], puller: Callable[[Path, Path], None]
 ) -> None:
     cfg, state = _finish_state(env)
     assert cd.finalize(cfg, state, "done", cd.EXIT_DONE, phase="x") == cd.EXIT_KEPT_ALIVE
     puller(env["state"], env["mac"])
-    assert cd.main(["--config", str(sorted(env["root"].glob("campaign-*.json"))[-1]),
-                    "--finalize"]) == cd.EXIT_DONE
+    # The same campaign, now with a Mac: its config has the grace window of a pulled one.
+    again = config(env, [after_phase(env)])
+    assert cd.main(["--config", str(again), "--finalize"]) == cd.EXIT_DONE
     assert env["term"].exists()
 
 
@@ -606,10 +673,11 @@ def test_the_guard_stops_the_run_and_still_waits_for_the_mac(
     cd.write_state(cfg.state_dir / cd.STATE_NAME, state)
     # No Mac yet: the guard stops the unit, snapshots, waits, and keeps the box alive.
     assert cd.guard_fire(cfg) == cd.EXIT_KEPT_ALIVE
-    assert sleeper.wait(timeout=10) is not None
+    assert sleeper.wait(timeout=60) is not None
     assert not env["term"].exists()
     # The Mac comes back: a second firing (or --finalize) terminates.
     puller(env["state"], env["mac"])
+    cfg = cd.load_config(config(env, [after_phase(env)]))  # the grace window of a pulled one
     assert cd.guard_fire(cfg) == cd.EXIT_FAILED  # the campaign was capped, not completed
     assert env["term"].exists()
 
@@ -836,9 +904,18 @@ def test_the_guard_killed_the_driver_still_stops_the_unit_at_the_box_ceiling(
 ) -> None:
     """The guard is SIGKILLed as soon as it starts (and again when re-armed). The driver's
     own bound must still stop a unit that would outlast the box."""
-    t0 = time.time()
-    monkeypatch.setattr(cd, "read_uptime_s", lambda path=None: 100.0 + time.time() - t0,
-                        raising=False)
+    pidfile = env["root"] / "pid"
+    began: list[float] = []
+
+    def box_uptime(path: Path | None = None) -> float:
+        """100 s up until the unit has started, then one second per second. The box's clock
+        runs from the unit's start, so a loaded machine's slow python startup is not spent
+        out of the ~7 s the box allows: the test waits on the unit, not on a stopwatch."""
+        if not began and pidfile.exists():
+            began.append(time.time())
+        return 100.0 + (time.time() - began[0] if began else 0.0)
+
+    monkeypatch.setattr(cd, "read_uptime_s", box_uptime, raising=False)
     real_ensure = cd.ensure_guard
     killed: list[int] = []
 
@@ -852,16 +929,14 @@ def test_the_guard_killed_the_driver_still_stops_the_unit_at_the_box_ceiling(
             killed.append(pid)
 
     monkeypatch.setattr(cd, "ensure_guard", ensure_then_kill)
-    pidfile = env["root"] / "pid"
     phase = {"name": "p1", "cap_hours": 0.5,
              "units": [unit(env, "sleeper", "--sleep", "30", "--pidfile", str(pidfile))]}
-    # 100 s up at start; ceiling at 110 s, GPU work stops at 107 s: ~7 s for the unit.
+    # 100 s up at the unit's start; ceiling at 110 s, GPU work stops at 107 s: ~7 s for the unit.
     path = config(env, [phase], **box(110.0))
-    started = time.monotonic()
     cd.main(["--config", str(path)])
-    elapsed = time.monotonic() - started
+    ran = time.time() - began[0]
     assert killed, "the guard was never started"
-    assert elapsed < 25, f"the unit ran {elapsed:.0f}s; the box allowed ~7s"
+    assert ran < 25, f"the unit ran {ran:.0f}s; the box allowed ~7s"
     with pytest.raises(ProcessLookupError):
         os.kill(int(pidfile.read_text()), 0)
     numbers = json.loads((env["state"] / "BOX_CEILING").read_text())
@@ -944,7 +1019,7 @@ def test_an_uptime_lost_mid_campaign_stops_it_rather_than_reading_as_budget(
 
 
 def test_the_guard_at_the_box_ceiling_stops_the_unit_and_writes_the_numbers(
-    env: dict[str, Path], uptime: Callable[[float], Path]
+    env: dict[str, Path], uptime: Callable[[float], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = config(env, [after_phase(env)], **box(600.0))
     cfg = cd.load_config(path)
@@ -954,10 +1029,18 @@ def test_the_guard_at_the_box_ceiling_stops_the_unit_and_writes_the_numbers(
     state["running_pgid"] = sleeper.pid
     cd.write_state(cfg.state_dir / cd.STATE_NAME, state)
     uptime(5000.0)  # far past the 600 s ceiling
-    started = time.monotonic()
-    code = cd.run_guard(time.time() + 5.0, path)
-    assert time.monotonic() - started < 4.0, "the guard slept to the campaign deadline"
-    assert sleeper.wait(timeout=10) is not None
+    # The deadline is an hour away, so any sleep toward it is far longer than the pull wait's
+    # poll. Asserting on what the guard asked to sleep, not on how long a loaded machine took
+    # to run the stop (a wall-clock bound of 4 s, which load outlasts), keeps this about the
+    # guard: at the ceiling it must fire without sleeping at all toward the deadline.
+    slept: list[float] = []
+    real_sleep = cd._sleep
+    monkeypatch.setattr(cd, "_sleep", lambda s: (slept.append(s), real_sleep(s))[1])
+    code = cd.run_guard(time.time() + 3600.0, path)
+    assert max(slept, default=0.0) <= cfg.pull_poll_s, (
+        f"the guard slept toward the campaign deadline: {slept}"
+    )
+    assert sleeper.wait(timeout=60) is not None
     numbers = json.loads((env["state"] / "BOX_CEILING").read_text())
     assert numbers["who"] == "guard" and numbers["spend_usd"] == pytest.approx(5000.0)
     assert code == cd.EXIT_KEPT_ALIVE and not env["term"].exists()
@@ -1092,7 +1175,10 @@ def test_a_box_with_a_different_gpu_count_than_declared_is_refused_before_any_un
     env: dict[str, Path], monkeypatch: pytest.MonkeyPatch, uptime: Callable[[float], Path]
 ) -> None:
     no_guard(monkeypatch)
-    fake_smi(env, monkeypatch, "echo 'GPU 0: NVIDIA H100 (UUID: a)'; echo 'GPU 1: NVIDIA H100 (UUID: b)'")
+    fake_smi(
+        env, monkeypatch,
+        "echo 'GPU 0: NVIDIA H100 (UUID: a)'; echo 'GPU 1: NVIDIA H100 (UUID: b)'",
+    )
     path = config(env, [after_phase(env)], **cuda_box(1))
     with pytest.raises(SystemExit, match=r"box shows 2 GPU\(s\) but the config declares n_gpus=1"):
         cd.main(["--config", str(path)])
