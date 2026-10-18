@@ -69,10 +69,13 @@ impl Mt19937 {
         y ^ (y >> 18)
     }
 
-    /// `uniform_real_distribution<float>(from, to)`: 24 mantissa bits of one 32-bit draw.
+    /// `uniform_real_distribution<float>(from, to)` as ATen's `transformation::uniform_real`
+    /// evaluates it: 24 mantissa bits of one 32-bit draw, scaled in `dist_acctype<float>`, which
+    /// is double on CPU. `to - from` is a float subtraction (both operands are `T`); the product
+    /// and the sum are double, and the result is rounded to float once.
     fn uniform_f32(&mut self, from: f32, to: f32) -> f32 {
-        let x = (self.next_u32() & 0x00ff_ffff) as f32 * (1.0 / 16_777_216.0f32);
-        x * (to - from) + from
+        let x = f64::from(self.next_u32() & 0x00ff_ffff) * (1.0 / 16_777_216.0f64);
+        (x * f64::from(to - from) + f64::from(from)) as f32
     }
 }
 
