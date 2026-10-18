@@ -19,6 +19,7 @@
 # $20 single-GPU threshold in CLAUDE.md rule 4, so no human sign-off is required -- and the
 # wall-clock cap is passed anyway rather than relying on that.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py

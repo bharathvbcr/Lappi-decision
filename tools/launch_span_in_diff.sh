@@ -33,6 +33,7 @@
 # 4 heads, lr 3e-4. Cost: 2 arms x 8 seeds at ~92s, about 30 minutes, roughly $0.75 on one
 # GH200 -- well under the $20 line in rule 4.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py

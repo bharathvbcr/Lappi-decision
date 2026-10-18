@@ -64,6 +64,7 @@
 # first run's ledger would pool them: sixteen "seeds" where eight exist, with the spread
 # understated and not_run margins mixed in beside the measured ones.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/require_driver.sh"
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py
