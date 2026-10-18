@@ -25,8 +25,13 @@ REPO = Path(__file__).resolve().parents[2]
 MAKEFILE = REPO / "Makefile"
 LOCK = REPO / "upstream.lock.json"
 TIMEOUT_S = 600
-LOCKED = "04277f8fc722f02dbbbb7ad8cbe93d540876ba7c"
+# Read from the lock so a bump does not edit this file. It is not a tautology: the committed lock
+# is only ever compared with a sibling this test builds, and
+# `test_a_lock_that_disagrees_with_the_sibling_fails` pins that a mismatch is caught.
+LOCKED = json.loads(LOCK.read_text())["ojas"]["revision"]
 OTHER = "0123456789abcdef0123456789abcdef01234567"
+if OTHER == LOCKED:  # pragma: no cover - the fixture sha must differ from the lock
+    OTHER = "fedcba9876543210fedcba9876543210fedcba98"
 
 
 def _make(*args: str) -> subprocess.CompletedProcess[str]:
@@ -62,6 +67,93 @@ def test_the_committed_lock_names_a_full_commit():
     assert lock["ojas"]["revision"] == LOCKED
 
 
+def _git(cwd: Path, *args: str) -> str:
+    proc = subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+        cwd=str(cwd), capture_output=True, text=True, timeout=TIMEOUT_S, check=True,
+    )
+    return proc.stdout.strip()
+
+
+def _real_pin(tmp_path: Path, *, report: bool = True) -> tuple[Path, str]:
+    """A real one-commit sibling, a lock naming its HEAD and an AUDIT dir; returns the make args.
+
+    Returns ``(sibling, args)``: the args are `OJAS_DIR=`, `PIN_LOCK=` and `PIN_AUDIT=` overrides.
+    """
+    sibling = tmp_path / "ojas"
+    sibling.mkdir()
+    _git(sibling, "init", "-q")
+    (sibling / "lib.rs").write_text("fn a() {}\n")
+    _git(sibling, "add", "lib.rs")
+    _git(sibling, "commit", "-q", "-m", "one")
+    sha = _git(sibling, "rev-parse", "HEAD")
+    lock = tmp_path / "lock.json"
+    lock.write_text(json.dumps({"schema_version": 1, "ojas": {"url": "u", "revision": sha}}))
+    audit = tmp_path / "AUDIT"
+    audit.mkdir()
+    if report:
+        report_dir = audit / f"ojas-pin-{sha[:7]}-2026-10-17"
+        report_dir.mkdir()
+        (report_dir / "delta-report.md").write_text("delta\n")
+    return sibling, f"OJAS_DIR={sibling}\0PIN_LOCK={lock}\0PIN_AUDIT={audit}"
+
+
+def _make_pin(args: str) -> subprocess.CompletedProcess[str]:
+    return _make("pin", *args.split("\0"))
+
+
+def test_a_clean_pinned_sibling_with_a_delta_report_passes(tmp_path):
+    _, args = _real_pin(tmp_path)
+    proc = _make_pin(args)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "pin PASS" in proc.stdout, proc.stdout
+
+
+def test_a_sibling_with_a_modified_tracked_file_fails_and_names_it(tmp_path):
+    sibling, args = _real_pin(tmp_path)
+    (sibling / "untracked.txt").write_text("not in HEAD\n")
+    assert _make_pin(args).returncode == 0, "an untracked file must not fail the pin"
+    (sibling / "lib.rs").write_text("fn changed() {}\n")
+    proc = _make_pin(args)
+    assert proc.returncode != 0, "a dirty sibling passed the pin gate"
+    assert "pin FAILED" in proc.stdout and "lib.rs" in proc.stdout, proc.stdout
+    assert "untracked.txt" not in proc.stdout, proc.stdout
+    assert "pin PASS" not in proc.stdout, proc.stdout
+
+
+def test_a_pin_without_a_delta_report_fails(tmp_path):
+    _, args = _real_pin(tmp_path, report=False)
+    proc = _make_pin(args)
+    assert proc.returncode != 0, "a pin with no delta report passed the gate"
+    assert "pin FAILED" in proc.stdout and "delta-report.md" in proc.stdout, proc.stdout
+    assert "pin PASS" not in proc.stdout, proc.stdout
+
+
+def test_a_lock_that_disagrees_with_the_sibling_fails(tmp_path):
+    # The guard against LOCKED being read from the lock: a mismatch must still be caught.
+    sibling, _ = _real_pin(tmp_path)
+    other_lock = tmp_path / "other.json"
+    lock = {"schema_version": 1, "ojas": {"url": "u", "revision": OTHER}}
+    other_lock.write_text(json.dumps(lock))
+    audit = tmp_path / "AUDIT"
+    proc = _make("pin", f"OJAS_DIR={sibling}", f"PIN_LOCK={other_lock}", f"PIN_AUDIT={audit}")
+    assert proc.returncode != 0 and "pin FAILED" in proc.stdout, proc.stdout
+
+
+def test_the_committed_pin_has_a_delta_report_or_a_cited_allowance():
+    reports = list((REPO / "AUDIT").glob(f"ojas-pin-{LOCKED[:7]}-*/delta-report.md"))
+    allowance = (REPO / "crates/qd-preflight/src/pin.rs").read_text()
+    assert reports or LOCKED in allowance, f"upstream.lock.json pins {LOCKED} with no delta report"
+
+
+def test_a_sibling_git_cannot_read_is_notrun_never_a_pass(tmp_path):
+    # HEAD matches the lock but `git status` cannot run: not a pass.
+    sibling = _sibling(tmp_path, LOCKED)
+    proc = _make("pin", f"OJAS_DIR={sibling}")
+    assert proc.returncode != 0, proc.stdout
+    assert "pin NotRun" in proc.stdout and "pin PASS" not in proc.stdout, proc.stdout
+
+
 def test_the_pin_target_runs_qd_pin_against_the_lock_and_the_sibling():
     recipe = _dry_run("pin")
     assert "qd-pin" in recipe, f"`make pin` does not run qd-pin:\n{recipe}"
@@ -72,12 +164,6 @@ def test_the_pin_target_runs_qd_pin_against_the_lock_and_the_sibling():
 def test_make_gates_runs_the_pin_gate():
     recipe = _dry_run("gates")
     assert "qd-pin" in recipe, f"`make gates` never runs the pin gate:\n{recipe}"
-
-
-def test_a_sibling_at_the_locked_commit_passes(tmp_path):
-    proc = _make("pin", f"OJAS_DIR={_sibling(tmp_path, LOCKED)}")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "pin PASS" in proc.stdout, proc.stdout
 
 
 def test_a_sibling_at_another_commit_fails_and_names_both(tmp_path):
