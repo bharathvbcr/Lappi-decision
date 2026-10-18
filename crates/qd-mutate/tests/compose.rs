@@ -1083,37 +1083,75 @@ fn a_prior_source_record_last_in_the_pool_still_refuses_the_whole_run_with_no_ou
 
 /// Pinned from the binary built at main@94b9d0d, before `--single-version-records` existed: the
 /// commit-pool path (prior_source present, no flag) must compose these exact bytes.
-///
-/// Re-pinned 2026-10-18 (W4-d) when every row gained `cluster_key` and the manifest gained
-/// `function_cap`: the old pins named bytes that no longer carry the key, by design. The new
-/// values are what the binary at that commit wrote (mac_heavy run, build/w4d-cargo.log), not an
-/// independent derivation; the test still catches any later drift.
 const COMMIT_PATH_EXAMPLES_SHA256: &str =
-    "5ed4d179054401833eda2fe1f4f270c832761c1f69ec0558e82faf003ad79cd6";
+    "547c92c79c5e1b15324a0cef09184e013181acd4aad3d7c1f7db2d26789cc246";
 const COMMIT_PATH_MANIFEST_SHA256: &str =
-    "a5a5e062543297c8b0e65bad38aa9f881cb0738bde5556cc57ae98b2a5212b42";
+    "c56435327bbe801ef86db56ad84f4da283491ab44d0ee76084f33053b68441f0";
 
 #[test]
 fn the_commit_pool_compose_path_is_byte_identical_to_the_pre_change_binary() {
     let f = fixture("commit-path-pin");
     let out = f.dir.join("out");
     ok(&compose_args(&f, &out, &f.aux));
-    let examples = sha256_hex(&std::fs::read(out.join("examples.jsonl")).expect("read"));
-    let manifest = sha256_hex(&std::fs::read(out.join("manifest.json")).expect("read"));
-    assert_eq!(
-        (examples.as_str(), manifest.as_str()),
-        (COMMIT_PATH_EXAMPLES_SHA256, COMMIT_PATH_MANIFEST_SHA256)
-    );
+    let read = |p: &Path| std::fs::read_to_string(p).expect("read");
+
+    // The only intended additions since the pin: `cluster_key` on every row of the composed
+    // corpus and of the two corpora it reads. Strip exactly that, assert it was there, and the
+    // bytes must be the pinned ones.
+    let (rows, row_keys) = strip_cluster_keys(&read(&out.join("examples.jsonl")));
+    let (base, base_keys) = strip_cluster_keys(&read(&f.corpus.join("examples.jsonl")));
+    let (aux, aux_keys) = strip_cluster_keys(&read(&f.aux.join("examples.jsonl")));
+    assert!(row_keys > 0 && base_keys > 0 && aux_keys > 0);
+    assert_eq!(sha256_hex(rows.as_bytes()), COMMIT_PATH_EXAMPLES_SHA256);
+
+    // The manifest names three digests that follow from those rows. Each is replaced by the
+    // digest of the stripped bytes it describes; nothing else in the manifest is touched, and
+    // the compose manifest has no `function_cap` (that block is the generator's).
+    let mut manifest = read(&out.join("manifest.json"));
+    for (now, stripped) in [
+        (sha256_hex(read(&out.join("examples.jsonl")).as_bytes()), &rows),
+        (sha256_hex(read(&f.corpus.join("examples.jsonl")).as_bytes()), &base),
+        (sha256_hex(read(&f.aux.join("examples.jsonl")).as_bytes()), &aux),
+    ] {
+        assert!(manifest.contains(&now), "the manifest does not name {now}");
+        manifest = manifest.replace(&now, &sha256_hex(stripped.as_bytes()));
+    }
+    assert_eq!(sha256_hex(manifest.as_bytes()), COMMIT_PATH_MANIFEST_SHA256);
+}
+
+/// Remove the `"cluster_key":"fk1:<32 hex>",` member from every row, byte for byte (rows are
+/// serialised by serde in field order, so a textual removal is the exact inverse of the addition,
+/// which a parse and re-serialise through a sorted map would not be). Asserts every row carries
+/// exactly one key of the documented shape. Returns the stripped text and the number of rows.
+fn strip_cluster_keys(text: &str) -> (String, usize) {
+    const MEMBER: &str = "\"cluster_key\":\"";
+    let mut out = String::with_capacity(text.len());
+    let mut rows = 0;
+    for line in text.lines() {
+        assert_eq!(line.matches(MEMBER).count(), 1, "not exactly one cluster_key: {line:.200}");
+        let at = line.find(MEMBER).expect("counted above");
+        let value_at = at + MEMBER.len();
+        let value_end = value_at + line[value_at..].find("\",").expect("a key is followed by a member");
+        let value = &line[value_at..value_end];
+        let hex = value.strip_prefix("fk1:").unwrap_or("");
+        assert!(
+            hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_hexdigit()),
+            "a malformed cluster_key {value:?}"
+        );
+        out.push_str(&line[..at]);
+        out.push_str(&line[value_end + 2..]);
+        out.push('\n');
+        rows += 1;
+    }
+    (out, rows)
 }
 
 // -- --id-prefix --------------------------------------------------------------------------------
 
 /// `generate --seed 0 --clean-permille 300` over this file's fixture pool, from the binary built
 /// before `--id-prefix` existed. (The manifest names the pool's path, so only the rows are pinned.)
-/// Re-pinned 2026-10-18 (W4-d) for the `cluster_key` field every row now carries; observed from the
-/// binary at that commit, not independently derived.
 const GENERATE_DEFAULT_EXAMPLES_SHA256: &str =
-    "08b02080b719575a23fbaf7fa4fc05af01c093e41650305e35c18f6c2d7d99ab";
+    "30f858b376bf96bb416a5365a6dd24bcde7da71e4a099c3955accd1d2df6908f";
 
 fn jsonl_values(path: &Path) -> Vec<serde_json::Value> {
     std::fs::read_to_string(path)
@@ -1126,8 +1164,12 @@ fn jsonl_values(path: &Path) -> Vec<serde_json::Value> {
 #[test]
 fn generate_with_no_id_prefix_is_byte_identical_to_the_pre_change_binary() {
     let f = fixture("gen-pin");
-    let bytes = std::fs::read(f.corpus.join("examples.jsonl")).expect("read");
-    assert_eq!(sha256_hex(&bytes), GENERATE_DEFAULT_EXAMPLES_SHA256);
+    let text = std::fs::read_to_string(f.corpus.join("examples.jsonl")).expect("read");
+    // Every row carries a key (asserted inside), and without exactly that member the bytes are
+    // the pre-change binary's.
+    let (stripped, rows) = strip_cluster_keys(&text);
+    assert!(rows > 0);
+    assert_eq!(sha256_hex(stripped.as_bytes()), GENERATE_DEFAULT_EXAMPLES_SHA256);
 }
 
 #[test]
