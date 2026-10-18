@@ -28,6 +28,15 @@ def test_the_committed_v6_producer_config_carries_the_plans_band() -> None:
     assert (band["low"], band["high"]) == DataConfig().pairwise_length_band
 
 
+REFUSED_V5_POOL_SHA = "f3942c1475c695099064d792429e348d0172640db8b961c7874a608b7ee8bb79"
+
+
+def test_the_v6_allocation_no_longer_pins_the_pool_the_band_refuses() -> None:
+    pools = _load("v6-allocation.json")["pools"]
+    assert REFUSED_V5_POOL_SHA not in {p["examples_sha256"] for p in pools.values()}
+    assert "pool-v6-decisions-v1" in pools
+
+
 def test_v5_producer_config_stays_bandless() -> None:
     assert "pairwise_length_balance" not in _load("v5-allocation.json")
 
