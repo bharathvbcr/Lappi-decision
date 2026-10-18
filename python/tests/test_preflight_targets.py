@@ -106,8 +106,9 @@ def test_gpu_pins_is_notrun_without_a_window_metal_or_the_snapshot():
     for args, reason in cases:
         proc = _make("gpu-pins", *args)
         assert proc.returncode != 0, f"{args}: gpu-pins exited 0 without running a GPU test"
-        assert "NotRun: gpu-pins - " in proc.stdout, (args, proc.stdout)
-        assert reason in proc.stdout, (args, proc.stdout)
+        lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("NotRun: gpu-pins - ")]
+        assert len(lines) == 1, (args, proc.stdout)
+        assert reason in lines[0], (args, lines[0])
 
 
 def test_gpu_pins_runs_the_ignored_digest_pin_test_and_gates_does_not():
