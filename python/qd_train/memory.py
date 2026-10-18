@@ -81,6 +81,7 @@ __all__ = [
     "max_positions_that_fit",
     "refuse_if_over_host_ceiling",
     "refuse_unless_it_fits",
+    "usable_fraction_caveat",
     "safetensors_header",
     "spec_from_checkpoint",
     "tensor_ranges",
@@ -1505,8 +1506,26 @@ def max_positions_that_fit(
     return low * width
 
 
+#: The only device ``DEVICE_USABLE_FRACTION`` was measured on.
+FRACTION_MEASURED_ON: Final[str] = "GH200"
+
+
+def usable_fraction_caveat(device_name: str | None) -> str:
+    """The sentence a message carries when it applies ``DEVICE_USABLE_FRACTION`` off the GH200.
+
+    An unnamed device is not the GH200 either: it has not been shown to be, so it gets the caveat.
+    """
+    if device_name is not None and FRACTION_MEASURED_ON in device_name.upper():
+        return ""
+    return f"fraction measured on {FRACTION_MEASURED_ON} only"
+
+
 def refuse_unless_it_fits(
-    footprint: StepFootprint, *, device_bytes: int | None, where: str
+    footprint: StepFootprint,
+    *,
+    device_bytes: int | None,
+    where: str,
+    device_name: str | None = None,
 ) -> None:
     """Raise [`MemoryRefused`] unless this step fits, and raise it when nobody said.
 
@@ -1527,10 +1546,12 @@ def refuse_unless_it_fits(
     gb = 1000**3
     usable = usable_device_bytes(device_bytes)
     over = footprint.total_bytes - usable
+    caveat = usable_fraction_caveat(device_name)
+    pct = f"{DEVICE_USABLE_FRACTION:.0%}" + (f"; {caveat}" if caveat else "")
     raise MemoryRefused(
         f"{where}: this step needs {footprint.total_bytes/gb:.2f} GB and the device has "
         f"{device_bytes/gb:.2f} GB, of which {usable/gb:.2f} GB is usable "
-        f"({DEVICE_USABLE_FRACTION:.0%}) -- {over/gb:.2f} GB over. Refused before the first step "
+        f"({pct}) -- {over/gb:.2f} GB over. Refused before the first step "
         f"rather than by the allocator partway into a paid run.\n"
         f"{footprint.breakdown()}\n{footprint.provenance}"
     )
