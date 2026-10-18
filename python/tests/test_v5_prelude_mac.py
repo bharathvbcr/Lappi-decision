@@ -261,7 +261,8 @@ v5_recipe; v5_prelude_check; echo "RC=$?"
             text=True,
             timeout=60,
             check=False,
-            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            # post_f_common.sh and v5_common.sh refuse outside tools/campaign_driver.py.
+            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CAMPAIGN_DRIVER_RUN": "test"},
         )
         return [*re.findall(r"^RC=(\d+)$", r.stdout, re.M), r.stdout + r.stderr]
 
