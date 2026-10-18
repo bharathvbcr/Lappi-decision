@@ -792,6 +792,10 @@ pub fn assert_path_not_held_out(
     };
     let resolved = resolve(path).map_err(io_err(path))?;
     let root_abs = resolve(repo_root).map_err(io_err(repo_root))?;
+    // Both forms are checked: a symlink can hide a marker the given path spells out
+    // (`heldout/ -> clean/`), and the given path can hide the target resolution finds.
+    let given = lexical_absolute(path).map_err(io_err(path))?;
+    let candidates = [&resolved, &given];
 
     for root in config.held_out_roots() {
         let joined = if root.is_absolute() {
@@ -800,45 +804,71 @@ pub fn assert_path_not_held_out(
             root_abs.join(root)
         };
         let absolute_root = resolve(&joined).map_err(io_err(&joined))?;
-        if resolved.starts_with(&absolute_root) {
-            return Err(HeldOutViolation {
-                layer: HeldOutLayer::ConfiguredRoot,
-                expected: format!(
-                    "a path outside the held-out root {}",
-                    absolute_root.display()
-                ),
-                actual: resolved.display().to_string(),
-                detail: "CLAUDE.md rule 3: held-out data is never read by a training process. \
-                         Removing this check is a refused change."
-                    .to_owned(),
+        for candidate in candidates {
+            if candidate.starts_with(&absolute_root) {
+                return Err(HeldOutViolation {
+                    layer: HeldOutLayer::ConfiguredRoot,
+                    expected: format!(
+                        "a path outside the held-out root {}",
+                        absolute_root.display()
+                    ),
+                    actual: candidate.display().to_string(),
+                    detail: "CLAUDE.md rule 3: held-out data is never read by a training \
+                             process. Removing this check is a refused change."
+                        .to_owned(),
+                }
+                .into());
             }
-            .into());
         }
     }
 
-    for component in resolved.components() {
-        let Component::Normal(segment) = component else {
-            continue;
-        };
-        let segment = segment.to_string_lossy();
-        if let Some(marker) = config
-            .held_out_path_markers()
-            .iter()
-            .find(|m| casefold_equals_ascii(&segment, m))
-        {
-            return Err(HeldOutViolation {
-                layer: HeldOutLayer::PathMarker,
-                expected: format!("no path segment in {:?}", config.held_out_path_markers()),
-                actual: resolved.display().to_string(),
-                detail: format!(
-                    "path segment {segment:?} matches marker {marker:?}: it marks this as \
-                     held-out data wherever it sits. CLAUDE.md rule 3."
-                ),
+    for candidate in candidates {
+        for component in candidate.components() {
+            let Component::Normal(segment) = component else {
+                continue;
+            };
+            let segment = segment.to_string_lossy();
+            if let Some(marker) = config
+                .held_out_path_markers()
+                .iter()
+                .find(|m| casefold_equals_ascii(&segment, m))
+            {
+                return Err(HeldOutViolation {
+                    layer: HeldOutLayer::PathMarker,
+                    expected: format!("no path segment in {:?}", config.held_out_path_markers()),
+                    actual: candidate.display().to_string(),
+                    detail: format!(
+                        "path segment {segment:?} matches marker {marker:?}: it marks this as \
+                         held-out data wherever it sits. CLAUDE.md rule 3."
+                    ),
+                }
+                .into());
             }
-            .into());
         }
     }
     Ok(())
+}
+
+/// `os.path.abspath(Path(path).expanduser())`: absolute and `..`-normalised lexically, following
+/// no symlink. The given path as the caller spelled it, for the half of rule 3 that resolution
+/// erases.
+fn lexical_absolute(path: &Path) -> io::Result<PathBuf> {
+    let expanded = expand_user(path)?;
+    let mut out = if expanded.is_absolute() {
+        PathBuf::from("/")
+    } else {
+        std::env::current_dir()?
+    };
+    for component in expanded.components() {
+        match component {
+            Component::Normal(n) => out.push(n),
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    Ok(out)
 }
 
 // --- layers 3 and 4: the manifest -------------------------------------------------------------

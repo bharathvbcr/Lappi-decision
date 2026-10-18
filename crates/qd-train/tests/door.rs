@@ -554,6 +554,21 @@ fn a_shard_file_symlinked_into_held_out_is_refused_before_any_byte_is_read() {
 }
 
 #[test]
+fn a_shard_directory_over_the_entry_cap_is_refused_before_any_byte_is_read() {
+    let tmp = scratch("entrycap");
+    let shards = tmp.join("clean").join("train");
+    copy_dir(&train_shards(), &shards);
+    for i in 0..qd_train::shards::MAX_SHARD_DIR_ENTRIES {
+        std::fs::write(shards.join(format!("pad-{i}")), b"").expect("pad file");
+    }
+    let files = CountingFiles::new();
+    let outcome = open_and_drain(&shards, &manifest("train"), &fixture_open(files.clone()));
+    assert_eq!(files.total(), 0, "{} bytes read", files.total());
+    let err = outcome.expect_err("a directory whose entries cannot all be checked is refused");
+    assert!(matches!(err, ShardError::Contract { .. }), "{err}");
+}
+
+#[test]
 fn a_marker_in_the_given_path_is_refused_even_when_it_resolves_clean() {
     let tmp = scratch("givenmarker");
     let real = tmp.join("clean").join("train");
