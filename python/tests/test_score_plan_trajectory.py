@@ -48,6 +48,7 @@ from test_checkpoint_retain import _main  # noqa: E402
 from test_real_ft_family_metrics import _tokenizer_json  # noqa: E402
 from test_real_ft_rungd_flags import REV, _only, _run, corpus  # noqa: E402, F401
 
+from qd_train.ledger import LIFECYCLE_STARTED_ROW  # noqa: E402
 from qd_train.ood import OOD_CATEGORIES, OodCase  # noqa: E402
 
 # --- reading a plan ------------------------------------------------------------------------------
@@ -204,7 +205,9 @@ def _toy_ood(monkeypatch: pytest.MonkeyPatch) -> list[object]:
 
 def _eval_rows(ledger: Path) -> list[dict]:
     rows = [json.loads(x) for x in ledger.read_text(encoding="utf-8").splitlines() if x.strip()]
-    return [r for r in rows if r.get("run_kind") == "eval"]
+    # Every run's recorder writes a `started` row first (run_kind "eval" too); the row that
+    # carries the run's metrics is the terminal one that names it.
+    return [r for r in rows if r.get("run_kind") == "eval" and r.get("status") != "started"]
 
 
 #: What two runs that wrote the same row in different processes and ledgers must differ in: the
@@ -213,7 +216,14 @@ _IDENTITY = ("row_id", "prev_row_hash", "written_at", "wall_clock_s")
 
 
 def _without(row: dict, keys: tuple[str, ...]) -> dict:
-    return {k: v for k, v in row.items() if k not in keys}
+    """The row without ``keys``, and without the one metric that is identity by another name:
+    ``lifecycle.started_row_id``, the ``row_id`` of the `started` row this row terminates,
+    which differs between any two runs exactly as ``row_id`` does."""
+    body = {k: v for k, v in row.items() if k not in keys}
+    body["metrics"] = {
+        k: v for k, v in row["metrics"].items() if k != LIFECYCLE_STARTED_ROW
+    }
+    return body
 
 
 def _lines(path: Path, row_id: str) -> list[dict]:
