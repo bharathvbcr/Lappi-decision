@@ -16,11 +16,13 @@
 //! halves. None of it depends on tessl, so the crate builds and tests on Linux too.
 
 pub mod adamw;
+pub mod d17;
 pub mod export;
 pub mod files;
 pub mod ft_data;
 pub mod held_out;
 pub mod ledger;
+pub mod lora_init;
 pub mod mock;
 pub mod np_random;
 pub mod npy;
