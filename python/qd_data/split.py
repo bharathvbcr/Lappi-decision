@@ -66,6 +66,7 @@ __all__ = [
     "HELD_OUT",
     "SQUAD_ANSWERABILITY_TITLE_FRACTION",
     "SQUAD_TITLE_FAMILIES",
+    "CLUSTER_KEY_METADATA",
     "TRAINING_SPLITS",
     "SplitAssignment",
     "SplitReport",
@@ -106,6 +107,27 @@ SQUAD_ANSWERABILITY_TITLE_FRACTION: Final[float] = 0.2
 CONTENT_DISJOINT_FAMILIES: Final[tuple[frozenset[str], ...]] = (
     frozenset(SQUAD_TITLE_FAMILIES),
 )
+
+
+#: ``DataRow.metadata`` key holding ``qd-mutate``'s ``cluster_key``: the source function's
+#: identity, computed from the parsed node (``qd_mutate::cluster``). Mutated, cosmetic and clean
+#: rows of one function share it. A row carrying it is checked by it; a row without one (every
+#: family that is not a mutant row) is checked by ``identity_key`` alone, and counted.
+CLUSTER_KEY_METADATA: Final[str] = "cluster_key"
+
+
+def cluster_key_of(row: DataRow) -> str | None:
+    """``row``'s ``cluster_key``, ``None`` when it carries none.
+
+    A key that is present and blank is refused: it would put every such row in one cluster, or
+    in none, and either reads as a check that passed.
+    """
+    key = row.metadata.get(CLUSTER_KEY_METADATA)
+    if key is None:
+        return None
+    if not key.strip():
+        raise ValueError(f"{row.row_id}: metadata[{CLUSTER_KEY_METADATA!r}] is blank")
+    return key
 
 
 def _unit_interval(material: str) -> float:
@@ -248,6 +270,13 @@ class SplitReport:
     #: no row is composed, and then absent from every report, so a corpus without composed rows
     #: reports, and hashes, as it did.
     composed_file_near_duplicate_disjoint: TriState | None = None
+    #: No ``cluster_key`` appears under two repo splits: every row of one source function is in
+    #: one split. ``None`` when no row carries a key, and then absent from every report.
+    #: ``cluster_key_rows`` and ``identity_fallback_rows`` carry both counts, so a keyed corpus
+    #: with unkeyed mutant rows in it is visible rather than read as covered.
+    cluster_key_disjoint: TriState | None = None
+    cluster_key_rows: int = 0
+    identity_fallback_rows: int = 0
     #: The near-duplicate re-derivation's candidate bound; reported only when it is not
     #: :data:`~qd_data.config.DEFAULT_MAX_CANDIDATE_PAIRS`, as dedupe's is.
     max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
@@ -273,6 +302,11 @@ class SplitReport:
                 **(
                     {"content_disjoint_families": self.content_disjoint_families}
                     if isinstance(self.content_disjoint_families, Ran)
+                    else {}
+                ),
+                **(
+                    {"cluster_key_disjoint": self.cluster_key_disjoint}
+                    if self.cluster_key_disjoint is not None
                     else {}
                 ),
                 **(
@@ -319,6 +353,10 @@ class SplitReport:
             "dedupe_status": self.dedupe_status.to_json(),
             "content_disjoint_families": self.content_disjoint_families.to_json(),
         }
+        if self.cluster_key_disjoint is not None:
+            body["cluster_key_disjoint"] = self.cluster_key_disjoint.to_json()
+            body["cluster_key_rows"] = self.cluster_key_rows
+            body["identity_fallback_rows"] = self.identity_fallback_rows
         if self.exact_content_disjoint is not None:
             body["exact_content_disjoint"] = self.exact_content_disjoint.to_json()
         if self.composed_file_near_duplicate_disjoint is not None:
@@ -402,6 +440,14 @@ def split(
     identity_ok = _key_disjointness(
         tuple(assignments), {r.row_id: r.identity_key for r in rows}, label="identity_key"
     )
+    clusters = {r.row_id: k for r in rows if (k := cluster_key_of(r)) is not None}
+    cluster_ok = (
+        _key_disjointness(
+            tuple(a for a in assignments if a.row_id in clusters), clusters, label="cluster_key"
+        )
+        if clusters
+        else None
+    )
     nd_ok = _cross_split_near_duplicates(
         rows,
         repo_split_of={a.row_id: a.repo_split for a in assignments},
@@ -415,6 +461,9 @@ def split(
         rows_by_split={s: tuple(v) for s, v in rows_by_split.items()},
         repo_disjoint=repo_ok,
         identity_disjoint=identity_ok,
+        cluster_key_disjoint=cluster_ok,
+        cluster_key_rows=len(clusters),
+        identity_fallback_rows=len(rows) - len(clusters) if clusters else 0,
         near_duplicate_disjoint=nd_ok,
         held_out_families_absent_from_training=fam_ok,
         dedupe_status=report.status,
