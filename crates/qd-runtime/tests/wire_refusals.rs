@@ -729,10 +729,11 @@ fn a_bound_head_answers_and_pins_its_own_hash() {
 
 #[test]
 fn a_shape_the_calibration_table_was_never_fitted_for_is_refused() {
+    // A table with nothing in it: every slot shape is missing.
+    let empty = CalibrationTable::new("empty-under-test");
     let runtime = Runtime::with_backend(
-        Arc::new(ReferenceBackend::new(true)),
-        // A table with nothing in it: every slot shape is missing.
-        CalibrationTable::new("empty-under-test"),
+        Arc::new(ReferenceBackend::new(true).declaring_calibration(empty.hash())),
+        empty,
         HeadRegistry::new(),
         RenderCaps::DEFAULT,
     )
