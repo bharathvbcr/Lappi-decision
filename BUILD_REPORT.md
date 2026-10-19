@@ -79,6 +79,21 @@ No new board cards: every finding folded into an existing card or into a peer la
 5. **Unknown-owner worktree** `build/main-gates-2026-10-15` (detached, 3 dirty files): keep or remove?
 6. Still open from 2026-10-17 (Fable's final ruling §6): the quantised arm, 4-bit, extra Mac GPU time and peft.
 
+## Addendum, 2026-10-19
+
+- **W2-5** was merged as e8aade9 on the owner's "merge all". `tools/gen_ledger_schema_fixture.py` now hands RunRecorder its entry point, and its recipe spelling is pinned in `test_tool_call_sites.py`, with no exemption list.
+  - Fails-before: 2 failed / 19 passed.
+  - After: 48 passed.
+  - Rust `cargo test -p qd-train --test ledger_schema` on main after the merge: 9 passed, 0 failed (main-w2-5-ledger-schema, 16:10Z).
+- **W3-1, HELD**, branch `w3-1-lora-a-canonical-order-2026-10-19` (200a2d2, be52013).
+  - It makes the LoRA-A draw order canonical in `lora.py` and `lora_init.rs`/`recipe.rs`/`ledger.rs`, and removes the strict-xfail.
+  - The committed oracle digests are unchanged, because that fixture already uses the ojas order.
+  - A model registered in HF order now matches the ojas-order digests at every seed.
+  - **No test has run**: mac_heavy refused both cargo attempts at 8 GB free (exit 74).
+  - It does not merge until the owner approves the amendment drafted in `AUDIT/lora-2b-w2-2-2026-10-18/amendment-draft-lora-a-order.md`.
+- **Cards to review, with Fable's staleness findings recorded:** ft-0f5a10c9 and ft-ac6677c7. Neither has a criterion an agent can work.
+- **Branches:** every lane branch of mine is merged and deleted, except W3-1, which is held.
+
 ## Not run
 
 - `make pin` and `test_pin_gate` on main: red on the stale pin.

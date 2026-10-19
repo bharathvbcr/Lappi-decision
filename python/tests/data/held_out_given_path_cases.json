@@ -1,0 +1,22 @@
+{
+  "doc": "Rule 3, layer 2, on the path AS GIVEN: the one table python/tests/test_held_out_given_path_parity.py and crates/qd-train/tests/door.rs both read, so the Python door and the Rust door must return the same verdict for every row. '{base}' is a scratch directory whose own path holds no marker. Paths need not exist. A row's rule: any raw segment of the given path that case-folds to a marker refuses, even if a '..' later cancels it; '.' components, empty segments and a trailing slash are not segments.",
+  "cases": [
+    {"name": "plain", "path": "{base}/x/train/tokens.u32", "verdict": "admitted"},
+    {"name": "dotdot_cancels_marker", "path": "{base}/x/heldout/../train/tokens.u32", "verdict": "refused"},
+    {"name": "marker_last", "path": "{base}/x/heldout", "verdict": "refused"},
+    {"name": "marker_trailing_slash", "path": "{base}/x/heldout/", "verdict": "refused"},
+    {"name": "mixed_case_cancelled", "path": "{base}/x/HeldOut/../train", "verdict": "refused"},
+    {"name": "underscore_upper_cancelled", "path": "{base}/x/HELD_OUT/../train", "verdict": "refused"},
+    {"name": "hyphen_cancelled", "path": "{base}/x/held-out/../train", "verdict": "refused"},
+    {"name": "dot_components_only", "path": "{base}/x/./train/./tokens.u32", "verdict": "admitted"},
+    {"name": "marker_between_dots", "path": "{base}/x/./heldout/./train", "verdict": "refused"},
+    {"name": "marker_then_dot", "path": "{base}/x/heldout/./train", "verdict": "refused"},
+    {"name": "lookalike_segment", "path": "{base}/x/heldoutish/train", "verdict": "admitted"},
+    {"name": "marker_after_dotdot", "path": "{base}/x/train/../heldout", "verdict": "refused"},
+    {"name": "marker_cancelled_by_earlier_dotdot", "path": "{base}/x/../heldout/../x/train", "verdict": "refused"},
+    {"name": "trailing_dotdot_clean", "path": "{base}/x/train/..", "verdict": "admitted"},
+    {"name": "relative_cancelled_marker", "path": "x/heldout/../train/tokens.u32", "verdict": "refused"},
+    {"name": "double_slash", "path": "{base}/x//heldout//train", "verdict": "refused"},
+    {"name": "marker_trailing_dot", "path": "{base}/x/heldout/.", "verdict": "refused"}
+  ]
+}
