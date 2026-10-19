@@ -73,7 +73,7 @@ anything.**
 The runtime refuses a task its release did not train (`task_not_trained`), and for
 `code.defect_class` a context not in the trained shape. A caller must send **exactly** the trained
 request: task, question and slot names are rendered into the prompt, so a renamed one serves a
-prompt the model never saw. The shapes below are pinned here. For the two families no release
+prompt the model never saw. The shapes below are pinned here. For the families no release
 trains yet, the shape is **proposed for v6**: the v6 builder must render these exact strings, or
 this document and the caller change together (`GAP-CALLER-REQUEST-SHAPES-PROPOSED-NOT-TRAINED-2026-10-06`).
 
@@ -82,6 +82,21 @@ this document and the caller change together (`GAP-CALLER-REQUEST-SHAPES-PROPOSE
 | DevCouncil per-file defect | `code.defect_class` | `What kind of change is this diff, and which lines does it touch?` | `defect_class` choice `[stub, logic, cosmetic, clean]`; `defect_span` span | `file: <path>`, a blank line, that file's unified-diff hunks only (no `diff --git` / `---` / `+++` preamble) | **No**: `calibration_entry_missing` on the span slot |
 | GitPulse ambiguous commit type | `gitpulse.commit_type` | `Which conventional commit type describes this staged change?` | `commit_type` choice `[feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert]` | the staged unified diff, as bytes | **No**: `task_not_trained` (proposed for v6) |
 | DevType palette route | `devtype.route` | `Which DevType tool should answer this palette query?` | `route` choice `[resolveDate, runMacro, findSnippet, none]` | the query, as bytes | **No**: `task_not_trained` (proposed for v6) |
+| Vani job posting: role fit | `career.jd_role_fit` | `How well does this job posting fit the target roles stated before the title? If none are stated, compare it with early-career software, ML or systems engineering roles.` | `role_fit` choice `[strong_fit, partial_fit, adjacent, mismatch_domain, mismatch_seniority]` | the rendered posting (below), as bytes | **No**: `task_not_trained` (generator written, not trained) |
+| Vani job posting: sponsorship | `career.jd_sponsorship` | `What does this job posting say about visa sponsorship and work authorization?` | `sponsorship` choice `[sponsors_visa, no_sponsorship, citizenship_or_clearance_required, not_stated]` | the rendered posting (below), as bytes | **No**: `task_not_trained` (generator written, not trained) |
+| Vani job posting: work mode | `career.jd_work_mode` | `Where does this job posting say the work is done?` | `work_mode` choice `[remote, hybrid, onsite, not_stated]` | the rendered posting (below), as bytes | **No**: `task_not_trained` (generator written, not trained) |
+| Vani job posting: seniority | `career.jd_seniority` | `What level of seniority does this job posting ask for?` | `seniority` choice `[intern_or_new_grad, mid, senior, staff_plus, manager]` | the rendered posting (below), as bytes | **No**: `task_not_trained` (generator written, not trained) |
+
+The four `career.jd_*` rows are one triage question asked a slot at a time, because the decision-pool
+driver carries one choice slot per example. Their definition is Vani's
+`internal/decide/jdtriage/fixture.json` (version 2, copied byte for byte to
+`fixtures/caller/career-jd-triage-fixture.json`, sha256
+`0cf04ad791d67fb04bf4e1c5be9b3206f61cf356dddf0a3054c9a8b5a13be47d`, pinned on both sides). The
+rendered posting is `{target}Title: {title}\nLocation: {location}\n\n{description}`, where `{target}`
+is `Target roles: {summary}\n\n` with the summary's whitespace runs collapsed to one space (at most
+1024 bytes), or empty when there is none; the whole context is cut at 24576 bytes, back to a UTF-8
+rune boundary. Options are sent in the order above. `qd-prep synth` kind `career`
+(`crates/qd-prep/src/synth_career.rs`) writes the training rows.
 
 **More candidates than a slot holds: the caller pre-filters.** A `choice` slot holds at most 16
 options (`docs/schema-api.md`, the letter budget), and the runtime refuses more rather than

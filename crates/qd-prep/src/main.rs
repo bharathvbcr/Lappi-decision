@@ -35,7 +35,8 @@
 //!   positions or the refusal, as `qd_train.shards._span_token_positions` finds them before it
 //!   decodes.
 //! - `qd-prep synth --config C [--target NAME=FILE ...] --out-dir DIR`: decision rows
-//!   synthesised by rule for the email sorter, Jarvis or tool selection (see `qd_prep::synth`) ->
+//!   synthesised by rule for the email sorter, Jarvis, tool selection or Vani's job-posting triage
+//!   (see `qd_prep::synth`) ->
 //!   `DIR/{examples.jsonl, manifest.json, containment/}`, the pool shape `decisions` writes.
 //! - `qd-prep commit-type --manifest M --out-dir DIR`: `gitpulse.commit_type` rows from the
 //!   manifest's train repositories' commit history (see `qd_prep::commit_type`) ->

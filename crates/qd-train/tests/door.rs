@@ -515,3 +515,69 @@ fn a_missing_supervision_archive_is_refused_not_defaulted_to_cpt() {
     });
     refused_without_token_bytes(&shards, "supervision");
 }
+
+// --- a shard FILE symlinked into held-out data: the door resolves each file, not only the dir --
+
+#[test]
+fn a_shard_file_symlinked_into_held_out_is_refused_before_any_byte_is_read() {
+    // Two ways the target can be held out: a configured root, and a path marker. The set's own
+    // directory is clean in both, so only a per-file resolve can refuse it.
+    for (label, target_dir, roots) in [
+        ("root", "quarantine", vec![PathBuf::from("quarantine")]),
+        ("marker", "HeldOut", Vec::new()),
+    ] {
+        let tmp = scratch(&format!("filelink-{label}"));
+        let shards = tmp.join("clean").join("train");
+        copy_dir(&train_shards(), &shards);
+        let stash = tmp.join(target_dir);
+        std::fs::create_dir_all(&stash).expect("mkdir");
+        let tokens = shards.join(TOKENS_NAME);
+        std::fs::rename(&tokens, stash.join(TOKENS_NAME)).expect("move tokens");
+        std::os::unix::fs::symlink(stash.join(TOKENS_NAME), &tokens).expect("symlink");
+
+        let files = CountingFiles::new();
+        let mut opts = fixture_open(files.clone());
+        if !roots.is_empty() {
+            opts.config = config_with_roots(roots);
+        }
+        opts.repo_root = tmp.clone();
+        let outcome = open_and_drain(&shards, &manifest("train"), &opts);
+        assert_eq!(
+            files.total(),
+            0,
+            "{label}: {} bytes read through a symlinked tokens file",
+            files.total()
+        );
+        let err = outcome.expect_err("a shard file symlinked into held-out data must be refused");
+        assert!(layer(&err).is_some(), "{label}: {err}");
+    }
+}
+
+#[test]
+fn a_shard_directory_over_the_entry_cap_is_refused_before_any_byte_is_read() {
+    let tmp = scratch("entrycap");
+    let shards = tmp.join("clean").join("train");
+    copy_dir(&train_shards(), &shards);
+    for i in 0..qd_train::shards::MAX_SHARD_DIR_ENTRIES {
+        std::fs::write(shards.join(format!("pad-{i}")), b"").expect("pad file");
+    }
+    let files = CountingFiles::new();
+    let outcome = open_and_drain(&shards, &manifest("train"), &fixture_open(files.clone()));
+    assert_eq!(files.total(), 0, "{} bytes read", files.total());
+    let err = outcome.expect_err("a directory whose entries cannot all be checked is refused");
+    assert!(matches!(err, ShardError::Contract { .. }), "{err}");
+}
+
+#[test]
+fn a_marker_in_the_given_path_is_refused_even_when_it_resolves_clean() {
+    let tmp = scratch("givenmarker");
+    let real = tmp.join("clean").join("train");
+    copy_dir(&train_shards(), &real);
+    let via = tmp.join("heldout");
+    std::os::unix::fs::symlink(&real, &via).expect("symlink");
+    let files = CountingFiles::new();
+    let outcome = open_and_drain(&via, &manifest("train"), &fixture_open(files.clone()));
+    assert_eq!(files.total(), 0, "{} bytes read", files.total());
+    let err = outcome.expect_err("a marker spelled in the given path must be refused");
+    assert_eq!(layer(&err), Some(HeldOutLayer::PathMarker), "{err}");
+}

@@ -55,6 +55,7 @@ pub const EMAIL_SOURCE: &str = "lappi/synth-email";
 pub const JARVIS_SOURCE: &str = "lappi/synth-jarvis";
 pub const TOOLS_SOURCE: &str = "lappi/synth-tools";
 pub const ROUTE_SOURCE: &str = "lappi/synth-route";
+pub const CAREER_SOURCE: &str = "lappi/synth-career";
 /// `qd_data.decisions.MAX_POOL_ROWS`: a pool past it is refused at load, so it is refused here.
 pub const MAX_ROWS: usize = 400_000;
 pub const MAX_ROWS_PER_TEMPLATE: usize = 10_000;
@@ -72,6 +73,8 @@ pub enum Kind {
     Tools,
     /// DevType's palette route (`devtype.route`), by rule.
     Route,
+    /// Vani's job-posting triage (`career.jd_*`), four single-slot families, by rule.
+    Career,
 }
 
 impl Kind {
@@ -81,8 +84,10 @@ impl Kind {
             "jarvis" => Ok(Self::Jarvis),
             "tools" => Ok(Self::Tools),
             "route" => Ok(Self::Route),
+            "career" => Ok(Self::Career),
             other => Err(format!(
-                "config: kind {other:?} is not \"email\", \"jarvis\", \"tools\" or \"route\""
+                "config: kind {other:?} is not \"email\", \"jarvis\", \"tools\", \"route\" or \
+                 \"career\""
             )),
         }
     }
@@ -93,6 +98,7 @@ impl Kind {
             Self::Jarvis => "jarvis",
             Self::Tools => "tools",
             Self::Route => "route",
+            Self::Career => "career",
         }
     }
 
@@ -102,6 +108,7 @@ impl Kind {
             Self::Jarvis => JARVIS_SOURCE,
             Self::Tools => TOOLS_SOURCE,
             Self::Route => ROUTE_SOURCE,
+            Self::Career => CAREER_SOURCE,
         }
     }
 }
@@ -520,13 +527,28 @@ pub fn assemble_heldout(cfg: &Config, drafts: &[Draft]) -> Result<Assembled, Str
 }
 
 /// Families whose module states `noul` as a zero. A `noul` gold there is a generator defect:
-/// refused and counted as `noul_on_a_family_stating_zero`, never admitted.
-const NOUL_STATED_ZERO: [&str; 2] = [crate::synth_tools::FAMILY, crate::synth_tools::ROUTE_FAMILY];
+/// refused and counted as `noul_on_a_family_stating_zero`, never admitted. The career families
+/// have an explicit `not_stated` option and no abstain.
+const NOUL_STATED_ZERO: [&str; 6] = [
+    crate::synth_tools::FAMILY,
+    crate::synth_tools::ROUTE_FAMILY,
+    crate::synth_career::ROLE_FIT_FAMILY,
+    crate::synth_career::SPONSORSHIP_FAMILY,
+    crate::synth_career::WORK_MODE_FAMILY,
+    crate::synth_career::SENIORITY_FAMILY,
+];
 
 /// Families whose option order is the caller's, in the contract (section 4): the app sends the
 /// same list in the same order every time, so a row with the options shuffled is a prompt the app
-/// never sends. Every other family is shuffled per row (the PriDe lever).
-const CALLER_ORDER_FAMILIES: [&str; 1] = [crate::synth_tools::ROUTE_FAMILY];
+/// never sends. Every other family is shuffled per row (the PriDe lever). Vani sends each career
+/// family's options in the fixture's order.
+const CALLER_ORDER_FAMILIES: [&str; 5] = [
+    crate::synth_tools::ROUTE_FAMILY,
+    crate::synth_career::ROLE_FIT_FAMILY,
+    crate::synth_career::SPONSORSHIP_FAMILY,
+    crate::synth_career::WORK_MODE_FAMILY,
+    crate::synth_career::SENIORITY_FAMILY,
+];
 
 /// Both sides go through one dedupe in one order (held-out first, then val, then train), so a
 /// pool row that duplicates a held-out row is the one dropped, and counted.
@@ -852,6 +874,7 @@ pub fn generate(cfg: &Config) -> Result<Generated, String> {
         Kind::Jarvis => Ok(plain(crate::synth_jarvis::drafts(cfg)?)),
         Kind::Tools => crate::synth_tools::generate(cfg),
         Kind::Route => crate::synth_tools::generate_route(cfg),
+        Kind::Career => crate::synth_career::generate(cfg),
     }
 }
 

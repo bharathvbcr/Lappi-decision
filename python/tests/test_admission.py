@@ -64,6 +64,9 @@ def test_exactly_these_sources_are_admitted_unattended() -> None:
         # The caller families (2026-10-12): DevType's route by rule, GitPulse's commit type from
         # the human's own commit history.
         "lappi/synth-route", "lappi/own-commits",
+        # Vani's job-posting triage (career.jd_*), by rule: the owner-approved synthetic
+        # generator, registered with no pool built or trained.
+        "lappi/synth-career",
     }
 
 

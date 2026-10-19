@@ -502,6 +502,8 @@ _V6_DECISION_SOURCES: Final[tuple[Source, ...]] = (
             ("lappi/synth-tools", "crates/qd-prep/src/synth_tools.rs"),
             # devtype.route, by rule from DevType's own date grammar (ruling 2i, 2026-10-12).
             ("lappi/synth-route", "crates/qd-prep/src/synth_tools.rs"),
+            # career.jd_*, Vani's job-posting triage, one family per slot (fixture.json v2).
+            ("lappi/synth-career", "crates/qd-prep/src/synth_career.rs"),
         )
     ),
     Source(
@@ -822,6 +824,18 @@ DECISION_FAMILIES: Final[tuple[tuple[str, str, str], ...]] = (
      "Which conventional commit type describes this staged change?"),
     ("devtype.route", "lappi/synth-route",
      "Which DevType tool should answer this palette query?"),
+    # Vani's job-posting triage (docs/caller-contract.md section 4): one family per slot, the
+    # description the fixture's question byte for byte, and the rows' context the rendered
+    # posting with nothing in front (BARE_CONTEXT_FAMILIES).
+    ("career.jd_role_fit", "lappi/synth-career",
+     "How well does this job posting fit the target roles stated before the title? If none are "
+     "stated, compare it with early-career software, ML or systems engineering roles."),
+    ("career.jd_sponsorship", "lappi/synth-career",
+     "What does this job posting say about visa sponsorship and work authorization?"),
+    ("career.jd_work_mode", "lappi/synth-career",
+     "Where does this job posting say the work is done?"),
+    ("career.jd_seniority", "lappi/synth-career",
+     "What level of seniority does this job posting ask for?"),
 )
 
 #: The decision families deduplicated by exact content alone and kept out of the MinHash

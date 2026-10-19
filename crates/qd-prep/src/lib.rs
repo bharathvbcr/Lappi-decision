@@ -33,6 +33,9 @@
 //!   by rule for callers with no licensable or shareable data (the human's "Synthetic only"
 //!   ruling of 2026-10-06). Not a port: there is no Python reference, so its tests pin the
 //!   rules directly. [`pool`] is the seam every v6 pool producer writes through.
+//! - [`synth_career`]: Vani's job-posting triage as four single-slot families
+//!   (`career.jd_role_fit`, `career.jd_sponsorship`, `career.jd_work_mode`, `career.jd_seniority`),
+//!   written against the sha256-pinned `fixtures/caller/career-jd-triage-fixture.json`.
 //! - [`dedupe`]: `qd_data.dedupe.dedupe`'s MinHash path end to end -- sign, band, confirm,
 //!   union across repos, and the keep rule (v5's lexical or v6's split priority) -- over
 //!   [`minhash`], [`wire`] and [`lsh`].
@@ -80,6 +83,7 @@ mod pyunicode_tables;
 pub mod sha256;
 pub mod spancheck;
 pub mod synth;
+pub mod synth_career;
 pub mod synth_email;
 pub mod synth_jarvis;
 pub mod synth_tools;

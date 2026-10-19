@@ -1,0 +1,95 @@
+{
+  "schema": "qd-preregistration/v1",
+  "written": "2026-10-18 ~22:30 CDT, before any posting is labelled and before any d1 shadow verdict exists. At writing, Vani's live state (Vani/.state, via VANI_CONFIG and VANI_STATE_DIR) has no eval/ label directory. state/ledger/events.jsonl has 3,927 events, 604 lines with triage. annotations.",
+  "author": "third-party decider scoping lane (session started from 'Jarvis architecture audit and unwired seams (fork)')",
+  "decision": [
+    "The owner, 2026-10-18: 'Wait for the eval first'. The d1 build waits for a measured result.",
+    "The owner, 2026-10-18: 'Not approved. Go with d1 by default: evaluate d1 through the Vani shadow, and port d1 natively to tessl if it beats Jev.'",
+    "The owner, 2026-10-18: 'Choose best and proceed'. Read as fixing the open choices and this pre-registration, not as lifting the condition above (docs/third-party-decider-runtime-2026-10-18.md §10)."
+  ],
+  "status": "Decides one thing only: whether the native d1 port on tessl/qd-metal (design doc §13.2) starts, and which career.jd_* families it may later admit. Installs nothing. Moves no Lappi gate.",
+  "what": {
+    "model": "LiquidAI d1-3B, d1-3B-Q8_0.gguf, 2,874,781,280 bytes, sha256 2f0942d5a5f64cf69c3356d2be439b71644b1f0eb3a580912a5a0179eeaba77d",
+    "engine": "Homebrew llama.cpp 0.7.0 (build 11669, commit 620d2225c), llama-server /v1/systemone, Metal only (no -ngl 0, no CPU fallback). -np at least the questions per request.",
+    "backend_under_test": "Vani decide.shadow 'local' (the /v1/systemone shadow wired by the parent session). Its Name, prompt variant and every reading parameter (e.g. any probability cut-off that turns a reply into answered vs abstained) are recorded and hashed in the ledger row BEFORE the first label is read for this eval. A change to any of them after that point voids this registration; the run then needs a new one.",
+    "primary": "Vani's configured primary chain at run time (Jev), unchanged for the run and recorded in the same ledger row.",
+    "prompt_variant": "Each choice slot's criteria are the option descriptions from the pinned fixture (Vani internal/decide/jdtriage/fixture.json version 2, sha256 0cf04ad791d67fb04bf4e1c5be9b3206f61cf356dddf0a3054c9a8b5a13be47d, mirrored at Lappi fixtures/caller/career-jd-triage-fixture.json). That is what the native port would send (design doc §4.1). A run with bare option strings measures a different prompt (3 of 12 probe choices differed, §12 M5) and does not count.",
+    "families": ["career.jd_role_fit", "career.jd_sponsorship", "career.jd_work_mode", "career.jd_seniority"]
+  },
+  "labels": {
+    "tool": "vani label (internal/eval), keyed by posting.Key. The latest line per key wins. A 'skip' label is not counted anywhere (internal/eval/report.go).",
+    "target": "80 labelled postings with all four slots labelled (not skip).",
+    "frozen": "The sha256 of labels.jsonl is recorded in the ledger row at the verdict run. Relabelling a held-out posting after its verdict has been read voids this registration."
+  },
+  "split": {
+    "rule": "Rank labelled postings by sha256('d1-vani-jdtriage-2026-10-18' || 0x00 || posting.Key), ascending. The first 30 are HELD OUT. All others are FIT.",
+    "why": "The split is fixed by key before any shadow answer is read, so no answer can move a posting between the halves.",
+    "held_out_use": "the promotion verdict below, and nothing else",
+    "fit_use": "only the native port's calibration table (qd-calib-fit, per (choice, k+1): choice:6 is role_fit plus seniority, choice:5 is sponsorship plus work_mode). 50 fit postings give 100 rows per entry, which is ECE_MIN_SAMPLES, so the ECE gate runs. Fit postings never enter the verdict."
+  },
+  "verdict": {
+    "rule": "Vani internal/eval Promotion.Verdict(), unchanged, per slot, over held-out postings the shadow was asked about.",
+    "verdicts": {
+      "insufficient labels": "asked < 30 (MinPromotionLabels)",
+      "no primary baseline": "the primary answered none",
+      "not promotable": "shadow answered none; or shadow precision < primary precision (strictly); or shadow answered < primary answered",
+      "promotable": "otherwise. Precision is correct/answered and coverage is answered/labelled, as report.go computes them."
+    },
+    "port_trigger": "The native d1 port starts if at least one of the four families is 'promotable'. A run with 'insufficient labels' on every family is quick (rule 8) and triggers nothing.",
+    "admission": "Only the promotable families may enter admitted_families (design doc §3.3, Q2), and only after the native port reproduces them (see not_claimed)."
+  },
+  "also_reported_not_deciding": [
+    "the same Promotion numbers over all labelled postings (fit plus held out), marked in-sample",
+    "per-slot confusion against the labels for the shadow and the primary",
+    "the native port's ECE per calibration entry when it is later fitted (ECE_THRESHOLD 0.05), reported and not used to move this verdict"
+  ],
+  "ledger_row": [
+    "d1 file sha256",
+    "llama.cpp build and commit",
+    "-np and -c",
+    "shadow config hash",
+    "fixture sha256",
+    "labels.jsonl sha256",
+    "split salt",
+    "held-out and fit posting counts",
+    "per-slot Promotion fields (asked, shadow answered/correct, primary answered/correct, verdict)"
+  ],
+  "fixed": "Rule 2: none of the 30-label floor, the split salt, the prompt variant, the verdict rule or the port trigger moves to change how a result reads.",
+  "amendments": [
+    {
+      "recorded": "2026-10-18 ~22:55 CDT, before any label exists. The parent session's read-only check at ~22:50 found no eval/ label directory, so no label had been read.",
+      "source": "The parent session ('Jarvis architecture audit and unwired seams (fork)') read Vani's live config and code, and relayed the result. Not re-read by this lane.",
+      "shadow_config": {
+        "name": "local",
+        "prompt_variant": "combined",
+        "criteria": "jdtriage.Descriptions()",
+        "fixture_sha256": "0cf04ad791d67fb04bf4e1c5be9b3206f61cf356dddf0a3054c9a8b5a13be47d",
+        "reading_rule": "no cut-off, no abstain path (decide/jev/jev.go readSlot): a choice among the options reads answered with p = confidence if present else probabilities[choice]; a missing or unknown choice, or p outside [0,1] or NaN, reads failed",
+        "max_attempts": 1,
+        "timeout_s": 20,
+        "server": {
+          "binary": "/opt/homebrew/bin/llama-server",
+          "version": "0.7.0 build 11669 commit 620d2225c",
+          "flags": ["--device MTL0", "-ngl all", "-c 8192"],
+          "np": "auto (n_slots 4, n_ctx_slot 8192, kv_unified true)",
+          "model_sha256": "2f0942d5a5f64cf69c3356d2be439b71644b1f0eb3a580912a5a0179eeaba77d"
+        },
+        "model": "LiquidAI/d1-3B-GGUF:Q8_0",
+        "primary": {
+          "backend": "jev",
+          "model": "liquid/d1-ultra",
+          "criteria": "same fixture descriptions",
+          "llm_fallback": "anthropic/claude-opus-5-5 (refused at check time: missing workspace ID)"
+        }
+      },
+      "shadow_config_sha256": "77d0f316443ace098d2334635a8874f1b1639cf1064200256da4d69a60dc0e8f",
+      "shadow_config_hash_rule": "sha256 of JSON.stringify(shadow_config) with the key order above (node, no whitespace). The verdict run's ledger row cites this hash.",
+      "where_recorded": "Here, not as a ledger row. Vani's ledger has no event kind for it, and adding one would change Vani's contract. Lappi's ledger/ holds run rows. The verdict run writes the ledger row, citing this hash.",
+      "prompt_variant_fixed": "The instructions are jdtriage's combined Prompt for every slot, not the per-family questions, with the fixture descriptions as criteria. This variant is what is measured, so a native port admitted on this verdict must render the same instructions and criteria from the pinned fixture (design doc §4.1). A per_slot shadow run is a different variant and does not count toward this verdict.",
+      "reading_consequence": "The shadow has no abstain path, so its coverage is answered/asked minus failures (timeouts, unknown choices, context overflow). The verdict compares precision and coverage under that rule.",
+      "context_risk": "n_ctx 8192 with unified KV holds one posting's shared state plus four question tails. An overflow is a 400, which reads failed and lowers shadow coverage. It counts as it falls; it is not retried and not excluded.",
+      "held_out_computation": "vani eval today reports Promotion over all labels and has no salted held-out split (parent session's check). The held-out verdict therefore comes either from a vani feature the owner approves, or from an offline script that applies report.go's Promotion arithmetic to the 30 held-out keys. Whichever is used must first reproduce vani eval's all-labels numbers exactly, as a check that it computes the same quantity."
+    }
+  ],
+  "not_claimed": "A promotable shadow verdict is necessary for the port, not sufficient for serving. The shadow is single-pass llama.cpp Q8_0 on Metal, with Vani's reading. The native port adds Lappi's derangement agreement, Lappi's calibration and its own Q8_0 kernel. Before any family is admitted, the port must pass P-L parity against the same llama.cpp file (design doc §13.2), and the held-out verdict must be re-run through the port's own path and still read promotable."
+}

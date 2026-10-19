@@ -80,6 +80,7 @@ for the same reason and on the same terms: injected, not imported.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import unicodedata
@@ -125,7 +126,7 @@ from .artifacts import (
     line_start_indices,
     padding_waste,
 )
-from .data_access import open_training_data
+from .data_access import assert_path_not_held_out, open_training_data
 from .tristate import NotRun, Ran, TriState, parse_tristate
 
 __all__ = [
@@ -137,6 +138,7 @@ __all__ = [
     "HEADER_NAME",
     "MAX_POSITIONS_PER_BATCH",
     "MAX_ROWS_PER_BATCH",
+    "MAX_SHARD_DIR_ENTRIES",
     "OFFSETS_NAME",
     "PAD_ID",
     "REMAP_NAME",
@@ -158,6 +160,7 @@ __all__ = [
     "UnencodableGold",
     "answer_letter",
     "assemble_batch",
+    "assert_shard_files_trainable",
     "choose_buckets",
     "corpus_contradictions",
     "encode_slot",
@@ -261,6 +264,9 @@ PAD_ID: Final[int] = 0
 #: generous ``batch_tokens`` into a batch of tens of thousands of rows, and the first sign
 #: of it is an allocator failure some minutes into a run.
 MAX_ROWS_PER_BATCH: Final[int] = 4096
+#: Entries a shard directory may hold before the reader refuses it: the rule-3 per-file sweep is
+#: bounded, and a directory it cannot finish checking is refused rather than partly checked.
+MAX_SHARD_DIR_ENTRIES: Final[int] = 4096
 
 #: ...and in **positions**, which is the number that costs memory. :data:`MAX_ROWS_PER_BATCH`
 #: bounds rows; a batch's cost is ``rows x width``, and until 2026-09-20 nothing bounded
@@ -1979,6 +1985,32 @@ class _Plan:
     rows: tuple[int, ...]
 
 
+def assert_shard_files_trainable(root: Path, *, config: DataConfig, repo_root: Path) -> None:
+    """Rule 3 per FILE: the shard directory and every entry in it, before any is opened.
+
+    The directory check in ``assert_shard_trainable`` sees only where the set lives; a member
+    symlinked into a held-out root or marker directory resolves elsewhere and was read
+    unchecked. Every entry is checked (given and resolved form, dangling links included), not a
+    fixed name list, so a file added to the format later is covered without a second edit. At
+    most :data:`MAX_SHARD_DIR_ENTRIES` entries are listed; a larger directory is refused, since
+    a sweep that stopped early would be a partial check reported as a whole one.
+
+    Reads no file's contents, so a pre-read entry check (``tools/lora_reference_run.py``'s
+    ``validate_inputs``) may call it on its own. ``ShardReader`` calls it first; this is the one
+    implementation. Raises ``HeldOutViolation`` or ``ShardContractViolation``.
+    """
+    root = Path(root)
+    assert_path_not_held_out(root, config=config, repo_root=repo_root)
+    entries = list(itertools.islice(root.iterdir(), MAX_SHARD_DIR_ENTRIES + 1))
+    if len(entries) > MAX_SHARD_DIR_ENTRIES:
+        raise ShardContractViolation(
+            f"{root}: more than {MAX_SHARD_DIR_ENTRIES} entries; refusing to open a "
+            "directory whose files cannot all be checked against rule 3"
+        )
+    for entry in sorted(entries):
+        assert_path_not_held_out(entry, config=config, repo_root=repo_root)
+
+
 class ShardReader:
     """Reads a shard set and yields ``Batch`` objects in a reproducible order.
 
@@ -2019,6 +2051,8 @@ class ShardReader:
         self.root = Path(root)
         self._config = config
         self._repo_root = Path(repo_root)
+
+        assert_shard_files_trainable(self.root, config=config, repo_root=self._repo_root)
 
         raw = json.loads((self.root / HEADER_NAME).read_text(encoding="utf-8"))
         # from_json recomputes shard_hash and refuses a header edited after it was written.

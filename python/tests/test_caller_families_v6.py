@@ -10,6 +10,7 @@ sends: same task, question, slot name, options in order, and the context bytes u
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from pathlib import Path
 
@@ -87,3 +88,49 @@ def test_both_families_are_registered_to_sources_that_admit_them() -> None:
 def test_the_caps_table_names_both_families() -> None:
     config = json.loads((ROOT / "data/decisions/v6-allocation.json").read_text())
     assert {"gitpulse.commit_type", "devtype.route"} <= set(config["train_caps"])
+
+
+JD_FIXTURE = ROOT / "fixtures/caller/career-jd-triage-fixture.json"
+JD_SHA256 = "0cf04ad791d67fb04bf4e1c5be9b3206f61cf356dddf0a3054c9a8b5a13be47d"
+
+
+def _jd_families() -> list[dict[str, object]]:
+    raw = JD_FIXTURE.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == JD_SHA256
+    doc = json.loads(raw)
+    assert doc["fixture_version"] == 2
+    return list(doc["families"])
+
+
+def test_the_career_descriptions_and_contract_rows_are_the_fixtures_strings() -> None:
+    section = CONTRACT.read_text().split("## 4. Ask only trained shapes")[1].split("## 5.")[0]
+    by_family = {f: (s, d) for f, s, d in DECISION_FAMILIES}
+    fams = _jd_families()
+    assert len(fams) == 4
+    for fam in fams:
+        task, slot = str(fam["task"]), fam["slot"]
+        source, description = by_family[task]
+        assert source == "lappi/synth-career"
+        assert description == fam["question"]
+        row = next(line for line in section.splitlines() if f"`{task}`" in line)
+        options = ", ".join(o["value"] for o in slot["options"])  # type: ignore[index]
+        assert f"`{fam['question']}`" in row, task
+        assert f"`{slot['name']}` choice `[{options}]`" in row, task  # type: ignore[index]
+    assert source_by_id("lappi/synth-career").declared_licence == "synthetic-by-rule"
+
+
+def test_a_career_pool_row_becomes_the_request_vani_sends() -> None:
+    context = "Target roles: ML systems\n\nTitle: Engineer\nLocation: Austin, TX\n\nBuild é things."
+    for fam in _jd_families():
+        slot = fam["slot"]
+        options = [o["value"] for o in slot["options"]]  # type: ignore[index]
+        raw = _row(str(fam["task"]), "lappi/synth-career", "synthetic-by-rule",
+                   slot["name"], options, context, options[-1])  # type: ignore[index]
+        row = rewrite_typed_decision(raw, family_id=str(fam["task"]), index=0, config=DataConfig())
+        request = row.request
+        assert request.task == fam["task"]
+        assert request.question == fam["question"]
+        assert request.context == context.encode()
+        (got,) = request.slots
+        assert isinstance(got, ChoiceSlot)
+        assert (got.name, list(got.options)) == (slot["name"], options)  # type: ignore[index]

@@ -106,7 +106,9 @@ def test_every_v6_family_the_loader_registers_has_an_entry_in_the_cap_table() ->
     assert v6_families <= caps | zero, sorted(v6_families - caps - zero)
     registered = {f for f, _, _ in DECISION_FAMILIES}
     assert caps <= registered, sorted(caps - registered)
-    assert caps == v6_families, "a capped family outside the v6 sources"
+    # A v6 family is capped or a stated zero (the docstring's rule): a stated zero draws no rows,
+    # so it is no cap either.
+    assert caps == v6_families - zero, "a capped family outside the v6 sources"
 
 
 def _candidate(tmp_path: Path, **manifest: object) -> Path:
