@@ -158,6 +158,30 @@ whose required argument is missing is NotRun and names the argument; none of the
 | `make preflight-train` | `gates`, `qd-base-fresh`, `qd-train-data`, `qd-prereg-bind` | `TRAIN_SHARDS`, `BENCHMARK_TARGETS="NAME=FILE ..."`, `PREREG`, `SHARD_DIR`; optional `TRAIN_EXAMPLES`, `BASE_INTO` (default `main`) |
 | `make preflight-release` | `gates`, `qd-base-fresh`, `qd-release-check check`, `qd-cite` (HANDOFF/ and AUDIT/), `gpu-pins` | `RELEASE_DIR`, `REPLAY_RESULTS`, `MIN_ANSWERED`; optional `BASE_INTO` |
 
+- **`make release-replay`** is the replay that `preflight-release` reads, as one tracked command
+  (`tools/release_replay.sh`; GAP-QD-RELEASE-CHECK-NO-TRACKED-REQUEST-BUILDER-2026-10-17's residual).
+  Run it first, with a `qd-metal-serve` bound to `RELEASE_DIR` listening on `SOCKET`:
+
+  ```text
+  make release-replay RELEASE_DIR=... VAL_ROWS=... MIN_ANSWERED=N REPLAY_RESULTS=... SOCKET=... \
+       [VERDICTS=... CALIB_ROWS=... CALIBRATION_REPORT=... QD=...]
+  make preflight-release RELEASE_DIR=... REPLAY_RESULTS=<the same file> MIN_ANSWERED=N
+  ```
+
+  It runs, in order: `python -m qd_data.val_requests` (the val rows to wire requests; a row whose
+  split is not `val` is FAILED), `qd-release-check build-requests` (up to `MIN_ANSWERED` requests for
+  every admitted (family, shape) the release records; a short pair is FAILED and nothing is
+  replayed), `qd-release-check replay` through `qd oneshot --socket` into `REPLAY_RESULTS`, and
+  `qd-release-check check`. `VAL_ROWS` is JSONL, one line per val row:
+  `{"row_id", "split": "val", "request": <wire request>}`, with no gold. Nothing tracked yet writes
+  that file from the pipeline's split (GAP-W9B-NO-TRACKED-VAL-ROWS-FILE-WRITER-2026-10-18).
+  `RELEASE_DIR`, `VAL_ROWS`, `MIN_ANSWERED`, `REPLAY_RESULTS` and `SOCKET` have no defaults; a
+  missing one is NotRun and nothing runs. `MIN_ANSWERED` is the owner's number
+  (GAP-QD-RELEASE-CHECK-MIN-ANSWERED-HAS-NO-RECORD-2026-10-17); it is also the per-pair request
+  count. The flow's last line is `RESULT: PASS|FAILED|NotRun`. It is PASS only when every check
+  line passes **and** `VERDICTS` (a real eval's rows) let the headline figures be computed; a replay
+  with no `VERDICTS` is NotRun, so a stand-in `qd` over a fixture release can never PASS
+  (`python/tests/test_release_replay_flow.py` pins this).
 - **Orphaned `started` rows** are not a separate check: `gates` runs `qd_train.ledger verify`, which fails
   a started row whose process is gone and NotRuns one it cannot check (`reconcile` records them).
 - **`qd-base-fresh --repo PATH [--into main]`** fails (exit 1) when the target branch has commits HEAD

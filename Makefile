@@ -234,6 +234,18 @@ RELEASE_DIR      ?=
 REPLAY_RESULTS   ?=
 MIN_ANSWERED     ?=
 
+# release-replay arguments (tools/release_replay.sh): RELEASE_DIR, REPLAY_RESULTS and MIN_ANSWERED
+# above, plus the two below. None has a default. MIN_ANSWERED is the owner's number
+# (GAP-QD-RELEASE-CHECK-MIN-ANSWERED-HAS-NO-RECORD-2026-10-17). VERDICTS, CALIB_ROWS,
+# CALIBRATION_REPORT and QD are optional.
+VAL_ROWS         ?=
+SOCKET           ?=
+VERDICTS         ?=
+CALIB_ROWS       ?=
+CALIBRATION_REPORT ?=
+QD               ?= qd
+RELEASE_REPLAY_CMD = RELEASE_DIR="$(RELEASE_DIR)" VAL_ROWS="$(VAL_ROWS)" MIN_ANSWERED="$(MIN_ANSWERED)" REPLAY_RESULTS="$(REPLAY_RESULTS)" SOCKET="$(SOCKET)" VERDICTS="$(VERDICTS)" CALIB_ROWS="$(CALIB_ROWS)" CALIBRATION_REPORT="$(CALIBRATION_REPORT)" QD="$(QD)" QD_PYTHON="$${QD_PYTHON:-$(PY)}" bash "$(REPO)/tools/release_replay.sh"
+
 # `$(call qdrun,<bin>)` runs one qd-preflight binary; `$(call need,<check>,<value>,<what>)` is
 # NotRun when <value> is empty.
 qdrun = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: $(1) - cargo is not on PATH.\n'; exit $(NOT_RUN); fi; cargo run --quiet --manifest-path "$(REPO)/Cargo.toml" -p qd-preflight --bin $(1) --
@@ -284,6 +296,10 @@ preflight-train:
 	done; \
 	$(call preflight_summary,preflight-train)
 
+# Run before preflight-release: writes REPLAY_RESULTS, which preflight-release's release-check reads.
+release-replay:
+	@$(RELEASE_REPLAY_CMD)
+
 preflight-release:
 	@tally=`mktemp`; fail=0; notrun=0; $(PREFLIGHT_REC) \
 	for t in gates base-fresh release-check cite gpu-pins; do \
@@ -299,7 +315,7 @@ preflight-release:
 	done; \
 	$(call preflight_summary,preflight-release)
 
-.PHONY: all gates help lint clippy fmt pin cargo-test pytest torch-pytest ledger-record ledger-verify gpu-pins preflight-train preflight-release
+.PHONY: all gates help lint clippy fmt pin cargo-test pytest torch-pytest ledger-record ledger-verify gpu-pins preflight-train preflight-release release-replay
 
 all: gates
 
@@ -323,6 +339,8 @@ help:
 	@echo '                     needs TRAIN_SHARDS BENCHMARK_TARGETS="NAME=FILE ..." PREREG SHARD_DIR (TRAIN_EXAMPLES, BASE_INTO optional)'
 	@echo '  preflight-release  before a release: gates, qd-base-fresh, qd-release-check, qd-cite, gpu-pins'
 	@echo '                     needs RELEASE_DIR REPLAY_RESULTS MIN_ANSWERED (no defaults; BASE_INTO optional)'
+	@echo '  release-replay     build requests from the release + val rows, replay through the socket, check; writes REPLAY_RESULTS'
+	@echo '                     needs RELEASE_DIR VAL_ROWS MIN_ANSWERED REPLAY_RESULTS SOCKET (no defaults); run it before preflight-release'
 	@echo '  A preflight target with a missing argument is NotRun, never PASS. FAILED outranks NotRun.'
 
 lint:

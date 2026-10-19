@@ -30,6 +30,8 @@ QD_GATE_REPORT_BIN_ENV = "QD_GATE_REPORT_BIN"
 #: the two agree.
 QD_PREP_BIN_ENV = "QD_PREP_BIN"
 QD_NOUL_ROWS_BIN_ENV = "QD_NOUL_ROWS_BIN"
+#: Also read by ``tools/release_replay.sh``, which runs this binary when it is set.
+QD_RELEASE_CHECK_BIN_ENV = "QD_RELEASE_CHECK_BIN"
 #: The ``qd`` runtime binary, for ``test_wire_golden_corpus.py``'s live probe.
 QD_BIN_ENV = "QD_BIN"
 
@@ -118,6 +120,12 @@ def qd_prep(qd_prep_bin: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def noul_rows_bin() -> Path:
     """``qd-noul-rows`` (debug)."""
     return cargo_binary(QD_NOUL_ROWS_BIN_ENV, "qd-mutate", "qd-noul-rows", release=False)
+
+
+@pytest.fixture(scope="session")
+def release_check_bin() -> Path:
+    """``qd-release-check`` (debug), which ``tools/release_replay.sh`` drives."""
+    return cargo_binary(QD_RELEASE_CHECK_BIN_ENV, "qd-preflight", "qd-release-check", release=False)
 
 
 @pytest.fixture(scope="session")
