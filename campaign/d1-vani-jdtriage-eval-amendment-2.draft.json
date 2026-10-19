@@ -1,0 +1,63 @@
+{
+  "status": "DRAFT for the owner's review. Not part of the registration until the owner accepts it and it is appended to d1-vani-jdtriage-eval-preregistered.json as amendments[1], with amendment 1 left byte-identical.",
+  "amends": "campaign/d1-vani-jdtriage-eval-preregistered.json, amendment 1 (shadow_config_sha256 77d0f316443ace098d2334635a8874f1b1639cf1064200256da4d69a60dc0e8f)",
+  "drafted": "2026-10-18 ~23:45 CDT by the 'Vani and run exploration' session, before any label exists. Check at drafting: /Users/bharath/Code/apps/Vani/.state/state holds budget, digests, employer, ledger, marks and reasons.json, and no eval/ directory.",
+  "why": "The owner, 2026-10-18: rename Vani's user-facing 'jev' naming to the model it runs, d1-ultra, with a read-side alias for existing ledger rows. Vani names the OpenRouter Decisions backend after its model slug (liquid/d1-ultra -> 'd1-ultra'); new ledger rows carry triage.<slot>.backend = 'd1-ultra'.",
+  "what_changes": "Only the primary's backend name. The model (liquid/d1-ultra), its criteria and its LLM fallback are unchanged, and so is every field of the shadow under test (name 'local', prompt variant, criteria, fixture, reading rule, attempts, timeout, server, model).",
+  "shadow_config": {
+    "name": "local",
+    "prompt_variant": "combined",
+    "criteria": "jdtriage.Descriptions()",
+    "fixture_sha256": "0cf04ad791d67fb04bf4e1c5be9b3206f61cf356dddf0a3054c9a8b5a13be47d",
+    "reading_rule": "no cut-off, no abstain path (decide/jev/jev.go readSlot): a choice among the options reads answered with p = confidence if present else probabilities[choice]; a missing or unknown choice, or p outside [0,1] or NaN, reads failed",
+    "max_attempts": 1,
+    "timeout_s": 20,
+    "server": {
+      "binary": "/opt/homebrew/bin/llama-server",
+      "version": "0.7.0 build 11669 commit 620d2225c",
+      "flags": [
+        "--device MTL0",
+        "-ngl all",
+        "-c 8192"
+      ],
+      "np": "auto (n_slots 4, n_ctx_slot 8192, kv_unified true)",
+      "model_sha256": "2f0942d5a5f64cf69c3356d2be439b71644b1f0eb3a580912a5a0179eeaba77d"
+    },
+    "model": "LiquidAI/d1-3B-GGUF:Q8_0",
+    "primary": {
+      "backend": "d1-ultra",
+      "model": "liquid/d1-ultra",
+      "criteria": "same fixture descriptions",
+      "llm_fallback": "anthropic/claude-opus-5-5 (refused at check time: missing workspace ID)"
+    }
+  },
+  "shadow_config_sha256": "c850d9c3a3e1c1a7b3e5d5b98d6eec36a38b076ffc0ebd805a43d9b884adfa84",
+  "shadow_config_hash_rule": "Amendment 1's rule, unchanged: sha256 of JSON.stringify(shadow_config) with the key order above (node, no whitespace). Checked at drafting: the same computation over amendment 1's shadow_config reproduces 77d0f316443ace098d2334635a8874f1b1639cf1064200256da4d69a60dc0e8f.",
+  "diff_from_amendment_1": {
+    "changed": [
+      {
+        "path": "shadow_config.primary.backend",
+        "from": "jev",
+        "to": "d1-ultra"
+      }
+    ],
+    "unchanged": "Every other field of shadow_config is byte-identical to amendment 1, including key order (top level: name, prompt_variant, criteria, fixture_sha256, reading_rule, max_attempts, timeout_s, server, model, primary; primary: backend, model, criteria, llm_fallback)."
+  },
+  "hash_chain": "Amendment 1 and its hash stay in the registration as history and are not edited. The verdict run's ledger row cites this amendment's hash, c850d9c3a3e1c1a7b3e5d5b98d6eec36a38b076ffc0ebd805a43d9b884adfa84.",
+  "legacy_rows_and_alias": {
+    "rule": "Ledger rows written before the rename carry the primary as 'jev'. Vani's readers (vani eval, vani label and the drop rule) read a primary backend of 'jev' as the configured OpenRouter decider's name. The alias applies only to the primary's triage.<slot>.backend and triage.backend fields, never to triage.<slot>.shadow_backend. Rows whose backend is 'llm', 'lappi', 'local' or empty are read as written.",
+    "evidence_at_drafting": "Vani/.state/state/ledger/events.jsonl: 382 rows carry triage.role_fit.backend 'jev', and all 382 have triage.role_fit.shadow_backend 'local'. 382 rows have shadow_backend 'local' in all. No row has shadow_backend 'jev'. So no d1-3B reading was filed under 'jev', and the alias cannot credit a shadow reading to the primary. 300 rows carry backend 'llm' and 300 carry an empty backend; the alias leaves them alone. Counted by the drafting session; first counted by the 'Scope an on-device decider runtime' session.",
+    "equivalence": "vani eval's numbers must not change because of the rename. Vani ships a test that runs eval over a fixture mixing 'jev' and 'd1-ultra' primary rows and checks that the result matches the same fixture with every primary named 'd1-ultra'. The same test asserts that shadow_backend and the 'llm' and empty-backend rows are untouched.",
+    "offline_script": "held_out_computation in amendment 1 still applies. Any offline script that computes the held-out verdict must apply this same alias, and must first reproduce vani eval's all-labels numbers exactly."
+  },
+  "deployment": "The rename and the alias are deployed before the verdict run, and neither changes during it. That keeps the primary unchanged for the run, as what.primary requires.",
+  "directive_wording": "In the owner's directive ('port d1 natively to tessl if it beats Jev'), 'Jev' now reads as 'd1-ultra, the backend formerly named jev'. The directive's condition is: the local d1-3B shadow beats the d1-ultra primary.",
+  "spend_key": "Outside the registration. Vani keeps the daily budget file and its spend key as 'jev' (state/budget/jev.json), so the rename does not reset the day's spend cap.",
+  "acceptance_checks": [
+    "Re-check at acceptance that /Users/bharath/Code/apps/Vani/.state/state has no eval/ directory. The drafting check does not carry forward; if any label exists, this amendment cannot be accepted as written.",
+    "Recompute shadow_config_sha256 from the shadow_config above with the stated rule; it must read c850d9c3a3e1c1a7b3e5d5b98d6eec36a38b076ffc0ebd805a43d9b884adfa84.",
+    "Confirm the binary used for the verdict run is built from cf5ef63 or a descendant that keeps internal/eval/names.go unchanged, and that go test ./internal/eval/ passes there."
+  ],
+  "implemented_in": "Vani commit cf5ef63 (\"decide: name the OpenRouter backend after its model, rename jev_* keys\"), on main after a9b6235. Equivalence test: internal/eval/names_test.go (TestLegacyPrimaryNameReportsIdentically, TestLegacyAliasLeavesShadowAndOtherBackends, TestNoConfiguredNameKeepsLegacyRows). Drop rule: internal/pipeline/pipeline_test.go TestDropPolicy (local and legacy jev never drop).",
+  "deployed": "2026-10-19 00:20 CDT: /Users/bharath/Code/apps/Vani/build/vani rebuilt from a git archive export of cf5ef63 (not the shared working tree), after go vet and go test -race of eval, config, pipeline and cmd/vani passed in that export. Binary sha256 f6189d7e9176ffd5c504b43f1384b18a248eb2867c7ea31f83350d7991868f12. Its embedded vcs.revision is cf5ef63; vcs.modified=true there reflects the enclosing repo's dirty working tree, not the compiled sources. Checked: vani eval over the sandbox ledger (build/anthropic-demo) with scratch labels reports every primary as d1-ultra and maps 12 legacy jev readings."
+}

@@ -66,6 +66,10 @@
     "csn.func_match": ["cc-by-sa-4.0"]
   },
   "stated_zero_train_families": {
-    "knowledge.multiple_choice": "R2: MMLU at zero. cais/mmlu pins dev and test to train today; under --v6-data-rules the pipeline asserts this family's built train count is 0, and its 1,200 contrast rows move to commonsense.multiple_choice."
+    "knowledge.multiple_choice": "R2: MMLU at zero. cais/mmlu pins dev and test to train today; under --v6-data-rules the pipeline asserts this family's built train count is 0, and its 1,200 contrast rows move to commonsense.multiple_choice.",
+    "career.jd_role_fit": "Registered 2026-10-18 for Vani's job-posting triage (docs/caller-contract.md section 4); its generator (qd-prep synth kind career) is written and no pool is built or trained. No R2 cap has been ruled, so the family is a stated zero until one is: a pool carrying it is refused, not admitted uncapped.",
+    "career.jd_sponsorship": "Registered 2026-10-18 for Vani's job-posting triage (docs/caller-contract.md section 4); its generator (qd-prep synth kind career) is written and no pool is built or trained. No R2 cap has been ruled, so the family is a stated zero until one is: a pool carrying it is refused, not admitted uncapped.",
+    "career.jd_work_mode": "Registered 2026-10-18 for Vani's job-posting triage (docs/caller-contract.md section 4); its generator (qd-prep synth kind career) is written and no pool is built or trained. No R2 cap has been ruled, so the family is a stated zero until one is: a pool carrying it is refused, not admitted uncapped.",
+    "career.jd_seniority": "Registered 2026-10-18 for Vani's job-posting triage (docs/caller-contract.md section 4); its generator (qd-prep synth kind career) is written and no pool is built or trained. No R2 cap has been ruled, so the family is a stated zero until one is: a pool carrying it is refused, not admitted uncapped."
   }
 }

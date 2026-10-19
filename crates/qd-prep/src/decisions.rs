@@ -126,11 +126,18 @@ pub struct Candidate {
 }
 
 /// Families whose request context is the caller's bytes and nothing else (`docs/caller-contract.md`
-/// section 4: the staged diff, the palette query). Their rows carry an empty `question` and
-/// render as the bare context, because a question paragraph in front would train a prompt the
-/// app never sends. The request's own question is the family's description
+/// section 4: the staged diff, the palette query, the rendered job posting). Their rows carry an
+/// empty `question` and render as the bare context, because a question paragraph in front would
+/// train a prompt the app never sends. The request's own question is the family's description
 /// (`qd_data.sources.DECISION_FAMILIES`), which must be the contract's string.
-pub const BARE_CONTEXT_FAMILIES: [&str; 2] = ["gitpulse.commit_type", "devtype.route"];
+pub const BARE_CONTEXT_FAMILIES: [&str; 6] = [
+    "gitpulse.commit_type",
+    "devtype.route",
+    "career.jd_role_fit",
+    "career.jd_sponsorship",
+    "career.jd_work_mode",
+    "career.jd_seniority",
+];
 
 impl Candidate {
     /// Whether this row is of a [`BARE_CONTEXT_FAMILIES`] family.

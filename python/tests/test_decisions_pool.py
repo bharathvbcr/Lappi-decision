@@ -67,8 +67,9 @@ def _row(**over: object) -> TypedDecisionRow:
 
 def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source() -> None:
     # v5's 15, then v6's 10 (registered 2026-10-08 with the human's licence rulings of that day),
-    # then the two caller families (2026-10-12, docs/caller-contract.md section 4).
-    assert len(DECISION_FAMILIES) == 27
+    # then the two caller families (2026-10-12, docs/caller-contract.md section 4), then the four
+    # career.jd_* families of Vani's job-posting triage (one per slot).
+    assert len(DECISION_FAMILIES) == 31
     for family_id, source_id, description in DECISION_FAMILIES:
         family = task_family_by_id(family_id)
         assert family.source_id == source_id
@@ -348,6 +349,11 @@ _V6_ROWS: tuple[tuple[str, str, str, str], ...] = (
     # The caller families (card ft-2d0a5e4b27e), as their builders write them.
     ("gitpulse.commit_type", "lappi/own-commits", "owner-granted", "commit_type"),
     ("devtype.route", "lappi/synth-route", "synthetic-by-rule", "route"),
+    # Vani's job-posting triage, one slot per family (qd_prep::synth_career).
+    ("career.jd_role_fit", "lappi/synth-career", "synthetic-by-rule", "role_fit"),
+    ("career.jd_sponsorship", "lappi/synth-career", "synthetic-by-rule", "sponsorship"),
+    ("career.jd_work_mode", "lappi/synth-career", "synthetic-by-rule", "work_mode"),
+    ("career.jd_seniority", "lappi/synth-career", "synthetic-by-rule", "seniority"),
 )
 
 
