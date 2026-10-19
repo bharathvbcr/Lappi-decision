@@ -103,7 +103,7 @@ def pick(
     order -- so two runs write the same bytes."""
     out: list[tuple[str, str, str, str]] = []
     for key, _identity, family, text in rows:
-        rid = key.split("#", 1)[0]
+        rid = key.rsplit("#", 1)[0]
         if rid in found:
             out.append((key, source_of[rid], family, text))
     return out
@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         (key, identity, family, parts.joined())
         for key, identity, family, _slot, parts in unstripped
     ], found, source_of)
-    covered = {k.split("#", 1)[0] for k, *_ in a}
+    covered = {k.rsplit("#", 1)[0] for k, *_ in a}
     uncovered = sorted(found - covered)
     print(f"stripped slots {len(a)} over {len(covered)} rows; unstripped slots {len(b)}; "
           f"found rows with no rendered slot {len(uncovered)}")
@@ -177,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         extra = decode_shard_rows(args.shard_dir, derived, lambda ids: tok.decode(ids))
         # No template strip applies to a decoded row: both files carry its whole text.
         for key, text in extra:
-            rid = key.split("#", 1)[0]
+            rid = key.rsplit("#", 1)[0]
             line = (key, wanted[rid][0], wanted[rid][1], text)
             a.append(line)
             b.append(line)

@@ -101,6 +101,16 @@ def test_a_derived_row_with_no_sequence_is_refused(tmp_path: Path) -> None:
         decode_shard_rows(_shard(tmp_path), {"c1", "ghost"}, lambda ids: "x")
 
 
+def test_pick_reads_the_row_id_before_the_last_hash_so_a_row_id_may_hold_one() -> None:
+    """A code row's id ends ``...path.py#0``; its slot key is ``<id>#<slot>``. Splitting at the
+    first ``#`` found no slot for 43,466 rows of the v6 rebuild (W2-d)."""
+    from train_examples_export import pick
+
+    rows = [("qdm:x:a.py#0#defect_span", "i", "f", "t1"), ("qdm:x:b.py#1#choice", "i", "f", "t2")]
+    got = pick(rows, {"qdm:x:a.py#0"}, {"qdm:x:a.py#0": "S"})
+    assert got == [("qdm:x:a.py#0#defect_span", "S", "f", "t1")]
+
+
 def test_an_existing_output_is_not_overwritten(tmp_path: Path) -> None:
     from train_examples_export import _write
 
