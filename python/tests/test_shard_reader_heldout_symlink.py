@@ -16,6 +16,7 @@ from test_shards import snapshot  # noqa: F401 - fixture
 from test_shards import train_shards as _built_shards  # noqa: F401 - fixture
 
 from qd_data.errors import HeldOutViolation
+from qd_train import shards as shards_module
 from qd_train.artifacts import ShardContractViolation
 from qd_train.shards import (
     MAX_SHARD_DIR_ENTRIES,
@@ -161,3 +162,74 @@ def test_marker_in_the_given_path_refuses_even_when_it_resolves_clean(
     (tmp_path / "heldout").symlink_to(out, target_is_directory=True)
     with pytest.raises(HeldOutViolation):
         _read(snap, tmp_path / "heldout")
+
+
+# -- check-then-open (W10-c): the sweep passes, then a member is swapped before it is opened ----
+
+
+def _swap_after_the_sweep(monkeypatch, swap) -> None:
+    """Run the real sweep, then ``swap()``: exactly the window between check and open."""
+    real = shards_module.assert_shard_files_trainable
+
+    def sweep_then_swap(*args, **kwargs):
+        result = real(*args, **kwargs)
+        swap()
+        return result
+
+    monkeypatch.setattr(shards_module, "assert_shard_files_trainable", sweep_then_swap)
+
+
+_MEMBERS = [
+    "header.json",
+    OFFSETS_NAME,
+    TOKENS_NAME,
+    "supervision.npz",
+    "sequence_index.json",
+    "coverage.json",
+    "span_check.json",
+    "remap.npz",
+    "remap.json",
+]
+
+
+@pytest.mark.parametrize("name", _MEMBERS)
+def test_member_swapped_for_a_held_out_symlink_after_the_sweep_is_refused(
+    train_shards, monkeypatch, name
+) -> None:
+    snap, out, _ = train_shards
+    stash = snap.root / "data" / "heldout" / "stash" / name
+    stash.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(out / name, stash)
+
+    def swap() -> None:
+        (out / name).unlink()
+        (out / name).symlink_to(stash)
+
+    _swap_after_the_sweep(monkeypatch, swap)
+    with pytest.raises(HeldOutViolation):
+        _read(snap, out)
+
+
+@pytest.mark.parametrize("name", _MEMBERS)
+def test_member_replaced_by_another_file_after_the_sweep_is_refused(
+    train_shards, monkeypatch, name
+) -> None:
+    snap, out, _ = train_shards
+
+    def swap() -> None:
+        content = (out / name).read_bytes()
+        (out / name).unlink()
+        (out / name).write_bytes(content)  # same bytes, a different file
+
+    _swap_after_the_sweep(monkeypatch, swap)
+    with pytest.raises(HeldOutViolation):
+        _read(snap, out)
+
+
+def test_a_member_that_is_a_symlink_to_a_clean_file_is_refused_at_open(
+    train_shards, tmp_path
+) -> None:
+    snap, out, _ = train_shards
+    _swap_for_link(out, TOKENS_NAME, tmp_path / "clean" / TOKENS_NAME)
+    with pytest.raises(HeldOutViolation):
+        _read(snap, out)

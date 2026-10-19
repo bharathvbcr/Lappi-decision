@@ -32,13 +32,53 @@ pub trait RangedRead: Send + Sync {
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()>;
 }
 
-/// The real filesystem.
+/// Open `path` and prove the handle is the regular file now at `path`, not something a link
+/// was swapped in for.
+///
+/// Rule 3's per-entry sweep checks a path and the open comes later, so a member swapped for a
+/// symlink in between was read unchecked (a check-then-open race). Closed here at the open:
+/// after opening, `symlink_metadata(path)` must show a non-link whose `(dev, ino)` equals the
+/// opened handle's. A link at the path (whatever it pointed at when it was opened) or a path
+/// that changed hands since the open is refused as `PermissionDenied`, naming rule 3. No
+/// dependency: std's `symlink_metadata` stands in for `O_NOFOLLOW`, whose value is per-platform
+/// and would need `libc`.
+fn open_regular(path: &Path) -> io::Result<File> {
+    let file = File::open(path)?;
+    let opened = file.metadata()?;
+    let on_disk = std::fs::symlink_metadata(path)?;
+    let same = on_disk.file_type().is_file() && opened.is_file() && same_file(&opened, &on_disk);
+    if !same {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{}: not the regular file the rule-3 sweep checked (a symlink, or replaced \
+                 between the check and the open); CLAUDE.md rule 3",
+                path.display()
+            ),
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn same_file(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
+    a.len() == b.len()
+}
+
+/// The real filesystem. Every file it opens must be a regular file, not a link
+/// ([`open_regular`]).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OsFiles;
 
 impl ShardFiles for OsFiles {
     fn read(&self, path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
-        let file = File::open(path)?;
+        let file = open_regular(path)?;
         let len = file.metadata()?.len();
         if len > max_bytes {
             return Err(io::Error::new(
@@ -65,7 +105,7 @@ impl ShardFiles for OsFiles {
     }
 
     fn len(&self, path: &Path) -> io::Result<u64> {
-        Ok(std::fs::metadata(path)?.len())
+        Ok(open_regular(path)?.metadata()?.len())
     }
 
     fn is_file(&self, path: &Path) -> bool {
@@ -83,7 +123,7 @@ struct OsRanged(File);
 #[cfg(unix)]
 impl OsRanged {
     fn open(path: &Path) -> io::Result<Self> {
-        Ok(Self(File::open(path)?))
+        Ok(Self(open_regular(path)?))
     }
 }
 
@@ -100,7 +140,7 @@ struct OsRanged(std::sync::Mutex<File>);
 #[cfg(not(unix))]
 impl OsRanged {
     fn open(path: &Path) -> io::Result<Self> {
-        Ok(Self(std::sync::Mutex::new(File::open(path)?)))
+        Ok(Self(std::sync::Mutex::new(open_regular(path)?)))
     }
 }
 

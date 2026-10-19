@@ -581,3 +581,115 @@ fn a_marker_in_the_given_path_is_refused_even_when_it_resolves_clean() {
     let err = outcome.expect_err("a marker spelled in the given path must be refused");
     assert_eq!(layer(&err), Some(HeldOutLayer::PathMarker), "{err}");
 }
+
+/// A [`ShardFiles`] that, on its first call (which `ShardReader::open` makes only after its
+/// per-entry sweep has passed), swaps one member for a symlink to a copy under a held-out
+/// marker directory: the check-then-open window, without a sleep.
+struct SwapAfterSweep {
+    inner: Arc<CountingFiles>,
+    swap: std::sync::Once,
+    member: PathBuf,
+    stash: PathBuf,
+}
+
+impl SwapAfterSweep {
+    fn swap_once(&self) {
+        self.swap.call_once(|| {
+            std::fs::create_dir_all(self.stash.parent().expect("stash parent")).expect("mkdir");
+            std::fs::copy(&self.member, &self.stash).expect("copy to the held-out stash");
+            std::fs::remove_file(&self.member).expect("remove the member");
+            std::os::unix::fs::symlink(&self.stash, &self.member).expect("link the member");
+        });
+    }
+}
+
+impl qd_train::files::ShardFiles for SwapAfterSweep {
+    fn read(&self, path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>> {
+        self.swap_once();
+        self.inner.read(path, max_bytes)
+    }
+    fn len(&self, path: &Path) -> std::io::Result<u64> {
+        self.swap_once();
+        self.inner.len(path)
+    }
+    fn is_file(&self, path: &Path) -> bool {
+        self.swap_once();
+        self.inner.is_file(path)
+    }
+    fn open_ranged(&self, path: &Path) -> std::io::Result<Box<dyn qd_train::files::RangedRead>> {
+        self.swap_once();
+        self.inner.open_ranged(path)
+    }
+}
+
+/// Every member is read through `OsFiles`, so each swap must be caught there. The shard
+/// reader, not the wrapper, is what is under test: the wrapper only moves the file.
+#[test]
+fn a_member_swapped_for_a_held_out_symlink_after_the_sweep_is_refused_at_the_open() {
+    for name in ["header.json", "offsets.npy", TOKENS_NAME, "supervision.npz"] {
+        let tmp = scratch("swap-after-sweep");
+        let shards = tmp.join("train");
+        copy_dir(&train_shards(), &shards);
+        let counting = CountingFiles::new();
+        let files = Arc::new(SwapAfterSweep {
+            inner: counting.clone(),
+            swap: std::sync::Once::new(),
+            member: shards.join(name),
+            stash: tmp.join("held_out").join(name),
+        });
+        let outcome = open_and_drain(&shards, &manifest("train"), &fixture_open(files));
+        let read = counting.bytes_read(&shards.join(name));
+        assert_eq!(
+            read, 0,
+            "{name}: {read} bytes read through the swapped-in link"
+        );
+        let err = outcome.expect_err("a member swapped for a link after the sweep must be refused");
+        assert!(
+            err.to_string().contains("rule 3"),
+            "{name}: expected a rule-3 refusal, got: {err}"
+        );
+    }
+}
+
+/// The table `python/tests/test_held_out_given_path_parity.py` also reads: the same spellings
+/// and verdicts, so the two doors cannot disagree about a given path (W10-c).
+#[test]
+fn the_door_gives_the_shared_given_path_tables_verdict_on_every_spelling() {
+    let table_path = common::repo_root()
+        .join("python")
+        .join("tests")
+        .join("data")
+        .join("held_out_given_path_cases.json");
+    let text = std::fs::read_to_string(&table_path).expect("the shared case table");
+    let table: serde_json::Value = serde_json::from_str(&text).expect("the table is JSON");
+    let cases = table["cases"].as_array().expect("cases");
+    assert!(cases.len() >= 10, "the table must not be emptied");
+    let base = scratch("given-path-table");
+    let base_str = base.to_str().expect("utf-8 scratch path");
+    let mut wrong: Vec<String> = Vec::new();
+    for case in cases {
+        let name = case["name"].as_str().expect("name");
+        let path = case["path"]
+            .as_str()
+            .expect("path")
+            .replace("{base}", base_str);
+        let want = case["verdict"].as_str().expect("verdict");
+        let got = match qd_train::held_out::assert_path_not_held_out(
+            Path::new(&path),
+            &DataConfig::default(),
+            &base,
+        ) {
+            Ok(()) => "admitted",
+            Err(DoorError::HeldOut(_)) => "refused",
+            Err(other) => panic!("{name}: unexpected door error {other}"),
+        };
+        if got != want {
+            wrong.push(format!("{name}: {path} -> {got}, table says {want}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "Rust door disagrees with the table:\n{}",
+        wrong.join("\n")
+    );
+}

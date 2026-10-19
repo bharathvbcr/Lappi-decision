@@ -795,7 +795,13 @@ pub fn assert_path_not_held_out(
     // Both forms are checked: a symlink can hide a marker the given path spells out
     // (`heldout/ -> clean/`), and the given path can hide the target resolution finds.
     let given = lexical_absolute(path).map_err(io_err(path))?;
+    // The path exactly as spelled (user-expanded, nothing normalised): `x/heldout/../train`
+    // names a marker segment that `lexical_absolute` pops away. Python checks the same third
+    // form (`Path(path).expanduser().parts`), so the two doors agree on every spelling
+    // (`python/tests/data/held_out_given_path_cases.json`).
+    let raw = expand_user(path).map_err(io_err(path))?;
     let candidates = [&resolved, &given];
+    let marker_candidates = [&resolved, &given, &raw];
 
     for root in config.held_out_roots() {
         let joined = if root.is_absolute() {
@@ -822,7 +828,7 @@ pub fn assert_path_not_held_out(
         }
     }
 
-    for candidate in candidates {
+    for candidate in marker_candidates {
         for component in candidate.components() {
             let Component::Normal(segment) = component else {
                 continue;
