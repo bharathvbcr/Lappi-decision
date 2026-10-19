@@ -56,11 +56,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final, Self
+from typing import IO, Any, Final, Self
 
 import numpy as np
 
@@ -271,15 +271,21 @@ class RemapTable:
         return self.remap_hash()
 
     @classmethod
-    def read(cls, path: Path) -> Self:
-        """Read and re-verify. The sidecar's `remap_hash` is recomputed, never trusted."""
+    def read(cls, path: Path, *, opener: Callable[[Path], IO[bytes]] | None = None) -> Self:
+        """Read and re-verify. The sidecar's `remap_hash` is recomputed, never trusted.
+
+        ``opener`` opens each of the two files (default: a plain open); a caller that has
+        already checked the files against rule 3 passes one that proves it is opening them.
+        """
         path = Path(path)
-        meta = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+        open_file = opener or (lambda p: p.open("rb"))
+        with open_file(path.with_suffix(".json")) as fh:
+            meta = json.loads(fh.read().decode("utf-8"))
         if meta.get("format") != REMAP_FORMAT:
             raise ShardContractViolation(
                 f"{path}: format is {meta.get('format')!r}, expected {REMAP_FORMAT!r}"
             )
-        with np.load(path.with_suffix(".npz")) as z:
+        with open_file(path.with_suffix(".npz")) as npz_fh, np.load(npz_fh) as z:
             table = cls(
                 old_to_new=z["old_to_new"].astype(np.int32, copy=False),
                 new_to_old=z["new_to_old"].astype(np.int32, copy=False),

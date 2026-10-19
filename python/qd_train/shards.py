@@ -80,21 +80,23 @@ for the same reason and on the same terms: injected, not imported.
 from __future__ import annotations
 
 import hashlib
+import io
 import itertools
 import json
 import os
+import stat
 import unicodedata
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import IO, Any, Final
 
 import numpy as np
 
 from qd_data.config import DataConfig
 from qd_data.defect_class import NOUL_ROUTE_CONTRAST, NOUL_ROUTE_KEY
-from qd_data.errors import QdRefusal
+from qd_data.errors import HeldOutViolation, QdRefusal
 from qd_data.fingerprint import FINGERPRINT_VERSION, shard_code_fingerprint
 from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY
 from qd_data.render import (
@@ -1985,7 +1987,54 @@ class _Plan:
     rows: tuple[int, ...]
 
 
-def assert_shard_files_trainable(root: Path, *, config: DataConfig, repo_root: Path) -> None:
+#: What the sweep recorded about each member: ``name -> (st_dev, st_ino)`` from ``lstat``.
+MemberIdentities = dict[str, tuple[int, int]]
+
+
+def open_shard_member(path: Path, identities: MemberIdentities) -> IO[bytes]:
+    """Open one swept member, refusing anything but the very file the sweep checked.
+
+    The sweep and the open are two steps, so a member swapped between them was read unchecked
+    (a check-then-open race). Closed here at the open: the member must have been in the sweep,
+    ``O_NOFOLLOW`` refuses a final component that is a link (a link is never a shard member),
+    and the opened descriptor's ``(st_dev, st_ino)`` must equal what the sweep's ``lstat``
+    saw. A ``HeldOutViolation`` is raised; nothing is read.
+    """
+    identity = identities.get(path.name)
+    if identity is None:
+        raise HeldOutViolation(
+            expected="a member the rule-3 sweep checked",
+            actual=str(path),
+            detail="CLAUDE.md rule 3: this file was not in the directory when it was swept.",
+        )
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as exc:
+        raise HeldOutViolation(
+            expected="a regular file, not a symlink, opened without following one",
+            actual=str(path),
+            detail=f"CLAUDE.md rule 3: opening the swept member failed ({exc}).",
+        ) from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) != identity:
+            raise HeldOutViolation(
+                expected=f"the file the sweep checked, (dev, ino) = {identity}",
+                actual=f"(dev, ino) = {(st.st_dev, st.st_ino)}",
+                detail=(
+                    f"CLAUDE.md rule 3: {path} is not the file the rule-3 sweep checked; it "
+                    "was replaced between the check and the open."
+                ),
+            )
+    except BaseException:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, "rb")
+
+
+def assert_shard_files_trainable(
+    root: Path, *, config: DataConfig, repo_root: Path
+) -> MemberIdentities:
     """Rule 3 per FILE: the shard directory and every entry in it, before any is opened.
 
     The directory check in ``assert_shard_trainable`` sees only where the set lives; a member
@@ -1998,6 +2047,9 @@ def assert_shard_files_trainable(root: Path, *, config: DataConfig, repo_root: P
     Reads no file's contents, so a pre-read entry check (``tools/lora_reference_run.py``'s
     ``validate_inputs``) may call it on its own. ``ShardReader`` calls it first; this is the one
     implementation. Raises ``HeldOutViolation`` or ``ShardContractViolation``.
+
+    Returns each entry's ``(st_dev, st_ino)`` so the opener can prove it opened the file that
+    was checked (:func:`open_shard_member`); a caller that only wants the refusal ignores it.
     """
     root = Path(root)
     assert_path_not_held_out(root, config=config, repo_root=repo_root)
@@ -2007,8 +2059,17 @@ def assert_shard_files_trainable(root: Path, *, config: DataConfig, repo_root: P
             f"{root}: more than {MAX_SHARD_DIR_ENTRIES} entries; refusing to open a "
             "directory whose files cannot all be checked against rule 3"
         )
+    identities: MemberIdentities = {}
     for entry in sorted(entries):
         assert_path_not_held_out(entry, config=config, repo_root=repo_root)
+        try:
+            st = entry.lstat()
+        except OSError as exc:
+            raise ShardContractViolation(
+                f"{entry}: vanished during the rule-3 sweep ({exc})"
+            ) from exc
+        identities[entry.name] = (st.st_dev, st.st_ino)
+    return identities
 
 
 class ShardReader:
@@ -2052,9 +2113,11 @@ class ShardReader:
         self._config = config
         self._repo_root = Path(repo_root)
 
-        assert_shard_files_trainable(self.root, config=config, repo_root=self._repo_root)
+        self._members: MemberIdentities = assert_shard_files_trainable(
+            self.root, config=config, repo_root=self._repo_root
+        )
 
-        raw = json.loads((self.root / HEADER_NAME).read_text(encoding="utf-8"))
+        raw = json.loads(self._member_bytes(HEADER_NAME).decode("utf-8"))
         # from_json recomputes shard_hash and refuses a header edited after it was written.
         self.header: ShardHeader = ShardHeader.from_json(raw)
         self.checks: dict[str, TriState] = assert_shard_trainable(
@@ -2068,7 +2131,7 @@ class ShardReader:
         # After the rule-3 door, so a held-out set is refused as one whatever its format.
         self.header.require_prompt_format(where=str(self.root))
 
-        self._offsets: np.ndarray = np.load(self.root / OFFSETS_NAME)
+        self._offsets: np.ndarray = np.load(io.BytesIO(self._member_bytes(OFFSETS_NAME)))
         if self._offsets.dtype != np.int64 or self._offsets.ndim != 1:
             raise ShardContractViolation(
                 f"{self.root}: offsets must be 1-D int64, got {self._offsets.ndim}-D "
@@ -2101,25 +2164,26 @@ class ShardReader:
 
         tokens_path = self.root / TOKENS_NAME
         expected = self.header.total_tokens * np.dtype(TOKEN_DTYPE).itemsize
-        actual = tokens_path.stat().st_size
-        if actual != expected:
-            raise ShardContractViolation(
-                f"{tokens_path}: {actual} bytes on disk, but the header describes "
-                f"{self.header.total_tokens} {TOKEN_DTYPE} tokens ({expected} bytes). The "
-                "shard set is truncated or was written by a different format."
+        with open_shard_member(tokens_path, self._members) as token_fh:
+            actual = os.fstat(token_fh.fileno()).st_size
+            if actual != expected:
+                raise ShardContractViolation(
+                    f"{tokens_path}: {actual} bytes on disk, but the header describes "
+                    f"{self.header.total_tokens} {TOKEN_DTYPE} tokens ({expected} bytes). The "
+                    "shard set is truncated or was written by a different format."
+                )
+            self._tokens = np.memmap(
+                token_fh, dtype=TOKEN_DTYPE, mode="r", shape=(self.header.total_tokens,)
             )
-        self._tokens = np.memmap(
-            tokens_path, dtype=TOKEN_DTYPE, mode="r", shape=(self.header.total_tokens,)
-        )
 
         self._load_supervision()
         self.sequence_index: SequenceIndex | None = None
         self.slot_coverage: TriState = self._load_sequence_index()
 
         coverage_path = self.root / COVERAGE_NAME
-        if coverage_path.exists():
+        if COVERAGE_NAME in self._members:
             self.coverage: TriState = parse_tristate(
-                json.loads(coverage_path.read_text(encoding="utf-8")),
+                json.loads(self._member_bytes(COVERAGE_NAME).decode("utf-8")),
                 field=f"{coverage_path}",
             )
         else:
@@ -2132,9 +2196,9 @@ class ShardReader:
             )
 
         span_check_path = self.root / SPAN_CHECK_NAME
-        if span_check_path.exists():
+        if SPAN_CHECK_NAME in self._members:
             self.span_check: TriState = parse_tristate(
-                json.loads(span_check_path.read_text(encoding="utf-8")),
+                json.loads(self._member_bytes(SPAN_CHECK_NAME).decode("utf-8")),
                 field=f"{span_check_path}",
             )
         else:
@@ -2152,6 +2216,11 @@ class ShardReader:
 
         self.remap: RemapTable | None = None
         self.checks["shard_remap_matches_header"] = self._load_remap()
+
+    def _member_bytes(self, name: str) -> bytes:
+        """One swept member's whole content, through :func:`open_shard_member`."""
+        with open_shard_member(self.root / name, self._members) as fh:
+            return fh.read()
 
     def _load_remap(self) -> TriState:
         """Read the remap beside the shards and check it against the header's ``remap_hash``.
@@ -2171,7 +2240,7 @@ class ShardReader:
           header's ``remap_hash`` either way, which is exactly the trap this answers.
         """
         stem = self.root / REMAP_NAME
-        if not (stem.with_suffix(".npz").exists() and stem.with_suffix(".json").exists()):
+        if not (f"{REMAP_NAME}.npz" in self._members and f"{REMAP_NAME}.json" in self._members):
             return NotRun(
                 reason=(
                     f"{stem}.npz/.json is absent, so the vocabulary this set's ids were "
@@ -2182,7 +2251,7 @@ class ShardReader:
             )
         # `RemapTable.read` recomputes the hash from the tables and refuses a sidecar that
         # disagrees, so a tampered file raises here rather than returning a passing check.
-        remap = RemapTable.read(stem)
+        remap = RemapTable.read(stem, opener=lambda p: open_shard_member(p, self._members))
         found = remap.remap_hash()
         if found != self.header.remap_hash:
             raise ShardContractViolation(
@@ -2227,11 +2296,11 @@ class ShardReader:
                     "by the writer. Pair labels by re-deriving them, or rewrite the set."
                 )
             )
-        if not path.exists():
+        if SEQUENCE_INDEX_NAME not in self._members:
             raise ShardContractViolation(
                 f"{path} is absent but the header pins sequence_index_hash={pinned[:16]}…"
             )
-        raw = path.read_bytes()
+        raw = self._member_bytes(SEQUENCE_INDEX_NAME)
         found = hashlib.sha256(raw).hexdigest()
         if found != pinned:
             raise ShardContractViolation(
@@ -2278,14 +2347,14 @@ class ShardReader:
         fine-tuning. That is a different objective, not a missing field.
         """
         path = self.root / SUPERVISION_NAME
-        if not path.exists():
+        if SUPERVISION_NAME not in self._members:
             raise ShardContractViolation(
                 f"{path} is absent. This shard set's sequences are prompt-plus-answer rows, "
                 "so their supervision is not derivable from the tokens alone; yielding CPT "
                 "batches instead would silently train a different objective."
             )
         n = self.header.n_sequences
-        with np.load(path) as z:
+        with np.load(io.BytesIO(self._member_bytes(SUPERVISION_NAME))) as z:
             kinds = z["slot_kind"].astype(np.uint8, copy=True)
             target = z["target_index"].astype(np.int32, copy=True)
             spans = z["span_target"].astype(np.int32, copy=True)
