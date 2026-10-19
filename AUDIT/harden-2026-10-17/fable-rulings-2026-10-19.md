@@ -21,6 +21,7 @@ Asked by session lappi-decision-ce, under the owner's standing delegation, after
 
 - The `qd-train-data` outputs and the W2-d ledger row cited above are on branch w2d-v6-shards-2026-10-17, not yet on main.
 - 44732cb is W2-d's merge of main into its branch.
+- In Q23 (a), the one gap id Fable cited without its date suffix is completed to its full form, as train_data.rs:22 cites it. No other word of Fable's text is changed.
 
 ## Q23. exact_short false positives: an owner question; only the 92 CLINC rows move under the delegation
 
@@ -28,7 +29,7 @@ Asked by session lappi-decision-ce, under the owner's standing delegation, after
 
 **(a) Owner question — the tier is under-specified, and data movement alone cannot clear the committed gate.**
 
-- The gate's example text is `context` + every option value appended as its own line (crates/qd-prep/src/pool.rs:105-116), and `exact_matches` probes every line (train_data.rs:455-467). The only test (train_data.rs:812-827) plants the target *inside a multi-line context* with options `["A","B"]`; no test says whether an option line or a code line counts. The doc (train_data.rs:21-23) motivates the tier by `GAP-CLINC-TEST-TARGETS-8GRAM-BLIND`: short CLINC utterances. So: per-line matching within context is tested intent; option-line matching is untested implementation. Neither doc nor test says "utterance rows only" — scoping it is a gate change under rule 2.
+- The gate's example text is `context` + every option value appended as its own line (crates/qd-prep/src/pool.rs:105-116), and `exact_matches` probes every line (train_data.rs:455-467). The only test (train_data.rs:812-827) plants the target *inside a multi-line context* with options `["A","B"]`; no test says whether an option line or a code line counts. The doc (train_data.rs:21-23) motivates the tier by `GAP-CLINC-TEST-TARGETS-8GRAM-BLIND-2026-10-06`: short CLINC utterances. So: per-line matching within context is tested intent; option-line matching is untested implementation. Neither doc nor test says "utterance rows only" — scoping it is a gate change under rule 2.
 - Decisive: the committed gate runs unstripped and reports **4,833**, not 1,275 (w2d-qd-train-data-v6-unstripped). The 1,275 is W2-d's stripped variant. Dropping 1,275 rows leaves the gate FAILED on 3,558 CLINC rows whose option list carries the intent label `goodbye`. The project's own containment rule already says template text is not contamination (exclusions.py:14-18 refuses a list made without strip v2; containment_strip.py (2b) strips every intent.* option value). The gate contradicts the rule it polices. Fixing that is the owner's.
 - Cost of dropping all 1,275: the 1,106 `code.defect_class` rows (1,000 with a bare `false` line) are not contamination of CLINC and the drop correlates with boolean-literal mutants (ops.rs:710 `negate_condition`) — a label-biased deletion. No train floor exists for the family (not in `train_caps`; v6-allocation.json), val is untouched, and R1's ≥55.8% defect-token share (design ruling:37-40) moves by ~0.2% [inferred, not computed]. Whether `apply_exclusions` even reaches `--defect-class` rows is **unverified** (real_tokenizer_pipeline.py:3217 vs design ruling:39).
 
