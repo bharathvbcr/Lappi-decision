@@ -123,6 +123,11 @@ pub struct Request<'b> {
     pub export: &'b str,
     /// The corpus object's `decisions_pool_same_family_not_enforced`, or empty (module doc).
     pub same_family_not_enforced: Vec<String>,
+    /// Whether the exact-short tier ([`crate::exact_short`]) runs: true for every parsed request
+    /// (the builder's scan, owner ruling 2026-10-19). The decision-pool decontamination
+    /// (`crate::pool`) clears it: its candidates and its manifests are the n-gram rule's, and
+    /// the ruling is about the LoRA-2B train set, not the pool builders.
+    pub exact_short: bool,
     pub checks: Vec<Check>,
     pub set_names: Vec<&'b str>,
     pub scans: Vec<Scan>,
@@ -366,6 +371,7 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
         corpus,
         export,
         same_family_not_enforced,
+        exact_short: true,
         checks,
         set_names,
         scans,
@@ -625,6 +631,7 @@ impl Request<'_> {
                 corpus: self.corpus,
                 export: self.export,
                 same_family_not_enforced: Vec::new(),
+                exact_short: false,
                 checks: Vec::new(),
                 set_names: vec!["positive-control", name],
                 scans: vec![Scan {
@@ -663,7 +670,7 @@ impl Request<'_> {
             let shorts =
                 ShortTargets::build(rows.iter().enumerate().map(|(i, r)| (i, r.text)), self.n);
             let (mut short_planted, mut short_hit) = (0, 0);
-            if !shorts.is_empty() {
+            if self.exact_short && !shorts.is_empty() {
                 let firsts: Vec<usize> = shorts.iter().map(|(_, ix)| ix[0]).collect();
                 let copies: Vec<Row<'_>> = if firsts.len() <= CONTROL_MAX_ROWS {
                     firsts.iter().map(|&i| rows[i].clone()).collect()
@@ -678,6 +685,7 @@ impl Request<'_> {
                     corpus: self.corpus,
                     export: self.export,
                     same_family_not_enforced: Vec::new(),
+                    exact_short: true,
                     checks: Vec::new(),
                     set_names: vec!["positive-control-exact-short", name],
                     scans: vec![Scan {
@@ -741,13 +749,12 @@ impl Request<'_> {
         let shorts: BTreeMap<usize, ShortTargets> = targets
             .iter()
             .map(|&t| {
-                (
-                    t,
-                    ShortTargets::build(
-                        self.sets[t].iter().enumerate().map(|(i, r)| (i, r.text)),
-                        self.n,
-                    ),
-                )
+                let rows = self.sets[t].iter().enumerate().map(|(i, r)| (i, r.text));
+                if self.exact_short {
+                    (t, ShortTargets::build(rows, self.n))
+                } else {
+                    (t, ShortTargets::default())
+                }
             })
             .collect();
         let mut pairs = Vec::new();
@@ -1154,8 +1161,10 @@ impl Request<'_> {
         // The exact-short tier (`crate::exact_short`): named in the rule and in its own block, so
         // a list made without it is recognisable (`qd_train.exclusions.read_exclusions` refuses
         // an attestation that lacks `exact_short.rule`).
-        rule.push_str("; ");
-        rule.push_str(EXACT_SHORT_RULE);
+        if self.exact_short {
+            rule.push_str("; ");
+            rule.push_str(EXACT_SHORT_RULE);
+        }
         let exact_pairs = found.pairs.iter().filter(|p| p.shared == 0).count() as u64;
         let mut exact_targets: Vec<usize> = self.scans.iter().map(|s| s.target).collect();
         exact_targets.sort_unstable();
@@ -1185,12 +1194,14 @@ impl Request<'_> {
                 )
             })
             .collect();
-        let exact_block = Json::Obj(vec![
-            ("rule", Json::Str(EXACT_SHORT_RULE.to_string())),
-            ("n", Json::Int(self.n as u64)),
-            ("pairs", Json::Int(exact_pairs)),
-            ("targets", Json::Map(exact_per_set)),
-        ]);
+        let exact_block = self.exact_short.then(|| {
+            Json::Obj(vec![
+                ("rule", Json::Str(EXACT_SHORT_RULE.to_string())),
+                ("n", Json::Int(self.n as u64)),
+                ("pairs", Json::Int(exact_pairs)),
+                ("targets", Json::Map(exact_per_set)),
+            ])
+        });
         // The scope's own block: per family, the enforced scans' pairs it left unenforced, the
         // source rows they hit, and the identity keys they alone hit (so not excluded).
         let mut scope_block = None;
@@ -1259,7 +1270,6 @@ impl Request<'_> {
             ("version", Json::Int(u64::from(ATTESTATION_VERSION))),
             ("tool", Json::Str("qd-prep containment".to_string())),
             ("rule", Json::Str(rule)),
-            ("exact_short", exact_block),
             ("n", Json::Int(self.n as u64)),
             ("threshold", Json::Float(self.threshold)),
             (
@@ -1287,6 +1297,9 @@ impl Request<'_> {
             ("exclusions_sha256", Json::Str(exclusions_sha256)),
             ("remaining_hits", Json::Map(remaining)),
         ];
+        if let Some(block) = exact_block {
+            fields.insert(3, ("exact_short", block));
+        }
         if let Some(block) = scope_block {
             fields.push(("same_family_not_enforced", block));
         }
@@ -1506,7 +1519,12 @@ mod tests {
             (1, "t1", "tid-1", "fam.x", LONG_A),
             (1, "t2", "tid-2", "intent.domain", "Thank you"),
         ];
-        let buf = request(&["train", "tgt"], &[(0, 1, true)], &[], &rows);
+        let buf = request(
+            &["train", "tgt"],
+            &[(0, 1, true)],
+            &[("identity_disjoint", 2), ("near_duplicate_disjoint", 2)],
+            &rows,
+        );
         let w = run(&buf, 2).expect("runs");
         let tsv = String::from_utf8(w.pairs_tsv).expect("utf8");
         let lines: Vec<&str> = tsv.lines().skip(1).collect();

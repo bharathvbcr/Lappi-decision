@@ -199,7 +199,10 @@ pub fn scan<'c>(
         candidates,
         targets,
     );
-    let request = containment::parse(&request_bytes)?;
+    let mut request = containment::parse(&request_bytes)?;
+    // The pool builders keep the n-gram rule (their manifests and candidates are pinned to it);
+    // the exact-short tier is the LoRA-2B train set's (owner ruling 2026-10-19).
+    request.exact_short = false;
     let found = request.scan(threads)?;
     let mut hit: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for p in &found.pairs {
@@ -277,7 +280,8 @@ fn positive_control(
             &planted,
             std::slice::from_ref(set),
         );
-        let request = containment::parse(&bytes)?;
+        let mut request = containment::parse(&bytes)?;
+        request.exact_short = false;
         let found = request.scan(threads)?;
         let mut hit: BTreeSet<&str> = BTreeSet::new();
         for p in &found.pairs {
