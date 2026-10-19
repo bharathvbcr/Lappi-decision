@@ -746,12 +746,25 @@ mod tests {
     }
 
     fn write_examples(dir: &Path, rows: &[(&str, &str, &str, &str)]) -> PathBuf {
+        write_examples_with(dir, rows, &["A", "B"])
+    }
+
+    /// Examples whose text is exactly `context` (no option lines): the stripped export's shape.
+    fn write_bare_examples(dir: &Path, rows: &[(&str, &str, &str, &str)]) -> PathBuf {
+        write_examples_with(dir, rows, &[])
+    }
+
+    fn write_examples_with(
+        dir: &Path,
+        rows: &[(&str, &str, &str, &str)],
+        options: &[&str],
+    ) -> PathBuf {
         let path = dir.join("examples.jsonl");
         let body: Vec<String> = rows
             .iter()
             .map(|(id, source, family, context)| {
                 json!({"id": id, "source_id": source, "family_id": family,
-                       "context": context, "options": ["A", "B"]})
+                       "context": context, "options": options})
                 .to_string()
             })
             .collect();
@@ -825,7 +838,7 @@ mod tests {
     #[test]
     fn a_row_whose_whole_stripped_text_is_a_short_target_is_caught_by_the_exact_tier() {
         let dir = tmp("short");
-        let ex = write_examples(
+        let ex = write_bare_examples(
             &dir,
             &[("r1", "x/y", "fam.a", "Set a timer for TEN minutes!")],
         );
@@ -843,7 +856,7 @@ mod tests {
     #[test]
     fn a_short_target_inside_a_longer_text_is_a_counted_residual_not_a_hit() {
         let dir = tmp("embedded");
-        let ex = write_examples(
+        let ex = write_bare_examples(
             &dir,
             &[
                 (
