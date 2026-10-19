@@ -113,7 +113,9 @@ set -- check --release "$RELEASE_DIR" --results "$REPLAY_RESULTS" --min-answered
 out="$WORK/check_output.txt"
 rc_bin "$@" > "$out" 2>&1
 rc=$?
-cat "$out"
+# `check`'s own RESULT: line is the step's, not the flow's: only the last line of this script's
+# output is the flow's verdict, and a grep for `^RESULT: PASS` must not match a step.
+sed 's/^RESULT: /check step RESULT: /' "$out"
 if [ "$rc" -ne 0 ]; then step_status "$rc"; finish $?; fi
 if grep -q '^NotRun headline metrics' "$out"; then
   echo "NotRun: release-replay - every check line passed, but the headline figures were not computed (no VERDICTS from a real eval); a replay alone is not a pass."

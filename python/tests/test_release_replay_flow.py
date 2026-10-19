@@ -48,7 +48,7 @@ def _write_lines(path: Path, rows: list[dict]) -> Path:
 
 def _release(d: Path) -> Path:
     rel = d / "rel"
-    rel.mkdir()
+    rel.mkdir(exist_ok=True)
     (rel / "release_manifest.json").write_text(json.dumps({
         "format": "qd-release.v2",
         "trained_families": ["code.defect_class", "fam.b"],
@@ -151,7 +151,8 @@ def test_a_full_fixture_passes_every_check_line_but_is_never_pass_overall(
     proc = _run(tmp_path, release_check_bin, _val_rows(4), "3")
     assert proc.returncode == 3, proc.stdout + proc.stderr
     assert _last(proc) == "RESULT: NotRun"
-    assert "RESULT: PASS" not in proc.stdout
+    assert "RESULT: PASS" not in [line.strip() for line in proc.stdout.splitlines()]
+    assert "check step RESULT: PASS" in proc.stdout
     assert "headline figures were not computed" in proc.stdout
     results = tmp_path / "out" / "results.jsonl"
     assert results.is_file(), "preflight-release reads this file"
