@@ -1,0 +1,30 @@
+upstream rows: train 15250 validation 3100 test 5500
+clinc_digest hit ids in the log's sample: 8 distinct digests: ['9aa7f15e83aa5557', 'd0eaefc2c46f9e68']
+  digest 9aa7f15e83aa5557 utterance "what's your designation" intents-by-upstream-split {'train': [75], 'test': [11]}
+  digest d0eaefc2c46f9e68 utterance 'where did you grow up' intents-by-upstream-split {'train': [99], 'test': [77]}
+distinct test utterances: 5500 also in upstream train: 2 also in upstream validation: 0
+  of those in upstream train, sharing the same intent label in train and test: 0
+distinct short test targets (normalised, 1-7 words): 2342
+  of which equal a whole upstream-train utterance (normalised): 19 ; train rows involved: 20
+  of which equal a whole upstream-validation utterance: 5
+the matched short targets (words, chars, test intents, train intents, count in train):
+  1w 10c  'absolutely'  test_intents=[107] train_intents=[107] train_n=1
+  1w  3c  'bye'  test_intents=[114] train_intents=[114] train_n=1
+  1w  7c  'goodbye'  test_intents=[114] train_intents=[114] train_n=1
+  1w  4c  'hola'  test_intents=[82] train_intents=[82] train_n=1
+  1w  5c  'later'  test_intents=[114] train_intents=[114] train_n=1
+  2w 11c  'hello there'  test_intents=[82] train_intents=[82] train_n=1
+  2w  9c  'hey there'  test_intents=[82] train_intents=[82] train_n=1
+  3w 13c  'see you later'  test_intents=[114] train_intents=[114] train_n=1
+  3w 14c  'thanks so much'  test_intents=[124] train_intents=[124] train_n=1
+  3w 16c  'that s incorrect'  test_intents=[30] train_intents=[30] train_n=2
+  4w 13c  'hey what s up'  test_intents=[82] train_intents=[82] train_n=1
+  4w 14c  'hi how are you'  test_intents=[82] train_intents=[82] train_n=1
+  4w 16c  'no that is wrong'  test_intents=[30] train_intents=[30] train_n=1
+  4w 18c  'that s not correct'  test_intents=[30] train_intents=[30] train_n=1
+  4w 23c  'what s your designation'  test_intents=[11] train_intents=[75] train_n=1
+  5w 24c  'i need my account frozen'  test_intents=[20] train_intents=[20] train_n=1
+  5w 21c  'where did you grow up'  test_intents=[77] train_intents=[99] train_n=1
+  7w 32c  'i need you to repeat that please'  test_intents=[13] train_intents=[13] train_n=1
+  7w 24c  'what is on my to do list'  test_intents=[48] train_intents=[48] train_n=1
+by word count: {1: 5, 2: 2, 3: 3, 4: 5, 5: 2, 7: 2}
