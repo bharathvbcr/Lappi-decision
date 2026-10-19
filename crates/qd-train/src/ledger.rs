@@ -1232,7 +1232,7 @@ pub fn lora_ft_row(
             "lora.a_init_digest",
             TriState::ran(true, a_digest).with_detail(format!(
                 "recomputed by attach_lora's rule (one CPU mt19937 at seed {}, kaiming_uniform_ \
-                 a=sqrt(5), {} module(s) in named_modules order, rank {rank}) and equal to the \
+                 a=sqrt(5), {} module(s) in canonical draw order (layer index, then D6's suffix table), rank {rank}) and equal to the \
                  digest the run recorded",
                 row.protocol.seed,
                 modules.len()

@@ -1,8 +1,10 @@
 //! The LoRA-A init rule, recomputed without torch.
 //!
 //! `python/qd_train/lora.py::attach_lora` draws every adapter's `A` (`[r, in]`) from one CPU
-//! `torch.Generator` seeded with the run seed, visiting the adapted modules in
-//! `model.named_modules()` order and calling `nn.init.kaiming_uniform_(a=sqrt(5))` on each. The
+//! `torch.Generator` seeded with the run seed, visiting the adapted modules in the canonical order
+//! (layer index ascending, then `LORA_TARGET_SUFFIXES`; independent of the order a framework or
+//! provider lists them in, `lora.lora_draw_order`) and calling `nn.init.kaiming_uniform_(a=sqrt(5))`
+//! on each. The
 //! pre-registration (`campaign/lora-2b-preregistered.json`, `init.lora_a`) pins that as a *rule*:
 //! the A digest is a function of the seed, recorded in the row, and checked by recomputing it.
 //! This module is the Rust side of that recomputation.
@@ -21,6 +23,7 @@
 //! The digest is `run_control._sidecar_digest` over one float32 `TensorRef` per adapter named
 //! `<module>.lora_A.weight`, the construction the span head's content digest already uses.
 
+use crate::recipe::LORA_TARGET_SUFFIXES;
 use crate::run_control::{RunControlError, sidecar_digest, tensor_ref_digest};
 
 const N: usize = 624;
@@ -97,6 +100,19 @@ pub enum LoraInitError {
     },
     #[error("{0} is listed twice; attach_lora wraps each module once")]
     DuplicateModule(String),
+    #[error(
+        "{0:?} is not '<prefix>layers.<layer index>.<suffix>' for a suffix in D6's target table: \
+         the LoRA-A draw order is (layer index, suffix-table position) and a module with neither \
+         has no place in it"
+    )]
+    NoDrawPosition(String),
+    #[error("{first:?} and {second:?} are both layer {layer} {suffix:?}: the draw order is ambiguous")]
+    AmbiguousDrawPosition {
+        first: String,
+        second: String,
+        layer: u64,
+        suffix: &'static str,
+    },
     #[error(transparent)]
     Digest(#[from] RunControlError),
     #[error(
@@ -112,8 +128,54 @@ pub enum LoraInitError {
     },
 }
 
-/// `attach_lora`'s A matrices at `seed`: `(module name, [r, in] row-major values)` in the order
-/// given, which must be `model.named_modules()` order. B is zero and is not drawn.
+/// A module's place in the canonical LoRA-A draw order: `(layer index, position in
+/// [`LORA_TARGET_SUFFIXES`])`, read from `<prefix>layers.<n>.<suffix>`. Any other name is refused;
+/// there is no fallback order. Mirrors `lora.lora_draw_order`.
+pub fn draw_position(module: &str) -> Result<(u64, usize), LoraInitError> {
+    for (position, suffix) in LORA_TARGET_SUFFIXES.iter().enumerate() {
+        let Some(head) = module
+            .strip_suffix(suffix)
+            .and_then(|h| h.strip_suffix('.'))
+        else {
+            continue;
+        };
+        let Some((before, index)) = head.rsplit_once('.') else {
+            continue;
+        };
+        let named_layers = before == "layers" || before.ends_with(".layers");
+        if named_layers && !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) {
+            if let Ok(n) = index.parse::<u64>() {
+                return Ok((n, position));
+            }
+        }
+    }
+    Err(LoraInitError::NoDrawPosition(module.to_owned()))
+}
+
+/// `names` sorted into the canonical draw order (layer index ascending, then the suffix table),
+/// as indices into `names`. Refuses a name with no draw position and two names that share one.
+pub fn canonical_draw_order(names: &[&str]) -> Result<Vec<usize>, LoraInitError> {
+    let mut keyed = Vec::with_capacity(names.len());
+    for (i, name) in names.iter().enumerate() {
+        keyed.push((draw_position(name)?, i));
+    }
+    keyed.sort_unstable();
+    for pair in keyed.windows(2) {
+        if pair[0].0 == pair[1].0 {
+            return Err(LoraInitError::AmbiguousDrawPosition {
+                first: names[pair[0].1].to_owned(),
+                second: names[pair[1].1].to_owned(),
+                layer: pair[0].0.0,
+                suffix: LORA_TARGET_SUFFIXES[pair[0].0.1],
+            });
+        }
+    }
+    Ok(keyed.into_iter().map(|(_, i)| i).collect())
+}
+
+/// `attach_lora`'s A matrices at `seed`: `(module name, [r, in] row-major values)` in the
+/// canonical draw order (layer index, then D6's suffix table), whatever order `modules` lists them
+/// in. B is zero and is not drawn.
 pub fn recompute_lora_a(
     seed: u64,
     rank: usize,
@@ -124,8 +186,6 @@ pub fn recompute_lora_a(
         return Err(LoraInitError::NoModules);
     }
     let mut seen = std::collections::BTreeSet::new();
-    let mut rng = Mt19937::new(seed32);
-    let mut out = Vec::with_capacity(modules.len());
     for (name, in_features) in modules {
         if rank == 0 || *in_features == 0 {
             return Err(LoraInitError::BadShape {
@@ -137,6 +197,13 @@ pub fn recompute_lora_a(
         if !seen.insert(name.as_str()) {
             return Err(LoraInitError::DuplicateModule(name.clone()));
         }
+    }
+    let names: Vec<&str> = modules.iter().map(|(n, _)| n.as_str()).collect();
+    let order = canonical_draw_order(&names)?;
+    let mut rng = Mt19937::new(seed32);
+    let mut out = Vec::with_capacity(modules.len());
+    for i in order {
+        let (name, in_features) = &modules[i];
         // nn.init._calculate_gain / kaiming_uniform_, in f64 as Python evaluates them.
         let a = 5f64.sqrt();
         let gain = (2.0 / (1.0 + a * a)).sqrt();

@@ -44,6 +44,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,6 +84,7 @@ __all__ = [
     "d17_init_digest",
     "lora_a_digest",
     "lora_a_rule_digest",
+    "lora_draw_order",
     "lora_model_state",
     "lora_param_groups",
     "lora_parameters",
@@ -182,6 +184,44 @@ def _is_target(name: str, suffixes: Iterable[str]) -> bool:
     return any(name == s or name.endswith("." + s) for s in suffixes)
 
 
+def lora_draw_order(
+    names: Iterable[str], suffixes: Iterable[str] = LORA_TARGET_SUFFIXES
+) -> list[str]:
+    """``names`` in the canonical LoRA-A draw order: layer index ascending, then ``suffixes`` order.
+
+    The order is a property of the architecture, not of how a framework registered its modules
+    (HF registers a GDN layer's ``out_proj`` before ``in_proj_qkv``; ojas lists qkv, z, out). The
+    layer index is read from the ``layers.<n>.`` component directly before the suffix. A name that
+    is not ``<prefix>layers.<n>.<suffix>`` for one of ``suffixes``, or two names with the same
+    ``(layer, suffix)``, is refused: there is no fallback order, because a silent one is a silently
+    different A.
+    """
+    table = tuple(suffixes)
+    keyed: list[tuple[int, int, str]] = []
+    seen: dict[tuple[int, int], str] = {}
+    for name in names:
+        found: tuple[int, int] | None = None
+        for position, suffix in enumerate(table):
+            m = re.fullmatch(rf"(?:.*\.)?layers\.([0-9]+)\.{re.escape(suffix)}", name)
+            if m is not None:
+                found = (int(m.group(1)), position)
+                break
+        if found is None:
+            raise LoraContractViolation(
+                f"{name!r} is not '<prefix>layers.<layer index>.<suffix>' for a suffix in {table}: "
+                "the LoRA-A draw order is (layer index, suffix-table position) and a module with "
+                "neither has no place in it"
+            )
+        if found in seen:
+            raise LoraContractViolation(
+                f"{name!r} and {seen[found]!r} are both layer {found[0]} {table[found[1]]!r}: the "
+                "draw order is ambiguous"
+            )
+        seen[found] = name
+        keyed.append((found[0], found[1], name))
+    return [name for _, _, name in sorted(keyed)]
+
+
 def attach_lora(
     model: nn.Module,
     *,
@@ -192,14 +232,16 @@ def attach_lora(
 ) -> LoraAdapter:
     """Freeze ``model`` and wrap every target linear in a :class:`LoRALinear`.
 
-    ``A`` is drawn from one CPU generator seeded with ``seed``, visiting the target modules in
-    ``model.named_modules()`` order and calling ``kaiming_uniform_(a=sqrt(5))`` on each ``[r, in]``
-    weight. That construction is the pre-registration's *rule* for the LoRA-A digest: a row
-    records the digest, and a reader recomputes it from this function and the seed.
+    ``A`` is drawn from one CPU generator seeded with ``seed``, visiting the target modules in the
+    canonical order of :func:`lora_draw_order` (layer index, then ``LORA_TARGET_SUFFIXES``;
+    independent of module registration order) and calling ``kaiming_uniform_(a=sqrt(5))`` on each
+    ``[r, in]`` weight. That construction is the pre-registration's *rule* for the LoRA-A digest:
+    a row records the digest, and a reader recomputes it from this function and the seed.
 
     Raises:
-        LoraContractViolation: if no module matches, a match is not a plain ``nn.Linear``, or the
-            model already carries an adapter. An adapter over nothing would train nothing and
+        LoraContractViolation: if no module matches, a match is not a plain ``nn.Linear``, a match
+            has no layer index (see :func:`lora_draw_order`), or the model already carries an
+            adapter. An adapter over nothing would train nothing and
             report a run.
     """
     suffixes = tuple(target_suffixes)
@@ -217,11 +259,14 @@ def attach_lora(
             raise LoraContractViolation(
                 f"target {name!r} is a {type(module).__name__}, not nn.Linear"
             )
+    order = lora_draw_order((name for name, _ in targets), suffixes)
+    by_name = dict(targets)
     for param in model.parameters():
         param.requires_grad_(False)
     generator = torch.Generator(device="cpu").manual_seed(seed)
     names: list[str] = []
-    for name, module in targets:
+    for name in order:
+        module = by_name[name]
         wrapped = LoRALinear(module, r=r, alpha=alpha)
         a_cpu = torch.empty(r, module.in_features, dtype=torch.float32)
         nn.init.kaiming_uniform_(a_cpu, a=math.sqrt(5), generator=generator)
@@ -413,14 +458,16 @@ def lora_a_rule_digest(
 ) -> str:
     """The LoRA-A digest the pre-registration's *rule* predicts, without a model.
 
-    ``in_features`` is ``(module name, in_features)`` for each adapted linear in
-    ``model.named_modules()`` order. ``A`` is ``kaiming_uniform_(a=sqrt(5))`` on each ``[r, in]``
-    float32 tensor drawn from one CPU generator seeded with ``seed``; the digest is
+    ``in_features`` is ``(module name, in_features)`` for each adapted linear, in any order: it is
+    sorted into :func:`lora_draw_order` here. ``A`` is ``kaiming_uniform_(a=sqrt(5))`` on each
+    ``[r, in]`` float32 tensor drawn from one CPU generator seeded with ``seed``; the digest is
     :func:`lora_a_digest`'s. A row's recorded digest must equal this one, or the row is void.
     """
     generator = torch.Generator(device="cpu").manual_seed(seed)
+    widths = dict(in_features)
     refs: dict[str, TensorRef] = {}
-    for name, n_in in in_features:
+    for name in lora_draw_order(widths):
+        n_in = widths[name]
         a = torch.empty(r, n_in, dtype=torch.float32)
         nn.init.kaiming_uniform_(a, a=math.sqrt(5), generator=generator)
         refs[f"{name}.lora_A.weight"] = _tensor_ref(a)
@@ -430,12 +477,13 @@ def lora_a_rule_digest(
 
 
 def adapted_in_features(model: nn.Module) -> list[tuple[str, int]]:
-    """``(module name, in_features)`` of every wrapped linear, in ``named_modules()`` order."""
-    return [
-        (name, module.base.in_features)
+    """``(module name, in_features)`` of every wrapped linear, in :func:`lora_draw_order`."""
+    widths = {
+        name: module.base.in_features
         for name, module in model.named_modules()
         if isinstance(module, LoRALinear)
-    ]
+    }
+    return [(name, widths[name]) for name in lora_draw_order(widths)]
 
 
 @dataclass(frozen=True)

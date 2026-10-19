@@ -6,9 +6,11 @@ each seed and ``qd_train.lora.lora_param_groups`` over it, and dumps what the Ru
 reproduce without torch:
 
 * the optimizer groups: name, ``lr_scale``, ``weight_decay`` and the member parameter names;
-* the adapted modules in the order ``attach_lora`` drew their ``A`` (``model.named_modules()``),
-  each with ``in_features``, the float.hex of the first values of its ``A`` and the A tensor's
-  ``TensorRef`` digest;
+* the adapted modules in the order ``attach_lora`` drew their ``A`` (canonical: layer index, then
+  ``LORA_TARGET_SUFFIXES``, not ``model.named_modules()``), each with ``in_features``, the
+  float.hex of the first values of its ``A`` and the A tensor's ``TensorRef`` digest;
+* ``hf_registration_order``: the same tree registered in HF's GDN order (``out_proj`` first), with
+  the listing order and the digest, which must equal the ojas-order digest;
 * the LoRA-A digest: ``run_control._sidecar_digest`` over the ``TensorRef`` of every
   ``<module>.lora_A.weight`` (float32, little-endian bytes), the same construction as the span
   head's content digest.
@@ -58,20 +60,25 @@ class SelfAttn(nn.Module):
 
 
 class LinearAttn(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, hf_order: bool = False) -> None:
         super().__init__()
+        # hf_order: transformers' Qwen3_5GatedDeltaNet registers out_proj before in_proj_qkv and
+        # in_proj_z (modeling_qwen3_5.py, transformers 5.19.0); the default is the ojas order.
+        if hf_order:
+            self.out_proj = nn.Linear(8, HIDDEN, bias=False)
         self.in_proj_qkv = nn.Linear(HIDDEN, GDN_QKV, bias=False)
         self.in_proj_z = nn.Linear(HIDDEN, 8, bias=False)
         self.in_proj_b = nn.Linear(HIDDEN, 2, bias=False)
         self.in_proj_a = nn.Linear(HIDDEN, 2, bias=False)
-        self.out_proj = nn.Linear(8, HIDDEN, bias=False)
+        if not hf_order:
+            self.out_proj = nn.Linear(8, HIDDEN, bias=False)
 
 
 class Layer(nn.Module):
-    def __init__(self, gdn: bool) -> None:
+    def __init__(self, gdn: bool, hf_order: bool = False) -> None:
         super().__init__()
         if gdn:
-            self.linear_attn = LinearAttn()
+            self.linear_attn = LinearAttn(hf_order)
         else:
             self.self_attn = SelfAttn()
         self.mlp = Mlp()
@@ -79,17 +86,19 @@ class Layer(nn.Module):
 
 
 class Tower(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, hf_order: bool = False) -> None:
         super().__init__()
         self.embed_tokens = nn.Embedding(32, HIDDEN)
-        self.layers = nn.ModuleList([Layer(True), Layer(False), Layer(True)])
+        self.layers = nn.ModuleList(
+            [Layer(True, hf_order), Layer(False, hf_order), Layer(True, hf_order)]
+        )
         self.norm = nn.LayerNorm(HIDDEN)
 
 
 class Model(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, hf_order: bool = False) -> None:
         super().__init__()
-        self.model = Tower()
+        self.model = Tower(hf_order)
 
 
 def a_ref(t: torch.Tensor) -> TensorRef:
@@ -159,6 +168,29 @@ def seed_block(seed: int) -> dict[str, object]:
     }
 
 
+def hf_registration_block(seed: int) -> dict[str, object]:
+    """The same architecture registered in HF's real GDN order: the digest and the registration
+    order its adapted linears were listed in (the order a provider may hand the Rust verifier)."""
+    model = Model(hf_order=True)
+    registered = [
+        n
+        for n, m in model.named_modules()
+        if isinstance(m, nn.Linear) and any(n.endswith(s) for s in lora.LORA_TARGET_SUFFIXES)
+    ]
+    adapter = lora.attach_lora(model, seed=seed)
+    refs = {
+        f"{name}.lora_A.weight": a_ref(model.get_submodule(f"{name}.lora_A").weight)
+        for name in adapter.module_names
+    }
+    widths = dict(lora.adapted_in_features(model))
+    return {
+        "seed": seed,
+        "registration_order": [{"module": n, "in_features": widths[n]} for n in registered],
+        "draw_order": list(adapter.module_names),
+        "a_digest": _sidecar_digest(refs),
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, required=True)
@@ -186,6 +218,7 @@ def main() -> int:
         },
         "unadapted_base_names": base_names,
         "seeds": blocks,
+        "hf_registration_order": [hf_registration_block(s) for s in SEEDS],
     }
     args.out.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print(f"wrote {args.out}: seeds {list(SEEDS)}, {len(blocks[0]['modules'])} adapted modules")

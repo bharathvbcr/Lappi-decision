@@ -217,7 +217,7 @@ def _tiny_two_orders():
     class M(nn.Module):
         def __init__(self, first_q: bool):
             super().__init__()
-            self.b = Block(first_q)
+            self.layers = nn.ModuleList([Block(first_q)])
 
     return M(True), M(False)
 
@@ -230,12 +230,6 @@ def test_the_rule_digest_is_independent_of_the_attached_a(env):  # noqa: F811 - 
     assert lora.lora_a_digest(m) != lora.lora_a_rule_digest(lora.adapted_in_features(m), seed=3)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP-W2-2-LORA-A-DIGEST-DEPENDS-ON-MODULE-REGISTRATION-ORDER-2026-10-18: "
-    "named_modules() order pinned at campaign/lora-2b-preregistered.json:169; canonical order "
-    "(layer index, then LORA_TARGET_SUFFIXES) needs an owner-approved amendment",
-)
 def test_the_a_digest_does_not_depend_on_module_registration_order():
     """The pre-registration pins named_modules() order, so a same-architecture model registered in
     another order (an ojas-side enumeration) silently gets a different A and digest; the driver
@@ -244,6 +238,114 @@ def test_the_a_digest_does_not_depend_on_module_registration_order():
     lora.attach_lora(m1, seed=3)
     lora.attach_lora(m2, seed=3)
     assert lora.lora_a_digest(m1) == lora.lora_a_digest(m2)
+
+
+def _gdn_tower(hf_order: bool, layers: int = 3):
+    """A GDN-plus-MLP tower; ``hf_order`` registers ``out_proj`` before ``in_proj_qkv`` and
+    ``in_proj_z``, as transformers' Qwen3_5GatedDeltaNet does."""
+    from torch import nn
+
+    class Gdn(nn.Module):
+        def __init__(self):
+            super().__init__()
+            if hf_order:
+                self.out_proj = nn.Linear(8, 12, bias=False)
+            self.in_proj_qkv = nn.Linear(12, 18, bias=False)
+            self.in_proj_z = nn.Linear(12, 8, bias=False)
+            if not hf_order:
+                self.out_proj = nn.Linear(8, 12, bias=False)
+
+    class Mlp(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.down_proj = nn.Linear(20, 12, bias=False)
+            self.gate_proj = nn.Linear(12, 20, bias=False)
+            self.up_proj = nn.Linear(12, 20, bias=False)
+
+    class Layer(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_attn = Gdn()
+            self.mlp = Mlp()
+
+    class Tower(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layers = nn.ModuleList([Layer() for _ in range(layers)])
+
+    class Model(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.model = Tower()
+
+    return Model()
+
+
+def test_hf_registered_gdn_order_draws_the_same_a_as_the_ojas_order():
+    hf, ojas = _gdn_tower(True), _gdn_tower(False)
+    assert [n for n, _ in hf.named_modules()] != [n for n, _ in ojas.named_modules()]
+    lora.attach_lora(hf, seed=11)
+    lora.attach_lora(ojas, seed=11)
+    assert lora.lora_a_digest(hf) == lora.lora_a_digest(ojas)
+    a_hf, a_ojas = dict(lora.lora_parameters(hf)), dict(lora.lora_parameters(ojas))
+    assert a_hf.keys() == a_ojas.keys()
+    for name, tensor in a_hf.items():
+        assert torch.equal(tensor, a_ojas[name]), name
+
+
+def test_the_draw_order_is_layer_then_suffix_table_and_layer_ten_follows_layer_two():
+    names = [
+        "m.layers.10.mlp.up_proj",
+        "m.layers.2.mlp.down_proj",
+        "m.layers.2.linear_attn.out_proj",
+        "m.layers.2.linear_attn.in_proj_qkv",
+        "m.layers.10.self_attn.q_proj",
+    ]
+    assert lora.lora_draw_order(names) == [
+        "m.layers.2.linear_attn.in_proj_qkv",
+        "m.layers.2.linear_attn.out_proj",
+        "m.layers.2.mlp.down_proj",
+        "m.layers.10.self_attn.q_proj",
+        "m.layers.10.mlp.up_proj",
+    ]
+
+
+def test_the_rule_digest_sorts_its_input_into_the_canonical_order():
+    model = _gdn_tower(True)
+    lora.attach_lora(model, seed=5)
+    widths = lora.adapted_in_features(model)
+    assert lora.lora_a_rule_digest(widths, seed=5) == lora.lora_a_digest(model)
+    assert lora.lora_a_rule_digest(list(reversed(widths)), seed=5) == lora.lora_a_digest(model)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["self_attn.q_proj", "b.self_attn.q_proj", "layers.x.self_attn.q_proj", "layers.2.q_proj"],
+)
+def test_a_target_with_no_layer_index_is_refused_not_given_a_fallback_order(name):
+    with pytest.raises(lora.LoraContractViolation, match="layer index"):
+        lora.lora_draw_order([name])
+
+
+def test_two_targets_at_one_draw_position_are_refused():
+    with pytest.raises(lora.LoraContractViolation, match="ambiguous"):
+        lora.lora_draw_order(["a.layers.0.mlp.up_proj", "b.layers.0.mlp.up_proj"])
+
+
+def test_attach_lora_refuses_a_model_whose_target_has_no_layer_index_and_leaves_it_unwrapped():
+    from torch import nn
+
+    class Flat(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.self_attn = nn.Module()
+            self.self_attn.q_proj = nn.Linear(4, 4, bias=False)
+
+    model = Flat()
+    with pytest.raises(lora.LoraContractViolation, match="layer index"):
+        lora.attach_lora(model, seed=0)
+    assert isinstance(model.self_attn.q_proj, nn.Linear)
+    assert all(p.requires_grad for p in model.parameters())
 
 
 def test_a_nonzero_d17_init_aborts_the_run(env, tmp_path, monkeypatch):  # noqa: F811 - the fixture imported from test_lora_reference_driver
