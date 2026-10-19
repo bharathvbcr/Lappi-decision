@@ -63,7 +63,8 @@ _CHILD = textwrap.dedent(
                      backbone_commit="test-backbone", recipe_hash="r" * 64, seed=1)
     rec = RunRecorder(Ledger(sys.argv[1]), protocol=proto, run_kind="ft", repo={repo!r},
                       env=Environment.detect(), wall_clock_s=None, cost=None,
-                      registration_id="reg-fixture", run_cap_s=600.0)
+                      registration_id="reg-fixture", run_cap_s=600.0,
+                      entry_point=sys.argv[2])
     with rec:
         print("ready", flush=True)
         time.sleep(600)
@@ -113,12 +114,12 @@ def main() -> None:
     proto = Protocol(data_snapshot_hash="d" * 64, tokenizer_hash="bytes-utf8-256",
                      backbone_commit="test-backbone", recipe_hash="r" * 64, seed=0)
     with RunRecorder(led, protocol=proto, run_kind="ft", repo=REPO, env=Environment.detect(),
-                     wall_clock_s=None, cost=None) as rec:
+                     wall_clock_s=None, cost=None, entry_point=Path(__file__)) as rec:
         rec.metric("accuracy.k4", Ran(passed=True, value=0.83, n=300, n_total=300))
 
     child = subprocess.Popen(
         [sys.executable, "-I", "-c", _CHILD.format(python=str(PYTHON_DIR), repo=str(REPO)),
-         str(path)],
+         str(path), str(Path(__file__).resolve())],
         stdout=subprocess.PIPE, text=True,
     )
     try:
