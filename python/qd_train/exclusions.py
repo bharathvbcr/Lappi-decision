@@ -65,6 +65,7 @@ from .replay import DEFAULT_N, DEFAULT_THRESHOLD
 __all__ = [
     "ATTESTATION_NAME",
     "ATTESTATION_VERSION",
+    "EXACT_SHORT_RULE_NAME",
     "EXCLUSIONS_NAME",
     "PRE_DEDUPE_DROPS_KEY",
     "SAME_FAMILY_SCOPE_KEY",
@@ -84,6 +85,10 @@ __all__ = [
 EXCLUSIONS_NAME: Final[str] = "exclusions.txt"
 ATTESTATION_NAME: Final[str] = "attestation.json"
 ATTESTATION_VERSION: Final[int] = 2
+#: The exact-short tier's name (``qd_prep::exact_short::EXACT_SHORT_RULE`` starts with it): the
+#: attestation's ``exact_short.rule`` must carry it, or the list was made by a scan that cannot
+#: see a target under 8 words (owner ruling 2026-10-19, Fable Q22 (b)) and is refused.
+EXACT_SHORT_RULE_NAME: Final[str] = "exact-short-v1"
 #: Bound on the list read: v4's whole train split is 289,142 rows.
 MAX_KEYS: Final[int] = 2_000_000
 #: The corpus key naming the same-family containment scope: Python's one spelling (the
@@ -239,6 +244,15 @@ def read_exclusions(path: Path, *, corpus: Mapping[str, object]) -> Exclusions:
             "intent lists in and excluded 63-66% of CLINC keys on the subsamples, "
             "HANDOFF/prep2-2026-10-02.md -- and v5's "
             "rule (campaign/v5-preregistered data.decontamination.rule) strips it"
+        )
+    exact = att.get("exact_short")
+    exact_rule = exact.get("rule") if isinstance(exact, dict) else None
+    if not (isinstance(exact_rule, str) and exact_rule.startswith(EXACT_SHORT_RULE_NAME + ":")):
+        raise ExclusionRefusal(
+            f"{att_path}: the scan did not apply the {EXACT_SHORT_RULE_NAME} tier "
+            f"(exact_short.rule {exact_rule!r}). A list from a scan blind to targets under n "
+            "words leaves a train row equal to a short test utterance in train "
+            "(AUDIT/harden-2026-10-17/human-ruling-2026-10-19.md; Fable Q22 (b))"
         )
     if att.get("exclusions_sha256") != digest:
         raise ExclusionRefusal(

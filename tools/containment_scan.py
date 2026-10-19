@@ -415,6 +415,13 @@ def drop_empty_targets(
     return kept, sorted({scan.target for scan in scans if scan.target in empty})
 
 
+def runnable_scans(sets: Sequence[ScanSet]) -> list[ScanSpec]:
+    """:func:`scan_specs` without the scans ``qd-prep containment`` refuses (a target set with no
+    row): what a caller that writes a request for the shipped binary hands :func:`write_request`.
+    The names of the dropped sets are :func:`drop_empty_targets`'s second value."""
+    return drop_empty_targets(sets, scan_specs(sets))[0]
+
+
 def targets_block(targets: Sequence[TargetSet]) -> dict[str, object]:
     """The attestation's ``export.targets``: per set, its row count, sha256 and source."""
     return {

@@ -281,8 +281,10 @@ def test_without_the_flag_the_share_is_measured_and_not_enforced(
     monkeypatch.setattr(pipeline, "train_token_share", spy)
     # The stage after the check: reaching it is getting past it.
     monkeypatch.setattr(pipeline, "_default_decode_survives", next_stage)
+    # "Without the flag" is the legacy rules: v6 is `run`'s default since 4b1f037 (the human's
+    # ruling of 2026-10-17), so a call that names no rules is a v6 build and refuses here.
     with pytest.raises(_Wrote):
-        _stubbed_run(monkeypatch, tmp_path)
+        _stubbed_run(monkeypatch, tmp_path, v6_data_rules=False)
     [(tokens, share)] = seen
     assert isinstance(tokens, Ran) and isinstance(share, NotRun)
 

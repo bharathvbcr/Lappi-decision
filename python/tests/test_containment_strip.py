@@ -32,8 +32,8 @@ from containment_scan import (  # noqa: E402
     ScanSet,
     export_block,
     run_containment,
+    runnable_scans,
     scan_sets,
-    scan_specs,
     splitter_checks,
     write_request,
 )
@@ -544,7 +544,7 @@ def test_the_stripped_pair_list_is_the_oracles_bit_for_bit(qd_prep_bin: Path,
     -> ``decontaminate``. The complete pair lists must agree byte for byte."""
     report = _mixed_report()
     sets, _record = scan_sets(report, config=CONFIG)
-    scans = scan_specs(sets)
+    scans = runnable_scans(sets)
     got = (_scan(qd_prep_bin, tmp_path, sets, scans) / PAIRS_NAME).read_text(encoding="utf-8")
     texts, _ = strip_template({
         "train": _parts(list(report.rows_by_split["train"])),
@@ -565,7 +565,7 @@ def test_the_stripped_pair_list_is_the_oracles_bit_for_bit(qd_prep_bin: Path,
     # And the strip changed the answer: the template-only CLINC pair is in the unstripped
     # scan and in neither stripped list.
     plain, _ = scan_sets(report, config=CONFIG, template_strip=False)
-    unstripped = (_scan(qd_prep_bin, tmp_path, plain, scan_specs(plain), name="plain")
+    unstripped = (_scan(qd_prep_bin, tmp_path, plain, runnable_scans(plain), name="plain")
                   / PAIRS_NAME).read_text(encoding="utf-8")
     template_pair = {line.split("\t")[1] for line in unstripped.splitlines()[1:]} - {
         line.split("\t")[1] for line in want.splitlines()[1:]
@@ -577,7 +577,7 @@ def _full_scan(binary: Path, report: SplitReport, out: Path, *, strip: bool) -> 
     sets, record = scan_sets(report, config=CONFIG, template_strip=strip)
     request = out.with_name(out.name + ".request.bin")
     with request.open("xb") as fh:
-        write_request(fh, sets, scan_specs(sets), corpus=CORPUS,
+        write_request(fh, sets, runnable_scans(sets), corpus=CORPUS,
                       export=export_block(sets, engine=binary, strip=record),
                       checks=splitter_checks(report))
     run_containment(binary, request, out, threads=2, timeout_s=120.0)

@@ -58,6 +58,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use crate::blake2b::Keyed;
+use crate::exact_short::{EXACT_SHORT_RULE, ShortTargets};
 use crate::pyunicode;
 use crate::sha256::{Sha256, sha256_hex};
 use crate::wire::Cursor;
@@ -547,6 +548,12 @@ pub struct Control {
     pub checkable: usize,
     pub planted: usize,
     pub hit: usize,
+    /// The exact-short tier's control ([`crate::exact_short`]): one planted copy per distinct
+    /// short target text (up to [`CONTROL_MAX_ROWS`]), and how many were found as their own
+    /// row. `short_planted == short_hit` for any control that did not refuse; both 0 when the
+    /// set holds no short target.
+    pub short_planted: usize,
+    pub short_hit: usize,
 }
 
 impl Request<'_> {
@@ -651,12 +658,68 @@ impl Request<'_> {
                     self.threshold
                 ));
             }
+            // The exact-short tier's own control: one planted copy per distinct short target
+            // text must be found as its own row, or a zero count of exact hits says nothing.
+            let shorts =
+                ShortTargets::build(rows.iter().enumerate().map(|(i, r)| (i, r.text)), self.n);
+            let (mut short_planted, mut short_hit) = (0, 0);
+            if !shorts.is_empty() {
+                let firsts: Vec<usize> = shorts.iter().map(|(_, ix)| ix[0]).collect();
+                let copies: Vec<Row<'_>> = if firsts.len() <= CONTROL_MAX_ROWS {
+                    firsts.iter().map(|&i| rows[i].clone()).collect()
+                } else {
+                    (0..CONTROL_MAX_ROWS)
+                        .map(|k| rows[firsts[k * firsts.len() / CONTROL_MAX_ROWS]].clone())
+                        .collect()
+                };
+                let control = Request {
+                    n: self.n,
+                    threshold: self.threshold,
+                    corpus: self.corpus,
+                    export: self.export,
+                    same_family_not_enforced: Vec::new(),
+                    checks: Vec::new(),
+                    set_names: vec!["positive-control-exact-short", name],
+                    scans: vec![Scan {
+                        source: 0,
+                        target: 1,
+                        enforced: true,
+                    }],
+                    sets: vec![copies.clone(), rows.clone()],
+                };
+                let found = control.scan_unguarded(threads)?;
+                let mut got: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+                for p in &found.pairs {
+                    let copy = control.sets[0][p.source_row].key;
+                    if copy == control.sets[1][p.target_row].key {
+                        got.insert(copy);
+                    }
+                }
+                if got.len() != copies.len() {
+                    let missed: Vec<&str> = copies
+                        .iter()
+                        .map(|r| r.key)
+                        .filter(|k| !got.contains(k))
+                        .take(8)
+                        .collect();
+                    return Err(format!(
+                        "target set {name}: {} of {} planted short-target copies were not found \
+                         by their own row (exact-short tier); first missed: {missed:?}",
+                        copies.len() - got.len(),
+                        copies.len()
+                    ));
+                }
+                short_planted = copies.len();
+                short_hit = got.len();
+            }
             out.push(Control {
                 target_set: name.to_owned(),
                 rows: rows.len(),
                 checkable: checkable.len(),
                 planted: planted.len(),
                 hit: hit.len(),
+                short_planted,
+                short_hit,
             });
         }
         Ok(out)
@@ -673,6 +736,20 @@ impl Request<'_> {
         for &t in &targets {
             indexes.insert(t, build_index(&self.sets[t], self.n, threads)?);
         }
+        // The exact-short tier's targets: a source row too short for an n-gram can only match
+        // them by its whole text (`crate::exact_short`).
+        let shorts: BTreeMap<usize, ShortTargets> = targets
+            .iter()
+            .map(|&t| {
+                (
+                    t,
+                    ShortTargets::build(
+                        self.sets[t].iter().enumerate().map(|(i, r)| (i, r.text)),
+                        self.n,
+                    ),
+                )
+            })
+            .collect();
         let mut pairs = Vec::new();
         let mut source_grams: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for source in self.source_order() {
@@ -689,6 +766,7 @@ impl Request<'_> {
             let items: Vec<(usize, &mut Vec<Pair>)> = chunks.iter_mut().enumerate().collect();
             let threshold = self.threshold;
             let indexes = &indexes;
+            let shorts = &shorts;
             let grams = &grams;
             let scans = &scans;
             run_parallel(items, threads, |(chunk, out)| {
@@ -697,6 +775,19 @@ impl Request<'_> {
                 let hi = (lo + CHUNK_ROWS).min(grams.len());
                 for (r, g) in grams.iter().enumerate().take(hi).skip(lo) {
                     if g.is_empty() {
+                        // Under n words: no n-gram to scan, but its whole text can be a short
+                        // target. shared = target_ngrams = 0 marks such a pair.
+                        for &(scan_i, scan) in scans {
+                            if let Some(ts) = shorts[&scan.target].whole(rows[r].text) {
+                                out.extend(ts.iter().map(|&t| Pair {
+                                    scan: scan_i,
+                                    source_row: r,
+                                    target_row: t,
+                                    shared: 0,
+                                    target_ngrams: 0,
+                                }));
+                            }
+                        }
                         continue;
                     }
                     for &(scan_i, scan) in scans {
@@ -1060,6 +1151,46 @@ impl Request<'_> {
              (qd_train.replay.decontaminate, every pair, not the best per row); keys (i) and \
              (iii) are the splitter's checks below",
         );
+        // The exact-short tier (`crate::exact_short`): named in the rule and in its own block, so
+        // a list made without it is recognisable (`qd_train.exclusions.read_exclusions` refuses
+        // an attestation that lacks `exact_short.rule`).
+        rule.push_str("; ");
+        rule.push_str(EXACT_SHORT_RULE);
+        let exact_pairs = found.pairs.iter().filter(|p| p.shared == 0).count() as u64;
+        let mut exact_targets: Vec<usize> = self.scans.iter().map(|s| s.target).collect();
+        exact_targets.sort_unstable();
+        exact_targets.dedup();
+        let exact_per_set: Vec<(String, Json)> = exact_targets
+            .iter()
+            .map(|&t| {
+                let shorts = ShortTargets::build(
+                    self.sets[t].iter().enumerate().map(|(i, r)| (i, r.text)),
+                    self.n,
+                );
+                let control = found.controls.iter().find(|c| c.target_set == set(t));
+                (
+                    set(t).to_string(),
+                    Json::Obj(vec![
+                        ("short_target_rows", Json::Int(shorts.rows() as u64)),
+                        ("short_target_texts", Json::Int(shorts.distinct() as u64)),
+                        (
+                            "control_planted",
+                            Json::Int(control.map_or(0, |c| c.short_planted) as u64),
+                        ),
+                        (
+                            "control_hit",
+                            Json::Int(control.map_or(0, |c| c.short_hit) as u64),
+                        ),
+                    ]),
+                )
+            })
+            .collect();
+        let exact_block = Json::Obj(vec![
+            ("rule", Json::Str(EXACT_SHORT_RULE.to_string())),
+            ("n", Json::Int(self.n as u64)),
+            ("pairs", Json::Int(exact_pairs)),
+            ("targets", Json::Map(exact_per_set)),
+        ]);
         // The scope's own block: per family, the enforced scans' pairs it left unenforced, the
         // source rows they hit, and the identity keys they alone hit (so not excluded).
         let mut scope_block = None;
@@ -1128,6 +1259,7 @@ impl Request<'_> {
             ("version", Json::Int(u64::from(ATTESTATION_VERSION))),
             ("tool", Json::Str("qd-prep containment".to_string())),
             ("rule", Json::Str(rule)),
+            ("exact_short", exact_block),
             ("n", Json::Int(self.n as u64)),
             ("threshold", Json::Float(self.threshold)),
             (
@@ -1348,9 +1480,49 @@ mod tests {
                 rows: 3,
                 checkable: 2,
                 planted: 2,
-                hit: 2
+                hit: 2,
+                short_planted: 1,
+                short_hit: 1
             }]
         );
+    }
+
+    /// The exact-short tier (owner ruling 2026-10-19): a source row whose WHOLE text equals a
+    /// target under n words is a hit and is excluded; the same words inside a longer row are
+    /// not. Fails on the code before the tier (no pair for `s1`, no `exact_short` block).
+    #[test]
+    fn a_source_row_equal_to_a_short_target_is_excluded_and_an_embedded_one_is_not() {
+        let rows = [
+            (0, "s1", "sid-1", "intent.domain", "THANK you!"),
+            (0, "s2", "sid-2", "intent.domain", "please thank you now"),
+            (0, "s3", "sid-3", "fam.x", LONG_B),
+            (
+                0,
+                "s4",
+                "sid-4",
+                "fam.x",
+                "a longer row\nthank you\nmore text",
+            ),
+            (1, "t1", "tid-1", "fam.x", LONG_A),
+            (1, "t2", "tid-2", "intent.domain", "Thank you"),
+        ];
+        let buf = request(&["train", "tgt"], &[(0, 1, true)], &[], &rows);
+        let w = run(&buf, 2).expect("runs");
+        let tsv = String::from_utf8(w.pairs_tsv).expect("utf8");
+        let lines: Vec<&str> = tsv.lines().skip(1).collect();
+        assert_eq!(lines.len(), 1, "{tsv}");
+        assert!(
+            lines[0].starts_with("train\ts1\tsid-1\tintent.domain\ttgt\tt2\tintent.domain\t0\t0"),
+            "{tsv}"
+        );
+        assert_eq!(w.exclusions, b"sid-1\n");
+        let att = String::from_utf8(w.attestation).expect("utf8");
+        assert!(att.contains("\"exact_short\": {"), "{att}");
+        assert!(att.contains("\"short_target_rows\": 1"), "{att}");
+        assert!(att.contains("\"control_planted\": 1"), "{att}");
+        assert!(att.contains("\"control_hit\": 1"), "{att}");
+        assert!(att.contains("exact-short-v1"), "{att}");
+        assert!(att.contains("\"clean\": true"), "{att}");
     }
 
     #[test]

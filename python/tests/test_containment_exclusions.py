@@ -32,8 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from containment_scan import (  # noqa: E402
     run_containment,
+    runnable_scans,
     scan_sets,
-    scan_specs,
     splitter_checks,
     write_request,
 )
@@ -259,7 +259,7 @@ def _scan(
     sets, strip = scan_sets(report, config=config)
     request = out.with_name(out.name + ".request.bin")
     with request.open("xb") as fh:
-        write_request(fh, sets, scan_specs(sets), corpus=corpus,
+        write_request(fh, sets, runnable_scans(sets), corpus=corpus,
                       export={"template_strip": strip}, checks=splitter_checks(report))
     run_containment(binary, request, out, threads=4, timeout_s=120.0)
     return json.loads((out / ATTESTATION_NAME).read_text(encoding="utf-8"))
@@ -482,7 +482,7 @@ def test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte(
     sets, strip = scan_sets(report, config=config)
     request = tmp_path / "scan.request.bin"
     with request.open("xb") as fh:
-        write_request(fh, sets, scan_specs(sets), corpus=corpus,
+        write_request(fh, sets, runnable_scans(sets), corpus=corpus,
                       export={"template_strip": strip}, checks=splitter_checks(report))
     run_containment(qd_prep_bin, request, tmp_path / "scan", threads=4, timeout_s=300.0)
     att = json.loads((tmp_path / "scan" / ATTESTATION_NAME).read_text(encoding="utf-8"))

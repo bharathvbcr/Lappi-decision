@@ -64,6 +64,7 @@ pub mod convert_text;
 pub mod convert_tools;
 pub mod decisions;
 pub mod dedupe;
+pub mod exact_short;
 pub mod files;
 pub mod gitcli;
 pub mod heldout;
