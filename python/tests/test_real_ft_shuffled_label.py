@@ -390,7 +390,7 @@ def _patch(mp: pytest.MonkeyPatch, corpus_rows: tuple[list[DataRow], list[DataRo
     revision, the defect-source check, the manifest's facts, and the out-of-process probe."""
     mp.setattr(rft, "ft_split_rows", lambda **kw: corpus_rows)
     mp.setattr(rft, "resolve_rev", lambda repo, rev: rev)
-    mp.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
+    mp.setattr(rft, "check_defect_source", lambda out, *, defect_class, config: None)
     mp.setattr(
         rft, "corpus_facts",
         lambda out, **kw: rft.CorpusFacts(snapshot_not_run=None, history_rows={}),

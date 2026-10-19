@@ -379,7 +379,7 @@ def _spy_main(tmp_path, monkeypatch, *extra: str) -> tuple[list[dict], object, o
             data_snapshot_hash="d" * 64, exclusions_sha256="",
         )),
     )
-    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
+    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class, config: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: rft.CorpusFacts(None, {}))
     with pytest.raises(_Stop) as got:
         rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800",
@@ -457,21 +457,21 @@ def test_the_defect_source_must_agree_with_the_shard_sets_manifest(tmp_path):
     from qd_data.defect_class import DEFECT_SOURCE_ID
 
     with pytest.raises(SystemExit, match="is absent"):
-        rft.check_defect_source(tmp_path, defect_class=None)
+        rft.check_defect_source(tmp_path, defect_class=None, config=DataConfig())
     _manifest(tmp_path, ["bigcode/commitpackft", DEFECT_SOURCE_ID])
     with pytest.raises(SystemExit, match="was built with"):
-        rft.check_defect_source(tmp_path, defect_class=None)
-    rft.check_defect_source(tmp_path, defect_class=Path("corpus"))
+        rft.check_defect_source(tmp_path, defect_class=None, config=DataConfig())
+    rft.check_defect_source(tmp_path, defect_class=Path("corpus"), config=DataConfig())
     plain = tmp_path / "plain"
     _manifest(plain, ["bigcode/commitpackft"])
-    rft.check_defect_source(plain, defect_class=None)
+    rft.check_defect_source(plain, defect_class=None, config=DataConfig())
     with pytest.raises(SystemExit, match="built without it"):
-        rft.check_defect_source(plain, defect_class=Path("corpus"))
+        rft.check_defect_source(plain, defect_class=Path("corpus"), config=DataConfig())
     # The registry admitting the source is not the build having read it.
     registered = tmp_path / "registered"
     _manifest(registered, ["bigcode/commitpackft"],
               admitted=["bigcode/commitpackft", DEFECT_SOURCE_ID])
-    rft.check_defect_source(registered, defect_class=None)
+    rft.check_defect_source(registered, defect_class=None, config=DataConfig())
 
 
 def test_defect_download_without_a_corpus_is_refused():
@@ -523,7 +523,7 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     with pytest.raises(SystemExit, match="was not built from these rows"):
         rft.pair_labels(reader, rft._labels(without, config=config)[0], require_index=True)
     with pytest.raises(SystemExit, match="was built with"):
-        rft.check_defect_source(out, defect_class=None)
+        rft.check_defect_source(out, defect_class=None, config=DataConfig())
 
 
 class _Index:
