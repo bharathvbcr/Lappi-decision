@@ -63,3 +63,23 @@ Release-check seam (GAP-QD-EXPORT-NO-TRACKED-PER-FAMILY-SLOT-SHAPE-REGISTRY-2026
 - **Q15, W4-e:** verified before the merge. At 879933c, `crates/qd-runtime/tests/calibration_hash_pin.rs` asserted `assert_ne!(table.hash(), runtime.identity().calibration_hash)`, and the `cargo test -p qd-runtime` run at 1092e60 (verify-main-1092e60, exit 0 for qd-runtime) passed with it. W4-e's diff flips it to `assert_eq!`.
 - **Q18, build/main-gates-2026-10-15:** this session's harness refuses git commands in another worktree, so the dirty diff cannot be captured from here. The worktree stays until the owner, or a session rooted in it, captures the diff.
 - **Q17 (a) and (b) and pushing main** are owner asks. They are not done under the delegation.
+
+## Q21. Pytest lock jobs at MAX_LOAD=48: both yes, with conditions; a load-induced failure is a rerun
+
+(Asked after W9-c's final torch run and W9-b's pytest run each waited about an hour at the default MAX_LOAD=12, with load 31-84 from other repos. Fable's answer, verbatim.)
+
+**Basis.** The load gate is a wait, not a cap (mac_heavy.sh:58-64, :333-343); the guarded failure is memory, and the footprint cap (:30-47) and memguard (:48-57) bind regardless of load. Pressure reads normal now (`kern.memorystatus_vm_pressure_level` = 1, load 38.5). Q8's exclusion of pytest was about false timeouts; I checked the files for them.
+
+**(a) W9-c: yes.** Memory is small: 3-step runs on a tiny tower (test_lora_reference_driver.py:45 `STEPS = 3`, :60-80). Timing surface:
+- `wall_clock_cap_s=600.0` default (:80) and the cap test at `1e-9` (:304-305) — a loaded machine can only make a 600 s cap *fire*, raising `RunIncomplete` (lora_reference_run.py:498-510): a false **failure**, not a false pass.
+- `test_a_prereg_bind_that_hangs_is_refused_at_its_bound` (:454-460): fake bind sleeps 30 s against `PREREG_BIND_TIMEOUT_S=0.5` via `subprocess.run(timeout=)` (driver :280). 60x margin; load cannot flip it.
+- MPS: the `-k` expression also matches the adversarial file, so `test_mps_bf16_first_step_loss_tracks_the_cpu_pin` runs (adversarial.py:297-306, tolerance 0.05 on loss). MPS contention changes latency, not kernel numerics; digests at :301 are exact and seed-derived. Not a load risk.
+- Shard-reader tests (163 lines, W9-c worktree): path/symlink logic only, no timing, no torch.
+
+Conditions: launch line with the raised value recorded; exit 70/79 or any `RunIncomplete`/`TimeoutExpired` → rerun.
+
+**(b) W9-b: yes, with one condition.** The script is driven under `subprocess.run(timeout=300)` (test_release_replay_flow.py:101-103) and `make` under 60 s (:171-186); both are generous for a fixture-sized run. The risk is the build: `cargo_binary` builds under the test when `QD_RELEASE_CHECK_BIN` is unset and `MAC_HEAVY_LABEL` is set (conftest.py:62-80, 900 s timeout), which meets the cargo slot gate inside the lock — Q17's defect. **Condition:** set `QD_RELEASE_CHECK_BIN` to the already-built debug binary so no cargo runs under the test; the test passes it through (test :93; release_replay.sh:73-77).
+
+**Treatment.** Exit 70/76/79, `TimeoutExpired`, or `RunIncomplete(wall_clock_cap)` = **not run, rerun**. A pass under load counts: nothing here is a measurement.
+
+Lead's note: the W9-b and W9-c files cited above are on their lane branches (w9b-release-replay-flow-2026-10-18, w9c-heldout-symlink-2026-10-18), not yet on main.
