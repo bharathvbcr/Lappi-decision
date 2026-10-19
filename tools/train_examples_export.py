@@ -16,9 +16,9 @@ Two files, one per text definition, each one line per slot keyed ``row_id#slot``
 
 Every manifest row id must be found in the rebuilt train split, or the tool refuses and names
 the count: a text file that does not cover the shard set's rows is not evidence about it. A row
-whose id starts with ``contrast:`` is derived after the split from a surviving twin
-(``qd_train.contrast``); it has no row of its own in the split and is not written (its twin is
-a train row and is), but it is counted in the summary so the shortfall is a number.
+whose id contains ``:contrast:`` is derived after the split from a surviving twin
+(``qd_train.contrast``); it has no row of its own in the rebuild, so its text is decoded from the
+token ids of the written shard set (``--shard-dir``), in both files, unstripped.
 """
 
 from __future__ import annotations
@@ -26,8 +26,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -37,15 +39,44 @@ from repo_git import resolve_rev
 
 from qd_data.config import DataConfig
 
-CONTRAST_PREFIX = "contrast:"
-
-
-def _manifest_ids(path: Path) -> dict[str, str]:
+def _manifest_ids(path: Path) -> dict[str, tuple[str, str]]:
+    """``{row_id: (source_id, family_id)}`` of the train manifest, in its order."""
     doc = json.loads(path.read_text(encoding="utf-8"))
     entries = doc["entries"]
     if doc["n_rows"] != len(entries):
         raise SystemExit(f"{path}: n_rows {doc['n_rows']} but {len(entries)} entries")
-    return {e["row_id"]: e["source_id"] for e in entries}
+    return {e["row_id"]: (e["source_id"], e["family_id"]) for e in entries}
+
+
+def decode_shard_rows(
+    shard_dir: Path, row_ids: set[str], decode: Callable[[np.ndarray], str],
+) -> list[tuple[str, str]]:
+    """``(row_id#slot, text)`` of every sequence of ``row_ids`` in a written shard set, decoded
+    from the token ids on disk (through the remap's ``new_to_old``), in sequence order.
+
+    For rows derived after the split (v5/v6 contrast rows, ``qd_train.contrast``): they have no
+    row in the rebuilt split, but their exact training text is in the shard. Refuses a row id
+    that has no sequence there, so a derived row can never be silently left unscanned."""
+    index = json.loads((shard_dir / "sequence_index.json").read_text(encoding="utf-8"))
+    sequences = index["sequences"]
+    offsets = np.load(shard_dir / "offsets.npy")
+    if len(offsets) != len(sequences) + 1:
+        raise SystemExit(f"{shard_dir}: {len(offsets)} offsets for {len(sequences)} sequences")
+    tokens = np.memmap(shard_dir / "tokens.u32", dtype=np.uint32, mode="r")
+    new_to_old = np.load(shard_dir / "remap.npz")["new_to_old"]
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for i, seq in enumerate(sequences):
+        if seq["row_id"] not in row_ids:
+            continue
+        seen.add(seq["row_id"])
+        ids = new_to_old[np.asarray(tokens[int(offsets[i]) : int(offsets[i + 1])], dtype=np.int64)]
+        out.append((f"{seq['row_id']}#{seq['slot_name']}", decode(ids)))
+    absent = sorted(row_ids - seen)
+    if absent:
+        raise SystemExit(f"{len(absent)} derived row(s) have no sequence in {shard_dir}; "
+                         f"first {absent[:5]}")
+    return out
 
 
 def _write(path: Path, lines: list[tuple[str, str, str, str]]) -> str:
@@ -82,6 +113,11 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--train-manifest", type=Path, required=True)
+    p.add_argument(
+        "--shard-dir", type=Path, required=True,
+        help="the written train shard set: rows derived after the split (contrast rows) have no "
+             "row in the rebuild, so their text is decoded from its token ids",
+    )
     p.add_argument("--rev", required=True)
     p.add_argument("--defect-class", type=Path, default=None)
     p.add_argument("--defect-download", type=Path, default=None)
@@ -111,16 +147,13 @@ def main(argv: list[str] | None = None) -> int:
     train_rows = tuple(report.rows_by_split.get(TRAIN, ()))
     source_of = {r.row_id: r.source_id for r in train_rows}
     found = {rid for rid in wanted if rid in source_of}
-    twins = {
-        rid: rid[len(CONTRAST_PREFIX):] for rid in wanted
-        if rid not in found and rid.startswith(CONTRAST_PREFIX)
-    }
-    missing = sorted(rid for rid in wanted if rid not in found and rid not in twins)
+    derived = {rid for rid in wanted if rid not in found and ":contrast:" in rid}
+    missing = sorted(rid for rid in wanted if rid not in found and rid not in derived)
     print(f"manifest rows {len(wanted)}; in the rebuilt train split {len(found)}; "
-          f"contrast rows {len(twins)}; missing {len(missing)}")
+          f"derived (contrast) rows {len(derived)}; missing {len(missing)}")
     if missing:
-        raise SystemExit(f"{len(missing)} manifest row(s) are not in the rebuilt train split; "
-                         f"first {missing[:5]}")
+        raise SystemExit(f"{len(missing)} manifest row(s) are neither in the rebuilt train "
+                         f"split nor derived contrast rows; first {missing[:5]}")
     sets, _record = scan_sets(report, config=config, template_strip=True)
     stripped = next(s for s in sets if s.name == TRAIN)
     unstripped, _refused = _rendered(train_rows)
@@ -137,11 +170,23 @@ def main(argv: list[str] | None = None) -> int:
     if uncovered:
         raise SystemExit(f"{len(uncovered)} manifest row(s) rendered no slot; "
                          f"first {uncovered[:5]}")
+    if derived:
+        from real_tokenizer_pipeline import RealTokenizer
+
+        tok = RealTokenizer.load(memo_limit=0)
+        extra = decode_shard_rows(args.shard_dir, derived, lambda ids: tok.decode(ids))
+        # No template strip applies to a decoded row: both files carry its whole text.
+        for key, text in extra:
+            rid = key.split("#", 1)[0]
+            line = (key, wanted[rid][0], wanted[rid][1], text)
+            a.append(line)
+            b.append(line)
+        print(f"derived rows decoded from {args.shard_dir}: {len(extra)} slots over "
+              f"{len(derived)} rows")
     args.out_dir.mkdir(parents=True)
     h1 = _write(args.out_dir / "stripped.jsonl", a)
     h2 = _write(args.out_dir / "unstripped.jsonl", b)
     print(f"stripped.jsonl sha256 {h1}\nunstripped.jsonl sha256 {h2}")
-    print(f"contrast rows not covered by text (derived from twins): {len(twins)}")
     return 0
 
 

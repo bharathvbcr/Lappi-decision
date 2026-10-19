@@ -22,7 +22,9 @@ def _manifest(tmp_path: Path, n_rows: int, ids: list[str]) -> Path:
     path = tmp_path / "train.json"
     path.write_text(json.dumps({
         "n_rows": n_rows,
-        "entries": [{"row_id": i, "source_id": f"src-{k}"} for k, i in enumerate(ids)],
+        "entries": [
+            {"row_id": i, "source_id": f"src-{k}", "family_id": "fam"} for k, i in enumerate(ids)
+        ],
     }), encoding="utf-8")
     return path
 
@@ -30,7 +32,9 @@ def _manifest(tmp_path: Path, n_rows: int, ids: list[str]) -> Path:
 def test_manifest_ids_maps_rows_to_sources(tmp_path: Path) -> None:
     from train_examples_export import _manifest_ids
 
-    assert _manifest_ids(_manifest(tmp_path, 2, ["a", "b"])) == {"a": "src-0", "b": "src-1"}
+    assert _manifest_ids(_manifest(tmp_path, 2, ["a", "b"])) == {
+        "a": ("src-0", "fam"), "b": ("src-1", "fam"),
+    }
 
 
 def test_manifest_with_wrong_row_count_is_refused(tmp_path: Path) -> None:
@@ -66,6 +70,35 @@ def test_pick_keeps_input_order_and_only_manifest_rows() -> None:
     assert [(k, s) for k, s, _f, _t in got] == [
         ("z#s", "S1"), ("a#s", "S2"), ("m#s2", "S3"), ("a#s2", "S2"),
     ]
+
+
+def _shard(tmp_path: Path) -> Path:
+    import numpy as np
+
+    d = tmp_path / "shard"
+    d.mkdir()
+    seqs = [("r0", "s"), ("c1", "s"), ("r2", "s"), ("c1", "t")]
+    (d / "sequence_index.json").write_text(json.dumps({"sequences": [
+        {"row_id": r, "slot_kind": 1, "slot_name": s} for r, s in seqs
+    ]}), encoding="utf-8")
+    np.save(d / "offsets.npy", np.array([0, 2, 4, 5, 7], dtype=np.int64))
+    np.array([1, 2, 3, 4, 5, 6, 7], dtype=np.uint32).tofile(d / "tokens.u32")
+    np.savez(d / "remap.npz", new_to_old=np.arange(100, 110, dtype=np.int32))
+    return d
+
+
+def test_decode_shard_rows_decodes_only_the_named_rows_in_sequence_order(tmp_path: Path) -> None:
+    from train_examples_export import decode_shard_rows
+
+    got = decode_shard_rows(_shard(tmp_path), {"c1"}, lambda ids: "-".join(map(str, ids)))
+    assert got == [("c1#s", "103-104"), ("c1#t", "106-107")]
+
+
+def test_a_derived_row_with_no_sequence_is_refused(tmp_path: Path) -> None:
+    from train_examples_export import decode_shard_rows
+
+    with pytest.raises(SystemExit, match="no sequence"):
+        decode_shard_rows(_shard(tmp_path), {"c1", "ghost"}, lambda ids: "x")
 
 
 def test_an_existing_output_is_not_overwritten(tmp_path: Path) -> None:
