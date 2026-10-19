@@ -26,7 +26,12 @@ sys.path.insert(0, str(REPO / "python"))
 import ckpt_average  # noqa: E402
 import lora_reference_run as drv  # noqa: E402
 import test_real_ft_rungd_flags as rg  # noqa: E402
-from test_lora_reference_driver import _cfg, env, tiny_spec  # noqa: E402,F401
+from test_lora_reference_driver import (  # noqa: E402,F401
+    _cfg,
+    env,
+    passing_prereg_bind,
+    tiny_spec,
+)
 
 from qd_data.errors import HeldOutViolation  # noqa: E402
 from qd_train import lora  # noqa: E402
@@ -71,9 +76,9 @@ def test_a_shard_file_symlinked_into_heldout_is_refused(env, tmp_path, monkeypat
     tok = out / "shards" / "train" / "tokens.u32"
     shutil.move(str(tok), held / "tokens.u32")
     tok.symlink_to(held / "tokens.u32")
+    # The reader is another lane's; the driver's own held-out check resolves each shard file.
     with pytest.raises(HeldOutViolation):
-        drv.ShardReader(out / "shards" / "train", config=drv.DataConfig(), repo_root=out,
-                        expect_rev=rg.REV)
+        drv.validate_inputs(_cfg(env, tmp_path / "w", out=out))
 
 
 # 3 output clobbering -------------------------------------------------------------------------
@@ -138,9 +143,17 @@ def test_a_write_failure_midway_leaves_no_readable_checkpoint(env, tmp_path, mon
         drv.run(_cfg(env, tmp_path))
     ck = tmp_path / "ckpt" / "lora.json"
     assert not ck.exists()
-    with pytest.raises(Exception):
-        ckpt_average.main([str(ck), "--out", str(tmp_path / "m.safetensors"), "--from",
-                           "lora-merged"])
+    # A lone path is refused for having fewer than two inputs before the file is looked at, which
+    # would pass for any file. Two inputs, one absent, with the span-head arguments the averager
+    # demands for two inputs, so the read of the absent file is what refuses.
+    monkeypatch.setattr(Checkpoint, "write", real)
+    good = drv.run(_cfg(env, tmp_path / "good")).checkpoint
+    out = tmp_path / "m.safetensors"
+    with pytest.raises(FileNotFoundError):
+        ckpt_average.main([str(good), str(ck), "--out", str(out), "--from", "lora-merged",
+                           "--span-head-seed", "0", "--ft-ledger", str(tmp_path / "ledger.jsonl"),
+                           "--ft-row-ids", "a", "b"])
+    assert not out.exists()
 
 
 # 4 quick -------------------------------------------------------------------------------------
@@ -168,13 +181,20 @@ def test_a_full_epoch_run_is_still_quick(env, tmp_path):  # noqa: F811 - the fix
 def _tiny_two_orders():
     from torch import nn
 
-    class Block(nn.Module):
+    class Attn(nn.Module):
+        """Named ``self_attn`` so the pair's names end with the suffixes lora.py adapts."""
+
         def __init__(self, first_q: bool):
             super().__init__()
             if first_q:
                 self.q_proj, self.o_proj = nn.Linear(8, 8, bias=False), nn.Linear(16, 8, bias=False)
             else:
                 self.o_proj, self.q_proj = nn.Linear(16, 8, bias=False), nn.Linear(8, 8, bias=False)
+
+    class Block(nn.Module):
+        def __init__(self, first_q: bool):
+            super().__init__()
+            self.self_attn = Attn(first_q)
 
     class M(nn.Module):
         def __init__(self, first_q: bool):
@@ -192,6 +212,12 @@ def test_the_rule_digest_is_independent_of_the_attached_a(env):  # noqa: F811 - 
     assert lora.lora_a_digest(m) != lora.lora_a_rule_digest(lora.adapted_in_features(m), seed=3)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="GAP-W2-2-LORA-A-DIGEST-DEPENDS-ON-MODULE-REGISTRATION-ORDER-2026-10-18: "
+    "named_modules() order pinned at campaign/lora-2b-preregistered.json:169; canonical order "
+    "(layer index, then LORA_TARGET_SUFFIXES) needs an owner-approved amendment",
+)
 def test_the_a_digest_does_not_depend_on_module_registration_order():
     """The pre-registration pins named_modules() order, so a same-architecture model registered in
     another order (an ojas-side enumeration) silently gets a different A and digest; the driver
@@ -283,7 +309,7 @@ def _bad_snapshot(env, dst: Path, blob: bytes) -> Path:  # noqa: F811 - the fixt
 )
 def test_a_malformed_safetensors_header_is_a_typed_refusal(env, tmp_path, blob):  # noqa: F811 - the fixture imported from test_lora_reference_driver
     snap = _bad_snapshot(env, tmp_path / "snap", blob)
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(drv.LoraDriverRefusal) as exc:
         drv.run(_cfg(env, tmp_path / "w", backbone=snap))
     assert type(exc.value) is not UnicodeDecodeError
     assert not (tmp_path / "w" / "ckpt").exists()
@@ -298,7 +324,11 @@ def test_a_nan_in_the_base_aborts_with_no_checkpoint_and_a_failed_row(env, tmp_p
     key = next(k for k in tensors if k.endswith("layers.0.mlp.gate_proj.weight"))
     tensors[key][0, 0] = float("nan")
     save_file(tensors, str(snap / "model.safetensors"), metadata={"format": "pt"})
-    with pytest.raises(Exception):
+    # The NaN reaches the loss first, and the accumulation group's rule 3 stops the run there with
+    # the trainer's own violation type (before lora.py's non-finite grad-norm check is reached).
+    from qd_train.trainer import TrainerContractViolation
+
+    with pytest.raises(TrainerContractViolation, match="non-finite loss"):
         drv.run(_cfg(env, tmp_path / "w", backbone=snap))
     assert not (tmp_path / "w" / "ckpt" / "lora.json").exists()
     assert not (tmp_path / "w" / "loss.jsonl").exists()

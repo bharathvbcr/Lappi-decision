@@ -27,10 +27,21 @@ const GIT_MAX_BYTES: u64 = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BaseOutcome {
     /// `into` is an ancestor of (or equal to) HEAD.
-    Fresh { head: String, into: String, into_sha: String },
+    Fresh {
+        head: String,
+        into: String,
+        into_sha: String,
+    },
     /// `into` has `behind` commits HEAD lacks.
-    Stale { head: String, into: String, into_sha: String, behind: u64 },
-    NotRun { reason: String },
+    Stale {
+        head: String,
+        into: String,
+        into_sha: String,
+        behind: u64,
+    },
+    NotRun {
+        reason: String,
+    },
 }
 
 impl BaseOutcome {
@@ -44,10 +55,17 @@ impl BaseOutcome {
 
     pub fn line(&self) -> String {
         match self {
-            BaseOutcome::Fresh { head, into, into_sha } => format!(
-                "base-fresh PASS: HEAD {head} contains {into} ({into_sha})"
-            ),
-            BaseOutcome::Stale { head, into, into_sha, behind } => format!(
+            BaseOutcome::Fresh {
+                head,
+                into,
+                into_sha,
+            } => format!("base-fresh PASS: HEAD {head} contains {into} ({into_sha})"),
+            BaseOutcome::Stale {
+                head,
+                into,
+                into_sha,
+                behind,
+            } => format!(
                 "base-fresh FAILED: HEAD {head} is {behind} commit(s) behind {into} ({into_sha}); \
                  it was cut from a stale base. Rebuild the branch on {into} before running anything."
             ),
@@ -91,25 +109,47 @@ fn git(repo: &Path, args: &[&str]) -> Result<(i32, String), String> {
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("git {} timed out after {GIT_TIMEOUT:?}", args.join(" ")));
+                return Err(format!(
+                    "git {} timed out after {GIT_TIMEOUT:?}",
+                    args.join(" ")
+                ));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
             Err(e) => return Err(format!("waiting for git failed: {e}")),
         }
     };
-    let out = reader.join().map_err(|_| "git reader thread panicked".to_owned())?;
+    let out = reader
+        .join()
+        .map_err(|_| "git reader thread panicked".to_owned())?;
     if out.len() as u64 > GIT_MAX_BYTES {
-        return Err(format!("git {} printed over {GIT_MAX_BYTES} bytes", args.join(" ")));
+        return Err(format!(
+            "git {} printed over {GIT_MAX_BYTES} bytes",
+            args.join(" ")
+        ));
     }
-    let code = status.code().ok_or_else(|| format!("git {} was killed by a signal", args.join(" ")))?;
+    let code = status
+        .code()
+        .ok_or_else(|| format!("git {} was killed by a signal", args.join(" ")))?;
     Ok((code, String::from_utf8_lossy(&out).trim().to_owned()))
 }
 
 fn resolve(repo: &Path, rev: &str) -> Result<String, String> {
     let spec = format!("{rev}^{{commit}}");
-    match git(repo, &["rev-parse", "--verify", "--quiet", "--end-of-options", &spec])? {
+    match git(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &spec,
+        ],
+    )? {
         (0, sha) if !sha.is_empty() => Ok(sha),
-        (code, _) => Err(format!("{rev:?} does not resolve to a commit in {} (git exit {code})", repo.display())),
+        (code, _) => Err(format!(
+            "{rev:?} does not resolve to a commit in {} (git exit {code})",
+            repo.display()
+        )),
     }
 }
 
@@ -120,25 +160,36 @@ fn short(sha: &str) -> String {
 /// Is `into` an ancestor of HEAD in `repo`?
 pub fn check_base(repo: &Path, into: &str) -> BaseOutcome {
     if into.is_empty() || into.starts_with('-') {
-        return BaseOutcome::NotRun { reason: format!("{into:?} is not a usable branch name") };
+        return BaseOutcome::NotRun {
+            reason: format!("{into:?} is not a usable branch name"),
+        };
     }
     let run = || -> Result<BaseOutcome, String> {
         let head = resolve(repo, "HEAD")?;
         let into_sha = resolve(repo, into)?;
         let (head, into_s) = (short(&head), short(&into_sha));
         match git(repo, &["merge-base", "--is-ancestor", &into_sha, "HEAD"])?.0 {
-            0 => Ok(BaseOutcome::Fresh { head, into: into.to_owned(), into_sha: into_s }),
+            0 => Ok(BaseOutcome::Fresh {
+                head,
+                into: into.to_owned(),
+                into_sha: into_s,
+            }),
             1 => {
                 let range = format!("HEAD..{into_sha}");
                 let (code, n) = git(repo, &["rev-list", "--count", &range])?;
-                let behind = n
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|_| code == 0)
-                    .ok_or_else(|| format!("git rev-list --count {range} gave {n:?} (exit {code})"))?;
-                Ok(BaseOutcome::Stale { head, into: into.to_owned(), into_sha: into_s, behind })
+                let behind = n.parse::<u64>().ok().filter(|_| code == 0).ok_or_else(|| {
+                    format!("git rev-list --count {range} gave {n:?} (exit {code})")
+                })?;
+                Ok(BaseOutcome::Stale {
+                    head,
+                    into: into.to_owned(),
+                    into_sha: into_s,
+                    behind,
+                })
             }
-            code => Err(format!("git merge-base --is-ancestor exited {code}; it answers only 0 or 1")),
+            code => Err(format!(
+                "git merge-base --is-ancestor exited {code}; it answers only 0 or 1"
+            )),
         }
     };
     run().unwrap_or_else(|reason| BaseOutcome::NotRun { reason })
@@ -167,11 +218,22 @@ mod tests {
         let out = Command::new("git")
             .arg("-C")
             .arg(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
             .args(args)
             .output()
             .unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8(out.stdout).unwrap().trim().to_owned()
     }
 
@@ -199,9 +261,16 @@ mod tests {
     fn a_branch_cut_from_an_old_main_fails_and_counts_the_missing_commits() {
         let d = repo_with_stale_topic("stale", 5);
         let out = check_base(&d, "main");
-        assert!(matches!(out, BaseOutcome::Stale { behind: 5, .. }), "{out:?}");
+        assert!(
+            matches!(out, BaseOutcome::Stale { behind: 5, .. }),
+            "{out:?}"
+        );
         assert_eq!(out.exit_code(), 1);
-        assert!(out.line().contains("5 commit(s) behind main"), "{}", out.line());
+        assert!(
+            out.line().contains("5 commit(s) behind main"),
+            "{}",
+            out.line()
+        );
         assert_eq!(out.result(), "RESULT: FAILED");
     }
 

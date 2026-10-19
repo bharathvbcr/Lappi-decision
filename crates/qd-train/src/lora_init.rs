@@ -155,10 +155,7 @@ pub fn recompute_lora_a(
 /// The LoRA-A digest of `(module name, [r, in] values)` tensors: `_sidecar_digest` over float32
 /// `TensorRef`s named `<module>.lora_A.weight`. `in_features` is each tensor's length over
 /// `rank`.
-pub fn lora_a_digest(
-    rank: usize,
-    tensors: &[(String, Vec<f32>)],
-) -> Result<String, LoraInitError> {
+pub fn lora_a_digest(rank: usize, tensors: &[(String, Vec<f32>)]) -> Result<String, LoraInitError> {
     let mut refs = Vec::with_capacity(tensors.len());
     for (name, values) in tensors {
         if rank == 0 || values.is_empty() || values.len() % rank != 0 {
@@ -206,5 +203,10 @@ pub fn d17_zero_init_digest(rows: usize, hidden: usize) -> Result<String, LoraIn
         .checked_mul(hidden)
         .and_then(|n| n.checked_mul(4))
         .ok_or_else(|| RunControlError::Invalid(format!("[{rows}, {hidden}] overflows")))?;
-    Ok(tensor_ref_digest("float32", &[rows, hidden], 4, &vec![0u8; n])?)
+    Ok(tensor_ref_digest(
+        "float32",
+        &[rows, hidden],
+        4,
+        &vec![0u8; n],
+    )?)
 }

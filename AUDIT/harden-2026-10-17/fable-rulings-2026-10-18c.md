@@ -18,7 +18,7 @@ Read-only, under the standing delegation. Navigation: `devmap_status` fresh (gen
 
 ## Q17. Load: keep 48; make mac_heavy see the slot gate; two asks
 
-**Decision.** `MAX_LOAD=48` stands. Load at 95 is 5.3/core on 18 cores and memory pressure is the guarded failure; but the real cost of running under load is false timeouts (`stress_v6.rs:34` CLI_LIMIT 1800 s; W5-d's d9bfbcf-vs-879933c timing is not an A/B unless interleaved, so treat its result as `quick`). Raising 48 buys nothing but more such failures.
+**Decision.** `MAX_LOAD=48` stands. Load at 95 is 5.3/core on 18 cores and memory pressure is the guarded failure; but the real cost of running under load is false timeouts (`stress_v6.rs:34` CLI_LIMIT 1800 s; W5-d's d9bfbcf-vs-879933c timing is not an A/B unless interleaved, so treat its result as `quick`). Raising 48 buys nothing but more such failures. [W8-a citation tag, not Fable's text: GAP-FABLE-RULINGS-FIGURES-FROM-SOURCES-OUTSIDE-THE-REPO-2026-10-18]
 
 **Lappi's own fix.** The slot gate is `~/.claude-bin/cargo`: 2 lockf slots (:48), waits ≤1800 s then runs ungated (:49, :77-79), active only under `CLAUDECODE=1` (:25). So a Lappi holder waits up to 30 min holding the lock, then builds anyway, which is W5-b's defect one layer down (GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE-2026-10-18). Add "no cargo slot free" to mac_heavy's busy predicate, probed before `mkdir`, with a test that a waiter at 2/2 does not own `$LOCK/owner`. **Ask the owner:** (a) whether a job under the mac_heavy lock should run with `CARGO_SLOT_HELD` set, since the lock already serializes Lappi to one build; (b) sibling-repo builds (GAP-MAC-HEAVY-LOCK-AND-LOAD-GATE-BIND-LAPPI-ONLY-2026-10-18).
 
@@ -47,14 +47,14 @@ Release-check seam (GAP-QD-EXPORT-NO-TRACKED-PER-FAMILY-SLOT-SHAPE-REGISTRY-2026
 
 **Decision.** (a) Yes. `MAC_HEAVY_MAX_LOAD=48` in the wrapper's environment (mac_heavy.sh:162), footprint cap untouched, no wait for the owner. (b) Conditions below. (c) Content does not depend on load; timings and failure modes do.
 
-**Reason.** Q8 excluded data builds because their guarded failure is memory, and this one is large: v5's identical argv peaked at ~25 GiB RSS, `ft_split_rows` 26.0-26.5 GiB (HANDOFF/v6-startup-2026-10-04.md:152, :217) against the 28,672 MiB default cap (mac_heavy.sh:34-35), footprint ≥ RSS. That margin is load-independent. What load adds is memguard's critical-pressure rule (policy.go:83-85: after 3 critical samples, the largest process ≥ 2 GiB dies), and a 25 GiB build is the largest process on the box. Both kills are loud (exit 70/79, no row: the row is written only after `run()` returns, real_tokenizer_pipeline.py:4688-4706), so the worst case is a rerun, not a wrong shard. Note the first launch did get the lock at load 10.55 after 65 min and failed at stage 3 on a missing input (`commitpackft-corpus-v3/examples.jsonl`, launch.log 13:41-13:42Z); only chain2 waited 4 h (launch2.log, exit 76).
+**Reason.** Q8 excluded data builds because their guarded failure is memory, and this one is large: v5's identical argv peaked at ~25 GiB RSS, `ft_split_rows` 26.0-26.5 GiB (HANDOFF/v6-startup-2026-10-04.md:152, :217) against the 28,672 MiB default cap (mac_heavy.sh:34-35), footprint ≥ RSS. That margin is load-independent. What load adds is memguard's critical-pressure rule (policy.go:83-85: after 3 critical samples, the largest process ≥ 2 GiB dies), and a 25 GiB build is the largest process on the box. Both kills are loud (exit 70/79, no row: the row is written only after `run()` returns, real_tokenizer_pipeline.py:4688-4706), so the worst case is a rerun, not a wrong shard. Note the first launch did get the lock at load 10.55 after 65 min and failed at stage 3 on a missing input (`commitpackft-corpus-v3/examples.jsonl`, launch.log 13:41-13:42Z); only chain2 waited 4 h (launch2.log, exit 76). [W8-a citation tag, not Fable's text: [V: HANDOFF/v6-startup-2026-10-04.md]]
 
 **Conditions.**
 1. `sysctl kern.memorystatus_vm_pressure_level` reads normal at launch; mac_heavy has no pressure gate (:51 is a comment).
 2. Stage 0 checks every `CORPUS` path exists before a slot is spent.
 3. The full launch line, with the raised value and the worktree HEAD, as the launch log's first line and in the HANDOFF; the ledger row carries neither.
 4. Exit 70/76/79 or a hang-detector timeout (PREP_TIMEOUT_S 600 s, pipeline:1939; containment 4 h, containment_scan.py:105; PHASE_LIMIT 3600 s, team.rs:41) means rerun; raising any limit or the cap is the owner's.
-5. The row is already `quick=True` (pipeline:4715); the HANDOFF states wall_clock_s was taken under load 17-177 and is not comparable to v5's 2729/2888 s.
+5. The row is already `quick=True` (pipeline:4715); the HANDOFF states wall_clock_s was taken under load 17-177 and is not comparable to v5's 2729/2888 s. [W8-a citation tag, not Fable's text: GAP-FABLE-RULINGS-C-V5-WALL-CLOCK-FIGURE-NOT-IN-REPO-2026-10-18]
 
 **(c) Verified:** containment output is oracle-ordered and "does not depend on `threads`" (containment.rs:16-19, :564); threads default to cores, not load (main.rs:210); minhash canaries re-signed by the Python reference refuse drift (pipeline:1940-1944); two separate v5 processes gave the same canonical digest (v6-startup:217). **Unverified:** `train_examples_export.py` exists only in the worktree, untested (HANDOFF/harden-2026-10-17.md:55); check it orders rows by input, not by time. Proof is a quiet-machine rerun matching `data_snapshot_hash` and shard shas.
 
@@ -63,3 +63,23 @@ Release-check seam (GAP-QD-EXPORT-NO-TRACKED-PER-FAMILY-SLOT-SHAPE-REGISTRY-2026
 - **Q15, W4-e:** verified before the merge. At 879933c, `crates/qd-runtime/tests/calibration_hash_pin.rs` asserted `assert_ne!(table.hash(), runtime.identity().calibration_hash)`, and the `cargo test -p qd-runtime` run at 1092e60 (verify-main-1092e60, exit 0 for qd-runtime) passed with it. W4-e's diff flips it to `assert_eq!`.
 - **Q18, build/main-gates-2026-10-15:** this session's harness refuses git commands in another worktree, so the dirty diff cannot be captured from here. The worktree stays until the owner, or a session rooted in it, captures the diff.
 - **Q17 (a) and (b) and pushing main** are owner asks. They are not done under the delegation.
+
+## Q21. Pytest lock jobs at MAX_LOAD=48: both yes, with conditions; a load-induced failure is a rerun
+
+(Asked after W9-c's final torch run and W9-b's pytest run each waited about an hour at the default MAX_LOAD=12, with load 31-84 from other repos. Fable's answer, verbatim.)
+
+**Basis.** The load gate is a wait, not a cap (mac_heavy.sh:58-64, :333-343); the guarded failure is memory, and the footprint cap (:30-47) and memguard (:48-57) bind regardless of load. Pressure reads normal now (`kern.memorystatus_vm_pressure_level` = 1, load 38.5). Q8's exclusion of pytest was about false timeouts; I checked the files for them.
+
+**(a) W9-c: yes.** Memory is small: 3-step runs on a tiny tower (test_lora_reference_driver.py:45 `STEPS = 3`, :60-80). Timing surface:
+- `wall_clock_cap_s=600.0` default (:80) and the cap test at `1e-9` (:304-305) — a loaded machine can only make a 600 s cap *fire*, raising `RunIncomplete` (lora_reference_run.py:498-510): a false **failure**, not a false pass.
+- `test_a_prereg_bind_that_hangs_is_refused_at_its_bound` (:454-460): fake bind sleeps 30 s against `PREREG_BIND_TIMEOUT_S=0.5` via `subprocess.run(timeout=)` (driver :280). 60x margin; load cannot flip it.
+- MPS: the `-k` expression also matches the adversarial file, so `test_mps_bf16_first_step_loss_tracks_the_cpu_pin` runs (adversarial.py:297-306, tolerance 0.05 on loss). MPS contention changes latency, not kernel numerics; digests at :301 are exact and seed-derived. Not a load risk.
+- Shard-reader tests (163 lines, W9-c worktree): path/symlink logic only, no timing, no torch.
+
+Conditions: launch line with the raised value recorded; exit 70/79 or any `RunIncomplete`/`TimeoutExpired` → rerun.
+
+**(b) W9-b: yes, with one condition.** The script is driven under `subprocess.run(timeout=300)` (test_release_replay_flow.py:101-103) and `make` under 60 s (:171-186); both are generous for a fixture-sized run. The risk is the build: `cargo_binary` builds under the test when `QD_RELEASE_CHECK_BIN` is unset and `MAC_HEAVY_LABEL` is set (conftest.py:62-80, 900 s timeout), which meets the cargo slot gate inside the lock — Q17's defect. **Condition:** set `QD_RELEASE_CHECK_BIN` to the already-built debug binary so no cargo runs under the test; the test passes it through (test :93; release_replay.sh:73-77).
+
+**Treatment.** Exit 70/76/79, `TimeoutExpired`, or `RunIncomplete(wall_clock_cap)` = **not run, rerun**. A pass under load counts: nothing here is a measurement.
+
+Lead's note: the W9-b and W9-c files cited above are on their lane branches (w9b-release-replay-flow-2026-10-18, w9c-heldout-symlink-2026-10-18), not yet on main.

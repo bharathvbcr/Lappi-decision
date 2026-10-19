@@ -270,7 +270,9 @@ impl PinGate {
     pub fn line(&self, key: &str) -> String {
         match self {
             PinGate::Pass { sha, evidence } => {
-                format!("pin PASS: {key} is at the locked commit {sha}, tracked files clean, {evidence}")
+                format!(
+                    "pin PASS: {key} is at the locked commit {sha}, tracked files clean, {evidence}"
+                )
             }
             PinGate::Head(o) => o.line(key),
             PinGate::Dirty { sha, files } => {
@@ -281,7 +283,11 @@ impl PinGate {
                      does not describe what builds: {}{}. Commit or revert them in the sibling.",
                     files.len(),
                     shown.join(", "),
-                    if more > 0 { format!(" (+{more} more)") } else { String::new() }
+                    if more > 0 {
+                        format!(" (+{more} more)")
+                    } else {
+                        String::new()
+                    }
                 )
             }
             PinGate::NoDeltaReport { sha } => format!(
@@ -298,9 +304,17 @@ impl PinGate {
 
 /// The delta report covering `sha`: a file `<audit_dir>/<key>-pin-<prefix>-<date>/delta-report.md`
 /// where `<prefix>` is at least 7 hex characters and a prefix of `sha`.
-pub fn find_delta_report(audit_dir: &Path, key: &str, sha: &str) -> Result<Option<PathBuf>, String> {
-    let entries = fs::read_dir(audit_dir)
-        .map_err(|e| format!("cannot list the audit directory {}: {e}", audit_dir.display()))?;
+pub fn find_delta_report(
+    audit_dir: &Path,
+    key: &str,
+    sha: &str,
+) -> Result<Option<PathBuf>, String> {
+    let entries = fs::read_dir(audit_dir).map_err(|e| {
+        format!(
+            "cannot list the audit directory {}: {e}",
+            audit_dir.display()
+        )
+    })?;
     let head = format!("{key}-pin-");
     for entry in entries {
         let entry = entry.map_err(|e| format!("cannot list {}: {e}", audit_dir.display()))?;
@@ -361,16 +375,25 @@ pub fn dirty_tracked_files(dir: &Path) -> Result<Vec<String>, String> {
             Err(e) => return Err(format!("waiting for git failed: {e}")),
         }
     };
-    let out = reader.join().map_err(|_| "git reader thread panicked".to_owned())?;
+    let out = reader
+        .join()
+        .map_err(|_| "git reader thread panicked".to_owned())?;
     if !status.success() {
         let mut err = String::new();
         if let Some(mut e) = child.stderr.take() {
             let _ = e.read_to_string(&mut err);
         }
-        return Err(format!("git status in {} exited {status}: {}", dir.display(), err.trim()));
+        return Err(format!(
+            "git status in {} exited {status}: {}",
+            dir.display(),
+            err.trim()
+        ));
     }
     if out.len() as u64 > GIT_STATUS_MAX_BYTES {
-        return Err(format!("git status in {} printed over {GIT_STATUS_MAX_BYTES} bytes", dir.display()));
+        return Err(format!(
+            "git status in {} printed over {GIT_STATUS_MAX_BYTES} bytes",
+            dir.display()
+        ));
     }
     // `-z`: entries are "XY path\0"; a rename or copy is followed by one extra "orig\0" field.
     let text = String::from_utf8_lossy(&out);
@@ -379,7 +402,12 @@ pub fn dirty_tracked_files(dir: &Path) -> Result<Vec<String>, String> {
     while let Some(field) = fields.next() {
         let (xy, path) = field.split_at(field.len().min(3));
         files.push(path.to_owned());
-        if xy.starts_with(['R', 'C']) || xy.as_bytes().get(1).is_some_and(|b| matches!(b, b'R' | b'C')) {
+        if xy.starts_with(['R', 'C'])
+            || xy
+                .as_bytes()
+                .get(1)
+                .is_some_and(|b| matches!(b, b'R' | b'C'))
+        {
             fields.next();
         }
     }
@@ -574,11 +602,22 @@ mod tests {
         let out = std::process::Command::new("git")
             .arg("-C")
             .arg(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
             .args(args)
             .output()
             .unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8(out.stdout).unwrap().trim().to_owned()
     }
 
@@ -594,7 +633,10 @@ mod tests {
 
     fn audit_with_report(d: &Path, sha: &str) -> PathBuf {
         let audit = d.join("AUDIT");
-        write(&audit.join(format!("ojas-pin-{}-2026-10-17/delta-report.md", &sha[..7])), "delta\n");
+        write(
+            &audit.join(format!("ojas-pin-{}-2026-10-17/delta-report.md", &sha[..7])),
+            "delta\n",
+        );
         audit
     }
 
@@ -602,7 +644,12 @@ mod tests {
     fn a_clean_pinned_sibling_with_a_delta_report_passes() {
         let d = scratch("full-pass");
         let sha = real_repo(&d.join("sib"));
-        let out = check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit_with_report(&d, &sha));
+        let out = check_pin_full(
+            &lock(&d, &sha),
+            "ojas",
+            &d.join("sib"),
+            &audit_with_report(&d, &sha),
+        );
         assert_eq!(out.exit_code(), 0, "{}", out.line("ojas"));
         assert!(matches!(out, PinGate::Pass { .. }));
     }
@@ -613,12 +660,18 @@ mod tests {
         let sha = real_repo(&d.join("sib"));
         let audit = audit_with_report(&d, &sha);
         write(&d.join("sib/untracked.txt"), "x");
-        assert_eq!(check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit).exit_code(), 0);
+        assert_eq!(
+            check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit).exit_code(),
+            0
+        );
         write(&d.join("sib/lib.rs"), "fn changed() {}\n");
         let out = check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit);
         assert_eq!(out.exit_code(), 1);
         let line = out.line("ojas");
-        assert!(line.contains("lib.rs") && line.contains("pin FAILED"), "{line}");
+        assert!(
+            line.contains("lib.rs") && line.contains("pin FAILED"),
+            "{line}"
+        );
         assert!(!line.contains("untracked.txt"), "{line}");
     }
 
@@ -629,8 +682,14 @@ mod tests {
         let audit = d.join("AUDIT");
         fs::create_dir_all(&audit).unwrap();
         // A report for a different commit, and a prefix shorter than 7, cover nothing.
-        write(&audit.join("ojas-pin-0123456-2026-10-17/delta-report.md"), "x");
-        write(&audit.join(format!("ojas-pin-{}-2026-10-17/delta-report.md", &sha[..6])), "x");
+        write(
+            &audit.join("ojas-pin-0123456-2026-10-17/delta-report.md"),
+            "x",
+        );
+        write(
+            &audit.join(format!("ojas-pin-{}-2026-10-17/delta-report.md", &sha[..6])),
+            "x",
+        );
         let out = check_pin_full(&lock(&d, &sha), "ojas", &d.join("sib"), &audit);
         assert!(matches!(out, PinGate::NoDeltaReport { .. }), "{out:?}");
         assert_eq!(out.exit_code(), 1);
@@ -640,7 +699,12 @@ mod tests {
     fn a_sibling_git_cannot_read_is_not_run_never_a_pass() {
         let d = scratch("full-nogit");
         write(&d.join("sib/.git/HEAD"), &format!("{A}\n"));
-        let out = check_pin_full(&lock(&d, A), "ojas", &d.join("sib"), &audit_with_report(&d, A));
+        let out = check_pin_full(
+            &lock(&d, A),
+            "ojas",
+            &d.join("sib"),
+            &audit_with_report(&d, A),
+        );
         assert!(matches!(out, PinGate::DirtyUnknown { .. }), "{out:?}");
         assert_eq!(out.exit_code(), 3);
     }

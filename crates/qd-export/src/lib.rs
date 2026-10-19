@@ -33,7 +33,7 @@ pub mod layout;
 pub mod refusal;
 pub mod safetensors;
 
-pub use ensemble::{EnsembleRequest, EnsembleSummary, export_ensemble};
 pub use calibration_gate::ExcludedFamily;
+pub use ensemble::{EnsembleRequest, EnsembleSummary, export_ensemble};
 pub use export::{AllowedExtra, ExportRequest, ExportSummary, export};
 pub use refusal::{Refusal, RefusalKind};

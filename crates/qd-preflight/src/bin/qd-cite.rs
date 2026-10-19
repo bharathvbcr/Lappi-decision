@@ -14,7 +14,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use qd_preflight::cite::{run, scope_files, Reason, DEFAULT_SINCE};
+use qd_preflight::cite::{DEFAULT_SINCE, Reason, run, scope_files};
 
 #[derive(Parser, Debug)]
 #[command(name = "qd-cite", version)]
@@ -44,7 +44,9 @@ fn main() -> ExitCode {
     };
     for f in &report.findings {
         let what = match &f.reason {
-            Reason::Uncited(n) => format!("measured number {n} with no ledger row, gap id or [V: path] in its paragraph"),
+            Reason::Uncited(n) => format!(
+                "measured number {n} with no ledger row, gap id or [V: path] in its paragraph"
+            ),
             Reason::Unresolvable(why) => why.clone(),
         };
         println!("{}:{}: {what}\n    {}", f.file.display(), f.line, f.text);

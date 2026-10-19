@@ -2338,8 +2338,11 @@ pub fn run(inputs: &Inputs, threads: usize) -> Result<Built, String> {
     // match: an unscanned row is named, never read as clean) plus what this producer leaves to
     // later tools.
     let mut decontam = scanned.report;
-    decontam["splitter_checks"] = json!("not run here: qd_data.split runs identity and near-duplicate disjointness over the built mixture");
-    decontam["in_corpus_scan"] = json!("tools/containment_scan.py over the built mixture (train vs val and held-out)");
+    decontam["splitter_checks"] = json!(
+        "not run here: qd_data.split runs identity and near-duplicate disjointness over the built mixture"
+    );
+    decontam["in_corpus_scan"] =
+        json!("tools/containment_scan.py over the built mixture (train vs val and held-out)");
     let avail_json: serde_json::Map<String, Value> = avail
         .iter()
         .map(|(k, a)| (k.clone(), json!({"train": a.train, "val": a.val})))
