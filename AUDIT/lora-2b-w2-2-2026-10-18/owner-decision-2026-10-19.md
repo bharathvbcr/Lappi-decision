@@ -27,7 +27,7 @@ Both were asked through AskUserQuestion in session lappi-decision-10. The owner 
 
 ## 2a. ojas pin target, superseding 2's target
 
-**Asked** (same day, after `ojas/.git/logs/refs/heads/main` showed main at 4123dfb, past 0e95fe7, with gp/a6-phase-b merged at 54fa635): "ojas main has moved again, to 4123dfb, and it now includes ojas phase A+B (ojas-train, the adapter bank, adapter checkpoint layout v1). Pinning 0e95fe7 as approved would leave the pin red, and 4123dfb likely changes what qd-train-metal builds against. Which pin target?"
+**Asked** (same day, after `ojas/.git/logs/refs/heads/main` showed main at 4123dfb, past 0e95fe7, with gp/a6-phase-b merged at fb057d4; corrected from "54fa635", which is the sq_norm commit before it, as lane W3-2 found in the reflog): "ojas main has moved again, to 4123dfb, and it now includes ojas phase A+B (ojas-train, the adapter bank, adapter checkpoint layout v1). Pinning 0e95fe7 as approved would leave the pin red, and 4123dfb likely changes what qd-train-metal builds against. Which pin target?"
 
 **Answer:** "Pin 4123dfb (phase A+B) (Recommended)".
 
