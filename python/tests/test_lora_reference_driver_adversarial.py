@@ -76,9 +76,27 @@ def test_a_shard_file_symlinked_into_heldout_is_refused(env, tmp_path, monkeypat
     tok = out / "shards" / "train" / "tokens.u32"
     shutil.move(str(tok), held / "tokens.u32")
     tok.symlink_to(held / "tokens.u32")
-    # The reader is another lane's; the driver's own held-out check resolves each shard file.
+    # The per-file check is one implementation, qd_train.shards.assert_shard_files_trainable,
+    # which validate_inputs calls and ShardReader runs first.
     with pytest.raises(HeldOutViolation):
         drv.validate_inputs(_cfg(env, tmp_path / "w", out=out))
+
+
+def test_run_refuses_a_shard_file_symlinked_into_heldout_before_writing_anything(
+    env, tmp_path  # noqa: F811 - the fixture imported from test_lora_reference_driver
+):
+    out = tmp_path / "corpus"
+    shutil.copytree(env.out / "shards" / "train", out / "shards" / "train")
+    held = tmp_path / "heldout"
+    held.mkdir()
+    tok = out / "shards" / "train" / "tokens.u32"
+    shutil.move(str(tok), held / "tokens.u32")
+    tok.symlink_to(held / "tokens.u32")
+    work = tmp_path / "w"
+    with pytest.raises(HeldOutViolation):
+        drv.run(_cfg(env, work, out=out))
+    written = list(work.rglob("*")) if work.exists() else []
+    assert written == [], f"a refused run wrote {written}: no ledger row, loss log or checkpoint"
 
 
 # 3 output clobbering -------------------------------------------------------------------------

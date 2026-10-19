@@ -89,6 +89,10 @@ pub const REPLAY_ONLY: &str = "replay_only";
 pub const PAD_ID: i32 = 0;
 /// `shards.MAX_ROWS_PER_BATCH`.
 pub const MAX_ROWS_PER_BATCH: usize = 4096;
+/// Most entries a shard directory may hold before [`ShardReader::open`] refuses it. A set is a
+/// dozen files; the bound exists so the per-entry rule-3 sweep cannot be made unbounded.
+/// Mirrors `shards.MAX_SHARD_DIR_ENTRIES`.
+pub const MAX_SHARD_DIR_ENTRIES: usize = 4096;
 /// `shards.MAX_POSITIONS_PER_BATCH`.
 pub const MAX_POSITIONS_PER_BATCH: u64 = 1 << 20;
 /// `artifacts.MAX_PADDING_WASTE`. Read-only under rule 2.
@@ -1181,6 +1185,33 @@ impl ShardReader {
     pub fn open(root: &Path, manifest: &Path, opts: &ShardOpen) -> Result<Self, ShardError> {
         // Rule 3, before any file in the set is opened.
         assert_path_not_held_out(root, &opts.config, &opts.repo_root)?;
+        // ...and for every entry in it. The directory check sees only where the set lives; a
+        // member symlinked into held-out data resolves elsewhere, and `ShardFiles` opens by path.
+        let listing = std::fs::read_dir(root).map_err(|source| ShardError::Io {
+            path: root.to_path_buf(),
+            source,
+        })?;
+        let mut entries: Vec<PathBuf> = Vec::new();
+        for entry in listing {
+            let entry = entry.map_err(|source| ShardError::Io {
+                path: root.to_path_buf(),
+                source,
+            })?;
+            if entries.len() >= MAX_SHARD_DIR_ENTRIES {
+                return Err(contract(
+                    root,
+                    format!(
+                        "more than {MAX_SHARD_DIR_ENTRIES} entries; refusing to open a directory \
+                         whose files cannot all be checked against rule 3"
+                    ),
+                ));
+            }
+            entries.push(entry.path());
+        }
+        entries.sort();
+        for entry in &entries {
+            assert_path_not_held_out(entry, &opts.config, &opts.repo_root)?;
+        }
         let files = opts.files.as_ref();
         let admitted = open_training_manifest(
             manifest,
