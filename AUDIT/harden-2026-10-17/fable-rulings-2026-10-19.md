@@ -21,3 +21,22 @@ Asked by session lappi-decision-ce, under the owner's standing delegation, after
 
 - The `qd-train-data` outputs and the W2-d ledger row cited above are on branch w2d-v6-shards-2026-10-17, not yet on main.
 - 44732cb is W2-d's merge of main into its branch.
+
+## Q23. exact_short false positives: an owner question; only the 92 CLINC rows move under the delegation
+
+(Asked after W2-d's verification, branch w2d-v6-shards-2026-10-17 at bc9eb0b: AUDIT/harden-2026-10-17/w2d-clinc-train-test-duplicates-2026-10-19.txt and w2d-exact-short-hits-2026-10-19.txt. Fable's answer, verbatim.)
+
+**(a) Owner question — the tier is under-specified, and data movement alone cannot clear the committed gate.**
+
+- The gate's example text is `context` + every option value appended as its own line (crates/qd-prep/src/pool.rs:105-116), and `exact_matches` probes every line (train_data.rs:455-467). The only test (train_data.rs:812-827) plants the target *inside a multi-line context* with options `["A","B"]`; no test says whether an option line or a code line counts. The doc (train_data.rs:21-23) motivates the tier by `GAP-CLINC-TEST-TARGETS-8GRAM-BLIND`: short CLINC utterances. So: per-line matching within context is tested intent; option-line matching is untested implementation. Neither doc nor test says "utterance rows only" — scoping it is a gate change under rule 2.
+- Decisive: the committed gate runs unstripped and reports **4,833**, not 1,275 (w2d-qd-train-data-v6-unstripped). The 1,275 is W2-d's stripped variant. Dropping 1,275 rows leaves the gate FAILED on 3,558 CLINC rows whose option list carries the intent label `goodbye`. The project's own containment rule already says template text is not contamination (exclusions.py:14-18 refuses a list made without strip v2; containment_strip.py (2b) strips every intent.* option value). The gate contradicts the rule it polices. Fixing that is the owner's.
+- Cost of dropping all 1,275: the 1,106 `code.defect_class` rows (1,000 with a bare `false` line) are not contamination of CLINC and the drop correlates with boolean-literal mutants (ops.rs:710 `negate_condition`) — a label-biased deletion. No train floor exists for the family (not in `train_caps`; v6-allocation.json), val is untouched, and R1's ≥55.8% defect-token share (design ruling:37-40) moves by ~0.2% [inferred, not computed]. Whether `apply_exclusions` even reaches `--defect-class` rows is **unverified** (real_tokenizer_pipeline.py:3217 vs design ruling:39).
+
+**Within the delegation now:** drop the 92 CLINC rows (23 utterances × 4 families, including the 8 digest hits) through the exclusions seam, as Q22 ruled. Not the 1,183.
+
+**(b)** Drop both digest duplicates from train (they are inside the 92). Also record them as noisy test items ("what's your designation" 11/75, "where did you grow up" 77/99) in AUDIT and `gaps.jsonl` — report-only; the test set is never edited and no item is excluded from scoring (rule 3).
+
+**(c) Owner question:** "Should `exact_short` read the strip-v2 text the builder's containment is held to, and does a short target equal to one line inside a longer non-utterance row count?"
+1. Leave the gate; drop 4,833 rows (3,558 for an option label). Not recommended.
+2. Strip v2 first; drop the 1,275.
+3. Strip v2, and match the whole stripped slot text, keeping the 1,183 per-line hits as a *counted* residual in coverage (train_data.rs:25-26 already names embedded hits as residual); test 812-827 is rewritten by the ruling. **Recommended.**
