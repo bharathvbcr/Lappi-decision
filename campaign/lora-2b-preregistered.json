@@ -166,7 +166,7 @@
       "formula": "run_control.TensorRef.digest of a float32 zero tensor of that shape"
     },
     "lora_a": {
-      "rule": "kaiming_uniform_(a=sqrt(5)) on each [r, in] A (so U(+-1/sqrt(in))), drawn from one CPU torch.Generator seeded with the run seed, visiting the adapted modules in model.named_modules() order (qd_train.lora.attach_lora). B = 0.",
+      "rule": "kaiming_uniform_(a=sqrt(5)) on each [r, in] A (so U(+-1/sqrt(in))), drawn from one CPU torch.Generator seeded with the run seed, visiting the adapted modules in the canonical order: layer index ascending (read from the 'layers.<n>.' component directly before the suffix), then the position of the module's suffix in LORA_TARGET_SUFFIXES (qd_train.lora.lora_draw_order; ojas LORA_KINDS, ten for ten), independent of the order a framework registers or a provider lists the modules; a target with no layer index, or two targets at one (layer, suffix), is refused (qd_train.lora.attach_lora). B = 0. (Amendment 4; the text before it read 'visiting the adapted modules in model.named_modules() order (qd_train.lora.attach_lora)'.)",
       "pinned_as": "a rule: the A digest is not fixed here, because it is a function of the run seed. The value is recorded in the row and checked against this rule by recomputing it with attach_lora at that seed; a mismatch voids the row.",
       "shapes": "[16, in_features] per adapted linear, in_features read from the snapshot"
     },
@@ -266,6 +266,13 @@
         "qd-train-data on the rebuilt train shard set: exit 0 (PASS), output recorded",
         "recipe.steps n re-derived under amendment 2's rule if the width distribution changed"
       ]
+    },
+    {
+      "n": 4,
+      "recorded": "2026-10-19, after Lappi 99a56bb, before any LoRA-2B result exists anywhere (RIPGREP_CONFIG_PATH= rg -uu -il 'optimizer_recipe.{0,10}lora|lora-2b' over ledger/: no match)",
+      "what": "init.lora_a.rule: the A matrices are drawn in a canonical module order (layer index ascending, then the suffix's position in LORA_TARGET_SUFFIXES = ojas LORA_KINDS), not in model.named_modules() order. The distribution (kaiming_uniform_(a=sqrt(5)), B = 0), the generator (one CPU torch.Generator seeded with the run seed), the adapted set and every other value are unchanged. init.lora_a.pinned_as pins no digest value, so nothing else changes. No gate, threshold, seed count, held-out set or recipe value changes.",
+      "why": "named_modules() order is a framework artefact: real HF Qwen3.5 registers a GDN layer's out_proj before in_proj_qkv and in_proj_z, while ojas (and Lappi's oracle tree) list qkv, z, out. Under the old wording the torch leg and the ojas leg draw different A on every GDN layer, so every ojas row would recompute a different digest and be voided, or train on a different A while bound d' stays inside 0.02 nats for early steps. Found by lane W2-2's adversarial test (GAP-W2-2-LORA-A-DIGEST-DEPENDS-ON-MODULE-REGISTRATION-ORDER-2026-10-18); Fable ruled the rule's wording a defect (AUDIT/lora-2b-w2-2-2026-10-18/fable-ruling.md item 1). Measured on branch w3-1-lora-a-canonical-order-2026-10-19: the committed oracle fixture's seed 0, 7, 1234 digests are unchanged (it already uses the ojas order); an HF-order model's digests now equal them.",
+      "decided_by": "the owner, 2026-10-19 (AUDIT/lora-2b-w2-2-2026-10-18/owner-decision-2026-10-19.md, item 1: 'Yes, amend and merge (Recommended)')"
     }
   ],
   "amendments_rule": "An amendment made after any LoRA-2B result has been read is void. A change before that is a commit that says what changed and why, and leaves the original text in the history.",
