@@ -81,7 +81,7 @@ from qd_data.render import render
 from qd_data.rows import DataRow
 from qd_data.split import HELD_OUT, SplitReport
 from qd_train.containment_strip import PartsRow, slot_parts, strip_template
-from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, containment_corpus
+from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME
 from qd_train.replay import DEFAULT_N, DEFAULT_THRESHOLD
 from qd_train.tristate import NotRun, Ran, TriState
 
@@ -392,6 +392,14 @@ def scan_specs(sets: Sequence[ScanSet]) -> list[ScanSpec]:
     ]
 
 
+def scan_corpus_name(identity: Mapping[str, object], config: DataConfig) -> dict[str, object]:
+    """The corpus name written into the request: ``real_tokenizer_pipeline.name_corpus``, the
+    one function the build and ``ft_splits`` name their corpus with."""
+    from real_tokenizer_pipeline import name_corpus
+
+    return name_corpus(identity, config=config)
+
+
 def drop_empty_targets(
     sets: Sequence[ScanSet], scans: Sequence[ScanSpec],
 ) -> tuple[list[ScanSpec], list[str]]:
@@ -664,17 +672,16 @@ def main(argv: list[str] | None = None) -> int:
     rendered = time.monotonic()
     scans, empty_sets = drop_empty_targets(sets, scan_specs(sets))
     # The name ft_splits and the pipeline check an exclusion list against.
-    corpus = containment_corpus(replay_corpus_identity(
+    # Named by the pipeline's own function (a v6 corpus holds other rows than the v5 corpus of the
+    # same inputs: every V6_CORPUS_KEYS fingerprint is in the name, none under legacy_v5), so the
+    # list and the build can never disagree on which keys name a corpus.
+    corpus = scan_corpus_name(replay_corpus_identity(
         rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
         repo_history=args.repo_history, general_record=args.general_record,
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
         decisions_pool=args.decisions_pool, drop_before_dedupe=args.pre_dedupe_drops,
-    ))
-    if config.benchmark_eval_splits_are_targets:
-        # A v6 corpus holds other rows than the v5 corpus of the same inputs, so it is named
-        # apart: a build that does not name the opt-in refuses this list (read_exclusions).
-        corpus = {**corpus, "benchmark_eval_splits_are_targets": True}
+    ), config)
     with request.open("xb") as fh:
         size = write_request(
             fh, sets, scans, corpus=corpus,

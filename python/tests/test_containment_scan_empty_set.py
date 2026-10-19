@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(REPO / "tools"))
 
 import containment_scan  # noqa: E402
@@ -27,6 +28,24 @@ from containment_scan import ScanSet, drop_empty_targets, export_block, scan_spe
 def _set(name: str, n: int) -> ScanSet:
     rows = tuple((f"{name}-{i}", f"id{i}", "fam", "some text here") for i in range(n))
     return ScanSet(name=name, rows=rows, unrenderable={})
+
+
+def test_the_scan_names_its_corpus_as_the_build_does() -> None:
+    """The scan wrote only ``benchmark_eval_splits_are_targets`` beside the v5 name, while the
+    v6 build also names ``dedupe_keep_rule`` and ``lsh_min_agreement_permille`` (every
+    ``V6_CORPUS_KEYS`` fingerprint), so the build refused the scan's list as 'another corpus'
+    (W2-d, chain9). Both name the corpus through ``name_corpus`` now."""
+    from real_tokenizer_pipeline import data_rules, name_corpus
+
+    from qd_data.config import DataConfig
+
+    identity = {"rev": "a" * 40, "max_pairs": 400, "repo_history": False}
+    for v6 in (True, False):
+        config = data_rules(DataConfig(), v6=v6)
+        got = containment_scan.scan_corpus_name(identity, config)
+        assert got == name_corpus(identity, config=config)
+    v6_name = containment_scan.scan_corpus_name(identity, data_rules(DataConfig(), v6=True))
+    assert {"dedupe_keep_rule", "lsh_min_agreement_permille"} <= set(v6_name)
 
 
 def test_empty_task_holdout_family_is_not_a_scan_target_and_is_named(
