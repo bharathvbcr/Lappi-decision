@@ -247,7 +247,11 @@ def _contaminated_corpus() -> dict[str, list[object]]:
 
 
 def _report() -> SplitReport:
-    config = DataConfig()
+    # Explicit legacy rules: the fixture's contaminated rows are MMLU train rows copied from
+    # upstream "test" items, and v6 (the default) refuses such an item as a row -- it is a
+    # target there (python/qd_data/sources.py BENCHMARK_TARGET_SPLITS). The test is about what
+    # the scan and the hook do with such rows, so it builds the corpus that has them.
+    config = DataConfig.legacy_v5()
     mixture = build_mixture(_contaminated_corpus(), config=config)
     return split(dedupe(list(mixture.rows), config=config), config=config)
 
