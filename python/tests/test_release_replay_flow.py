@@ -27,7 +27,9 @@ WEIGHT = "6f7b9ba73bca3a0b2e4ec9b2c0fc2aa6e7459f7e3286b26386633a222667dfcb"
 CALIB = "7e56b34e378907adccc7cfc0a086507d81c762ed6627694a0a59c3c977aeb677"
 OK_REPLY = json.dumps({
     "status": "ok", "schema_version": 1, "backend": "qd-metal/test", "degraded": False,
-    "slots": {"x": {"value": "a", "conformal_set": ["a"], "score": 0.5, "noul": False, "degraded": False}},
+    "slots": {"x": {
+        "value": "a", "conformal_set": ["a"], "score": 0.5, "noul": False, "degraded": False,
+    }},
 })
 REQUIRED = ("RELEASE_DIR", "VAL_ROWS", "MIN_ANSWERED", "REPLAY_RESULTS", "SOCKET")
 
@@ -53,9 +55,13 @@ def _release(d: Path) -> Path:
         "format": "qd-release.v2",
         "trained_families": ["code.defect_class", "fam.b"],
         "excluded_families": [],
-        "train_manifest": {"ledger_binding": {"verified": True, "train_manifest_sha256": "ab" * 32}},
+        "train_manifest": {
+            "ledger_binding": {"verified": True, "train_manifest_sha256": "ab" * 32},
+        },
         "expected_identity": {"weight_hash": WEIGHT, "calibration_hash": CALIB},
-        "trained_slot_shapes": {"code.defect_class": [["choice:5", "span"]], "fam.b": [["choice:4"]]},
+        "trained_slot_shapes": {
+            "code.defect_class": [["choice:5", "span"]], "fam.b": [["choice:4"]],
+        },
     }), encoding="utf-8")
     return rel
 
@@ -81,7 +87,12 @@ def _val_rows(n_b: int, *, extra: list[dict] | None = None) -> list[dict]:
 
 
 def _run(
-    d: Path, release_check_bin: Path, rows: list[dict], min_answered: str | None, *, drop: str | None = None,
+    d: Path,
+    release_check_bin: Path,
+    rows: list[dict],
+    min_answered: str | None,
+    *,
+    drop: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
@@ -99,7 +110,8 @@ def _run(
     if drop is not None:
         env.pop(drop, None)
     return subprocess.run(
-        ["bash", str(SCRIPT)], cwd=d, env=env, capture_output=True, text=True, timeout=300, check=False,
+        ["bash", str(SCRIPT)],
+        cwd=d, env=env, capture_output=True, text=True, timeout=300, check=False,
     )
 
 
@@ -119,14 +131,18 @@ def test_a_missing_required_argument_is_notrun_and_runs_nothing(
     assert not (tmp_path / "out" / "replay_requests.jsonl").exists()
 
 
-def test_min_answered_has_no_default_and_zero_is_refused(tmp_path: Path, release_check_bin: Path) -> None:
+def test_min_answered_has_no_default_and_zero_is_refused(
+    tmp_path: Path, release_check_bin: Path,
+) -> None:
     unset = _run(tmp_path, release_check_bin, _val_rows(4), None)
     assert unset.returncode == 3 and "MIN_ANSWERED is not set" in unset.stdout
     zero = _run(tmp_path, release_check_bin, _val_rows(4), "0")
     assert zero.returncode == 3 and "not a positive integer" in zero.stdout
 
 
-def test_a_short_family_shape_is_failed_and_nothing_is_replayed(tmp_path: Path, release_check_bin: Path) -> None:
+def test_a_short_family_shape_is_failed_and_nothing_is_replayed(
+    tmp_path: Path, release_check_bin: Path,
+) -> None:
     # fam.b at choice:4 has 2 val rows; 3 are asked for.
     proc = _run(tmp_path, release_check_bin, _val_rows(2), "3")
     assert proc.returncode == 1, proc.stdout + proc.stderr
@@ -160,7 +176,8 @@ def test_a_full_fixture_passes_every_check_line_but_is_never_pass_overall(
     assert json.loads(results.read_text(encoding="utf-8").splitlines()[0])["kind"] == "header"
     check_lines = [
         line for line in proc.stdout.splitlines()
-        if line.split(" ", 1)[0] in {"Pass", "Fail", "NotRun"} and not line.startswith("NotRun headline")
+        if line.split(" ", 1)[0] in {"Pass", "Fail", "NotRun"}
+        and not line.startswith("NotRun headline")
     ]
     assert check_lines, proc.stdout
     assert all(line.startswith("Pass ") for line in check_lines), check_lines
@@ -180,8 +197,9 @@ def test_the_make_target_is_notrun_without_its_arguments() -> None:
 
 def test_the_make_target_passes_its_arguments_to_the_script() -> None:
     proc = subprocess.run(
-        ["make", "-n", "-f", str(REPO / "Makefile"), "release-replay", "RELEASE_DIR=/rel", "VAL_ROWS=/v.jsonl",
-         "MIN_ANSWERED=7", "REPLAY_RESULTS=/r.jsonl", "SOCKET=/s.sock"],
+        ["make", "-n", "-f", str(REPO / "Makefile"), "release-replay",
+         "RELEASE_DIR=/rel", "VAL_ROWS=/v.jsonl", "MIN_ANSWERED=7",
+         "REPLAY_RESULTS=/r.jsonl", "SOCKET=/s.sock"],
         cwd=REPO, capture_output=True, text=True, check=False, timeout=60,
     )
     assert proc.returncode == 0, proc.stderr

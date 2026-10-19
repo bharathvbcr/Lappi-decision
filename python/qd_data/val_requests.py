@@ -26,7 +26,8 @@ from .schema import Request
 
 __all__ = ["ValRow", "main", "read_val_rows", "write_val_requests"]
 
-#: Exit codes of ``main``: ``tools/release_replay.sh`` reads 1 as FAILED and anything else as NotRun.
+#: Exit codes of ``main``: ``tools/release_replay.sh`` reads 1 as FAILED, anything else as
+#: NotRun.
 EXIT_REFUSED = 1
 EXIT_NOT_RUN = 3
 #: A bound on the rows file, so a wrong path cannot be slurped whole.
