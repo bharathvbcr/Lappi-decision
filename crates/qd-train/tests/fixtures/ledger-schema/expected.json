@@ -3,11 +3,11 @@
  "command": "PYTHONPATH=python .venv/bin/python tools/gen_ledger_schema_fixture.py --out crates/qd-train/tests/fixtures/ledger-schema",
  "rows": [
   [
-   "b652e5e1-683f-4138-aa3f-f5cd5d4b0563",
+   "5fadc2b7-2182-438c-9876-839e4951510b",
    "completed"
   ],
   [
-   "b50e1f1c-730c-4bec-b115-48d4e1122378",
+   "879a5991-775a-4f3b-9afc-40021b03dec3",
    "killed"
   ],
   [
@@ -21,19 +21,19 @@
  ],
  "rows_include_started": [
   [
-   "c626584a-dd26-4dd9-8ead-29919efdc3b8",
+   "85c12df0-391d-4082-91c3-4364ef260b65",
    "started"
   ],
   [
-   "b652e5e1-683f-4138-aa3f-f5cd5d4b0563",
+   "5fadc2b7-2182-438c-9876-839e4951510b",
    "completed"
   ],
   [
-   "3b58901f-12c0-4cac-af22-3825ef776565",
+   "79f88a25-47f3-4b14-b076-2fa4a4ff71ee",
    "started"
   ],
   [
-   "b50e1f1c-730c-4bec-b115-48d4e1122378",
+   "879a5991-775a-4f3b-9afc-40021b03dec3",
    "killed"
   ],
   [
@@ -46,12 +46,12 @@
   ]
  ],
  "raw_line_sha256": [
-  "56c5f9e72483136af51e7893b5f199ad2780ef680c6924ca752328d1875b766b",
-  "809b42b7ca115809bbad71b0552505cb7a488c92ad7a58d68057bb4635f39948",
-  "1a6c63d08b1d9d059637be95ff7bb9f825715d2aaf1ed13dbf21557966d1ed6a",
-  "c9402b4f2b9a4d7ff6c2ecee04ebca0ad05e2c80bb7589b43c5dc91face93a54",
-  "095e20e825c3bb2fcce69ea45b0fe76218ea06bfe904aa5a8101b162f4199988",
-  "6eb4c6689f3236b526e5eb9aeb9da87f45ccec3942dcf6be52dc843a9086349f"
+  "baec93532efc8265f15cf233a778867f76997cd7573bf3e8aa9c131717a38fe7",
+  "649e7dbab5ce52831195bd729285db2c59550b5cacfd546ef8a02fd90604a5d0",
+  "0801905befa224084217e5b4033fcfe31d157d2575da08ea22f4553e20ee76cd",
+  "9b1e58c5023319186c8d2d07c26ed81e63e3c368ccaa3a8b4e3ca0036dd1f6bd",
+  "d391c2f320c3c7175d263a1b2410e9a0e07cb95581989d8d0eebebc107331954",
+  "e8fc5a1bfee587525482526f2263663e4a261cc8fbb63f2a2d6b45d1f84c8937"
  ],
  "val_without_train": {
   "count": 1,
