@@ -58,6 +58,7 @@ def _listed(tmp: Path, attested: dict[str, Any]) -> Path:
         "export": {"template_strip": {
             "applied": True, "rule": STRIP_RULE, "version": STRIP_VERSION,
         }},
+        "exact_short": {"rule": "exact-short-v1: fixture"},
         "exclusions_sha256": hashlib.sha256(raw).hexdigest(),
         "n_exclusions": len(KEYS),
         "clean": True,
@@ -111,4 +112,21 @@ def test_an_attestation_without_a_corpus_object_is_refused(
     att["corpus"] = attested
     (tmp_path / ATTESTATION_NAME).write_text(json.dumps(att), encoding="utf-8")
     with pytest.raises(ExclusionRefusal, match="was made for corpus"):
+        read_exclusions(listed, corpus=UNBOUNDED)
+
+
+@pytest.mark.parametrize("exact", [None, {}, {"rule": "other-rule: x"}, {"rule": 3}])
+def test_a_list_from_a_scan_without_the_exact_short_tier_is_refused(
+    tmp_path: Path, exact: object,
+) -> None:
+    """Owner ruling 2026-10-19 (Fable Q22 (b)): a scan blind to targets under n words names no
+    exact-short rule, so its list is refused. Fails on the pre-change reader (accepted)."""
+    listed = _listed(tmp_path, UNBOUNDED)
+    att = json.loads((tmp_path / ATTESTATION_NAME).read_text(encoding="utf-8"))
+    if exact is None:
+        del att["exact_short"]
+    else:
+        att["exact_short"] = exact
+    (tmp_path / ATTESTATION_NAME).write_text(json.dumps(att), encoding="utf-8")
+    with pytest.raises(ExclusionRefusal, match="exact-short-v1 tier"):
         read_exclusions(listed, corpus=UNBOUNDED)
