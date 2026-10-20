@@ -117,7 +117,23 @@ this report states it. The reflog subjects say library source did change (`ojas-
 
 ## 5. Verification
 
-**NOT RUN yet.** At the time of this commit no verification has run: `make pin`, `cargo test -p qd-train`,
-`cargo test -p qd-train-metal`, `cargo test --no-run -p qd-metal` and `-p qd-export` were all queued behind
-`tools/mac_heavy.sh`'s load gate (load 14-100 against a limit of 12). Until a follow-up commit adds their output,
-this pin is unverified.
+Run 2026-10-19/20 in the worktree of branch `w3-2-ojas-pin-4123dfb-2026-10-19`, with `upstream.lock.json` at 4123dfb,
+each cargo job as `MAC_HEAVY_MAX_LOAD=48 bash tools/mac_heavy.sh <label> cargo ...`, one at a time. Counts are summed
+from the `test result:` lines of each job's output [V].
+
+| Check | Result |
+|---|---|
+| `cargo test -p qd-train` (label w3-2-qd-train) | RUN, exit 0. 26 suites, 260 passed, 0 failed, 5 ignored. |
+| `cargo test -p qd-train-metal` (w3-2-qd-train-metal) | RUN, exit 0. 14 suites, 41 passed, 0 failed, 15 ignored. Ignored tests are GPU tests and were not run. |
+| `cargo test --no-run -p qd-metal` (w3-2-qd-metal) | RUN, exit 0. Compiles only; no test executed. |
+| `cargo test --no-run -p qd-export` (w3-2-qd-export) | RUN, exit 0. Compiles only; no test executed. |
+| `make pin` / `qd-pin` after the bump | **PENDING (owner-run).** `make pin` was queued at the default load limit of 12 and never got the lock (load 14-100), so it did not run. The harness refuses `qd-pin` with a path outside the repo. |
+| Q15 fails-before (`qd-pin` against the unmodified lock 04277f8, sibling 4123dfb) | **PENDING (owner-run).** Same harness refusal; not run. Expected mismatch is inferred from reading `pin.rs`, not observed. |
+| `python/tests/test_pin_gate.py` | NOT RUN. |
+
+Lappi breakage: none found. No Lappi source was changed. The one build effect is `Cargo.lock`: the build added
+`ojas-train` (dependencies `ojas-core`, `ojas-io`) and an `ojas-train` edge under `ojas-model` [V, `git diff Cargo.lock`,
++9 lines]. That differs from the section 2 expectation of no lock change; it follows from `ojas-model` now depending on
+`ojas-train`. It is committed with the bump, as the build produced it.
+
+The pin is **not** verified by the gate until the owner-run `qd-pin` / `make pin` result is pasted here.
