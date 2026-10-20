@@ -10,6 +10,7 @@ never PASS overall, because the headline figures need verdicts from a real eval.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -20,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from qd_data.schema import ChoiceSlot, Request, SpanSlot
+from qd_data.val_requests import BINDING_SCHEMA, binding_path
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "tools" / "release_replay.sh"
@@ -43,8 +45,14 @@ def _row(task: str, i: int, slots: tuple, *, split: str = "val") -> dict:
     return {"row_id": f"{task}:{i}:{split}", "split": split, "request": request.to_wire()}
 
 
-def _write_lines(path: Path, rows: list[dict]) -> Path:
+def _write_lines(path: Path, rows: list[dict], *, bound_to: str | None = "ab" * 32) -> Path:
+    """The rows file, and (unless ``bound_to`` is None) the binding the tracked writer records."""
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    if bound_to is not None:
+        binding_path(path).write_text(json.dumps({
+            "schema": BINDING_SCHEMA, "train_manifest_sha256": bound_to,
+            "rows_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }), encoding="utf-8")
     return path
 
 
@@ -93,11 +101,12 @@ def _run(
     min_answered: str | None,
     *,
     drop: str | None = None,
+    bound_to: str | None = "ab" * 32,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
         "RELEASE_DIR": str(_release(d)),
-        "VAL_ROWS": str(_write_lines(d / "val_rows.jsonl", rows)),
+        "VAL_ROWS": str(_write_lines(d / "val_rows.jsonl", rows, bound_to=bound_to)),
         "REPLAY_RESULTS": str(d / "out" / "results.jsonl"),
         "SOCKET": str(d / "q.sock"),
         "QD": str(_fake_qd(d)),
@@ -148,6 +157,26 @@ def test_a_short_family_shape_is_failed_and_nothing_is_replayed(
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert "fam.b" in proc.stdout and "(short)" in proc.stdout
     assert "FAILED: release-replay" in proc.stdout
+    assert _last(proc) == "RESULT: FAILED"
+    assert not (tmp_path / "out" / "results.jsonl").exists()
+
+
+def test_val_rows_without_a_binding_are_notrun_and_replay_nothing(
+    tmp_path: Path, release_check_bin: Path,
+) -> None:
+    proc = _run(tmp_path, release_check_bin, _val_rows(4), "1", bound_to=None)
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "no readable binding" in proc.stderr
+    assert _last(proc) == "RESULT: NotRun"
+    assert not (tmp_path / "out" / "results.jsonl").exists()
+
+
+def test_val_rows_bound_to_another_shard_set_are_failed(
+    tmp_path: Path, release_check_bin: Path,
+) -> None:
+    proc = _run(tmp_path, release_check_bin, _val_rows(4), "1", bound_to="cd" * 32)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "another shard set" in proc.stderr
     assert _last(proc) == "RESULT: FAILED"
     assert not (tmp_path / "out" / "results.jsonl").exists()
 
