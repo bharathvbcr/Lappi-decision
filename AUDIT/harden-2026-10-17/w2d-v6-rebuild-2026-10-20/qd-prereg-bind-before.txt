@@ -1,0 +1,4 @@
+FAILED   shard_hash: the shard set at /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/out/shards/train carries shard_hash 94bef49aa2c13ed675d64d1d93b75ce201c2b47932596908e927c7172e01a0ac, but the registration pins 108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4; a run on it is not a run of this registration
+PASS     committed_clean: registration and cited decision records: 13 file(s) committed and unmodified
+PASS     ancestor: registration commit 0089ceeda37a65dd3588c66e4134a91fe445a2f7 is an ancestor of 93af698ddaa978387875e9bb5383b77db131f0d3
+RESULT: FAILED

@@ -1,0 +1,4 @@
+PASS     shard_hash: shard_hash 94bef49aa2c13ed675d64d1d93b75ce201c2b47932596908e927c7172e01a0ac (recorded header hash; the shard reader re-derives it)
+PASS     committed_clean: registration and cited decision records: 17 file(s) committed and unmodified
+PASS     ancestor: registration commit ce35cb9424cc03d4d6bbef8023b9994656ac83e2 is an ancestor of ce35cb9424cc03d4d6bbef8023b9994656ac83e2
+RESULT: PASS

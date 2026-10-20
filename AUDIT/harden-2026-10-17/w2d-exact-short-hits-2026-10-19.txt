@@ -1,0 +1,48 @@
+stripped distinct targets hit: 44 distinct slot rows hit: 1275
+by source: {'clinc/clinc_oos': 92, 'nvidia/HelpSteer2': 33, 'qd-mutate/commitpackft': 1106, 'tau/commonsense_qa': 26, 'n4ze3m/typed-decisions-synth': 25}
+by family: {'code.defect_class': 1106, 'pairwise.helpfulness': 33, 'commonsense.multiple_choice': 26, 'synth.general': 25, 'intent.classification': 23, 'intent.in_scope': 23, 'intent.domain': 23, 'intent.within_domain': 23}
+target (words/chars) | rows hit | sources | in upstream train / validation / test(clinc)
+  1w  5c 'false'                                  rows=1002 {'nvidia/HelpSteer2': 2, 'qd-mutate/commitpackft': 1000} train=0 val=0 test=1
+  1w  7c 'goodbye'                                rows=  53 {'clinc/clinc_oos': 4, 'qd-mutate/commitpackft': 48, 'tau/commonsense_qa': 1} train=1 val=0 test=1
+  1w  4c 'okay'                                   rows=  38 {'nvidia/HelpSteer2': 3, 'qd-mutate/commitpackft': 34, 'tau/commonsense_qa': 1} train=0 val=0 test=1
+  4w 17c 'what is your name'                      rows=  27 {'nvidia/HelpSteer2': 3, 'qd-mutate/commitpackft': 24} train=0 val=0 test=1
+  1w  7c 'regards'                                rows=  23 {'n4ze3m/typed-decisions-synth': 18, 'nvidia/HelpSteer2': 5} train=0 val=0 test=1
+  2w 11c 'hello there'                            rows=  12 {'clinc/clinc_oos': 4, 'nvidia/HelpSteer2': 8} train=1 val=0 test=1
+  4w 13c 'hey what s up'                          rows=   8 {'clinc/clinc_oos': 8} train=1 val=1 test=1
+  3w 16c 'that s incorrect'                       rows=   8 {'clinc/clinc_oos': 8} train=2 val=0 test=1
+  4w 14c 'hi how are you'                         rows=   6 {'clinc/clinc_oos': 4, 'nvidia/HelpSteer2': 2} train=1 val=0 test=1
+  1w  5c 'later'                                  rows=   6 {'clinc/clinc_oos': 4, 'tau/commonsense_qa': 2} train=1 val=0 test=1
+  5w 29c 'thank you for your assistance'          rows=   6 {'n4ze3m/typed-decisions-synth': 6} train=0 val=0 test=1
+  2w  9c 'hey there'                              rows=   5 {'clinc/clinc_oos': 4, 'nvidia/HelpSteer2': 1} train=1 val=0 test=1
+  4w 18c 'that s not correct'                     rows=   5 {'clinc/clinc_oos': 4, 'nvidia/HelpSteer2': 1} train=1 val=0 test=1
+  1w 10c 'absolutely'                             rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  1w  3c 'bye'                                    rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  6w 26c 'flip a coin i choose heads'             rows=   4 {'clinc/clinc_oos': 4} train=0 val=1 test=1
+  1w  4c 'hola'                                   rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  5w 24c 'i need my account frozen'               rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  7w 32c 'i need you to repeat that please'       rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  3w 16c 'next song please'                       rows=   4 {'clinc/clinc_oos': 4} train=0 val=1 test=1
+  4w 16c 'no that is wrong'                       rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  3w 13c 'see you later'                          rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  4w 20c 'thanks for your help'                   rows=   4 {'clinc/clinc_oos': 4} train=0 val=1 test=1
+  3w 14c 'thanks so much'                         rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  4w 23c 'what s your designation'                rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  5w 21c 'where did you grow up'                  rows=   4 {'clinc/clinc_oos': 4} train=1 val=0 test=1
+  2w 10c 'yes please'                             rows=   4 {'nvidia/HelpSteer2': 4} train=0 val=0 test=2
+  1w  5c 'great'                                  rows=   3 {'nvidia/HelpSteer2': 1, 'tau/commonsense_qa': 2} train=0 val=0 test=1
+  2w 12c 'stop talking'                           rows=   3 {'tau/commonsense_qa': 3} train=0 val=0 test=1
+  1w  9c 'undecided'                              rows=   3 {'tau/commonsense_qa': 3} train=0 val=0 test=1
+  1w 10c 'definitely'                             rows=   2 {'tau/commonsense_qa': 2} train=0 val=0 test=1
+  2w  9c 'read text'                              rows=   2 {'tau/commonsense_qa': 2} train=0 val=0 test=1
+  2w 13c 'stop speaking'                          rows=   2 {'tau/commonsense_qa': 2} train=0 val=0 test=1
+  1w  4c 'sure'                                   rows=   2 {'nvidia/HelpSteer2': 1, 'tau/commonsense_qa': 1} train=0 val=0 test=1
+  2w  8c 'be quiet'                               rows=   1 {'tau/commonsense_qa': 1} train=0 val=0 test=1
+  2w  8c 'call mom'                               rows=   1 {'tau/commonsense_qa': 1} train=0 val=0 test=1
+  2w 10c 'do laundry'                             rows=   1 {'nvidia/HelpSteer2': 1} train=0 val=0 test=1
+  2w  9c 'go faster'                              rows=   1 {'tau/commonsense_qa': 1} train=0 val=0 test=1
+  4w 13c 'i am not sure'                          rows=   1 {'nvidia/HelpSteer2': 1} train=0 val=0 test=1
+  2w 10c 'roger that'                             rows=   1 {'tau/commonsense_qa': 1} train=0 val=0 test=1
+  2w  8c 'speak up'                               rows=   1 {'tau/commonsense_qa': 1} train=0 val=0 test=1
+  2w  9c 'talk fast'                              rows=   1 {'tau/commonsense_qa': 1} train=0 val=0 test=1
+  1w  6c 'unsure'                                 rows=   1 {'tau/commonsense_qa': 1} train=0 val=0 test=1
+  5w 30c 'what song is currently playing'         rows=   1 {'n4ze3m/typed-decisions-synth': 1} train=0 val=0 test=1

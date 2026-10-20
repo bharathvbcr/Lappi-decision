@@ -81,7 +81,7 @@ from qd_data.render import render
 from qd_data.rows import DataRow
 from qd_data.split import HELD_OUT, SplitReport
 from qd_train.containment_strip import PartsRow, slot_parts, strip_template
-from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, containment_corpus
+from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME
 from qd_train.replay import DEFAULT_N, DEFAULT_THRESHOLD
 from qd_train.tristate import NotRun, Ran, TriState
 
@@ -392,6 +392,36 @@ def scan_specs(sets: Sequence[ScanSet]) -> list[ScanSpec]:
     ]
 
 
+def scan_corpus_name(identity: Mapping[str, object], config: DataConfig) -> dict[str, object]:
+    """The corpus name written into the request: ``real_tokenizer_pipeline.name_corpus``, the
+    one function the build and ``ft_splits`` name their corpus with."""
+    from real_tokenizer_pipeline import name_corpus
+
+    return name_corpus(identity, config=config)
+
+
+def drop_empty_targets(
+    sets: Sequence[ScanSet], scans: Sequence[ScanSpec],
+) -> tuple[list[ScanSpec], list[str]]:
+    """``(scans, names)`` without the scans whose target set has no row, and those sets' names.
+
+    ``qd-prep containment`` refuses a scan against an empty set ("a scan against nothing is not a
+    check"), and a task-holdout family can have no row in a corpus (code.language_id has none;
+    the v5 attestation lists it with 0 rows). The set stays in the request, zero rows, and the
+    names go in the export block (``empty_sets_not_scanned``), so the attestation says it was
+    not scanned rather than showing it scanned and clean."""
+    empty = {s.name for s in sets if not s.rows}
+    kept = [scan for scan in scans if scan.target not in empty]
+    return kept, sorted({scan.target for scan in scans if scan.target in empty})
+
+
+def runnable_scans(sets: Sequence[ScanSet]) -> list[ScanSpec]:
+    """:func:`scan_specs` without the scans ``qd-prep containment`` refuses (a target set with no
+    row): what a caller that writes a request for the shipped binary hands :func:`write_request`.
+    The names of the dropped sets are :func:`drop_empty_targets`'s second value."""
+    return drop_empty_targets(sets, scan_specs(sets))[0]
+
+
 def targets_block(targets: Sequence[TargetSet]) -> dict[str, object]:
     """The attestation's ``export.targets``: per set, its row count, sha256 and source."""
     return {
@@ -442,12 +472,14 @@ def _str(fh: BinaryIO, value: str, what: str) -> int:
 
 def export_block(
     sets: Sequence[ScanSet], *, engine: Path, strip: Mapping[str, object],
-    targets: Sequence[TargetSet] = (),
+    targets: Sequence[TargetSet] = (), empty_sets: Sequence[str] = (),
 ) -> dict[str, object]:
     """What the exporter left out, which engine scanned, what the template strip removed
     (``strip``, :func:`scan_sets`'s record) and, when there are any, the external targets
     (:func:`targets_block`): the attestation's ``export``."""
     extra: dict[str, object] = {"targets": targets_block(targets)} if targets else {}
+    if empty_sets:
+        extra["empty_sets_not_scanned"] = sorted(empty_sets)
     return {
         **extra,
         "tool": TOOL,
@@ -645,23 +677,23 @@ def main(argv: list[str] | None = None) -> int:
     sets, strip = scan_sets(report, config=config, template_strip=args.template_strip,
                             targets=targets)
     rendered = time.monotonic()
-    scans = scan_specs(sets)
+    scans, empty_sets = drop_empty_targets(sets, scan_specs(sets))
     # The name ft_splits and the pipeline check an exclusion list against.
-    corpus = containment_corpus(replay_corpus_identity(
+    # Named by the pipeline's own function (a v6 corpus holds other rows than the v5 corpus of the
+    # same inputs: every V6_CORPUS_KEYS fingerprint is in the name, none under legacy_v5), so the
+    # list and the build can never disagree on which keys name a corpus.
+    corpus = scan_corpus_name(replay_corpus_identity(
         rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
         repo_history=args.repo_history, general_record=args.general_record,
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
         decisions_pool=args.decisions_pool, drop_before_dedupe=args.pre_dedupe_drops,
-    ))
-    if config.benchmark_eval_splits_are_targets:
-        # A v6 corpus holds other rows than the v5 corpus of the same inputs, so it is named
-        # apart: a build that does not name the opt-in refuses this list (read_exclusions).
-        corpus = {**corpus, "benchmark_eval_splits_are_targets": True}
+    ), config)
     with request.open("xb") as fh:
         size = write_request(
             fh, sets, scans, corpus=corpus,
-            export=export_block(sets, engine=engine, strip=strip, targets=targets),
+            export=export_block(sets, engine=engine, strip=strip, targets=targets,
+                                empty_sets=empty_sets),
             checks=splitter_checks(report),
         )
     exported = time.monotonic()

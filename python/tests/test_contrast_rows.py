@@ -222,6 +222,7 @@ def _crafted_exclusions(tmp: Path, keys: list[str], corpus: dict[str, object]) -
         "export": {"template_strip": {
             "applied": True, "version": STRIP_VERSION, "rule": STRIP_RULE,
         }},
+        "exact_short": {"rule": "exact-short-v1: fixture"},
     }), encoding="utf-8")
     return d / EXCLUSIONS_NAME
 

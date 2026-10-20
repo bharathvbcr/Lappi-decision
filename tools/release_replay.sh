@@ -8,7 +8,9 @@
 #
 # Required, none with a default (a missing one is NotRun, exit 3, and nothing runs):
 #   RELEASE_DIR     the qd-export release directory
-#   VAL_ROWS        JSONL of val rows: {"row_id", "split": "val", "request": <wire request>}
+#   VAL_ROWS        JSONL of val rows: {"row_id", "split": "val", "request": <wire request>},
+#                   written by qd_data.val_requests.write_val_rows; its .binding.json sidecar must
+#                   name the release's train_manifest_sha256
 #   MIN_ANSWERED    distinct answered requests required per (admitted family, trained shape); it is
 #                   also how many requests are built per pair. GAP-QD-RELEASE-CHECK-MIN-ANSWERED-HAS-NO-RECORD-2026-10-17
 #                   is the owner's: this script never picks one.
@@ -87,7 +89,18 @@ step_status() {
 }
 
 echo "======== 1/4 val requests ========"
-PYTHONPATH="$REPO/python" "$PYTHON" -m qd_data.val_requests --val-rows "$VAL_ROWS" --out "$VAL_REQUESTS"
+# VAL_ROWS must carry the binding the tracked writer (qd_data.val_requests.write_val_rows)
+# records, naming the train manifest this release was exported from: a hand-made file or another
+# shard set's is refused (no binding: NotRun; a different one: FAILED).
+TRAIN_SHA="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["train_manifest"]["ledger_binding"]["train_manifest_sha256"])' "$RELEASE_DIR/release_manifest.json" 2>&1)"
+case "$TRAIN_SHA" in
+  *[!0-9a-f]* | '')
+    echo "NotRun: release-replay - $RELEASE_DIR/release_manifest.json records no train_manifest_sha256, so VAL_ROWS cannot be bound to this release."
+    finish "$NOT_RUN"
+    ;;
+esac
+PYTHONPATH="$REPO/python" "$PYTHON" -m qd_data.val_requests --val-rows "$VAL_ROWS" --out "$VAL_REQUESTS" \
+  --expect-train-manifest-sha256 "$TRAIN_SHA"
 rc=$?
 if [ "$rc" -ne 0 ]; then step_status "$rc"; finish $?; fi
 
