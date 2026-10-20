@@ -94,6 +94,30 @@ No new board cards: every finding folded into an existing card or into a peer la
 - **Cards to review, with Fable's staleness findings recorded:** ft-0f5a10c9 and ft-ac6677c7. Neither has a criterion an agent can work.
 - **Branches:** every lane branch of mine is merged and deleted, except W3-1, which is held.
 
+## Wrap-up, 2026-10-19
+
+**Owner decisions taken** (`AUDIT/lora-2b-w2-2-2026-10-18/owner-decision-2026-10-19.md`):
+- The LoRA-A canonical-order amendment.
+- The ojas pin to 4123dfb (phase A+B).
+
+**What merged:**
+- **0089cee:** LoRA-2B amendment 4. `init.lora_a.rule` now names the canonical order: layer index, then the suffix table.
+- **d74bc85:** W3-2, the ojas pin 04277f8 → 4123dfb.
+  - `qd-train`: 260 passed, 0 failed. `qd-train-metal`: 41 passed, 0 failed. `qd-metal` and `qd-export` compile (`--no-run`).
+  - No Lappi source changed. `Cargo.lock` gains `ojas-train`.
+  - **Not run:** `make pin` and the `qd-pin` checks. The harness refuses paths outside the repo, so the owner has to run those commands; they are in `AUDIT/ojas-pin-4123dfb-2026-10-19/delta-report.md` §4 and tracked as GAP-OJAS-PIN-4123DFB-SOURCE-DIFF-AND-PIN-GATE-PENDING-2026-10-19.
+- **a5d1881:** W3-1, the canonical LoRA-A draw order in Python and Rust.
+  - `qd-train`: 265 passed, 0 failed. `qd-train-metal`: 41 passed, 0 failed. Torch, on the merged tree: 91 passed, with the formerly strict-xfail order test now passing.
+  - Fails-before: `main`'s `lora.py`, loaded by an explicit path, gives different digests for the two registration orders, and the new code gives equal ones.
+
+**Card ft-3b8126cd:** ojas phase B now ships adapter checkpoint layout v1 (ojas 3f87e76). The blocked converter item is therefore workable in a new session. It was not started, per the owner's wrap-up instruction.
+
+**Branches:** every lane branch and auto-branch of this session is merged and deleted. Left on purpose:
+- `span-pin-8a531e8-verdicts`, still needed by card ft-0f5a10c9;
+- `build/main-gates-2026-10-15`, whose owner is unknown, with 3 dirty files; the owner decides.
+
+Nothing has been pushed; `main` is 510 commits ahead of `origin`.
+
 ## Not run
 
 - `make pin` and `test_pin_gate` on main: red on the stale pin.
