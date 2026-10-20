@@ -19,11 +19,17 @@
 //!   positive-controlled scan ([`qd_prep::pool::scan`]): a scan that cannot demonstrate a planted
 //!   hit is refused (`NOT_RUN`), never reported as zero hits. Needs text.
 //! * `exact_short`: targets under n words have no n-gram, so the scan cannot see them (2,454 of
-//!   CLINC's 5,500 test items, `GAP-CLINC-TEST-TARGETS-8GRAM-BLIND-2026-10-06`). They are matched
-//!   as whole normalised lines of an example instead, with its own planted-copy control. Needs text.
+//!   CLINC's 5,500 test items, `GAP-CLINC-TEST-TARGETS-8GRAM-BLIND-2026-10-06`). Under the owner's
+//!   ruling of 2026-10-19 (`AUDIT/harden-2026-10-17/human-ruling-2026-10-19.md`) a row is a hit
+//!   only when its WHOLE strip-v2 text, normalised, equals a short target. The matcher is
+//!   [`qd_prep::exact_short`], the one `qd-prep containment` (the builder) runs, so the gate and
+//!   the builder cannot disagree. `--examples` must be the strip-v2 text (the exporter's
+//!   `stripped.jsonl`); on unstripped prompts a whole-text match cannot happen by construction.
+//!   Own planted-copy control. Needs text.
 //!
-//! What this does not establish: a *paraphrase* of a short target, or one embedded inside a longer
-//! line, is not matched. The coverage block counts the short targets so that residual is a number.
+//! What this does not establish: a *paraphrase* of a short target. A target equal to one line
+//! inside a longer text is not a hit; the coverage block counts those rows and distinct targets
+//! (`short_embedded_rows`, `short_embedded_targets`) so that residual is a number.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
@@ -32,8 +38,8 @@ use std::path::{Path, PathBuf};
 
 use qd_prep::blake2b::Keyed;
 use qd_prep::decisions::{Candidate, Gold, TargetSet};
+use qd_prep::exact_short::{ShortTargets, word_count};
 use qd_prep::pool;
-use qd_prep::pyunicode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -122,6 +128,11 @@ pub struct Coverage {
     pub no_words: usize,
     /// Targets no tier that ran could scan.
     pub unscanned: usize,
+    /// The exact tier's residual (owner ruling 2026-10-19): train rows that hold a short target
+    /// as one line inside a longer text. Not hits; counted so the residual is a number.
+    pub short_embedded_rows: u64,
+    /// Distinct short targets among those embedded matches.
+    pub short_embedded_targets: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -167,6 +178,8 @@ impl Verdict {
                 "target_sets": self.coverage.target_sets, "targets": self.coverage.targets,
                 "ngram_scannable": self.coverage.ngram_scannable, "short": self.coverage.short,
                 "no_words": self.coverage.no_words, "unscanned": self.coverage.unscanned,
+                "short_embedded_rows": self.coverage.short_embedded_rows,
+                "short_embedded_targets": self.coverage.short_embedded_targets,
             },
             "target_sha256": self.target_sha256,
         })
@@ -280,16 +293,6 @@ fn clinc_row_digest(row_id: &str) -> Option<&str> {
     let _family = parts.next()?;
     let digest = parts.next()?;
     (digest.len() == 16).then_some(digest)
-}
-
-fn normalised(text: &str) -> String {
-    let lowered = pyunicode::lower(text);
-    pyunicode::words(&lowered).join(" ")
-}
-
-fn word_count(text: &str) -> usize {
-    let lowered = pyunicode::lower(text);
-    pyunicode::words(&lowered).len()
 }
 
 /// Rows of a forbidden family among `entries`.
@@ -436,101 +439,107 @@ fn tier_ngram(
     )
 }
 
-/// Normalised short targets (1 to n-1 words) by their text, with the target they name.
-fn short_targets(targets: &[TargetSet], n: usize) -> BTreeMap<String, Vec<String>> {
-    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (name, rows) in targets {
-        for (id, text) in rows {
-            let norm = normalised(text);
-            let words = norm.split(' ').filter(|w| !w.is_empty()).count();
-            if (1..n).contains(&words) {
-                out.entry(norm).or_default().push(format!("{name}:{id}"));
-            }
-        }
-    }
-    out
+/// What the exact tier left as a residual: rows in which a short target is one line inside a
+/// longer text (not a hit under the owner's whole-text rule, 2026-10-19), and how many distinct
+/// short targets those rows hold.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Embedded {
+    pub rows: u64,
+    pub targets: u64,
 }
 
-/// The normalised short targets that are a whole line (or the whole text) of `text`.
-fn exact_matches<'a>(text: &str, short: &'a BTreeMap<String, Vec<String>>) -> Vec<&'a str> {
-    let mut found: BTreeSet<&str> = BTreeSet::new();
-    let mut probe = |segment: &str| {
-        if let Some((key, _)) = short.get_key_value(&normalised(segment)) {
-            found.insert(key.as_str());
-        }
-    };
-    probe(text);
-    for line in text.lines() {
-        probe(line);
-    }
-    found.into_iter().collect()
-}
-
+/// The exact-short tier, over the strip-v2 text of the train rows (`--examples`: the stripped
+/// export, e.g. `tools/train_examples_export.py`'s `stripped.jsonl`). One matcher with the
+/// builder's containment scan: [`qd_prep::exact_short`]. A row is a hit when its WHOLE text,
+/// normalised, equals a short target; an embedded match is only counted ([`Embedded`]).
 fn tier_exact_short(
     examples: Option<&[pool::ExampleText]>,
     why: &str,
     targets: &[TargetSet],
     n: usize,
-) -> Tier {
+) -> (Tier, Embedded) {
     let name = "exact_short";
     let Some(examples) = examples else {
-        return Tier::not_run(name, why.to_owned());
+        return (Tier::not_run(name, why.to_owned()), Embedded::default());
     };
-    let short = short_targets(targets, n);
+    let flat: Vec<&str> = targets
+        .iter()
+        .flat_map(|(_, rows)| rows.iter().map(|(_, text)| text.as_str()))
+        .collect();
+    let short = ShortTargets::build(flat.iter().copied().enumerate(), n);
     if short.is_empty() {
-        return Tier::ran(
-            name,
-            0,
-            Vec::new(),
-            format!("no target is shorter than {n} words"),
+        return (
+            Tier::ran(
+                name,
+                0,
+                Vec::new(),
+                format!("no target is shorter than {n} words"),
+            ),
+            Embedded::default(),
         );
     }
-    // The control: each (bounded) short target planted as a line of a synthetic example must be
-    // found by the matcher, or a zero here would say nothing about the train set.
-    let keys: Vec<&String> = short.keys().collect();
-    let planted: Vec<&String> = if keys.len() <= EXACT_CONTROL_MAX {
+    // The control: each (bounded) distinct short target planted as the whole text of a synthetic
+    // example must be matched, or a zero here would say nothing about the train set.
+    let keys: Vec<&str> = short.iter().map(|(k, _)| k).collect();
+    let planted: Vec<&str> = if keys.len() <= EXACT_CONTROL_MAX {
         keys
     } else {
         (0..EXACT_CONTROL_MAX)
             .map(|k| keys[k * keys.len() / EXACT_CONTROL_MAX])
             .collect()
     };
-    let missed: Vec<&&String> = planted
+    let missed: Vec<&&str> = planted
         .iter()
-        .filter(|k| {
-            let probe = format!("some surrounding words before\n{k}\nand after it");
-            !exact_matches(&probe, &short).contains(&k.as_str())
-        })
+        .filter(|k| short.whole(k).is_none())
         .take(SAMPLE_IDS)
         .collect();
     if !missed.is_empty() {
-        return Tier::not_run(
-            name,
-            format!("positive control: planted short targets were not matched, first {missed:?}"),
+        return (
+            Tier::not_run(
+                name,
+                format!(
+                    "positive control: planted short targets were not matched, first {missed:?}"
+                ),
+            ),
+            Embedded::default(),
         );
     }
     let mut hit_ids = Vec::new();
     let mut targets_hit: BTreeSet<&str> = BTreeSet::new();
+    let mut embedded = Embedded::default();
+    let mut embedded_targets: BTreeSet<&str> = BTreeSet::new();
     for e in examples {
-        let found = exact_matches(&e.text, &short);
-        if !found.is_empty() {
+        if short.whole(&e.text).is_some() {
             hit_ids.push(e.id.clone());
-            targets_hit.extend(found);
+            targets_hit.insert(&e.id);
+            continue;
+        }
+        let inside = short.embedded(&e.text);
+        if !inside.is_empty() {
+            embedded.rows += 1;
+            embedded_targets.extend(inside);
         }
     }
-    Tier::ran(
-        name,
-        hit_ids.len() as u64,
-        hit_ids.clone(),
-        format!(
-            "{} of {} train rows hold a short target ({} distinct) as a whole normalised line; \
-             positive control planted {} of {} short targets",
-            hit_ids.len(),
-            examples.len(),
-            targets_hit.len(),
-            planted.len(),
-            short.len()
+    embedded.targets = embedded_targets.len() as u64;
+    (
+        Tier::ran(
+            name,
+            hit_ids.len() as u64,
+            hit_ids.clone(),
+            format!(
+                "{} of {} train rows have a whole stripped text equal to a short target \
+                 (strip-v2 text, whole-text rule); positive control planted {} of {} distinct \
+                 short targets; residual, not hits: {} rows hold a short target ({} distinct) as \
+                 one line inside a longer text",
+                hit_ids.len(),
+                examples.len(),
+                planted.len(),
+                short.distinct(),
+                embedded.rows,
+                embedded.targets
+            ),
         ),
+        embedded,
     )
 }
 
@@ -606,16 +615,14 @@ pub fn check(inputs: &Inputs) -> Verdict {
             .unwrap_or_else(|reason| Tier::not_run("clinc_digest", reason)),
     );
     tiers.push(tier_ngram(examples.as_deref(), &text_why, &targets, inputs));
-    tiers.push(tier_exact_short(
-        examples.as_deref(),
-        &text_why,
-        &targets,
-        n,
-    ));
+    let (exact_tier, embedded) = tier_exact_short(examples.as_deref(), &text_why, &targets, n);
+    tiers.push(exact_tier);
 
     let exact_ran = tiers[3].state.did_run();
     let mut coverage = Coverage {
         target_sets: targets.len(),
+        short_embedded_rows: embedded.rows,
+        short_embedded_targets: embedded.targets,
         ..Coverage::default()
     };
     for (_, rows) in &targets {
@@ -698,6 +705,11 @@ pub fn summary_lines(v: &Verdict) -> Vec<String> {
          only), {} with no words; {} could not be scanned by any tier that ran",
         c.targets, c.target_sets, c.ngram_scannable, c.short, c.no_words, c.unscanned
     ));
+    out.push(format!(
+        "residual (not hits): {} train rows hold a short target ({} distinct) as one line inside \
+         a longer text; the exact tier matches a row's whole stripped text only",
+        c.short_embedded_rows, c.short_embedded_targets
+    ));
     if let TriState::NotRun { reason } = &v.overall {
         out.push(format!("not run: {reason}"));
     }
@@ -734,12 +746,25 @@ mod tests {
     }
 
     fn write_examples(dir: &Path, rows: &[(&str, &str, &str, &str)]) -> PathBuf {
+        write_examples_with(dir, rows, &["A", "B"])
+    }
+
+    /// Examples whose text is exactly `context` (no option lines): the stripped export's shape.
+    fn write_bare_examples(dir: &Path, rows: &[(&str, &str, &str, &str)]) -> PathBuf {
+        write_examples_with(dir, rows, &[])
+    }
+
+    fn write_examples_with(
+        dir: &Path,
+        rows: &[(&str, &str, &str, &str)],
+        options: &[&str],
+    ) -> PathBuf {
         let path = dir.join("examples.jsonl");
         let body: Vec<String> = rows
             .iter()
             .map(|(id, source, family, context)| {
                 json!({"id": id, "source_id": source, "family_id": family,
-                       "context": context, "options": ["A", "B"]})
+                       "context": context, "options": options})
                 .to_string()
             })
             .collect();
@@ -807,23 +832,64 @@ mod tests {
         assert_eq!(tier(&v, "ngram").hits, 1);
     }
 
-    /// The 8-gram scan cannot see a target under 8 words; the exact tier must.
+    /// The 8-gram scan cannot see a target under 8 words; the exact tier must, on the WHOLE
+    /// stripped text of a row (owner ruling 2026-10-19). This one pins that a whole-text row is
+    /// still a hit; the next pins what stopped being one.
     #[test]
-    fn a_short_target_is_caught_by_the_exact_tier_not_the_ngram_scan() {
+    fn a_row_whose_whole_stripped_text_is_a_short_target_is_caught_by_the_exact_tier() {
         let dir = tmp("short");
-        let ex = write_examples(
+        let ex = write_bare_examples(
             &dir,
-            &[(
-                "r1",
-                "x/y",
-                "fam.a",
-                "which intent is this\n\nSet a timer for TEN minutes!",
-            )],
+            &[("r1", "x/y", "fam.a", "Set a timer for TEN minutes!")],
         );
         let v = check(&inputs(ex, write_targets(&dir)));
         assert_eq!(v.exit_code(), EXIT_FAILED);
         assert_eq!(tier(&v, "ngram").hits, 0, "the n-gram scan is blind to it");
         assert_eq!(tier(&v, "exact_short").sample_ids, vec!["r1".to_owned()]);
+        assert_eq!(v.coverage.short_embedded_rows, 0);
+    }
+
+    /// The owner's ruling of 2026-10-19 (`human-ruling-2026-10-19.md`, "Strip, whole-text
+    /// match"): a short target equal to one line inside a longer text is NOT a hit. It is a
+    /// counted residual in the coverage output. The per-line rule this replaces called it a hit
+    /// (the test that stood here planted exactly this text and expected `EXIT_FAILED`).
+    #[test]
+    fn a_short_target_inside_a_longer_text_is_a_counted_residual_not_a_hit() {
+        let dir = tmp("embedded");
+        let ex = write_bare_examples(
+            &dir,
+            &[
+                (
+                    "r1",
+                    "x/y",
+                    "fam.a",
+                    "which intent is this\n\nSet a timer for TEN minutes!",
+                ),
+                (
+                    "r2",
+                    "x/y",
+                    "fam.a",
+                    "no short target is anywhere in this row",
+                ),
+            ],
+        );
+        let v = check(&inputs(ex, write_targets(&dir)));
+        assert_eq!(
+            tier(&v, "exact_short").hits,
+            0,
+            "{:?}",
+            tier(&v, "exact_short").state
+        );
+        assert_eq!(v.exit_code(), 0, "{:?}", v.overall);
+        assert_eq!(v.coverage.short_embedded_rows, 1);
+        assert_eq!(v.coverage.short_embedded_targets, 1);
+        let json = v.to_json();
+        assert_eq!(json["coverage"]["short_embedded_rows"], 1);
+        assert!(
+            summary_lines(&v)
+                .iter()
+                .any(|l| l.contains("residual (not hits): 1 train rows"))
+        );
     }
 
     #[test]

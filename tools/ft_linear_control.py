@@ -141,6 +141,7 @@ from qd_train.baseline import (  # noqa: E402
     request_texts,
 )
 from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
+from qd_train.data_access import assert_path_not_held_out  # noqa: E402
 from qd_train.eval_harness import paired_margin_by_key  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
     Environment,
@@ -1048,7 +1049,7 @@ def split_rebuild_inputs_function() -> Callable[..., tuple[dict[str, Path], dict
     return fn
 
 
-def check_shard_set(shards: Path, row: LedgerRow) -> None:
+def check_shard_set(shards: Path, row: LedgerRow, *, config: DataConfig) -> None:
     """Refuse a ``--split-cache-shards`` that is not the eval row's shard set, before the rebuild.
 
     ``split_cache`` checks every cached row against the shard set's manifests, and the rebuilt
@@ -1060,7 +1061,7 @@ def check_shard_set(shards: Path, row: LedgerRow) -> None:
     read (0.8 s on v5's 270 MB train.json).
     """
     try:
-        manifests = split_cache.read_manifests(shards)
+        manifests = split_cache.read_manifests(shards, config=config, repo=REPO)
     except split_cache.KeyUnavailable as exc:
         raise Refused(f"--split-cache-shards {shards}: {exc}") from exc
     if manifests.data_snapshot_hash != row.protocol.data_snapshot_hash:
@@ -1070,6 +1071,20 @@ def check_shard_set(shards: Path, row: LedgerRow) -> None:
             f"{row.protocol.data_snapshot_hash}. It is not that row's shard set, so no cached "
             "row could be checked against it"
         )
+
+
+def read_input_bytes(path: Path, *, config: DataConfig) -> bytes:
+    """A training-side input file's bytes, read only after the rule-3 door has passed the given
+    and the resolved path (``qd_train.data_access.assert_path_not_held_out``). The control is
+    fitted on these rows, so it is a training process in rule 3's sense."""
+    assert_path_not_held_out(path, config=config, repo_root=REPO)
+    return path.read_bytes()
+
+
+def corpus_examples_sha256(corpus_dir: Path, *, config: DataConfig) -> str:
+    """The ``examples_sha256`` a qd-mutate corpus's ``manifest.json`` pins, read via the door."""
+    manifest = json.loads(read_input_bytes(Path(corpus_dir) / "manifest.json", config=config))
+    return str(manifest["examples_sha256"])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1271,16 +1286,16 @@ def main(argv: list[str] | None = None) -> int:
             f"{recorded_exclusions or 'none'} and this control would apply "
             f"{exclusions_sha256 or 'none'}: it would be fitted on a different train split"
         )
+    from real_tokenizer_pipeline import data_rules
+
+    config = data_rules(DataConfig(), v6=not args.legacy_v5_data_rules)
     if args.split_cache_shards is not None:
-        check_shard_set(args.split_cache_shards, row)
+        check_shard_set(args.split_cache_shards, row, config=config)
     hold = HoldOut(args.operator_key, args.hold_out_operator) if args.hold_out_operator else None
     # Before the split rebuild, which is most of a run's wall clock before the first fit: a
     # control that cannot be fitted is refused while that costs nothing.
     engine = native.prep_binary()
 
-    from real_tokenizer_pipeline import data_rules
-
-    config = data_rules(DataConfig(), v6=not args.legacy_v5_data_rules)
     # One set of keywords for the rebuild and for the split cache's key, so what is keyed is what
     # is rebuilt: real_ft_run.main's own form.
     rebuild = functools.partial(
@@ -1343,7 +1358,7 @@ def main(argv: list[str] | None = None) -> int:
         # Only when used, so every gate row written before these inputs existed hashes as
         # it did. The record is named by its sha256, as the pipeline's recipe names it.
         recipe["general_record_sha256"] = hashlib.sha256(
-            args.general_record.read_bytes()
+            read_input_bytes(args.general_record, config=config)
         ).hexdigest()
         # Resolved, as the pipeline's recipe and the replay attestation record it, so the
         # default is a number rather than a null that means "whatever the default was".
@@ -1361,15 +1376,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.defect_noul is not None:
         # Only when used, as the pipeline's and real_ft_run's recipes record it: by the noul
         # corpus's examples sha256, so a control with the noul rows never hashes as one without.
-        recipe["defect_noul_examples_sha256"] = str(json.loads(
-            (args.defect_noul / "manifest.json").read_text(encoding="utf-8")
-        )["examples_sha256"])
+        recipe["defect_noul_examples_sha256"] = corpus_examples_sha256(
+            args.defect_noul, config=config
+        )
     if args.decisions_pool is not None:
         # Only when used, as the pipeline's recipe records it: by the pool's examples sha256,
         # so a control fitted with the pool's rows never hashes as one without.
-        recipe["decisions_pool_examples_sha256"] = str(json.loads(
-            (args.decisions_pool / "manifest.json").read_text(encoding="utf-8")
-        )["examples_sha256"])
+        recipe["decisions_pool_examples_sha256"] = corpus_examples_sha256(
+            args.decisions_pool, config=config
+        )
     if args.pre_dedupe_drops is not None:
         # Only when used, as the pipeline's recipe records it.
         recipe["pre_dedupe_drops_sha256"] = hashlib.sha256(

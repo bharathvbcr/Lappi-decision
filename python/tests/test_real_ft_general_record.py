@@ -318,7 +318,7 @@ def test_replay_decontam_rebuilds_with_the_general_record(
         seen.append(kw)
         raise Stop
 
-    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
+    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class, config: None)
     monkeypatch.setattr(rft, "ft_splits", spy)
     record = tmp_path / "record.json"
     with pytest.raises(Stop):
@@ -363,7 +363,7 @@ def test_main_forwards_the_record_and_pairs_a_general_set_by_its_index(
             data_snapshot_hash="d" * 64, exclusions_sha256="",
         )),
     )
-    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
+    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class, config: None)
     monkeypatch.setattr(
         rft, "corpus_facts", lambda out, **kw: (facts.append(kw), rft.CorpusFacts(None, {}))[1]
     )

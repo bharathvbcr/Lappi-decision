@@ -229,8 +229,8 @@ def test_a_target_set_excludes_the_train_row_that_copies_a_benchmark_item(
         TARGET_PREFIX,
         read_target_file,
         run_containment,
+        runnable_scans,
         scan_sets,
-        scan_specs,
     )
 
     report, _rows = _report_and_rows()
@@ -250,7 +250,7 @@ def test_a_target_set_excludes_the_train_row_that_copies_a_benchmark_item(
     sets, _strip = scan_sets(report, config=DataConfig.legacy_v5(), targets=(tset,))
     names = [s.name for s in sets]
     assert names[-1] == f"{TARGET_PREFIX}jevjudge"
-    specs = scan_specs(sets)
+    specs = runnable_scans(sets)
     assert any(s.source == "train" and s.target == names[-1] and s.enforced for s in specs)
     request = tmp_path / "req.bin"
     request.write_bytes(_request_bytes(sets, specs, report))
@@ -335,8 +335,8 @@ def test_a_short_mmlu_item_copied_into_train_is_found_by_its_target_text(
         TargetSet,
         mmlu_target_text,
         run_containment,
+        runnable_scans,
         scan_sets,
-        scan_specs,
     )
 
     item = MmluRow(subject="biology", question="Which gas do green plants absorb in light?",
@@ -356,7 +356,7 @@ def test_a_short_mmlu_item_copied_into_train_is_found_by_its_target_text(
     tset = TargetSet(name="mmlu-test", rows=(("test-0", text),), sha256="0" * 64, source="t")
     sets, _strip = scan_sets(report, config=config, targets=(tset,))
     request = tmp_path / "req.bin"
-    request.write_bytes(_request_bytes(sets, scan_specs(sets), report))
+    request.write_bytes(_request_bytes(sets, runnable_scans(sets), report))
     run_containment(qd_prep_bin, request, tmp_path / "out", threads=2, timeout_s=120.0)
     keys = (tmp_path / "out" / "exclusions.txt").read_text(encoding="utf-8").splitlines()
     assert keys == [victim.identity_key]

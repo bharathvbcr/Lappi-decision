@@ -219,7 +219,7 @@ def test_main_forwards_the_pool_and_pairs_a_pool_set_by_its_index(
             data_snapshot_hash="d" * 64, exclusions_sha256="",
         )),
     )
-    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
+    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class, config: None)
     monkeypatch.setattr(
         rft, "corpus_facts", lambda out, **kw: (facts.append(kw), rft.CorpusFacts(None, {}))[1]
     )
