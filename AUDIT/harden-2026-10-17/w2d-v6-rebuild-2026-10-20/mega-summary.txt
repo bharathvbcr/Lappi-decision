@@ -1,0 +1,36 @@
+# mega start 2026-10-19T21:41:30Z HEAD d2325a7fdc550eaad030fc537fc6cfe5408b353b tracked-dirty 1
+pressure level 1
+== A: rust tests, new tree
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-prep.log:test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 255 filtered out; finished in 0.06s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/build/w2d/logs/cargo-new-preflight.log:test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+rust new-tree rc: qd-prep=0 qd-preflight=0
+== B: old tree (main before the tier): the parity test must FAIL
+old-tree rc (nonzero expected): 101
+== C: release build
+== D: the ten containment reds
+FAILED python/tests/test_containment_exclusions.py::test_the_scan_and_the_hook_take_out_exactly_the_contaminated_train_rows
+FAILED python/tests/test_containment_exclusions.py::test_an_attestation_that_does_not_vouch_for_this_build_is_refused[edit-counts 0 keys]
+FAILED python/tests/test_containment_exclusions.py::test_a_list_that_is_not_qd_preps_or_names_no_train_row_is_refused
+FAILED python/tests/test_containment_exclusions.py::test_a_scoped_scan_lists_same_family_pairs_and_excludes_none_of_them
+reds under .venv rc=1
+FAILED python/tests/test_containment_exclusions.py::test_the_scan_and_the_hook_take_out_exactly_the_contaminated_train_rows
+FAILED python/tests/test_containment_exclusions.py::test_an_attestation_that_does_not_vouch_for_this_build_is_refused[edit-counts 0 keys]
+FAILED python/tests/test_containment_exclusions.py::test_a_list_that_is_not_qd_preps_or_names_no_train_row_is_refused
+FAILED python/tests/test_containment_exclusions.py::test_a_scoped_scan_lists_same_family_pairs_and_excludes_none_of_them
+================ 4 failed, 37 passed, 6138 deselected in 32.43s ================
+reds under make torch-pytest rc=2
+== E: the rebuild chain
