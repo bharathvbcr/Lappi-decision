@@ -122,7 +122,21 @@ held-out sets need (`docs/train-plan-2026-09-28.md`, open item 1: "whether query
 The human, 2026-10-06: **"Synthetic only"**. No real personal data (emails, forms, queries) goes
 into training or eval. So caller records are **not training data and not eval data**, and nothing
 an app or a lane does can make them so. Admitting any of it needs a new human decision and a new
-`record_version`. Until then:
+`record_version`.
+
+**Vani exception (the human, 2026-10-20; `docs/lappi-v2-plan-2026-10-20.md` §2).** For Vani
+only, teacher readings on real public job postings, taken from Vani's own pipeline ledger
+(`state/ledger/events.jsonl`), may become v2 training rows: at most 25% of each Vani family's
+train rows, loss weight 0.5, and only where two teachers read the same posting and agree. Each
+row carries provenance. Owner hand labels stay held out, and a content-level door (posting
+keys plus MinHash signatures exported from Vani) refuses any row near one of them. A redactor
+with a refusal test removes emails, phone numbers and signature-block names. Vault values,
+personal headers and marks notes never enter a row. These rows never leave the Mac, and
+adapters trained on them are never published. Vani's pipeline ledger is not a
+`lappi.caller_record`; this exception does not cover caller records, and everything below
+still holds for them, for every app including Vani.
+
+Until then, for caller records:
 
 - **Off by default** in every app, behind its own explicit setting. `LAPPI_COLLECT=0` in the
   environment forces it off regardless of the setting.

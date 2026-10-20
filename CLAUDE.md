@@ -2,7 +2,11 @@
 
 This repo implements the **qwen-decision Build Plan** (2026-09-19): one Qwen3.5-2B-Base-derived
 **typed decision model** that any app calls through a schema, with DevCouncil and DevType as the
-first two callers. **Lappi** is the product name (see `docs/lappi.md`). Hosted on GitHub at
+first two callers. **Lappi** is the product name (see `docs/lappi.md`). **v2** (owner scope
+2026-10-20) adds Vani, Jarvis and claims callers, a decision model (Lappi-D) and a generation
+adapter (Lappi-G); it retires d1-ultra on the existing Qwen3.5-2B path first, and targets a
+Gemma 4 base (E4B, E2B bake-off) adopted only after a frozen bake-off wins:
+`docs/lappi-v2-plan-2026-10-20.md`. The v1 Qwen3.5-2B campaign finishes unchanged as its baseline. Hosted on GitHub at
 [bharathvbcr/Lappi-decision](https://github.com/bharathvbcr/Lappi-decision).
 
 These rules override default behaviour. They are copied into every lane prompt.

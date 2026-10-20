@@ -23,6 +23,13 @@ answered, with a calibrated score and an explicit abstention. It does not genera
 it does not write reasoning first. The wire contract is `docs/schema-api.md`; this document
 does not restate it.
 
+That describes v1 and Lappi-D in v2. **v2 (owner scope, 2026-10-20) adds a generating
+sibling:** Lappi-G, a generation adapter on the same base; an NCM research model trained from
+scratch is parked until Lappi-G exists. The v2 base target is Gemma 4 (E4B, with an E2B
+bake-off), adopted only if a frozen bake-off against Qwen3.5-2B says so; d1-ultra is retired on
+Qwen3.5-2B first.
+Lappi-D's own contract above does not change; `docs/lappi-v2-plan-2026-10-20.md` holds the plan.
+
 The category has a name now — **System 1 models** — and four public members as of
 2026-09-19. `AUDIT/prior-art-jev-nimble-2026-09-19.md` holds the evidence.
 
