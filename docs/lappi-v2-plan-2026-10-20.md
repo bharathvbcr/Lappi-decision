@@ -413,45 +413,27 @@ P0 and the first scope never wait on Gemma.
 - **Open gaps that would block the first v2 run** (third audit, from `gaps.jsonl`; effective
   open set about 522 ids):
   - pin gate never run: `GAP-OJAS-PIN-4123DFB-SOURCE-DIFF-AND-PIN-GATE-PENDING-2026-10-19`
-    and `GAP-W4B-PIN-GATE-BASELINE-NOT-RUN-IN-AN-EXTRACTED-TREE`. Owner-run.
+    and `GAP-W4B-PIN-GATE-BASELINE-NOT-RUN-IN-AN-EXTRACTED-TREE-2026-10-18`. Owner-run.
   - heavy-job lock and load gate starving runs:
-    `GAP-MAC-HEAVY-LOCK-AND-LOAD-GATE-BIND-LAPPI-ONLY` and
-    `GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE`.
+    `GAP-MAC-HEAVY-LOCK-AND-LOAD-GATE-BIND-LAPPI-ONLY-2026-10-18` and
+    `GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE-2026-10-18`.
   - containment scan killed near 29 GiB in 4 of 5 runs:
-    `GAP-W2D-V6-SCAN-FOOTPRINT-OVER-MAC-HEAVY-CAP`.
-  - shard headers: 0 of 89 verify against HEAD (`GAP-LDATA-ALL-89-SHARD-HEADERS-DRIFT`,
-    `GAP-W4C-V1-HEADERS-STILL-REFUSED-UNDER-V1-RULE`).
-  - owner rulings: `GAP-M12-TASK-HOLDOUT-CONTENT-OVERLAP-IS-EVERY-COMMITPACKFT-TRAINING-ROW`
-    (rule 3 exposure, 5,148 rows) and `GAP-W3B-V5-DECISION-POOL-FAILS-THE-V6-LENGTH-BAND`
+    `GAP-W2D-V6-SCAN-FOOTPRINT-OVER-MAC-HEAVY-CAP-2026-10-18`.
+  - shard headers: 0 of 89 verify against HEAD
+    (`GAP-LDATA-ALL-89-SHARD-HEADERS-DRIFT-FROM-QD-DATA-HEAD-2026-10-17`,
+    `GAP-W4C-V1-HEADERS-STILL-REFUSED-UNDER-V1-RULE-2026-10-18`).
+  - owner rulings:
+    `GAP-M12-TASK-HOLDOUT-CONTENT-OVERLAP-IS-EVERY-COMMITPACKFT-TRAINING-ROW-2026-10-17`
+    (rule 3 exposure, 5,148 rows) and `GAP-W3B-V5-DECISION-POOL-FAILS-THE-V6-LENGTH-BAND-2026-10-17`
     (P = 0.572 against 0.45-0.55).
-  - LoRA run rows: `GAP-LORA-FT-ROW-HAS-NO-PRODUCER...` and
-    `GAP-L2-LORA-TRAINER-DISPATCH-AND-RUN-WIRING`.
-  - span promotion: `GAP-FT-ROWS-CARRY-NO-SPAN-NULL` and `GAP-W4A-SPAN-REFIT-ROWS-CARRY-NO-SPAN-NULL`.
+  - LoRA run rows: `GAP-LORA-FT-ROW-HAS-NO-PRODUCER-AND-MUST-CARRY-TRAIN-MANIFEST-SHA-2026-10-18`
+    and `GAP-L2-LORA-TRAINER-DISPATCH-AND-RUN-WIRING-2026-10-17`.
+  - span promotion: `GAP-FT-ROWS-CARRY-NO-SPAN-NULL-2026-10-17` and
+    `GAP-W4A-SPAN-REFIT-ROWS-CARRY-NO-SPAN-NULL-2026-10-18`.
   - red tests: `GAP-W11A-THREE-TORCH-REDS-ON-MAIN-2026-10-20` and
-    `GAP-W6C-QDPREP-CARGO-TEST-FAILS-3-OF-287-IN-BUILD-ROW`.
-  - tools absent: `GAP-LORA2B-QUANT-GATE-TOOL-MISSING` (D3) and
-    `GAP-W9B-NO-TRACKED-VAL-ROWS-FILE-WRITER`.
-- **Open gaps that would block the first v2 run** (third audit, from `gaps.jsonl`; effective
-  open set about 522 ids):
-  - pin gate never run: `GAP-OJAS-PIN-4123DFB-SOURCE-DIFF-AND-PIN-GATE-PENDING-2026-10-19`
-    and `GAP-W4B-PIN-GATE-BASELINE-NOT-RUN-IN-AN-EXTRACTED-TREE`. Owner-run.
-  - heavy-job lock and load gate starving runs:
-    `GAP-MAC-HEAVY-LOCK-AND-LOAD-GATE-BIND-LAPPI-ONLY` and
-    `GAP-MAC-HEAVY-HOLDER-WAITS-ON-MACHINE-WIDE-CARGO-SLOT-GATE`.
-  - containment scan killed near 29 GiB in 4 of 5 runs:
-    `GAP-W2D-V6-SCAN-FOOTPRINT-OVER-MAC-HEAVY-CAP`.
-  - shard headers: 0 of 89 verify against HEAD (`GAP-LDATA-ALL-89-SHARD-HEADERS-DRIFT`,
-    `GAP-W4C-V1-HEADERS-STILL-REFUSED-UNDER-V1-RULE`).
-  - owner rulings: `GAP-M12-TASK-HOLDOUT-CONTENT-OVERLAP-IS-EVERY-COMMITPACKFT-TRAINING-ROW`
-    (rule 3 exposure, 5,148 rows) and `GAP-W3B-V5-DECISION-POOL-FAILS-THE-V6-LENGTH-BAND`
-    (P = 0.572 against 0.45-0.55).
-  - LoRA run rows: `GAP-LORA-FT-ROW-HAS-NO-PRODUCER...` and
-    `GAP-L2-LORA-TRAINER-DISPATCH-AND-RUN-WIRING`.
-  - span promotion: `GAP-FT-ROWS-CARRY-NO-SPAN-NULL` and `GAP-W4A-SPAN-REFIT-ROWS-CARRY-NO-SPAN-NULL`.
-  - red tests: `GAP-W11A-THREE-TORCH-REDS-ON-MAIN-2026-10-20` and
-    `GAP-W6C-QDPREP-CARGO-TEST-FAILS-3-OF-287-IN-BUILD-ROW`.
-  - tools absent: `GAP-LORA2B-QUANT-GATE-TOOL-MISSING` (D3) and
-    `GAP-W9B-NO-TRACKED-VAL-ROWS-FILE-WRITER`.
+    `GAP-W6C-QDPREP-CARGO-TEST-FAILS-3-OF-287-IN-BUILD-ROW-2026-10-18`.
+  - tools absent: `GAP-LORA2B-QUANT-GATE-TOOL-MISSING-2026-10-17` (D3) and
+    `GAP-W9B-NO-TRACKED-VAL-ROWS-FILE-WRITER-2026-10-18`.
 
 v1's own finding matters to v2: training added little out-of-distribution over its base on
 JevArena (README) [V, advisor]. The v2 changes aimed at that are real-distribution rows
@@ -460,8 +442,13 @@ JevArena (README) [V, advisor]. The v2 changes aimed at that are real-distributi
 ## 11. Open items
 
 - `GAP-V2-PLAN-SURVEY-DEVMAP-STALE-2026-10-20`: surveys could not use the graph.
-- Mac schedule. Experiments are sequenced, not overlapped, under memguard. A full-recipe real-row
-  run costs on the order of 500-600 GPU-hours at 2B, so the P2 schedule is owed before P1 ends.
+- Mac schedule. Experiments are sequenced, not overlapped, under memguard, and kept apart from
+  shadow windows. Hours per seed of the v2 Vani-adapter recipe (ruling 13) are projected in the
+  pre-registration; the P2 schedule is owed before P1 ends (card ft-5dfe48e7).
+- Vani's owner-label command: no `label` entry was found under `Vani/cmd/vani` [V, auditor];
+  the label intake depends on it existing.
+- The d1 eval's `port_trigger` ("whether the native d1 port starts") is void under ruling 2.
+  Amendment 2 retires it and adds d1-ultra in one commit, before any label is read.
 - A cloud cost estimate under rule 4 before any cloud seed.
 - Second-teacher (Haiku) re-query cost for the agreement filter.
 - R2 caps for every new family (only the four `career.jd_*` have stated zeros).
