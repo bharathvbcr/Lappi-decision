@@ -268,3 +268,33 @@ fn the_full_ft_table_is_unchanged() {
     assert_eq!(scales, vec![1.0, 0.1, 1.0, 1.0]);
     assert!(t.iter().all(|e| e.weight_decay == 0.01));
 }
+
+#[test]
+fn the_adapter_layout_is_canonical_whatever_order_the_provider_lists_entries_in() {
+    let o = oracle();
+    let (adapters, _) = tables(&o["seeds"][0]);
+    let (rank, straight) = recipe::lora_adapter_layout(&adapters).unwrap();
+    let mut reversed = adapters.clone();
+    reversed.reverse();
+    assert_eq!(
+        recipe::lora_adapter_layout(&reversed).unwrap(),
+        (rank, straight.clone())
+    );
+    // Layer index ascending, then the suffix table.
+    let layer = |m: &str| -> u64 {
+        m.split('.')
+            .skip_while(|c| *c != "layers")
+            .nth(1)
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    assert!(straight.windows(2).all(|w| layer(&w[0].0) <= layer(&w[1].0)));
+    // A leaf with no layer index is refused, not given a fallback position.
+    let flat = [
+        ParamSpec::new("self_attn.q_proj.lora_A.weight", &[16, 4]),
+        ParamSpec::new("self_attn.q_proj.lora_B.weight", &[4, 16]),
+    ];
+    let err = recipe::lora_adapter_layout(&flat).unwrap_err().to_string();
+    assert!(err.contains("layer index"), "{err}");
+}

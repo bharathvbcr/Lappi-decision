@@ -416,3 +416,28 @@ fn pythons_verifier_accepts_a_lora_row() {
     assert!(said.contains("chain verifies: 2 row(s)"), "{said}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_provider_listing_its_adapters_in_another_order_gets_the_same_verified_digest() {
+    let f = fixture(0);
+    let a = f.block["a_digest"].as_str().unwrap();
+    let mut reversed = f.adapters.clone();
+    reversed.reverse();
+    let digest_of = |entries: &[ParamSpec]| -> String {
+        let row = lora_ft_row(
+            base_row(lora_recipe(), 0),
+            &init(&f, a),
+            entries,
+            &f.host,
+            &[LoraQuickReason::Smoke],
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&row.line(&stamp()).unwrap()).unwrap();
+        v["metrics"]["lora.a_init_digest"]["value"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(digest_of(&f.adapters), a);
+    assert_eq!(digest_of(&reversed), a);
+}

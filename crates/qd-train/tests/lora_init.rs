@@ -96,13 +96,9 @@ fn a_digest_that_is_not_the_rules_is_refused() {
         verify_lora_a_digest(1, rank(&o), &mods, zero["a_digest"].as_str().unwrap()),
         Err(LoraInitError::Mismatch { .. })
     ));
-    // The right seed, a module visited in another order.
-    let mut swapped = mods.clone();
-    swapped.swap(0, 1);
-    assert!(matches!(
-        verify_lora_a_digest(0, rank(&o), &swapped, zero["a_digest"].as_str().unwrap()),
-        Err(LoraInitError::Mismatch { .. })
-    ));
+    // The right seed with the modules listed in another order is NOT a mismatch any more: the
+    // draw order is canonical, so the listing order cannot change A (the retired rule drew in
+    // listing order and this case was `Mismatch`). See `the_listing_order_does_not_change_a`.
     // The right seed and order, one tensor perturbed by one ulp.
     let mut drawn = recompute_lora_a(0, rank(&o), &mods).unwrap();
     drawn[3].1[5] = f32::from_bits(drawn[3].1[5].to_bits() ^ 1);
@@ -149,4 +145,123 @@ fn the_d17_init_digest_is_the_preregistered_zero_tensor_digest() {
         d17_zero_init_digest(17, 1024).unwrap(),
         d17["tensor_ref_digest_h1024"].as_str().unwrap()
     );
+}
+
+fn hf_modules(entry: &Value) -> Vec<(String, usize)> {
+    entry["registration_order"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            (
+                m["module"].as_str().unwrap().to_owned(),
+                m["in_features"].as_u64().unwrap() as usize,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_listing_order_does_not_change_a() {
+    let o = oracle();
+    for block in o["seeds"].as_array().unwrap() {
+        let seed = block["seed"].as_u64().unwrap();
+        let want = block["a_digest"].as_str().unwrap();
+        let canonical = modules(block);
+        let mut reversed = canonical.clone();
+        reversed.reverse();
+        let mut rotated = canonical.clone();
+        rotated.rotate_left(5);
+        let mut swapped = canonical.clone();
+        swapped.swap(0, 1);
+        for listing in [&canonical, &reversed, &rotated, &swapped] {
+            assert_eq!(
+                verify_lora_a_digest(seed, rank(&o), listing, want).unwrap(),
+                want,
+                "seed {seed}"
+            );
+            // The drawn tensors come back in canonical order whatever the listing was.
+            let drawn = recompute_lora_a(seed, rank(&o), listing).unwrap();
+            let names: Vec<&str> = drawn.iter().map(|(n, _)| n.as_str()).collect();
+            let want_names: Vec<&str> = canonical.iter().map(|(n, _)| n.as_str()).collect();
+            assert_eq!(names, want_names, "seed {seed}");
+        }
+    }
+}
+
+#[test]
+fn a_model_registered_in_hf_gdn_order_gets_the_ojas_order_a_and_torchs_digest() {
+    let o = oracle();
+    for entry in o["hf_registration_order"].as_array().unwrap() {
+        let seed = entry["seed"].as_u64().unwrap();
+        let ojas_digest = o["seeds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["seed"].as_u64() == Some(seed))
+            .unwrap()["a_digest"]
+            .as_str()
+            .unwrap();
+        let listed = hf_modules(entry);
+        // HF registers out_proj before in_proj_qkv and in_proj_z: the listing really is not the
+        // draw order, and the oracle recorded the draw order torch used.
+        let listed_names: Vec<&str> = listed.iter().map(|(n, _)| n.as_str()).collect();
+        let draw: Vec<&str> = entry["draw_order"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap())
+            .collect();
+        assert_ne!(listed_names, draw, "seed {seed}");
+        let digest = entry["a_digest"].as_str().unwrap();
+        assert_eq!(
+            verify_lora_a_digest(seed, rank(&o), &listed, digest).unwrap(),
+            digest,
+            "seed {seed}: the verifier reproduces the digest torch computed over the HF-order model"
+        );
+        assert_eq!(digest, ojas_digest, "seed {seed}: HF order == ojas order");
+        let drawn = recompute_lora_a(seed, rank(&o), &listed).unwrap();
+        let drawn_names: Vec<&str> = drawn.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(drawn_names, draw, "seed {seed}");
+    }
+}
+
+#[test]
+fn a_module_with_no_layer_index_or_a_shared_draw_position_is_refused() {
+    for name in [
+        "self_attn.q_proj",
+        "b.self_attn.q_proj",
+        "layers.x.self_attn.q_proj",
+        "layers..self_attn.q_proj",
+        "layers.2.q_proj",
+        "model.layers.0.linear_attn.in_proj_a",
+    ] {
+        assert_eq!(
+            recompute_lora_a(0, 16, &[(name.into(), 4)]).unwrap_err(),
+            LoraInitError::NoDrawPosition(name.into()),
+            "{name}"
+        );
+    }
+    assert!(matches!(
+        recompute_lora_a(
+            0,
+            16,
+            &[
+                ("a.layers.0.mlp.up_proj".into(), 4),
+                ("b.layers.0.mlp.up_proj".into(), 4)
+            ]
+        ),
+        Err(LoraInitError::AmbiguousDrawPosition { layer: 0, .. })
+    ));
+    // Layer 10 follows layer 2: numeric, not lexicographic.
+    let drawn = recompute_lora_a(
+        0,
+        16,
+        &[
+            ("m.layers.10.mlp.up_proj".into(), 4),
+            ("m.layers.2.mlp.up_proj".into(), 4),
+        ],
+    )
+    .unwrap();
+    assert_eq!(drawn[0].0, "m.layers.2.mlp.up_proj");
 }

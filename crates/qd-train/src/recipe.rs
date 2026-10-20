@@ -266,9 +266,10 @@ fn is_target(module: &str) -> bool {
         .any(|s| module == *s || module.ends_with(&format!(".{s}")))
 }
 
-/// The adapted modules of a LoRA plan, in the order their `A` leaf was given (which must be
-/// `model.named_modules()` order, as `lora_parameters` lists them): `(module, in_features)` and
-/// the one rank every adapter shares. Refuses what [`lora_param_groups`] refuses.
+/// The adapted modules of a LoRA plan in the canonical draw order (layer index ascending, then
+/// D6's suffix table), whatever order the provider listed the `A` leaves in: `(module,
+/// in_features)` and the one rank every adapter shares. Refuses what [`lora_param_groups`]
+/// refuses, and a module that has no layer index or shares a draw position with another.
 pub fn lora_adapter_layout(
     entries: &[ParamSpec],
 ) -> Result<(usize, Vec<(String, usize)>), StepError> {
@@ -343,7 +344,17 @@ pub fn lora_adapter_layout(
     if let Some(m) = b_of.keys().find(|m| !a_of.iter().any(|(a, _, _)| a == *m)) {
         return refuse(format!("{m} has a lora_B and no lora_A"));
     }
-    Ok((rank, a_of.into_iter().map(|(m, _, i)| (m, i)).collect()))
+    // The draw order is canonical (layer index, then D6's suffix table), not the provider's.
+    let names: Vec<&str> = a_of.iter().map(|(m, _, _)| m.as_str()).collect();
+    let order = crate::lora_init::canonical_draw_order(&names)
+        .map_err(|e| StepError::Contract(e.to_string()))?;
+    Ok((
+        rank,
+        order
+            .into_iter()
+            .map(|i| (a_of[i].0.clone(), a_of[i].2))
+            .collect(),
+    ))
 }
 
 /// What `lora_param_groups` returns for these parameters, by name: `"lora"` (adapters, 1.0),
