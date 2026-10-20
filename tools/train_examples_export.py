@@ -1,10 +1,11 @@
 """Write the text of a built train shard set's rows as ``examples.jsonl`` files, for
 ``qd-train-data --examples``.
 
-A shard set holds token ids, not text (GAP-LDATA-TRAIN-DATA-GUARD-SHARD-SETS-HAVE-NO-TEXT-2026-10-17),
-so ``qd-train-data``'s n-gram and exact-short tiers need the rows' text from a rebuild. This
-rebuilds the split exactly as ``tools/containment_scan.py`` does (``real_ft_run.ft_split_report``
-over the same corpus flags, under the default v6 data rules), renders every slot of every train
+A shard set holds token ids, not text
+(GAP-LDATA-TRAIN-DATA-GUARD-SHARD-SETS-HAVE-NO-TEXT-2026-10-17), so ``qd-train-data``'s
+n-gram and exact-short tiers need the rows' text from a rebuild. This rebuilds the split
+exactly as ``tools/containment_scan.py`` does (``real_ft_run.ft_split_report`` over the same
+corpus flags, under the default v6 data rules), renders every slot of every train
 row, and keeps the ones whose row id is in the built train manifest (``data/pool/train.json``).
 
 Two files, one per text definition, each one line per slot keyed ``row_id#slot``:
@@ -38,6 +39,7 @@ from containment_scan import REPO, TRAIN, _rendered, scan_sets
 from repo_git import resolve_rev
 
 from qd_data.config import DataConfig
+
 
 def _manifest_ids(path: Path) -> dict[str, tuple[str, str]]:
     """``{row_id: (source_id, family_id)}`` of the train manifest, in its order."""
