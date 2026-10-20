@@ -1,0 +1,7 @@
+# start 2026-10-20T01:14:22Z pressure 1
+     Running tests/exact_short_parity.rs (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1f396e62c7c2c48d/target-old/debug/deps/exact_short_parity-edc4c8e33d27fa16)
+test builder_and_gate_give_the_same_verdict_on_a_shared_case_table ... FAILED
+thread 'builder_and_gate_give_the_same_verdict_on_a_shared_case_table' (235784502) panicked at crates/qd-preflight/tests/exact_short_parity.rs:81:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+error: test failed, to rerun pass `-p qd-preflight --test exact_short_parity`
+old-tree (e1ade4f, before the tier) rc (nonzero expected): 101
