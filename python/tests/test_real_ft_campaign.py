@@ -213,7 +213,7 @@ def test_replay_decontam_rebuilds_the_same_history_free_split(tmp_path, monkeypa
         seen.append(kw)
         raise Stop
 
-    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
+    monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class, config: None)
     monkeypatch.setattr(rft, "ft_splits", spy)
     with pytest.raises(Stop):
         replay_decontam.main([

@@ -144,7 +144,7 @@ def _patch_module(mp: pytest.MonkeyPatch, module: Any, corpus: Corpus) -> None:
     rows = (corpus.train, corpus.val)
     mp.setattr(module, "ft_split_rows", lambda **kw: rows)
     mp.setattr(module, "resolve_rev", lambda repo, rev: rev)
-    mp.setattr(module, "check_defect_source", lambda out, *, defect_class: None)
+    mp.setattr(module, "check_defect_source", lambda out, *, defect_class, config: None)
     mp.setattr(
         module, "corpus_facts",
         lambda out, **kw: module.CorpusFacts(snapshot_not_run=None, history_rows={}),

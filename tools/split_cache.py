@@ -400,11 +400,15 @@ class Manifests:
     data_snapshot_hash: str
 
 
-def read_manifests(out: Path) -> Manifests:
+def read_manifests(out: Path, *, config: DataConfig, repo: Path) -> Manifests:
+    """The pool manifests, each passed through the rule-3 door (given and resolved form) before
+    it is opened: a member symlinked into held-out data is refused, not read. A refusal is a
+    ``HeldOutViolation``, never ``KeyUnavailable``, so the cache cannot treat it as a miss."""
     pool = Path(out) / "data" / "pool"
     raw = {}
     for name in ("train", "val"):
         path = pool / f"{name}.json"
+        assert_path_not_held_out(path, config=config, repo_root=repo)
         try:
             raw[name] = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
@@ -742,7 +746,7 @@ def cached_split_rows(
         try:
             key = compute_key(kwargs, extra_inputs=extra_inputs, repo=repo,
                               extra_facts=extra_facts)
-            manifests = read_manifests(out)
+            manifests = read_manifests(out, config=config, repo=repo)
         except KeyUnavailable as exc:
             say(f"split cache: NOT USED -- the key cannot be computed ({exc}); rebuilding "
                 "uncached")

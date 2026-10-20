@@ -250,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
 
     config = data_rules(DataConfig(), v6=not args.legacy_v5_data_rules)
     rev = resolve_rev(REPO, args.rev)
-    check_defect_source(args.out, defect_class=args.defect_class)
+    check_defect_source(args.out, defect_class=args.defect_class, config=config)
     splits = ft_splits(
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,

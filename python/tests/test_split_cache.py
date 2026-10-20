@@ -420,7 +420,8 @@ def test_a_sidecar_naming_another_entrys_bytes_is_corrupt_never_the_other_rows(e
     _meta(env).write_text(json.dumps(meta), encoding="utf-8")
     _meta(env).chmod(0o600)
     with sc.open_dir(env.cache) as dfd:
-        got = sc.load(dfd, env.key(), manifests=sc.read_manifests(env.build.out),
+        manifests = sc.read_manifests(env.build.out, config=DataConfig(), repo=env.repo)
+        got = sc.load(dfd, env.key(), manifests=manifests,
                       config=DataConfig(), repo=env.repo)
     assert got.state == "corrupt" and "sha256" in got.reason and got.train is None
 
@@ -429,7 +430,7 @@ def test_a_sidecar_naming_another_entrys_bytes_is_corrupt_never_the_other_rows(e
 
 
 def _race_writer(cache: str, key: sc.Key, out: str, train: list, val: list, barrier) -> None:
-    manifests = sc.read_manifests(Path(out))
+    manifests = sc.read_manifests(Path(out), config=DataConfig(), repo=Path(cache))
     barrier.wait()
     with sc.open_dir(Path(cache)) as dfd:
         held = sc.check_held_out(train, val, covered=(), config=DataConfig(), repo=Path(cache))
@@ -437,7 +438,7 @@ def _race_writer(cache: str, key: sc.Key, out: str, train: list, val: list, barr
 
 
 def _race_reader(cache: str, key: sc.Key, out: str, repo: str, barrier, results) -> None:
-    manifests = sc.read_manifests(Path(out))
+    manifests = sc.read_manifests(Path(out), config=DataConfig(), repo=Path(repo))
     barrier.wait()
     seen = []
     for _ in range(40):
@@ -615,7 +616,7 @@ def test_a_cached_entry_holding_a_held_out_family_raises_on_load_never_rebuilds(
     key = env.key()
     with sc.open_dir(env.cache) as dfd:
         sc.store(dfd, key, _with_held_out_family(list(env.build.train)), list(env.build.val),
-                 manifests=sc.read_manifests(env.build.out),
+                 manifests=sc.read_manifests(env.build.out, config=DataConfig(), repo=env.repo),
                  held_out={"rows_checked": 0, "forged": True})
     with pytest.raises(HeldOutViolation):
         env.run(rebuild=_rebuild_refused)

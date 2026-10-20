@@ -4865,7 +4865,20 @@ def check_exclusion_source(header: ShardHeader, exclude_identity_keys: Path | No
     )
 
 
-def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
+def read_train_manifest(out: Path, *, config: DataConfig) -> bytes:
+    """``<out>/data/pool/train.json``'s bytes, read only after the rule-3 door has passed the given
+    and the resolved path (``qd_train.data_access.assert_path_not_held_out``): the one reader of
+    the train pool manifest in this module, so a manifest linked into held-out data, or an
+    ``--out`` with a held-out marker, is refused before a byte is read. A ``HeldOutViolation``,
+    not a ``SystemExit``: it is rule 3's refusal, not a missing file's."""
+    from qd_train.data_access import assert_path_not_held_out
+
+    path = out / TRAIN_MANIFEST
+    assert_path_not_held_out(path, config=config, repo_root=REPO)
+    return path.read_bytes()
+
+
+def check_defect_source(out: Path, *, defect_class: Path | None, config: DataConfig) -> None:
     """Refuse a rebuild that disagrees with the shard set about the defect-class source.
 
     Read off the train manifest the pipeline wrote beside the shards: ``mixture.n_input``
@@ -4886,7 +4899,7 @@ def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
             f"{path} is absent, so which sources this shard set was built from cannot be "
             "checked against this run's --defect-class. Refusing rather than guessing."
         )
-    n_input = json.loads(path.read_text(encoding="utf-8")).get("mixture", {}).get("n_input")
+    n_input = json.loads(read_train_manifest(out, config=config)).get("mixture", {}).get("n_input")
     if not isinstance(n_input, dict):
         raise SystemExit(
             f"{path} carries no mixture.n_input, so which sources fed this build cannot be "
@@ -4988,7 +5001,7 @@ def corpus_facts(
     path = out / TRAIN_MANIFEST
     if not path.is_file():
         raise SystemExit(f"{path} is absent, so the corpus behind this shard set cannot be read")
-    raw_bytes = path.read_bytes()
+    raw_bytes = read_train_manifest(out, config=config)
     manifest_sha256 = hashlib.sha256(raw_bytes).hexdigest()
     raw = json.loads(raw_bytes.decode("utf-8"))
     recorded = raw.get("data_snapshot_hash")
@@ -9140,6 +9153,14 @@ def open_candidate_set(
         except HeldOutViolation as exc:
             raise SystemExit(f"{what} {path} is a held-out path (rule 3): {exc}") from exc
     probe_path = Path(set_out) / "probe.json"
+    # Each file read below, not only the two directories: a member linked into held-out data
+    # resolves elsewhere and a directory check alone does not see it.
+    for member in (probe_path, Path(corpus_dir) / "examples.jsonl",
+                   Path(corpus_dir) / "manifest.json"):
+        try:
+            assert_path_not_held_out(member, config=config, repo_root=Path(repo_root))
+        except HeldOutViolation as exc:
+            raise SystemExit(f"{member} is a held-out path (rule 3): {exc}") from exc
     try:
         probe = json.loads(probe_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -12165,7 +12186,7 @@ def main(argv: list[str] | None = None) -> int:
         # below builds what that process already built.
         return needle_worker_main(args, reader=reader, config=config, rev=rev)
 
-    check_defect_source(args.out, defect_class=args.defect_class)
+    check_defect_source(args.out, defect_class=args.defect_class, config=config)
     check_exclusion_source(reader.header, args.exclude_identity_keys)
     # Before the rebuild, which on the full defect corpus is minutes of work: what the
     # manifest says about the corpus decides both whether this rebuild can match it and,
