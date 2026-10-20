@@ -647,6 +647,7 @@ dependencies = [
  "ojas-data",
  "ojas-device",
  "ojas-io",
+ "ojas-train",
 ]
 
 [[package]]
@@ -662,6 +663,14 @@ dependencies = [
 [[package]]
 name = "ojas-simd"
 version = "0.1.0"
+
+[[package]]
+name = "ojas-train"
+version = "0.1.0"
+dependencies = [
+ "ojas-core",
+ "ojas-io",
+]
 
 [[package]]
 name = "once_cell"
