@@ -47,11 +47,16 @@ Labels: V = read or run today, I = inferred, NOT RUN = did not happen.
   convert_licence_parity`, no `QD_PYTHON`, MAC_HEAVY_MAX_LOAD=48, exit 0, 2026-10-21T10:32Z): 4 passed, 0 failed
   (the 3 former reds plus `a_linked_worktree_resolves_the_main_checkouts_venv`). Only this target ran; the full
   `cargo test -p qd-prep` (including the 2 pre-existing S8 timeouts) was not rerun.
-- NOT RUN (queued; blocked on the mac_heavy lock held by `tessl-gpurun2` since 06:16Z; the first qd-preflight and
-  qd-metal jobs expired at the 4 h wait limit, exit 76, and were re-queued as `-2` labels with
-  MAC_HEAVY_MAX_WAIT_S=86400): the after-runs in qd-preflight, qd-metal and qd-export. The qd-prep run with
-  `QD_PYTHON` set was refused by the command gate (a path outside the repository) and is NOT RUN. Until those
-  after-runs pass, the fix is unverified in those three crates and is not reported as passing.
+- V, qd-preflight after-run (label `l4-b2-after-preflight-2`, `cargo test -p qd-preflight --test schema_compat`,
+  no `QD_PYTHON`, exit 0, 2026-10-21T10:37Z): 6 passed, 0 failed (the 4 former reds, the missing-interpreter test
+  and the new worktree test).
+- V, qd-export after-run (label `l4-b2-after-export`, `cargo test -p qd-export --test ledger_real_producer`,
+  no `QD_PYTHON`, exit 0, 2026-10-21T10:37Z): 5 passed, 0 failed, including
+  `a_hung_interpreter_fails_loudly_within_the_bound` and the worktree test.
+- NOT RUN (queued, `l4-b2-after-metal-2`): the qd-metal after-run. The first qd-preflight and qd-metal jobs
+  expired at the 4 h wait limit (exit 76) and were re-queued with MAC_HEAVY_MAX_WAIT_S=86400. The qd-prep run with
+  `QD_PYTHON` set was refused by the command gate (a path outside the repository) and is NOT RUN. Until the
+  qd-metal run passes, the fix is unverified in that crate.
 - V: pin test (`test_qd_python_resolver_pinned.py`) passes and fails on drift; it now requires every crate source
   that reads `QD_PYTHON` to be one of four pinned sites carrying the block (qd-prep, qd-metal, qd-preflight,
   qd-export). The adversarial file's `SITES` gained the qd-export site.
