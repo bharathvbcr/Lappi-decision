@@ -26,8 +26,8 @@ HOLD_MIB = 300
 #: Allocates and touches HOLD_MIB in a grandchild, then outlives a few samples.
 HOLDER = (
     "import subprocess, sys, time\n"
-    "child = 'b = bytearray(b\"\\\\x01\") * (%d << 20); import time; time.sleep(3)'\n"
-    "subprocess.run([sys.executable, '-c', child])\n" % HOLD_MIB
+    f"child = 'b = bytearray(b\"\\\\x01\") * ({HOLD_MIB} << 20); import time; time.sleep(3)'\n"
+    "subprocess.run([sys.executable, '-c', child])\n"
 )
 
 
@@ -49,14 +49,16 @@ def test_the_peak_counts_a_descendants_memory_and_the_exit_is_the_commands(tmp_p
     assert int(match.group(1)) >= HOLD_MIB, done.stderr
     lines = timeline.read_text(encoding="utf-8").splitlines()
     assert len(lines) == int(match.group(3)) >= 3
-    assert any(":python" in line.split(None, 2)[-1] for line in lines)
+    # The interpreter's name is "python3.13" from a venv and "Python" from a framework build.
+    assert any(":python" in line.split(None, 2)[-1].lower() for line in lines)
 
 
 def test_an_existing_timeline_is_refused(tmp_path: Path) -> None:
     timeline = tmp_path / "timeline.txt"
     timeline.write_text("keep\n", encoding="utf-8")
     done = subprocess.run(
-        [sys.executable, str(TOOL), "--timeline", str(timeline), "--", sys.executable, "-c", "pass"],
+        [sys.executable, str(TOOL), "--timeline", str(timeline), "--",
+         sys.executable, "-c", "pass"],
         capture_output=True, text=True, check=False,
     )
     assert done.returncode == 2
