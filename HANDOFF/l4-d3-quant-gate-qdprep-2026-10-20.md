@@ -53,10 +53,11 @@ Labels: V = read or run today, I = inferred, NOT RUN = did not happen.
 - V, qd-export after-run (label `l4-b2-after-export`, `cargo test -p qd-export --test ledger_real_producer`,
   no `QD_PYTHON`, exit 0, 2026-10-21T10:37Z): 5 passed, 0 failed, including
   `a_hung_interpreter_fails_loudly_within_the_bound` and the worktree test.
-- NOT RUN (queued, `l4-b2-after-metal-2`): the qd-metal after-run. The first qd-preflight and qd-metal jobs
-  expired at the 4 h wait limit (exit 76) and were re-queued with MAC_HEAVY_MAX_WAIT_S=86400. The qd-prep run with
-  `QD_PYTHON` set was refused by the command gate (a path outside the repository) and is NOT RUN. Until the
-  qd-metal run passes, the fix is unverified in that crate.
+- V, qd-metal after-run (label `l4-b2-after-metal-2`, `cargo test -p qd-metal --test ledger_rows`, no
+  `QD_PYTHON`, exit 0, 2026-10-21T10:37Z): 11 passed, 0 failed. The first qd-preflight and qd-metal jobs had
+  expired at the 4 h wait limit (exit 76) and were re-queued with MAC_HEAVY_MAX_WAIT_S=86400.
+- NOT RUN: the qd-prep run with `QD_PYTHON` set (refused by the command gate: a path outside the repository).
+  All four after-runs without `QD_PYTHON` passed, so the worktree resolution works.
 - V: pin test (`test_qd_python_resolver_pinned.py`) passes and fails on drift; it now requires every crate source
   that reads `QD_PYTHON` to be one of four pinned sites carrying the block (qd-prep, qd-metal, qd-preflight,
   qd-export). The adversarial file's `SITES` gained the qd-export site.
