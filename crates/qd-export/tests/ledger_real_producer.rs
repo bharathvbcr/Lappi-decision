@@ -9,8 +9,10 @@
 
 mod common;
 
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use qd_export::export;
 use serde_json::{Value, json};
@@ -172,16 +174,46 @@ fn repo() -> PathBuf {
 /// only), or a panic naming `QD_PYTHON`: a binding that could not be checked against the real
 /// writer is not a passing one, and this never skips.
 fn python() -> PathBuf {
-    let candidates = python_candidates();
-    for p in &candidates {
-        let ok = Command::new(p)
-            .env("PYTHONPATH", repo().join("python"))
+    python_from(&python_candidates(), PYTHON_TIMEOUT)
+}
+
+/// Every interpreter call here is short; one that runs past this is killed and fails the test.
+const PYTHON_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Run `cmd` with piped output, killing it past `limit`. The scripts here print a few hundred
+/// bytes, well under a pipe buffer, so reading after exit cannot deadlock.
+fn output_bounded(cmd: &mut Command, limit: Duration) -> io::Result<Output> {
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let start = Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output();
+        }
+        if start.elapsed() > limit {
+            child.kill()?;
+            child.wait()?;
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("interpreter did not exit within {limit:?}"),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The first of `candidates` that imports the recorder within `limit`. A candidate that hangs is
+/// killed and counted as unusable, so a wedged interpreter ends in the panic below, not a hang.
+fn python_from(candidates: &[PathBuf], limit: Duration) -> PathBuf {
+    for p in candidates {
+        let mut cmd = Command::new(p);
+        cmd.env("PYTHONPATH", repo().join("python"))
             .arg("-c")
-            .arg("import qd_train.ledger")
-            .stdin(Stdio::null())
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+            .arg("import qd_train.ledger");
+        let ok = matches!(output_bounded(&mut cmd, limit), Ok(o) if o.status.success());
         if ok {
             return p.clone();
         }
@@ -192,17 +224,51 @@ fn python() -> PathBuf {
     )
 }
 
+#[test]
+fn a_hung_interpreter_fails_loudly_within_the_bound() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("qd-hung-python-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let stub = dir.join("python");
+    // `exec`, so the sleeper is the child itself: killing it closes the pipes at once.
+    std::fs::write(&stub, "#!/bin/sh\nexec sleep 20\n").unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let started = Instant::now();
+    let candidates = [stub];
+    let result = std::panic::catch_unwind(|| python_from(&candidates, Duration::from_millis(500)));
+    let elapsed = started.elapsed();
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    let panic = result.expect_err("a hung interpreter must fail loudly, not be accepted");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(
+        message.contains("QD_PYTHON"),
+        "the failure names the remedy: {message}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "the hung interpreter was not stopped within its bound: {elapsed:?}"
+    );
+}
+
 /// Run the real recorder: append a completed ft row recording `sha` (none when empty) to `ledger`
 /// and return its row id.
 fn write_row(ledger: &Path, sha: &str) -> String {
-    let out = Command::new(python())
-        .arg("-c")
+    let mut cmd = Command::new(python());
+    cmd.arg("-c")
         .arg(WRITE_ROW)
         .arg(repo())
         .arg(ledger)
-        .arg(sha)
-        .output()
-        .expect("python runs");
+        .arg(sha);
+    let out = output_bounded(&mut cmd, PYTHON_TIMEOUT)
+        .unwrap_or_else(|e| panic!("the real recorder did not run: {e}"));
     assert!(
         out.status.success(),
         "the recorder failed: {}",
