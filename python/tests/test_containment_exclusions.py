@@ -126,6 +126,12 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     """Characterization: every shard file, sequence index and manifest of a 60-pair build,
     timestamps aside, is the bytes the pipeline wrote before the flag existed.
 
+    Rule set: explicit legacy v5 data rules (``v6_data_rules=False``, i.e.
+    ``DataConfig.legacy_v5()``). This characterizes the shard writer and the exclusion flag, not
+    the v6 data rules: a v6 build of this corpus has no defect class and is refused by design, so
+    the digest below was generated, and is valid, only under v5's rules (a golden names the rule
+    it was generated under; Fable ruling 2026-10-21).
+
     Pinned at d554702 as d67c7de0.... It has moved seven times since, each time by design and
     with every moved byte accounted for. No move was a re-pin to whatever came out:
 
@@ -180,14 +186,25 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       was remap.json special_ids only: transformers 5.17's Qwen2Tokenizer reported the
       eight named tokens, and Qwen3_5Tokenizer's all_special_ids adds <|im_start|>,
       <|im_end|>, the object-ref, box and quad markers, and <|vision_pad|>. The remap
-      records special_tokens_map, which is those eight ids on 5.17, 5.18 and 5.19."""
+      records special_tokens_map, which is those eight ids on 5.17, 5.18 and 5.19.
+    * The v6 data work since ff39da60 (ft-badf64e2; builds of 171c879 and of this tree on one
+      host, tokenizer and qd-prep binary; the 171c879 build reproduced ff39da60, so the host is
+      not the difference) -> ea81e519...: under explicit legacy v5 data rules, 27 of 33 files are
+      byte-identical (every token, offset, supervision, remap and index file) and the six that
+      differ are JSON. The three shard headers differ only in code_fingerprint (config,
+      decisions, defect_class, schema, sources and split changed; __init__, fingerprint,
+      manifest and pool_builder left it under fingerprint rule 2, recorded as the new
+      code_fingerprint_version) and the shard_hash that covers them. The three manifests differ
+      only in the new keys slot_shape (one per entry, all 86/12/67), slot_shape_digest,
+      val_without_train and split_report.task_holdout_content_disjoint, and built_at_utc. Row
+      ids and their order are equal. Unexplained: 0."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
-        val_shards=True, repo_history=False,
+        val_shards=True, repo_history=False, v6_data_rules=False,
     )
     assert build_digest(tmp_path) == (
-        "ff39da60528d170b1f190ef1f80161b096114e2787ba013048fcca9bfb3537d7"
+        "ea81e519a917e7ed644fbf9909d8f45802523fa97493a1473ad257ee147ae47b"
     )
 
 
@@ -475,7 +492,9 @@ def test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte(
 
     from qd_train.exclusions import containment_corpus
 
-    config = DataConfig()
+    # The builds below are explicit legacy v5 (a v6 build of this corpus has no defect class and
+    # refuses), so the scan reads the corpus they read and names it as they do.
+    config = DataConfig.legacy_v5()
     rev = resolve_rev(REPO, PIN_REV)
     report = rft.ft_split_report(commitpackft=DOWNLOAD, max_pairs=60, rev=rev, config=config,
                                  repo_history=False)
@@ -496,10 +515,11 @@ def test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte(
     listed = _copy(tmp_path / "scan", tmp_path / "chosen", keys=chosen)
 
     pipeline.run(out=tmp_path / "plain", max_pairs=60, blank_line_runs=False, rev=PIN_REV,
-                 commitpackft=DOWNLOAD, val_shards=True, repo_history=False)
+                 commitpackft=DOWNLOAD, val_shards=True, repo_history=False,
+                 v6_data_rules=False)
     pipeline.run(out=tmp_path / "flag", max_pairs=60, blank_line_runs=False, rev=PIN_REV,
                  commitpackft=DOWNLOAD, val_shards=True, repo_history=False,
-                 exclude_identity_keys=listed)
+                 v6_data_rules=False, exclude_identity_keys=listed)
     plain_val, plain_train = _val_and_train(tmp_path / "plain")
     flag_val, flag_train = _val_and_train(tmp_path / "flag")
     assert plain_val and flag_val == plain_val

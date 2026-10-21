@@ -1,0 +1,107 @@
+mac_heavy: 2026-10-21T15:13:44Z 'l3-six' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T15:16:46Z 'l3-six' waiting 180s for the lock; holder: label=tessl-gpurun7 pid=21709 start=2026-10-21T15:13:51Z cwd=/Users/bharath/Code/research/tessl 
+mac_heavy: 2026-10-21T15:18:47Z 'l3-six' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T15:23:50Z 'l3-six' holds the lock (waited 600s; load 27.08, 1177 processes); running: bash build/l3/six.sh
+# six_base1 start 2026-10-21T15:23:50Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree2 HEAD d09222da3efd439f598c9e44856d44bae8ff7afa dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+minhash: 511198 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 311.9 s (shingling and canaries included), 1866187 lookups, 8 canaries equal to the reference; 525706 distinct texts shingled once, 1866187 lookups
+lsh: 3 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 242.7 s (canaries included), 17128062 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+split {'train': 461128, 'val': 21005, 'heldout': 36835} in 1019.9 s; rendered {'train': 539184, 'val': 23315, 'heldout': 14873, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 24160, 'target:mmlu-test': 14042, 'target:mmlu-dev': 285, 'target:clinc-test': 5500} slot text(s) in 95.2 s (template strip version 2 applied); request 1528119015 bytes -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base1.request.bin in 1.5 s
+qd-prep containment: 2447571 pair(s), 6332 identity key(s) excluded, CLEAN on 18 thread(s) -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base1 in 46.9 s
+exclusions: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base1/exclusions.txt sha256 37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7; clean=True remaining_hits={'val': 0, 'heldout': 0, 'target:mmlu-test': 0, 'target:mmlu-dev': 0, 'target:clinc-test': 0}
+footprint_peak: peak 25385 MiB, wall 1169.8 s, exit 0, 557 samples, 0 failed reads, command /Users/bharath/.venvs/ml/bin/python
+footprint_peak: LOWER BOUND of the tree's peak: the largest of sampled tree sum 22904 MiB, one process's kernel lifetime max 20735 MiB, and the largest process RSS in the exit report (reaped children included) 25385 MiB; sum of seen processes' lifetime maxima 33837 MiB; per stage, lifetime max MiB: {'Python': 20735, 'qd-prep:minhash': 4959, 'qd-prep:containment': 3326, 'qd-prep:lsh': 2555}
+# six_base1 end 2026-10-21T15:43:20Z scan exit 0
+six_base1 exit 0
+# six_after1 start 2026-10-21T15:43:20Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after-tree2 HEAD eb67c5169a631045755a2df4c6a6f4a5f4f82727 dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+minhash: 511198 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 233.9 s (shingling and canaries included), 1866187 lookups, 416 canaries equal to the reference; 525706 distinct texts shingled once, 1866187 lookups
+lsh: 3 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 729.8 s (canaries included), 17128062 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+split {'train': 461128, 'val': 21005, 'heldout': 36835} in 1319.6 s; rendered {'train': 539184, 'val': 23315, 'heldout': 14873, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 24160, 'target:mmlu-test': 14042, 'target:mmlu-dev': 285, 'target:clinc-test': 5500} slot text(s) in 130.9 s (template strip version 2 applied); request 1528119015 bytes -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after1.request.bin in 2.2 s
+qd-prep containment: 2447571 pair(s), 6332 identity key(s) excluded, CLEAN on 18 thread(s) -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after1 in 41.7 s
+exclusions: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after1/exclusions.txt sha256 37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7; clean=True remaining_hits={'val': 0, 'heldout': 0, 'target:mmlu-test': 0, 'target:mmlu-dev': 0, 'target:clinc-test': 0}
+footprint_peak: peak 13130 MiB, wall 1502.1 s, exit 0, 723 samples, 0 failed reads, command /Users/bharath/.venvs/ml/bin/python
+footprint_peak: LOWER BOUND of the tree's peak: the largest of sampled tree sum 11022 MiB, one process's kernel lifetime max 10899 MiB, and the largest process RSS in the exit report (reaped children included) 13130 MiB; sum of seen processes' lifetime maxima 20076 MiB; per stage, lifetime max MiB: {'Python': 10899, 'qd-prep:containment': 3303, 'qd-prep:lsh': 2553, 'qd-prep:minhash': 439}
+# six_after1 end 2026-10-21T16:08:23Z scan exit 0
+six_after1 exit 0
+# six_base2 start 2026-10-21T16:08:23Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree2 HEAD d09222da3efd439f598c9e44856d44bae8ff7afa dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+minhash: 511198 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 406.6 s (shingling and canaries included), 1866187 lookups, 8 canaries equal to the reference; 525706 distinct texts shingled once, 1866187 lookups
+lsh: 3 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 288.6 s (canaries included), 17128062 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+split {'train': 461128, 'val': 21005, 'heldout': 36835} in 1028.4 s; rendered {'train': 539184, 'val': 23315, 'heldout': 14873, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 24160, 'target:mmlu-test': 14042, 'target:mmlu-dev': 285, 'target:clinc-test': 5500} slot text(s) in 189.8 s (template strip version 2 applied); request 1528119015 bytes -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base2.request.bin in 6.6 s
+qd-prep containment: 2447571 pair(s), 6332 identity key(s) excluded, CLEAN on 18 thread(s) -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base2 in 84.5 s
+exclusions: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base2/exclusions.txt sha256 37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7; clean=True remaining_hits={'val': 0, 'heldout': 0, 'target:mmlu-test': 0, 'target:mmlu-dev': 0, 'target:clinc-test': 0}
+footprint_peak: peak 24062 MiB, wall 1316.1 s, exit 0, 639 samples, 0 failed reads, command /Users/bharath/.venvs/ml/bin/python
+footprint_peak: LOWER BOUND of the tree's peak: the largest of sampled tree sum 23607 MiB, one process's kernel lifetime max 20606 MiB, and the largest process RSS in the exit report (reaped children included) 24062 MiB; sum of seen processes' lifetime maxima 34027 MiB; per stage, lifetime max MiB: {'Python': 20606, 'qd-prep:minhash': 5297, 'qd-prep:containment': 3312, 'qd-prep:lsh': 2622}
+# six_base2 end 2026-10-21T16:30:20Z scan exit 0
+six_base2 exit 0
+# six_after2 start 2026-10-21T16:30:20Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after-tree2 HEAD eb67c5169a631045755a2df4c6a6f4a5f4f82727 dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+minhash: 511198 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 498.2 s (shingling and canaries included), 1866187 lookups, 416 canaries equal to the reference; 525706 distinct texts shingled once, 1866187 lookups
+lsh: 3 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 741.7 s (canaries included), 17128062 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+split {'train': 461128, 'val': 21005, 'heldout': 36835} in 1706.1 s; rendered {'train': 539184, 'val': 23315, 'heldout': 14873, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 24160, 'target:mmlu-test': 14042, 'target:mmlu-dev': 285, 'target:clinc-test': 5500} slot text(s) in 142.9 s (template strip version 2 applied); request 1528119015 bytes -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after2.request.bin in 5.4 s
+qd-prep containment: 2447571 pair(s), 6332 identity key(s) excluded, CLEAN on 18 thread(s) -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after2 in 69.6 s
+exclusions: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after2/exclusions.txt sha256 37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7; clean=True remaining_hits={'val': 0, 'heldout': 0, 'target:mmlu-test': 0, 'target:mmlu-dev': 0, 'target:clinc-test': 0}
+footprint_peak: peak 13135 MiB, wall 1931.9 s, exit 0, 936 samples, 0 failed reads, command /Users/bharath/.venvs/ml/bin/python
+footprint_peak: LOWER BOUND of the tree's peak: the largest of sampled tree sum 11199 MiB, one process's kernel lifetime max 10999 MiB, and the largest process RSS in the exit report (reaped children included) 13135 MiB; sum of seen processes' lifetime maxima 20374 MiB; per stage, lifetime max MiB: {'Python': 10999, 'qd-prep:containment': 3316, 'qd-prep:lsh': 2542, 'qd-prep:minhash': 442}
+# six_after2 end 2026-10-21T17:02:33Z scan exit 0
+six_after2 exit 0
+# six_base3 start 2026-10-21T17:02:33Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree2 HEAD d09222da3efd439f598c9e44856d44bae8ff7afa dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+minhash: 511198 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 387.8 s (shingling and canaries included), 1866187 lookups, 8 canaries equal to the reference; 525706 distinct texts shingled once, 1866187 lookups
+lsh: 3 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 612.8 s (canaries included), 17128062 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+split {'train': 461128, 'val': 21005, 'heldout': 36835} in 1632.2 s; rendered {'train': 539184, 'val': 23315, 'heldout': 14873, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 24160, 'target:mmlu-test': 14042, 'target:mmlu-dev': 285, 'target:clinc-test': 5500} slot text(s) in 391.2 s (template strip version 2 applied); request 1528119015 bytes -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base3.request.bin in 48.0 s
+qd-prep containment: 2447571 pair(s), 6332 identity key(s) excluded, CLEAN on 18 thread(s) -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base3 in 110.4 s
+exclusions: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base3/exclusions.txt sha256 37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7; clean=True remaining_hits={'val': 0, 'heldout': 0, 'target:mmlu-test': 0, 'target:mmlu-dev': 0, 'target:clinc-test': 0}
+footprint_peak: peak 23269 MiB, wall 2189.6 s, exit 0, 1055 samples, 0 failed reads, command /Users/bharath/.venvs/ml/bin/python
+footprint_peak: LOWER BOUND of the tree's peak: the largest of sampled tree sum 23269 MiB, one process's kernel lifetime max 22601 MiB, and the largest process RSS in the exit report (reaped children included) 22773 MiB; sum of seen processes' lifetime maxima 36195 MiB; per stage, lifetime max MiB: {'Python': 22601, 'qd-prep:minhash': 5459, 'qd-prep:containment': 3351, 'qd-prep:lsh': 2549}
+# six_base3 end 2026-10-21T17:39:03Z scan exit 0
+six_base3 exit 0
+# six_after3 start 2026-10-21T17:39:03Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after-tree2 HEAD eb67c5169a631045755a2df4c6a6f4a5f4f82727 dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+minhash: 511198 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 204.6 s (shingling and canaries included), 1866187 lookups, 416 canaries equal to the reference; 525706 distinct texts shingled once, 1866187 lookups
+lsh: 3 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 414.3 s (canaries included), 17128062 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+split {'train': 461128, 'val': 21005, 'heldout': 36835} in 1317.8 s; rendered {'train': 539184, 'val': 23315, 'heldout': 14873, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 24160, 'target:mmlu-test': 14042, 'target:mmlu-dev': 285, 'target:clinc-test': 5500} slot text(s) in 139.0 s (template strip version 2 applied); request 1528119015 bytes -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after3.request.bin in 20.1 s
+qd-prep containment: 2447571 pair(s), 6332 identity key(s) excluded, CLEAN on 18 thread(s) -> /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after3 in 50.0 s
+exclusions: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after3/exclusions.txt sha256 37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7; clean=True remaining_hits={'val': 0, 'heldout': 0, 'target:mmlu-test': 0, 'target:mmlu-dev': 0, 'target:clinc-test': 0}
+footprint_peak: peak 13147 MiB, wall 1535.8 s, exit 0, 740 samples, 0 failed reads, command /Users/bharath/.venvs/ml/bin/python
+footprint_peak: LOWER BOUND of the tree's peak: the largest of sampled tree sum 12046 MiB, one process's kernel lifetime max 12046 MiB, and the largest process RSS in the exit report (reaped children included) 13147 MiB; sum of seen processes' lifetime maxima 20500 MiB; per stage, lifetime max MiB: {'Python': 12046, 'qd-prep:containment': 3304, 'qd-prep:lsh': 2545, 'qd-prep:minhash': 448}
+# six_after3 end 2026-10-21T18:04:40Z scan exit 0
+six_after3 exit 0
+six_base1 IDENTICAL-TO-six_base1 pairs.tsv
+six_base1 IDENTICAL-TO-six_base1 exclusions.txt
+six_base1 IDENTICAL-TO-six_base1 attestation.json
+six_base2 IDENTICAL-TO-six_base1 pairs.tsv
+six_base2 IDENTICAL-TO-six_base1 exclusions.txt
+six_base2 IDENTICAL-TO-six_base1 attestation.json
+six_base3 IDENTICAL-TO-six_base1 pairs.tsv
+six_base3 IDENTICAL-TO-six_base1 exclusions.txt
+six_base3 IDENTICAL-TO-six_base1 attestation.json
+six_after1 IDENTICAL-TO-six_base1 pairs.tsv
+six_after1 IDENTICAL-TO-six_base1 exclusions.txt
+six_after1 IDENTICAL-TO-six_base1 attestation.json
+six_after2 IDENTICAL-TO-six_base1 pairs.tsv
+six_after2 IDENTICAL-TO-six_base1 exclusions.txt
+six_after2 IDENTICAL-TO-six_base1 attestation.json
+six_after3 IDENTICAL-TO-six_base1 pairs.tsv
+six_after3 IDENTICAL-TO-six_base1 exclusions.txt
+six_after3 IDENTICAL-TO-six_base1 attestation.json
+d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after1/pairs.tsv
+d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after2/pairs.tsv
+d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after3/pairs.tsv
+d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base1/pairs.tsv
+d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base2/pairs.tsv
+d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base3/pairs.tsv
+37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after1/exclusions.txt
+37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after2/exclusions.txt
+37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after3/exclusions.txt
+37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base1/exclusions.txt
+37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base2/exclusions.txt
+37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base3/exclusions.txt
+8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after1/attestation.json
+8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after2/attestation.json
+8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_after3/attestation.json
+8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base1/attestation.json
+8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base2/attestation.json
+8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c  /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/six_base3/attestation.json
+mac_heavy: 2026-10-21T18:05:22Z 'l3-six' finished with exit 0

@@ -1938,7 +1938,7 @@ PREP_BIN_ENV: Final[str] = "QD_PREP_BIN"
 #: second on the Mac's 18 cores; ten minutes is a hang, not a slow host.
 PREP_TIMEOUT_S: Final[float] = 600.0
 #: Sets re-signed by the Python reference after every native call -- this many from each end
-#: of the request -- and compared bit for bit. A binary whose arithmetic drifted is refused on
+#: of the batch -- and compared bit for bit. A binary whose arithmetic drifted is refused on
 #: the run's own data, not only in the parity test.
 NATIVE_MINHASH_CANARIES: Final[int] = 4
 #: Keys the reference re-bands after every native LSH call: this many from each end of the
@@ -2107,8 +2107,130 @@ def _prep_candidate_pairs(
     return NativePairs(ordered=ordered, pairs=pairs, truncated=truncated)
 
 
+#: Distinct shingle sets whose bytes are held at once while the block signs: they go to one
+#: ``qd-prep minhash`` call and are dropped. The block's peak is this many sets' shingles plus
+#: compact per-set arrays (8 bytes per shingle, 1 KiB per signature), not every set's shingles as
+#: Python ``bytes`` (116 to 160 bytes each, measured 2026-10-21). 10,000 sets are about 0.6 GiB at
+#: the LoRA-2B v6 corpus's ~400 shingles per set; one call per batch is one process spawn.
+NATIVE_MINHASH_BATCH_SETS: Final[int] = 10_000
+MAX_NATIVE_MINHASH_BATCH_SETS: Final[int] = 1_000_000
+
+
+class PackedShingles:
+    """A shingle set held as the sorted 64-bit ``hash`` of each shingle, with the matrix row of
+    its signature (``-1`` for the empty set, which has none).
+
+    It stands in for the ``frozenset[bytes]`` of ``qd_data.minhash.shingle`` inside a
+    :func:`native_minhash` block, where the only things ``qd_data`` does with a shingle set are
+    test it for emptiness, hand it to ``MinHasher.signature`` and take ``exact_jaccard`` of two.
+    The block answers the last two. It holds the hashes, not the shingles, so iterating one is a
+    ``TypeError`` rather than a silently empty set. ``hash(bytes)`` is the interpreter's keyed
+    hash: it is the same for equal bytes for the life of the process, which is the block's, and
+    is never stored or compared across processes.
+
+    Hash collisions are treated by kind. One inside a set is refused when the set is packed. One
+    between two DIFFERENT sets that makes their whole packed forms equal would silently merge them,
+    so the block keeps a content digest per distinct set (blake2b-128 over its sorted shingle
+    bytes) and refuses when an equal packed form has another digest. What nothing detects is a
+    collision between single shingles of two sets whose packed forms still differ: it moves one
+    intersection count by one, about ``(|A|+|B|)**2 / 2**65`` per compared pair (1.7e-14 at 400
+    shingles each, under 3e-7 over the 17M candidate pairs of the v6 scan). That one is accepted,
+    not checked.
+
+    ``block`` names the :func:`native_minhash` block the set was packed for; ``row`` means
+    something only there, so any other block refuses it."""
+
+    __slots__ = ("block", "hashes", "row")
+
+    def __init__(self, hashes: np.ndarray, row: int, block: object = None) -> None:
+        self.hashes = hashes
+        self.row = row
+        self.block = block
+
+    def __len__(self) -> int:
+        return int(self.hashes.shape[0])
+
+    def __iter__(self) -> Iterator[bytes]:
+        raise TypeError(
+            "a packed shingle set holds the hashes of its shingles, not the shingles; the block "
+            "answers signature() and exact_jaccard() for it"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, PackedShingles) and bool(
+            np.array_equal(self.hashes, other.hashes)
+        )
+
+    def __hash__(self) -> int:
+        return hash(self.hashes.tobytes())
+
+
+def shingle_set_digest(shingles: frozenset[bytes] | set[bytes]) -> bytes:
+    """blake2b-128 over the set's sorted shingles joined by ``0xff``, a byte UTF-8 never holds, so
+    two different sets never join to the same bytes: the whole-set content check a packed form
+    cannot give."""
+    return hashlib.blake2b(b"\xff".join(sorted(shingles)), digest_size=16).digest()
+
+
+def pack_shingles(
+    shingles: frozenset[bytes] | set[bytes], row: int, block: object = None
+) -> PackedShingles:
+    """``shingles`` as a :class:`PackedShingles`; a hash collision inside the set is a refusal."""
+    hashes = np.fromiter(map(hash, shingles), dtype=np.int64, count=len(shingles))
+    hashes.sort()
+    if len(hashes) > 1 and not bool((hashes[1:] != hashes[:-1]).all()):
+        raise SystemExit(
+            f"two of one set's {len(shingles)} shingles have the same 64-bit hash; packing it "
+            "would count them as one shingle"
+        )
+    return PackedShingles(hashes, row, block)
+
+
+def packed_exact_jaccard(a: PackedShingles, b: PackedShingles) -> float:
+    """``qd_data.minhash.exact_jaccard`` of the two sets: ``|A and B| / |A or B|``, two empty
+    sets 0.0. The same integers divided, so the float is the reference's."""
+    if not len(a) and not len(b):
+        return 0.0
+    both = int(np.intersect1d(a.hashes, b.hashes, assume_unique=True).shape[0])
+    union = len(a) + len(b) - both
+    return both / union if union else 0.0
+
+
+class SignatureRow(Sequence[int]):
+    """One row of the block's signature matrix, as the ``tuple[int, ...]`` ``qd_data`` expects
+    ``MinHasher.signature`` to return: a length, integer and slice indexing, iteration and
+    equality with a tuple. ``dedupe`` and ``split`` keep one per unit until their candidate
+    search is done; a tuple of 128 Python ints is 7.3 KB, this is under 100 bytes."""
+
+    __slots__ = ("matrix", "row")
+
+    def __init__(self, matrix: np.ndarray, row: int) -> None:
+        self.matrix = matrix
+        self.row = row
+
+    def __len__(self) -> int:
+        return int(self.matrix.shape[1])
+
+    def __getitem__(self, index: Any) -> Any:
+        if isinstance(index, slice):
+            return tuple(self.matrix[self.row, index].tolist())
+        return int(self.matrix[self.row, index])
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(self.matrix[self.row].tolist())
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, tuple | SignatureRow) and tuple(self) == tuple(other)
+
+    def __hash__(self) -> int:
+        return hash(tuple(self))
+
+
 @contextlib.contextmanager
-def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[None]:
+def native_minhash(
+    rows: Iterable[DataRow], *, config: DataConfig,
+    batch_sets: int = NATIVE_MINHASH_BATCH_SETS,
+) -> Iterator[None]:
     """Within the block, ``qd_data.dedupe`` and ``qd_data.split`` sign with ``qd-prep``.
 
     ``MinHasher.signature`` was 346 of the 462 profiled seconds of a ``--score-checkpoint``
@@ -2123,9 +2245,13 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
     ``qd_data.minhash.MinHasher.signature`` is now the reference oracle and nothing else: the
     permutation family is the reference ``MinHasher``'s, an empty set goes to the reference
     (which refuses it), a set the table does not hold is a refusal rather than a quiet Python
-    signature, the first and last :data:`NATIVE_MINHASH_CANARIES` sets are re-signed by the
-    reference and compared, and a block that never asked for a signature is refused, because
-    then the replacement was not where the signing happens.
+    signature, the first and last :data:`NATIVE_MINHASH_CANARIES` sets of EVERY batch are
+    re-signed by the reference and compared (at most 2 * that many reference signings per
+    batch: about 6 ms each at 400 shingles, so ~2.4 s over the 51 batches of the v6 scan; a wrong
+    reply confined to sets between a batch's ends is not caught), a packed set from another block
+    and a set whose packed form equals a signed set's but whose content digest does not are
+    refused, and a block that never asked for a signature is refused, because then the
+    replacement was not where the signing happens.
     ``python/tests/test_qd_prep_minhash_parity.py`` holds the byte-for-byte parity on real and
     adversarial rows. There is no Python fallback: without :data:`PREP_BIN_ENV` the block
     refuses before signing anything.
@@ -2137,6 +2263,18 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
     (GAP-PERF-PRELUDE-J1-REMAINDER-IS-SHINGLE-BANDING-AND-RENDER). ``shingle`` is not ported
     -- the reference still computes every result -- and a text the table does not hold,
     another ``k`` or ``max_doc_bytes``, or a table nobody read is a refusal, as for signatures.
+
+    **Memory.** The block never holds every set's shingles as Python ``bytes``. A text is
+    shingled by the reference, packed to the sorted 64-bit hashes of its shingles
+    (:class:`PackedShingles`, 8 bytes per shingle against 116 to 160 for a frozenset of ``bytes``),
+    and the bytes of each new distinct set wait in a batch of at most ``batch_sets`` sets
+    (:data:`NATIVE_MINHASH_BATCH_SETS`, 1 to :data:`MAX_NATIVE_MINHASH_BATCH_SETS`, refused
+    otherwise) for one ``qd-prep minhash`` call, then are dropped. ``MinHasher.signature`` hands
+    back a :class:`SignatureRow` over the signature matrix, not a 7.3 KB tuple, and
+    ``exact_jaccard`` in both modules compares two packed sets by their hashes. The result does
+    not depend on ``batch_sets`` (``python/tests/test_native_minhash_packed.py``). What stays
+    O(corpus) is ``qd_data``'s own state (its rows, units and candidate pairs), which this seam
+    cannot change: editing ``qd_data`` re-fingerprints every shard set and attestation.
 
     ``candidate_pairs`` -- the banded-LSH bucketing over those signatures, 24.6 s of the 78 s
     phase-4 rebuild on the Mac (2026-10-01) -- is replaced by ``qd-prep lsh``, which adds the
@@ -2159,6 +2297,7 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
         MinHasher,
         ShingleResult,
         candidate_pairs,
+        exact_jaccard,
         shingle,
     )
 
@@ -2182,47 +2321,131 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
                 f"{module.__name__}.candidate_pairs is not qd_data.minhash's, so the native "
                 "banding cannot be installed where that module bands"
             )
+        if getattr(module, "exact_jaccard", None) is not exact_jaccard:
+            raise SystemExit(
+                f"{module.__name__}.exact_jaccard is not qd_data.minhash's, so the packed "
+                "shingle sets cannot be compared where that module confirms a pair"
+            )
+    if (
+        not isinstance(batch_sets, int) or isinstance(batch_sets, bool)
+        or not 1 <= batch_sets <= MAX_NATIVE_MINHASH_BATCH_SETS
+    ):
+        raise SystemExit(
+            f"native_minhash batch_sets={batch_sets!r}: an integer from 1 to "
+            f"{MAX_NATIVE_MINHASH_BATCH_SETS}"
+        )
     started = time.perf_counter()
+    reference = MinHasher(num_perm=config.num_perm, seed=config.seed)
+    #: What a PackedShingles of this block carries as ``block``: another block's set is refused.
+    block = object()
     shingled: dict[str, ShingleResult] = {}
-    index: dict[frozenset[bytes], None] = {}
+    # One entry per distinct shingle set, in first-seen order: the key is a digest of the set's
+    # sorted shingle hashes, the value its matrix row; ``content_digest[row]`` is the digest of
+    # the set's shingle bytes themselves, which a packed form cannot vouch for.
+    row_of_key: dict[bytes, int] = {}
+    packed_of_row: list[PackedShingles] = []
+    content_digest: list[bytes] = []
+    chunks: list[np.ndarray] = []
+    pending: list[frozenset[bytes]] = []
+    n = NATIVE_MINHASH_CANARIES
+    no_shingles = PackedShingles(np.empty(0, dtype=np.int64), -1, block)
+    signed = 0
+    n_canaries = 0
+
+    def check_batch(first_row: int, reply: np.ndarray) -> None:
+        """Re-sign the first and last :data:`NATIVE_MINHASH_CANARIES` sets of the batch in Python
+        and compare them with ``qd-prep``'s reply, and compare the exact Jaccard of the packed
+        forms with the reference's on those sets. EVERY batch is checked, so a well-formed but
+        wrong reply to any batch is caught unless it is wrong only in sets between the two ends;
+        the cost is at most ``4 * NATIVE_MINHASH_CANARIES`` reference signings per batch."""
+        nonlocal n_canaries
+        last = len(pending)
+        chosen = sorted({*range(min(n, last)), *range(max(last - n, 0), last)})
+        for i in chosen:
+            if tuple(reply[i].tolist()) != reference.signature(pending[i]):
+                raise SystemExit(
+                    f"{named} signed a {len(pending[i])}-shingle set differently from "
+                    "qd_data.minhash.MinHasher; its signatures are not the reference's "
+                    f"(batch starting at set {first_row}, set {first_row + i})"
+                )
+        for x, i in enumerate(chosen):
+            for j in chosen[x:]:
+                if packed_exact_jaccard(
+                    packed_of_row[first_row + i], packed_of_row[first_row + j]
+                ) != exact_jaccard(pending[i], pending[j]):
+                    raise SystemExit(
+                        "the packed shingle hashes give a different exact Jaccard than "
+                        "qd_data.minhash.exact_jaccard on two of this run's own sets"
+                    )
+        n_canaries += len(chosen)
+
+    def sign_pending() -> None:
+        """Sign the shingle sets waiting in ``pending`` with one ``qd-prep minhash`` call, check
+        the reply (:func:`check_batch`), keep the rows (copied off the reply buffer) and drop the
+        shingles."""
+        nonlocal signed
+        if pending:
+            reply = np.array(_prep_signature_matrix(Path(named), pending, reference))
+            check_batch(signed, reply)
+            chunks.append(reply)
+            signed += len(pending)
+            pending.clear()
+
     # Every text the block's dedupe and split will shingle: each row's own, and (split's composed
     # file-level near-duplicate check, M9) each composed row's file blocks. A text outside this
     # table is refused below, so a check that shingles a new kind of text fails loudly here
     # instead of running in Python outside the table.
-    # Word 5-gram shingles recur across near-duplicate texts (the files of composed rows, forks):
-    # measured on a subsample (W2-d, 2026-10-18, tracemalloc), the shingle frozensets were 5.96 of
-    # 7.5 live GiB (48.3M ``bytes`` objects for 82k distinct sets) and the signature tuples 0.4 GiB.
-    # One ``bytes`` object per distinct shingle, shared by every set that holds it, is the same
-    # value (set equality, hashing and ``exact_jaccard`` are by content), at a fraction of the size.
-    interned: dict[bytes, bytes] = {}
+    # The shingles of a text exist only while it is packed: measured on a subsample (W2-d,
+    # 2026-10-18, tracemalloc) the shingle frozensets were 5.96 of 7.5 live GiB (48.3M ``bytes``
+    # objects for 82k distinct sets) even with equal shingles shared, and the signature tuples
+    # 0.4 GiB; at the full v6 corpus that was the 28.7-29.4 GiB footprint kills
+    # (GAP-W2D-V6-SCAN-FOOTPRINT-OVER-MAC-HEAVY-CAP-2026-10-18). What stays is a sorted int64
+    # array per distinct set, a 16-byte content digest and the signature matrix; the bytes of at
+    # most ``batch_sets`` sets wait for their signing call.
     for row in rows:
         for text in (row.dedupe_text, *composed_file_blocks(row.dedupe_text)):
             if text in shingled:
                 continue
             result = shingle(text, k=config.shingle_size)
-            result = dataclasses.replace(result, shingles=frozenset(
-                interned.setdefault(g, g) for g in result.shingles
-            ))
-            shingled[text] = result
-            if result.shingles:
-                index.setdefault(result.shingles, None)
-    del interned
-    sets = list(index)
-    reference = MinHasher(num_perm=config.num_perm, seed=config.seed)
-    matrix = _prep_signature_matrix(Path(named), sets, reference)
-    signed = [tuple(row) for row in matrix.tolist()]
-    table = dict(zip(sets, signed, strict=True))
-    # Which matrix row each handed-out tuple is. The table holds every tuple for the life of
-    # the block, so an id here cannot be reused by another object while the block runs.
-    row_of = {id(sig): i for i, sig in enumerate(signed)}
-    n = NATIVE_MINHASH_CANARIES
-    canaries = list(dict.fromkeys(sets[:n] + sets[-n:]))
-    for shingles in canaries:
-        if table[shingles] != reference.signature(shingles):
-            raise SystemExit(
-                f"{named} signed a {len(shingles)}-shingle set differently from "
-                "qd_data.minhash.MinHasher; its signatures are not the reference's"
+            if not result.shingles:
+                shingled[text] = dataclasses.replace(
+                    result, shingles=no_shingles  # type: ignore[arg-type]
+                )
+                continue
+            packed = pack_shingles(result.shingles, len(packed_of_row), block)
+            key = hashlib.blake2b(packed.hashes.tobytes(), digest_size=16).digest()
+            digest = shingle_set_digest(result.shingles)
+            known = row_of_key.get(key)
+            if known is None:
+                row_of_key[key] = packed.row
+                packed_of_row.append(packed)
+                content_digest.append(digest)
+                pending.append(result.shingles)
+                if len(pending) >= batch_sets:
+                    sign_pending()
+            else:
+                if content_digest[known] != digest:
+                    raise SystemExit(
+                        f"two different shingle sets (one of {len(result.shingles)} shingles) "
+                        "have the same packed 64-bit hashes: a shingle hash collision; "
+                        "refusing to merge them into one signature"
+                    )
+                packed = packed_of_row[known]
+            shingled[text] = dataclasses.replace(
+                result, shingles=packed  # type: ignore[arg-type]
             )
+    sign_pending()
+    n_sets = len(packed_of_row)
+    matrix = (
+        np.concatenate(chunks) if chunks
+        else np.empty((0, reference.num_perm), dtype=np.uint64)
+    )
+    chunks.clear()
+    if matrix.shape != (n_sets, reference.num_perm):
+        raise SystemExit(
+            f"{named} signed {matrix.shape[0]} sets of {matrix.shape[1]} values; "
+            f"{n_sets} of {reference.num_perm} were asked for"
+        )
     signed_s = time.perf_counter() - started
     asked = 0
 
@@ -2241,14 +2464,31 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
             nonlocal asked
             if not shingles:
                 return super().signature(shingles)
-            found = table.get(frozenset(shingles))
-            if found is None:
+            if isinstance(shingles, PackedShingles):
+                if shingles.block is not block:
+                    raise SystemExit(
+                        "a packed shingle set from another native_minhash block was handed to "
+                        "this block's signature(); its row number names another document here"
+                    )
+                at: int | None = shingles.row
+            else:
+                packed = pack_shingles(shingles, -1)
+                at = row_of_key.get(
+                    hashlib.blake2b(packed.hashes.tobytes(), digest_size=16).digest()
+                )
+                if at is not None and content_digest[at] != shingle_set_digest(shingles):
+                    raise SystemExit(
+                        f"a {len(shingles)}-shingle set has the packed form of one of the "
+                        f"{n_sets} signed sets but not its content: a 64-bit shingle hash "
+                        "collision; refusing to sign it as that set"
+                    )
+            if at is None or at < 0 or at >= n_sets:
                 raise SystemExit(
-                    f"a {len(shingles)}-shingle set was not among the {len(table)} signed by "
+                    f"a {len(shingles)}-shingle set was not among the {n_sets} signed by "
                     f"{named}; refusing to sign it in Python behind the binary's back"
                 )
             asked += 1
-            return found
+            return SignatureRow(matrix, at)  # type: ignore[return-value]
 
     read = 0
 
@@ -2271,6 +2511,24 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
         read += 1
         return found
 
+    def native_exact_jaccard(
+        a: frozenset[bytes] | set[bytes], b: frozenset[bytes] | set[bytes]
+    ) -> float:
+        """``exact_jaccard``: two packed sets by their hashes, anything else by the reference."""
+        if isinstance(a, PackedShingles) and isinstance(b, PackedShingles):
+            if a.block is not block or b.block is not block:
+                raise SystemExit(
+                    "exact_jaccard was handed a packed shingle set from another native_minhash "
+                    "block"
+                )
+            return packed_exact_jaccard(a, b)
+        if isinstance(a, PackedShingles) or isinstance(b, PackedShingles):
+            raise SystemExit(
+                "exact_jaccard was handed one packed shingle set and one that is not; the "
+                "block cannot compare a set of hashes with a set of shingles"
+            )
+        return exact_jaccard(a, b)
+
     banded = 0
     banded_s = 0.0
     n_lsh_pairs = 0
@@ -2288,8 +2546,9 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
         began = time.perf_counter()
         keys = list(signatures)
         at = np.fromiter(
-            (row_of.get(id(sig), -1) for sig in signatures.values()), dtype=np.int64,
-            count=len(keys),
+            (sig.row if isinstance(sig, SignatureRow) and sig.matrix is matrix else -1
+             for sig in signatures.values()),
+            dtype=np.int64, count=len(keys),
         )
         if (at < 0).any():
             raise SystemExit(
@@ -2331,6 +2590,7 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
         module.MinHasher = NativeMinHasher  # type: ignore[attr-defined]
         module.shingle = table_shingle  # type: ignore[attr-defined]
         module.candidate_pairs = native_candidate_pairs  # type: ignore[attr-defined]
+        module.exact_jaccard = native_exact_jaccard  # type: ignore[attr-defined]
     try:
         yield
     finally:
@@ -2338,7 +2598,8 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
             module.MinHasher = MinHasher  # type: ignore[attr-defined]
             module.shingle = shingle  # type: ignore[attr-defined]
             module.candidate_pairs = candidate_pairs  # type: ignore[attr-defined]
-    if table and not asked:
+            module.exact_jaccard = exact_jaccard  # type: ignore[attr-defined]
+    if n_sets and not asked:
         raise SystemExit(
             "the native MinHash table was installed and never read: qd_data no longer signs "
             "through the name it replaced, so this block measured nothing it claims to"
@@ -2355,8 +2616,8 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
             "Python unseen"
         )
     print(
-        f"minhash: {len(table)} distinct sets signed by {named} in {signed_s:.1f} s "
-        f"(shingling and canaries included), {asked} lookups, {len(canaries)} canaries equal "
+        f"minhash: {n_sets} distinct sets signed by {named} in {signed_s:.1f} s "
+        f"(shingling and canaries included), {asked} lookups, {n_canaries} canaries equal "
         f"to the reference; {len(shingled)} distinct texts shingled once, {read} lookups",
         file=sys.stderr, flush=True,
     )

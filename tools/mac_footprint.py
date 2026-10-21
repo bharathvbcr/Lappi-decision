@@ -65,14 +65,69 @@ class RusageInfoV4(ctypes.Structure):
     _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [(n, ctypes.c_uint64) for n in _FIELDS]
 
 
-def phys_footprint_bytes(libproc: ctypes.CDLL, pid: int) -> int:
+def rusage(libproc: ctypes.CDLL, pid: int) -> RusageInfoV4:
+    """``proc_pid_rusage(pid, RUSAGE_INFO_V4)`` of a live process; ``OSError`` otherwise (ESRCH
+    when it has exited)."""
     info = RusageInfoV4()
     libproc.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
     libproc.proc_pid_rusage.restype = ctypes.c_int
     if libproc.proc_pid_rusage(pid, RUSAGE_INFO_V4, ctypes.addressof(info)) != 0:
         err = ctypes.get_errno()
         raise OSError(err, f"proc_pid_rusage({pid}) failed")
-    return int(info.ri_phys_footprint)
+    return info
+
+
+def child_pids(libproc: ctypes.CDLL, pid: int) -> list[int]:
+    """The direct children of ``pid`` (``proc_listchildpids``), without spawning a process: a
+    ``ps`` run inside the job's tree is itself a tree member that the cap's reader cannot read
+    (setuid), which counted as a reader failure in tools/mac_heavy.sh."""
+    libproc.proc_listchildpids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    libproc.proc_listchildpids.restype = ctypes.c_int
+    size = 256
+    while True:
+        buf = (ctypes.c_int * size)()
+        found = libproc.proc_listchildpids(pid, buf, ctypes.sizeof(buf))
+        if found < 0:
+            raise OSError(ctypes.get_errno(), f"proc_listchildpids({pid}) failed")
+        if found < size:
+            return [int(p) for p in buf[:found] if p > 0]
+        size *= 4
+
+
+def command_line(libproc: ctypes.CDLL, pid: int) -> str:
+    """``executable path`` then ``argv[1:]`` of a live process of this user, one string (the path
+    may hold spaces); the bare path when its arguments cannot be read; ``""`` when neither can."""
+    libproc.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+    path = ctypes.create_string_buffer(4096)
+    n = libproc.proc_pidpath(pid, path, 4096)
+    exe = path.value.decode("utf-8", "replace") if n > 0 else ""
+    libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
+    size = ctypes.c_size_t(1 << 20)
+    raw = ctypes.create_string_buffer(size.value)
+    mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2
+    if libc.sysctl(mib, 3, raw, ctypes.byref(size), None, 0) != 0 or size.value < 5:
+        return exe
+    data = raw.raw[: size.value]
+    argc = int.from_bytes(data[:4], "little")
+    parts = data[4:].split(b"\0")
+    # parts[0] is the exec path; empty strings pad it; then argc argv strings.
+    rest = parts[1:]
+    while rest and rest[0] == b"":
+        rest = rest[1:]
+    argv = [p.decode("utf-8", "replace") for p in rest[:argc]]
+    return " ".join([exe or (parts[0].decode("utf-8", "replace")), *argv[1:]])
+
+
+def phys_footprint_bytes(libproc: ctypes.CDLL, pid: int) -> int:
+    """The process's footprint now: what the cap in tools/mac_heavy.sh sums."""
+    return int(rusage(libproc, pid).ri_phys_footprint)
+
+
+def lifetime_max_phys_footprint_bytes(libproc: ctypes.CDLL, pid: int) -> int:
+    """The largest footprint the process has had since it started, kept by the kernel: exact for
+    that process however briefly it held the memory, unlike any sample of
+    :func:`phys_footprint_bytes`. Readable only while the process is alive."""
+    return int(rusage(libproc, pid).ri_lifetime_max_phys_footprint)
 
 
 def main(argv: list[str]) -> int:
