@@ -51,8 +51,10 @@ Labels: V = read or run today, I = inferred, NOT RUN = did not happen.
   assertion; the `GIT_DIR` and newline-only changes have no fails-before (NOT RUN).
 - Both reverts were undone by hand (the `git checkout --` was held for a confirmation that timed out): `git status`
   showed only the untracked `scratch_site/`, `git diff` was empty, and the pin test passed (3 passed). Nothing
-  reverted was committed. After-runs of the two tests (labels `l4-fb-export-hung-after`,
-  `l4-fb-preflight-resolver-after`) are queued.
+  reverted was committed.
+- V, after the restore, qd-export hung-interpreter test (label `l4-fb-export-hung-after`, same command, exit 0,
+  2026-10-21T12:25Z): 1 passed, 0 failed in 0.53 s (the stub was stopped inside its bound).
+- NOT RUN (queued, `l4-fb-preflight-resolver-after`): the qd-preflight resolver test after the restore.
 - V, qd-prep after-run with the final resolver block (label `l4-b2-after-prep`, `cargo test -p qd-prep --test
   convert_licence_parity`, no `QD_PYTHON`, MAC_HEAVY_MAX_LOAD=48, exit 0, 2026-10-21T10:32Z): 4 passed, 0 failed
   (the 3 former reds plus `a_linked_worktree_resolves_the_main_checkouts_venv`). Only this target ran; the full
