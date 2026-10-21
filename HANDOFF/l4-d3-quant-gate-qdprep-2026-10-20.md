@@ -10,7 +10,9 @@ Labels: V = read or run today, I = inferred, NOT RUN = did not happen.
   (label `l4-b6-torch-pytest`): 36 passed, exit 0, 2026-10-21T05:17Z. That was before the adversarial fixes.
 - V (hand-assembled pytest path, not the project command): after the adversarial fixes the gate tests,
   `test_d3_quant_gate_adversarial.py` (commit `a26bc76`, from `925731a`) and the resolver pin test: 75 passed.
-- NOT RUN: the project-command rerun of those three files (label `l4-b6-torch-pytest-2`, queued).
+- V: the project-command rerun of those three files, `make torch-pytest` with `TORCH_PYTEST_RUN` narrowed, under
+  `tools/mac_heavy.sh` at MAC_HEAVY_MAX_LOAD=48 (label `l4-b6-torch-pytest-2`): 75 passed, exit 0,
+  2026-10-21T10:34Z.
 - V: the hand oracle matches `mx.quantize` (mlx 0.31.2) on 2012 random groups.
 - V: `campaign/lora-2b-preregistered.json` carries no D3 bars. The tool reads a `d3_gate` block and reports NOT_RUN
   (exit 3) without one (GAP-LORA2B-D3-THRESHOLD-NOT-MACHINE-READABLE-2026-10-21, owner human, owner item 5).
