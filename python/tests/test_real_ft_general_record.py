@@ -397,7 +397,9 @@ def test_main_forwards_the_record_and_pairs_a_general_set_by_its_index(
                   "--replay-partition"])
     assert [(c["general_record"], c["general_max_rows"], c["replay_partition"])
             for c in calls] == [(record, 50, True)]
-    assert [(f["general_datasets"], f["replay_partition"]) for f in facts] == [(RECORD_DATASETS, True)]
+    assert [(f["general_datasets"], f["replay_partition"]) for f in facts] == [
+        (RECORD_DATASETS, True)
+    ]
     assert paired == [True]
 
 
