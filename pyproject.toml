@@ -102,3 +102,13 @@ select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "PTH"]
 "AUDIT/finalize-2026-10-03/predrops/a7_pool_refusals.py" = ["I001"]
 "AUDIT/finalize-2026-10-03/predrops/dryrun_drops.py" = ["I001"]
 "AUDIT/finalize-2026-10-03/predrops/knockers.py" = ["I001"]
+# Lane L3's containment-scan evidence (2026-10-21, merged with ft-57fc7484 b3): the probes and
+# the six-run table scripts the HANDOFF cites, kept as they ran. The same ruling, rule by rule,
+# only what each already breaks (ruff 0.16.8).
+"AUDIT/l3-containment-scan-2026-10-21/char_build.py" = ["E402", "E501"]
+"AUDIT/l3-containment-scan-2026-10-21/closure_probe.py" = ["E501"]
+"AUDIT/l3-containment-scan-2026-10-21/entdiff.py" = ["E501"]
+"AUDIT/l3-containment-scan-2026-10-21/link_data.py" = ["E501", "PTH211"]
+"AUDIT/l3-containment-scan-2026-10-21/peaks.py" = ["E501"]
+"AUDIT/l3-containment-scan-2026-10-21/six_table.py" = ["E501", "PTH123", "SIM115"]
+"AUDIT/l3-containment-scan-2026-10-21/stage_times.py" = ["E501", "PTH123", "SIM115"]
