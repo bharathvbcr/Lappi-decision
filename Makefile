@@ -235,10 +235,14 @@ REPLAY_RESULTS   ?=
 MIN_ANSWERED     ?=
 
 # release-replay arguments (tools/release_replay.sh): RELEASE_DIR, REPLAY_RESULTS and MIN_ANSWERED
-# above, plus the two below. None has a default. MIN_ANSWERED is the owner's number
+# above, plus the two below. None has a default except VAL_ROWS, which follows FT_OUT (the
+# --out of the real_ft_run.py that rebuilt the split) to the file its --write-val-rows wrote:
+# <FT_OUT>/data/pool/val_rows.jsonl, bound by its sidecar to that shard set. With neither set
+# it stays empty (NotRun). MIN_ANSWERED is the owner's number
 # (GAP-QD-RELEASE-CHECK-MIN-ANSWERED-HAS-NO-RECORD-2026-10-17). VERDICTS, CALIB_ROWS,
 # CALIBRATION_REPORT and QD are optional.
-VAL_ROWS         ?=
+FT_OUT           ?=
+VAL_ROWS         ?= $(if $(FT_OUT),$(FT_OUT)/data/pool/val_rows.jsonl)
 SOCKET           ?=
 VERDICTS         ?=
 CALIB_ROWS       ?=
@@ -340,7 +344,7 @@ help:
 	@echo '  preflight-release  before a release: gates, qd-base-fresh, qd-release-check, qd-cite, gpu-pins'
 	@echo '                     needs RELEASE_DIR REPLAY_RESULTS MIN_ANSWERED (no defaults; BASE_INTO optional)'
 	@echo '  release-replay     build requests from the release + val rows, replay through the socket, check; writes REPLAY_RESULTS'
-	@echo '                     needs RELEASE_DIR VAL_ROWS MIN_ANSWERED REPLAY_RESULTS SOCKET (no defaults); run it before preflight-release'
+	@echo '                     needs RELEASE_DIR VAL_ROWS (or FT_OUT: <FT_OUT>/data/pool/val_rows.jsonl) MIN_ANSWERED REPLAY_RESULTS SOCKET; run it before preflight-release'
 	@echo '  A preflight target with a missing argument is NotRun, never PASS. FAILED outranks NotRun.'
 
 lint:

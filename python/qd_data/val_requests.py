@@ -176,8 +176,24 @@ def write_val_rows(
         "n_rows": len(lines),
         "rows_sha256": hashlib.sha256("".join(lines).encode("utf-8")).hexdigest(),
     }
-    _write_atomic(out, "".join(lines))
-    _write_atomic(binding_path(out), json.dumps(binding, indent=2, sort_keys=True) + "\n")
+    rows_text = "".join(lines)
+    binding_text = json.dumps(binding, indent=2, sort_keys=True) + "\n"
+    side = binding_path(out)
+    # An existing file is overwritten only by the bytes it already holds: a rows file and its
+    # binding are the evidence a release was replayed on this shard set, so a rerun that would
+    # change either (another seed, another val split) names a new path instead of replacing it.
+    for path, text in ((out, rows_text), (side, binding_text)):
+        if path.exists() and path.read_text(encoding="utf-8") != text:
+            raise ValueError(
+                f"{path} exists and differs from what this shard set writes: not overwritten "
+                "(write to a new path, or remove it on purpose)"
+            )
+    # Rows first: a write cut short between the two leaves a rows file with no binding, which
+    # check_binding reports as NotRun, and a rerun completes the pair.
+    if not out.exists():
+        _write_atomic(out, rows_text)
+    if not side.exists():
+        _write_atomic(side, binding_text)
     return len(lines)
 
 

@@ -4878,6 +4878,24 @@ def read_train_manifest(out: Path, *, config: DataConfig) -> bytes:
     return path.read_bytes()
 
 
+#: Where the pipeline writes the val manifest, beside :data:`TRAIN_MANIFEST`.
+VAL_MANIFEST: Final[str] = "data/pool/val.json"
+
+
+def write_run_val_rows(
+    path: Path, *, out: Path, val_rows: Sequence[DataRow], config: DataConfig,
+) -> int:
+    """``--write-val-rows``: the rebuilt val rows as the VAL_ROWS file bound to ``out``'s shard
+    set, through the one writer (``qd_data.val_requests.write_val_rows``), which passes both
+    manifests through the rule-3 door and refuses rows that are not the val manifest's entries."""
+    from qd_data.val_requests import write_val_rows
+
+    return write_val_rows(
+        val_rows, val_manifest=out / VAL_MANIFEST, train_manifest=out / TRAIN_MANIFEST,
+        out=path, config=config, repo_root=REPO,
+    )
+
+
 def check_defect_source(out: Path, *, defect_class: Path | None, config: DataConfig) -> None:
     """Refuse a rebuild that disagrees with the shard set about the defect-class source.
 
@@ -11325,6 +11343,17 @@ def main(argv: list[str] | None = None) -> int:
             "symlink; it is created 0700 when absent. See tools/split_cache.py"
         ),
     )
+    parser.add_argument(
+        "--write-val-rows", type=Path, default=None, metavar="PATH",
+        help=(
+            "write the rebuilt val split as the VAL_ROWS file `make release-replay` reads, plus "
+            "its binding sidecar (PATH.binding.json), through "
+            "qd_data.val_requests.write_val_rows, after the split and before training. An "
+            "existing PATH or sidecar is kept only when byte-identical, never overwritten. "
+            "Refused when the rebuilt rows are not <out>/data/pool/val.json's entries. "
+            "Not recipe: it changes nothing the run computes"
+        ),
+    )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
     parser.add_argument(
         "--no-memorise", action="store_true",
@@ -12237,6 +12266,11 @@ def main(argv: list[str] | None = None) -> int:
             extra_inputs=extra_inputs, extra_facts=extra_facts, out=args.out, config=config,
             repo=REPO,
         )
+    if args.write_val_rows is not None:
+        n_val = write_run_val_rows(
+            args.write_val_rows, out=args.out, val_rows=val_rows, config=config,
+        )
+        print(f"val rows: wrote {args.write_val_rows} ({n_val} rows) and its binding")
     # A pool set is paired by its sequence index too: its rows, like the general record's,
     # are not this repository's history, so only the index ties a sequence to its row.
     require_index = (
