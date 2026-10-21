@@ -41,10 +41,15 @@ Labels: V = read or run today, I = inferred, NOT RUN = did not happen.
   (`a_hung_interpreter_fails_loudly_within_the_bound`; the stub `exec sleep 20` would be accepted by the unbounded
   code and wait out 20 s). The before-runs were queued and cancelled because the machine lock was held for hours by
   another session; the tests are on disk and the after-runs are queued.
-- NOT RUN (queued; blocked on the mac_heavy lock held by `tessl-gpurun2` since 06:16Z): the after-runs of the
-  final resolver in qd-prep, qd-preflight, qd-metal and qd-export, no `QD_PYTHON`. The qd-prep run with
-  `QD_PYTHON` set was refused by the command gate (a path outside the repository) and is NOT RUN. Until the
-  after-runs pass, the fix is unverified in cargo and is not reported as passing.
+- V, qd-prep after-run with the final resolver block (label `l4-b2-after-prep`, `cargo test -p qd-prep --test
+  convert_licence_parity`, no `QD_PYTHON`, MAC_HEAVY_MAX_LOAD=48, exit 0, 2026-10-21T10:32Z): 4 passed, 0 failed
+  (the 3 former reds plus `a_linked_worktree_resolves_the_main_checkouts_venv`). Only this target ran; the full
+  `cargo test -p qd-prep` (including the 2 pre-existing S8 timeouts) was not rerun.
+- NOT RUN (queued; blocked on the mac_heavy lock held by `tessl-gpurun2` since 06:16Z; the first qd-preflight and
+  qd-metal jobs expired at the 4 h wait limit, exit 76, and were re-queued as `-2` labels with
+  MAC_HEAVY_MAX_WAIT_S=86400): the after-runs in qd-preflight, qd-metal and qd-export. The qd-prep run with
+  `QD_PYTHON` set was refused by the command gate (a path outside the repository) and is NOT RUN. Until those
+  after-runs pass, the fix is unverified in those three crates and is not reported as passing.
 - V: pin test (`test_qd_python_resolver_pinned.py`) passes and fails on drift; it now requires every crate source
   that reads `QD_PYTHON` to be one of four pinned sites carrying the block (qd-prep, qd-metal, qd-preflight,
   qd-export). The adversarial file's `SITES` gained the qd-export site.
