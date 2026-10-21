@@ -43,6 +43,18 @@ whose Python start-up takes longer than 1 s is killed before it writes the file,
 FileNotFoundError on `pid_file.read_text()` (inferred; not observed, no failure message was kept by
 L3's sweep).
 
+## Deviation from the load-48 conditions (confirmed by the lead)
+
+The 1800 s per-file bound is counted from the "holds the lock" line of the job's log, i.e. on the
+job's own runtime. Lock wait is bounded only by MAC_HEAVY_MAX_WAIT_S=28800. Counting the wait inside
+the 1800 s made every file time out unrun on a host above the load gate (the first attempt did).
+
+## Follow-up for card ft-cc9fac73 (file in its log)
+
+v6-valid fixture for `test_pre_dedupe_drops`: under v6 rules the pool's val twin is not knocked out
+(v6 dedupe keeps `v0`, drops `t0`), so the drop list has no v6 test. The test runs under legacy v5
+until a fixture with a v6 knock-out exists.
+
 ## Open
 
 - After-edit results for the table, the 5+5 flake runs, and test_real_ft_pieces: read
