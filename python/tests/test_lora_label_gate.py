@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 import pytest
+from test_ledger import _env, _protocol
 
 from qd_train.ledger import (
     OPTIMIZER_RECIPE_LABELS,
@@ -19,7 +20,6 @@ from qd_train.ledger import (
     LedgerRow,
 )
 from qd_train.tristate import NotRun, Ran
-from test_ledger import _env, _protocol
 
 REPO = Path(__file__).resolve().parents[2]
 HEX = "ab" * 32
@@ -80,7 +80,9 @@ def test_a_complete_rust_named_row_is_accepted_and_the_init_names_are_not(tmp_pa
             led.append(_row(metrics=DRIVER_METRICS, manifest=manifest, row_id="driver"))
 
 
-@pytest.mark.parametrize("label", ["LORA", "Lora", " lora", "lora ", "lora\n", "lоra", "adamw", ""])
+@pytest.mark.parametrize(
+    "label", ["LORA", "Lora", " lora", "lora ", "lora\n", "l\u043era", "adamw", ""]
+)
 def test_a_label_outside_the_closed_set_is_refused(label: str) -> None:
     with pytest.raises(ValueError, match="optimizer_recipe"):
         _row(label, metrics=RUST_METRICS)
@@ -139,7 +141,7 @@ def test_missing_metrics_manifest_sha_and_mixed_spellings_are_refused() -> None:
     # A mixture: some Rust names, the rest under the old init.* spelling.
     mixed = {k: v for k, v in RUST_METRICS.items() if k != "lora.d17_init_digest"}
     mixed["init.d17_digest"] = DRIVER_METRICS["init.d17_digest"]
-    with pytest.raises(ValueError, match="lora.d17_init_digest"):
+    with pytest.raises(ValueError, match=r"lora\.d17_init_digest"):
         _row(metrics=mixed)
     with pytest.raises(ValueError):
         _row(metrics={})

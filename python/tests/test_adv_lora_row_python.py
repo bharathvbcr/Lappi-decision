@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qd_train.ledger import Ledger, LedgerRow, NotRun
 from test_ledger import _env, _protocol
+
+from qd_train.ledger import Ledger, LedgerRow, NotRun
 
 
 def _bare_lora_row() -> LedgerRow:

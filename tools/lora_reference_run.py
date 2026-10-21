@@ -602,7 +602,8 @@ def parse_args(argv: Sequence[str] | None) -> LoraRunConfig:
     return LoraRunConfig(
         out=a.out, backbone=a.backbone, tokenizer_json=a.tokenizer_json,
         span_head_init=a.span_head_init, span_head_init_manifest=a.span_head_init_manifest,
-        manifest=a.manifest, ledger=a.ledger, loss_log=a.loss_log, checkpoint=a.checkpoint, seed=a.seed,
+        manifest=a.manifest, ledger=a.ledger, loss_log=a.loss_log, checkpoint=a.checkpoint,
+        seed=a.seed,
         device=a.device, dtype=a.dtype, max_steps=a.max_steps,
         wall_clock_cap_s=a.wall_clock_cap_s, batch_tokens=a.batch_tokens,
         expect_rev=a.expect_rev, expect_base_sha256=a.expect_base_sha256, tag=a.tag,

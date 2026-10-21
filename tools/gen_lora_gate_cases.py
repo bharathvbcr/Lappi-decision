@@ -89,7 +89,7 @@ def build_cases() -> list[dict[str, str]]:
         ("upper_case_digest", "refuse", _line(metrics=bad_hex)),
         ("param_groups_wrong_shape", "refuse", _line(metrics=bad_groups)),
         ("upper_case_label", "refuse", _line(label="LORA", metrics=RUST_NAMED)),
-        ("homoglyph_label", "refuse", _line(label="lоra", metrics=RUST_NAMED)),
+        ("homoglyph_label", "refuse", _line(label="l\u043era", metrics=RUST_NAMED)),
         ("f32_without_evidence", "accept", _line(label="f32", metrics={})),
         ("failed_lora_without_evidence", "accept",
          _line(metrics={}, status="failed", manifest=None)),

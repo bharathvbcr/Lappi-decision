@@ -41,7 +41,7 @@ def test_python_gives_the_row_bytes_the_verdict_rust_does(case: dict[str, str], 
         verified.verify_chain()
         assert len(verified.rows()) == 1
     else:
-        with pytest.raises(ValueError, match="optimizer_recipe|lora"):
+        with pytest.raises(ValueError, match=r"optimizer_recipe|lora"):
             verified.verify_chain()
 
     appended = Ledger(tmp_path / "append.jsonl")
@@ -53,7 +53,7 @@ def test_python_gives_the_row_bytes_the_verdict_rust_does(case: dict[str, str], 
         # The row parses structurally; the append door is what refuses it.
         raw = json.loads(line)
         row = _structural(raw)
-        with pytest.raises(ValueError, match="optimizer_recipe|lora"):
+        with pytest.raises(ValueError, match=r"optimizer_recipe|lora"):
             appended.append(row)
         assert appended.raw_lines() == []
 
