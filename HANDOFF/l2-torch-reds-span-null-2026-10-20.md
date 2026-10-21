@@ -60,6 +60,42 @@ mac_heavy at load 12 (build/l2-build-qd-prep.txt).
    the draw. The fixture now carries CommonsenseQA train rows (pinned to train), and a new test
    pins both halves of the diagnosis.
 
+## b1 follow-up: Opus review breaks L2-1 and L2-2 (adversarial tests cherry-picked as f485470)
+
+Load 12 throughout (the load-48 grant covered the baseline only).
+
+- L2-1, `assert_shard_files_trainable` returned `{}` for an existing directory with no
+  header.json. Callers, by `rg -uu` over tracked and untracked source (not DevMap): the only
+  non-test callers are `ShardReader.__init__` (python/qd_train/shards.py:2123) and
+  `tools/lora_reference_run.py:211` (`validate_inputs`, which calls it on its own when the
+  directory exists and leaves a missing directory to the reader). An earlier search of mine was
+  cut off by `head -20` and missed the second caller.
+  Through the real caller: before the fix `ShardReader` on an empty directory did refuse, but with
+  `HeldOutViolation: expected 'a member the rule-3 sweep checked'`, blaming rule 3 for an unbuilt
+  set, and `validate_inputs` would have passed it. Fails before (build/l2-l21-before.txt, 4 failed
+  30 passed): test_the_reader_refuses_a_directory_with_no_header_naming_it_not_as_a_held_out_violation
+  (HeldOutViolation escaped), test_a_directory_of_other_files_but_no_header_is_still_a_missing_header
+  (DID NOT RAISE), the adversarial test_an_existing_empty_directory_is_not_reported_as_a_trainable_shard_set
+  (DID NOT RAISE). Fix: after the sweep (so held-out members are still refused as such) the
+  sweep raises FileNotFoundError naming `<root>/header.json`.
+- L2-2, test_replay_rows_are_marked_and_never_in_the_gold_train_split asserted only a negative.
+  The checks are now one helper, `assert_replay_rows_exist_are_marked_and_stay_out_of_train`
+  (test_real_ft_general_record.py): the slice exists (message EMPTY_DRAW_MESSAGE), every row is
+  marked REPLAY_ONLY, and the rows the partition removed from train are exactly the marked ones.
+  The adversarial zero-draw test (MMLU-only record, which v6 refuses) now asserts the helper
+  raises the "replay draw is empty" AssertionError, in place of the red-by-construction version.
+  Shown failing against the old checks: with the helper cut back to the old negative-only checks the
+  test failed `Failed: DID NOT RAISE AssertionError` (build/l2-weak-demo.txt); the helper was then
+  restored and the temporary line is not in any commit.
+- Two mechanical changes to the cherry-picked adversarial files: `ruff --fix` sorted their import
+  blocks (the lint gate failed on I001), nothing else in them changed beyond the zero-draw test.
+- After: 288 passed, 1 deselected (the MPS bf16 leg, NOT RUN), exit 0
+  (build/l2-l21-after2.txt): test_real_ft_shard_missing, test_adv_shard_root,
+  test_adv_general_record_fixture, test_real_ft_general_record, test_real_ft_score_plan,
+  test_shards, test_shard_reader_heldout_symlink, test_real_ft_heldout_readers,
+  test_ft_span_null_row, test_lora_reference_driver.
+- The untracked `.venv` symlink in the worktree is left uncommitted for the lead to clear.
+
 ## b4: span null
 
 - FT rows: already fixed on main by 6fc79e8 (2026-10-17). `score_states` writes the three

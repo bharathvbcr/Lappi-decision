@@ -79,6 +79,7 @@ for the same reason and on the same terms: injected, not imported.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import itertools
@@ -2046,7 +2047,9 @@ def assert_shard_files_trainable(
 
     Reads no file's contents, so a pre-read entry check (``tools/lora_reference_run.py``'s
     ``validate_inputs``) may call it on its own. ``ShardReader`` calls it first; this is the one
-    implementation. Raises ``HeldOutViolation`` or ``ShardContractViolation``.
+    implementation. Raises ``HeldOutViolation`` or ``ShardContractViolation``, and
+    ``FileNotFoundError`` naming ``header.json`` when the root, or the header in it, is absent:
+    a directory with no header is not a shard set, and ``{}`` is never returned for one.
 
     Returns each entry's ``(st_dev, st_ino)`` so the opener can prove it opened the file that
     was checked (:func:`open_shard_member`); a caller that only wants the refusal ignores it.
@@ -2076,6 +2079,14 @@ def assert_shard_files_trainable(
                 f"{entry}: vanished during the rule-3 sweep ({exc})"
             ) from exc
         identities[entry.name] = (st.st_dev, st.st_ino)
+    if HEADER_NAME not in identities:
+        # After the sweep, so a held-out member is still refused as one. A directory with no
+        # header is no shard set: say which file, the way a missing directory does, instead of
+        # returning {} for the reader's later open to mis-blame on rule 3.
+        raise FileNotFoundError(
+            errno.ENOENT, f"no shard set at {root}: {root / HEADER_NAME} is missing "
+            "(the directory has no header)", str(root / HEADER_NAME)
+        )
     return identities
 
 

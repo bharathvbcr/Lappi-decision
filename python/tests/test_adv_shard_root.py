@@ -15,7 +15,11 @@ sys.path.insert(0, str(REPO / "python"))
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.errors import HeldOutViolation  # noqa: E402
 from qd_train import shards as shards_module  # noqa: E402
-from qd_train.shards import HEADER_NAME, ShardContractViolation, assert_shard_files_trainable  # noqa: E402
+from qd_train.shards import (  # noqa: E402
+    HEADER_NAME,
+    ShardContractViolation,
+    assert_shard_files_trainable,
+)
 
 
 def _call(root: Path):

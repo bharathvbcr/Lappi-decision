@@ -36,7 +36,12 @@ import real_tokenizer_pipeline as pipeline  # noqa: E402
 from repo_git import resolve_rev  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
-from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY  # noqa: E402
+from qd_data.general import (  # noqa: E402
+    REPLAY_FAMILIES,
+    REPLAY_ONLY,
+    REPLAY_ROLE_KEY,
+    partition_replay,
+)
 
 #: A pinned revision in this repository's history, as the other rebuild tests use.
 PINNED = "0632f693d3b765b726499e7b4bf19c67959b75cb"
@@ -409,17 +414,43 @@ def test_main_refuses_general_options_without_a_record(tmp_path: Path, flags: li
         rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800", "--rev", "a" * 40, *flags])
 
 
+EMPTY_DRAW_MESSAGE = "the replay draw is empty: 'never in the gold train split' is vacuous"
+
+
+def assert_replay_rows_exist_are_marked_and_stay_out_of_train(
+    record: Path, *, repo_history: bool = False
+) -> None:
+    """The check ``test_replay_rows_are_marked_and_never_in_the_gold_train_split`` makes, on any
+    record. The negative half (no replay-only row in train) holds for an empty draw too, as it
+    did for the MMLU fixture under v6, so the slice must also exist, be marked, and be exactly
+    what the partition took out of train. ``test_adv_general_record_fixture`` runs it on a
+    record that draws nothing and asserts it raises ``EMPTY_DRAW_MESSAGE``."""
+    rev = resolve_rev(REPO, PINNED)
+    config = DataConfig()
+    train, _val = rft.ft_split_rows(commitpackft=None, max_pairs=3, rev=rev,
+                                    config=config, general_record=record,
+                                    replay_partition=True, repo_history=repo_history)
+    assert train
+    assert not any(r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY for r in train)
+
+    unpartitioned, _ = rft.ft_split_rows(commitpackft=None, max_pairs=3, rev=rev,
+                                         config=config, general_record=record,
+                                         repo_history=repo_history)
+    # Only the general families are partitioned (code rows, present with repo history, are not).
+    drawn = partition_replay(
+        [r for r in unpartitioned if r.family_id in REPLAY_FAMILIES], seed=config.seed
+    )
+    assert drawn.replay_rows, EMPTY_DRAW_MESSAGE
+    assert all(r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY for r in drawn.replay_rows)
+    removed = {r.row_id for r in unpartitioned} - {r.row_id for r in train}
+    assert removed == {r.row_id for r in drawn.replay_rows}
+
+
 @pytest.mark.usefixtures("qd_prep")
 def test_replay_rows_are_marked_and_never_in_the_gold_train_split(tmp_path: Path) -> None:
     """The mirror of the pipeline's own invariant, on the rebuild: every replay-only row
     carries its role, and none of them is in the train split ``main`` gold-trains on."""
-    rev = resolve_rev(REPO, PINNED)
-    record = _record(tmp_path)
-    train, _val = rft.ft_split_rows(commitpackft=None, max_pairs=3, rev=rev,
-                                    config=DataConfig(), general_record=record,
-                                    replay_partition=True, repo_history=False)
-    assert train
-    assert not any(r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY for r in train)
+    assert_replay_rows_exist_are_marked_and_stay_out_of_train(_record(tmp_path))
 
 
 def test_v6_refuses_every_mmlu_test_row_so_the_replay_draw_has_nothing_to_draw_from() -> None:

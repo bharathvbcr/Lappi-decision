@@ -12,14 +12,16 @@ from pathlib import Path
 
 import pytest
 from test_real_ft_general_record import (
+    EMPTY_DRAW_MESSAGE,
     MMLU_ROWS,
     PINNED,
-    REPO,
     REPLAY_ONLY,
     REPLAY_ROLE_KEY,
+    REPO,
     _entry,
     _file,
     _record,
+    assert_replay_rows_exist_are_marked_and_stay_out_of_train,
     resolve_rev,
     rft,
 )
@@ -52,16 +54,11 @@ def test_the_marked_and_never_in_train_scenario_has_a_nonempty_replay_slice(
 
 @pytest.mark.usefixtures("qd_prep")
 def test_a_zero_draw_fails_the_marked_and_never_in_train_check(tmp_path: Path) -> None:
-    """With only MMLU rows (refused under v6) the draw is zero. The scenario's own check must
-    not be satisfiable by that: it should demand replay rows exist."""
-    rev = resolve_rev(REPO, PINNED)
+    """With only MMLU rows (refused under v6) the draw is zero. The check the scenario's own
+    test makes must not be satisfiable by that: it raises on the empty slice, and on nothing
+    else (the repository history keeps train non-empty, so the old negative-only assertions
+    pass here and only the nonempty-draw assertion can tell)."""
     record = _mmlu_only_record(tmp_path)
-    kw = dict(commitpackft=None, max_pairs=3, rev=rev, config=DataConfig(), general_record=record)
-    part = rft.ft_splits(replay_partition=True, **kw)
-    unpart = rft.ft_splits(**kw)
-    replay = {r.row_id for r in unpart["train"]} - {r.row_id for r in part["train"]}
-    # The existing test's assertions (train non-empty, no REPLAY_ONLY in train) hold here...
-    assert part["train"]
-    assert not any(r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY for r in part["train"])
-    # ...so the only thing that can tell a zero draw is an assertion that the slice is nonempty.
-    assert replay, "zero replay rows drawn; test_replay_rows_are_marked_... would still pass"
+    with pytest.raises(AssertionError, match="the replay draw is empty") as raised:
+        assert_replay_rows_exist_are_marked_and_stay_out_of_train(record, repo_history=True)
+    assert EMPTY_DRAW_MESSAGE in str(raised.value)
