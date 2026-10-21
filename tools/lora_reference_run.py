@@ -87,7 +87,7 @@ from qd_data.config import DataConfig
 from qd_data.schema import NOUL_LETTER, OPTION_LETTERS
 from qd_train import lora
 from qd_train.backbone import BackboneContractViolation, load_text_tower, remap_text_tower
-from qd_train.data_access import assert_path_not_held_out
+from qd_train.data_access import _file_sha256, assert_path_not_held_out
 from qd_train.heads import SpanPointerHead
 from qd_train.ledger import Environment, Ledger, RunRecorder
 from qd_train.memory import ADAMW_BF16, ADAMW_FP32, CheckpointRefused, spec_from_checkpoint
@@ -138,6 +138,10 @@ class LoraRunConfig:
     tokenizer_json: Path
     span_head_init: Path
     span_head_init_manifest: Path
+    #: The train manifest the shard set was written from. Its file's sha256 is hashed before and
+    #: after the shard door reads it and recorded as the row's ``train_manifest_sha256``
+    #: (qd-train-metal's W2-4 does the same), which the release export requires.
+    manifest: Path
     ledger: Path
     loss_log: Path
     checkpoint: Path
@@ -163,7 +167,7 @@ class LoraRunResult:
     termination: str
     checkpoint: Path
     loss_log: Path
-    digests: dict[str, str]
+    digests: dict[str, str | int]
 
 
 def check_device_dtype(device: str, dtype: str) -> None:
@@ -199,6 +203,7 @@ def check_not_held_out(cfg: LoraRunConfig, config: DataConfig) -> None:
         ("--tokenizer-json", cfg.tokenizer_json),
         ("--span-head-init", cfg.span_head_init),
         ("--span-head-init-manifest", cfg.span_head_init_manifest),
+        ("--manifest", cfg.manifest),
         ("--ledger", cfg.ledger),
         ("--loss-log", cfg.loss_log),
         ("--checkpoint", cfg.checkpoint),
@@ -234,8 +239,36 @@ def quick_reasons(cfg: LoraRunConfig, plan_batches: int) -> list[str]:
     return reasons
 
 
-def _stat(text: str, value: str, detail: str) -> Ran:
+def _stat(text: str, value: str | int, detail: str | int) -> Ran:
     return Ran(passed=True, value=value, detail=f"{text}: {detail}")
+
+
+def read_with_manifest_sha256(manifest: Path, read):
+    """``(read(), sha256)``: ``read`` (the one thing that opens the train manifest) runs between
+    two hashes of the manifest file's bytes, as ``data_access.open_training_data`` and
+    qd-train-metal's ``read_with_manifest_sha256`` do. A file whose bytes changed in between is
+    refused: the digest a row records must be the file ``read`` read."""
+    try:
+        before = _file_sha256(manifest)
+        value = read()
+        after = _file_sha256(manifest)
+    except OSError as exc:
+        raise LoraDriverRefusal(f"{manifest}: cannot hash the train manifest: {exc}") from exc
+    if after != before:
+        raise LoraDriverRefusal(
+            f"{manifest}: the manifest's bytes changed between the hash and the read, refusing, "
+            "so a recorded train_manifest_sha256 is the file read"
+        )
+    return value, before
+
+
+def param_groups_summary(groups: Sequence[dict[str, object]]) -> str:
+    """``lora.param_groups`` as Rust's ``lora_ft_row`` writes it: ``name xN at lr_scale S``,
+    comma-separated, one per optimizer group."""
+    return ", ".join(
+        f"{g['name']} x{len(g['params'])} at lr_scale {g['lr_scale']!r}"  # type: ignore[arg-type]
+        for g in groups
+    )
 
 
 def check_data_rules(config: DataConfig) -> DataConfig:
@@ -317,8 +350,12 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
         torch.use_deterministic_algorithms(True)
 
     # --- data: the reader's own door runs before a token is read -------------------------------
-    reader = ShardReader(
-        cfg.out / "shards" / "train", config=config, repo_root=cfg.out, expect_rev=cfg.expect_rev
+    reader, manifest_sha256 = read_with_manifest_sha256(
+        cfg.manifest,
+        lambda: ShardReader(
+            cfg.out / "shards" / "train", config=config, repo_root=cfg.out,
+            expect_rev=cfg.expect_rev,
+        ),
     )
     if reader.remap is None:
         raise LoraDriverRefusal(
@@ -410,8 +447,9 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
         "base_snapshot": tower.snapshot.name,
         "base_safetensors_sha256": stored.safetensors_sha256,
         "dtype_map_sha256": stored.dtype_map_sha256,
-        "plan_seed": str(plan_seed),
+        "plan_seed": plan_seed,
         "train_shard_hash": reader.header.shard_hash(),
+        "train_manifest_sha256": manifest_sha256,
     }
 
     # --- ledger -------------------------------------------------------------------------------
@@ -458,6 +496,7 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
         recipe=recipe,
         quick=True,
         quick_reason="; ".join(quick_reasons(cfg, plan_batches)),
+        train_manifest_sha256=manifest_sha256,
         notes=(
             f"{TOOL} [{cfg.tag}] -- the LoRA-2B torch reference arm (qd_train.lora): frozen "
             f"{cfg.dtype} base from {cfg.backbone.name}, f32 adapters, D17 and span head, on "
@@ -467,17 +506,24 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
         entry_point=Path(__file__),
     )
     formulas = {
-        "init.span_head_digest": ("run_control._sidecar_digest over span_head.* TensorRefs",
-                                  head_digest),
-        "init.d17_digest": ("TensorRef.digest of float32 zeros [17, hidden]", d17_digest),
-        "init.lora_a_digest": ("lora.lora_a_digest; equals lora.lora_a_rule_digest at the seed",
+        # The names below are qd_train::ledger::lora_ft_row's (Fable's ruling, 2026-10-21: the Rust
+        # set is canonical), checked by ledger.LedgerRow.check_optimizer_label.
+        "train.span_head_init_digest": ("run_control._sidecar_digest over span_head.* TensorRefs",
+                                        head_digest),
+        "lora.d17_init_digest": ("TensorRef.digest of float32 zeros [17, hidden]", d17_digest),
+        "lora.a_init_digest": ("lora.lora_a_digest; equals lora.lora_a_rule_digest at the seed",
                                a_digest),
-        "init.base_snapshot": ("the snapshot directory's name", tower.snapshot.name),
-        "init.base_safetensors_sha256": ("sha256 of the snapshot's safetensors file",
+        "lora.base_safetensors_sha256": ("sha256 of the snapshot's safetensors file",
                                          stored.safetensors_sha256),
-        "init.dtype_map_sha256": ("lora.StoredDtypes.dtype_map_sha256", stored.dtype_map_sha256),
+        "lora.dtype_map_sha256": ("lora.StoredDtypes.dtype_map_sha256", stored.dtype_map_sha256),
+        "corpus.plan_seed": ("the seed the plan was drawn at (--batch-order seed)", plan_seed),
+        "lora.param_groups": (
+            "lora.lora_param_groups, one group per optimizer group", param_groups_summary(
+                lora.lora_param_groups(model, delta=step.delta, span_head=span_head)
+            ),
+        ),
+        "init.base_snapshot": ("the snapshot directory's name", tower.snapshot.name),
         "init.f32_names_sha256": ("lora.StoredDtypes.f32_names_sha256", stored.f32_names_sha256),
-        "corpus.plan_seed": ("the seed the plan was drawn at (--batch-order seed)", str(plan_seed)),
         "corpus.plan_order_digest": ("real_ft_run.plan_order_digest", order_digest),
         "corpus.train_shard_hash": ("ShardHeader.shard_hash()", reader.header.shard_hash()),
     }
@@ -535,6 +581,9 @@ def parse_args(argv: Sequence[str] | None) -> LoraRunConfig:
     p.add_argument("--tokenizer-json", type=Path, required=True)
     p.add_argument("--span-head-init", type=Path, required=True)
     p.add_argument("--span-head-init-manifest", type=Path, required=True)
+    p.add_argument("--manifest", type=Path, required=True,
+                   help="the train manifest the shard set was written from; its file sha256 is "
+                        "recorded as the row's train_manifest_sha256")
     p.add_argument("--ledger", type=Path, required=True)
     p.add_argument("--loss-log", type=Path, required=True)
     p.add_argument("--checkpoint", type=Path, required=True)
@@ -553,7 +602,7 @@ def parse_args(argv: Sequence[str] | None) -> LoraRunConfig:
     return LoraRunConfig(
         out=a.out, backbone=a.backbone, tokenizer_json=a.tokenizer_json,
         span_head_init=a.span_head_init, span_head_init_manifest=a.span_head_init_manifest,
-        ledger=a.ledger, loss_log=a.loss_log, checkpoint=a.checkpoint, seed=a.seed,
+        manifest=a.manifest, ledger=a.ledger, loss_log=a.loss_log, checkpoint=a.checkpoint, seed=a.seed,
         device=a.device, dtype=a.dtype, max_steps=a.max_steps,
         wall_clock_cap_s=a.wall_clock_cap_s, batch_tokens=a.batch_tokens,
         expect_rev=a.expect_rev, expect_base_sha256=a.expect_base_sha256, tag=a.tag,

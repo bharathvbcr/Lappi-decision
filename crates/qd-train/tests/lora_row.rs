@@ -198,7 +198,9 @@ fn good_row(f: &Fixture, seed: u64) -> FtRow {
 #[test]
 fn the_lora_row_carries_the_label_quick_with_its_reason_and_all_seven_digests() {
     let f = fixture(0);
-    let line = good_row(&f, 0).line(&stamp()).unwrap();
+    let line = good_row(&f, 0)
+        .line_with(&stamp(), &manifest_extras())
+        .unwrap();
     let v: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["recipe"]["optimizer_recipe"], "lora");
     assert_eq!(v["run_kind"], "ft");
@@ -368,6 +370,240 @@ fn a_full_ft_row_still_says_f32() {
     assert_eq!(LORA_OPTIMIZER_RECIPE, "lora");
 }
 
+fn manifest_extras() -> ledger::RowExtras {
+    ledger::RowExtras {
+        train_manifest_sha256: Some("c".repeat(64)),
+        ..ledger::RowExtras::default()
+    }
+}
+
+fn temp_ledger(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("qd-train-lora-row-{tag}-{}", std::process::id()));
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    dir.join("ledger").join("mac-ojas-lora-row-test.jsonl")
+}
+
+fn f32_row() -> FtRow {
+    let r = FtRecipe {
+        optimizer_recipe: ledger::METAL_FULL_FT_OPTIMIZER_RECIPE.into(),
+        ..lora_recipe()
+    };
+    let mut row = base_row(r, 0);
+    row.quick_reason = "full-FT fixture row".into();
+    row
+}
+
+/// Characterization, taken on the code before the lora label guard existed: the line a non-LoRA
+/// run appends is byte-for-byte what it was. A change to this digest is a change to every Mac
+/// full-FT row and must be argued, not adjusted.
+#[test]
+fn a_non_lora_row_is_appended_byte_for_byte_as_before() {
+    use sha2::{Digest, Sha256};
+    let path = temp_ledger("f32-bytes");
+    ledger::append_with(
+        &path,
+        &f32_row(),
+        &manifest_extras(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(
+        digest, "8251ace8f7fa095517096e2abdc29fce7bf97722a4fdc3ebd92dbb052446110e",
+        "an f32 row's appended bytes ({} bytes) changed",
+        bytes.len()
+    );
+}
+
+/// A row labelled `lora` is the one `lora_ft_row` builds, carrying every digest the
+/// pre-registration names, and the train manifest's sha256. Anything else is refused at the one
+/// locked append, so no path labels a row `lora` without the evidence, and none writes a LoRA
+/// run as `f32`.
+#[test]
+fn a_lora_labelled_row_is_appended_only_when_lora_ft_row_built_it_with_the_manifest_sha() {
+    let f = fixture(0);
+    // Labelled lora by assignment, with none of the digests: refused, nothing written.
+    let mut bare = base_row(lora_recipe(), 0);
+    bare.quick_reason = "labelled lora by assignment".into();
+    let path = temp_ledger("bare");
+    let err = ledger::append_with(
+        &path,
+        &bare,
+        &manifest_extras(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("train.span_head_init_digest") && err.contains("lora_ft_row"),
+        "{err}"
+    );
+    assert!(
+        !path.exists() || std::fs::read(&path).unwrap().is_empty(),
+        "a refused row writes nothing"
+    );
+    // lora_ft_row's row without the manifest sha: refused (the release export would refuse it).
+    let built = good_row(&f, 0);
+    let err = ledger::append_with(
+        &path,
+        &built,
+        &ledger::RowExtras::default(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("train_manifest_sha256"), "{err}");
+    // With it, the row is appended once, labelled lora, carrying the manifest sha.
+    ledger::append_with(
+        &path,
+        &built,
+        &manifest_extras(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(text.lines().count(), 1);
+    let v: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(v["recipe"]["optimizer_recipe"], "lora");
+    assert_eq!(v["train_manifest_sha256"], "c".repeat(64));
+    // The same row id again is refused by the ledger's own duplicate rule.
+    assert!(
+        ledger::append_with(
+            &path,
+            &built,
+            &manifest_extras(),
+            stamp().row_id,
+            stamp().written_at
+        )
+        .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap().lines().count(),
+        1,
+        "written once"
+    );
+}
+
+/// The rules `check_optimizer_label` enforces are the ones `lora_ft_row` itself satisfies: its
+/// row builds, and replacing any one of its seven metrics by a value `lora_ft_row` never writes
+/// (a `not_run`, a failed or null record, a non-hex or upper-case digest, a seed that is not an
+/// unsigned integer, a group summary of another shape) makes the line unbuildable.
+#[test]
+fn every_lora_metric_is_checked_for_what_lora_ft_row_writes() {
+    use qd_train::tristate::TriState;
+    let f = fixture(0);
+    let good = good_row(&f, 0);
+    good.line_with(&stamp(), &manifest_extras()).unwrap();
+    let hex_names = [
+        "train.span_head_init_digest",
+        "lora.d17_init_digest",
+        "lora.a_init_digest",
+        "lora.base_safetensors_sha256",
+        "lora.dtype_map_sha256",
+    ];
+    let bad_hex = [
+        TriState::ran(true, ""),
+        TriState::ran(true, "ab"),
+        TriState::ran(true, "A".repeat(64)),
+        TriState::ran(true, "z".repeat(64)),
+        TriState::ran(true, Value::Null),
+        TriState::ran(true, 7),
+        TriState::ran(false, "ab".repeat(32)),
+        TriState::not_run("never measured"),
+    ];
+    let mut cases: Vec<(&str, TriState)> = Vec::new();
+    for name in hex_names {
+        for v in &bad_hex {
+            cases.push((name, v.clone()));
+        }
+    }
+    for v in [
+        TriState::ran(true, "0"),
+        TriState::ran(true, -1),
+        TriState::ran(true, 1.5),
+        TriState::ran(true, Value::Null),
+        TriState::ran(false, 0),
+        TriState::not_run("never measured"),
+    ] {
+        cases.push(("corpus.plan_seed", v));
+    }
+    for v in [
+        TriState::ran(true, ""),
+        TriState::ran(true, "lora"),
+        TriState::ran(true, "lora x0 at lr_scale 1"),
+        TriState::ran(true, "lora x2 at lr_scale nan"),
+        TriState::ran(true, "lora x2 at lr_scale 1, "),
+        TriState::ran(true, 3),
+        TriState::ran(false, "lora x2 at lr_scale 1"),
+        TriState::not_run("never measured"),
+    ] {
+        cases.push(("lora.param_groups", v));
+    }
+    for (name, state) in cases {
+        let mut row = good.clone();
+        row.metrics.insert(name.to_owned(), state.clone());
+        let err = row
+            .line_with(&stamp(), &manifest_extras())
+            .expect_err(&format!("{name} = {state:?} must be refused"))
+            .to_string();
+        assert!(err.contains(name), "{name}: {err}");
+    }
+    let mut missing = good.clone();
+    missing.metrics.remove("lora.a_init_digest");
+    assert!(missing.line_with(&stamp(), &manifest_extras()).is_err());
+    assert!(good.line(&stamp()).is_err(), "no train_manifest_sha256");
+}
+
+/// The label set is closed: the five labels `OPTIMIZER_RECIPES` knows build a line (a non-lora
+/// one exactly as before), every other spelling does not, so `lora` cannot be dodged by case,
+/// whitespace or a homoglyph.
+#[test]
+fn the_optimizer_label_set_is_closed() {
+    for label in ledger::OPTIMIZER_RECIPE_LABELS {
+        if label == LORA_OPTIMIZER_RECIPE {
+            continue;
+        }
+        let r = FtRecipe {
+            optimizer_recipe: label.into(),
+            ..lora_recipe()
+        };
+        let mut row = base_row(r, 0);
+        row.quick_reason = "label fixture".into();
+        row.line(&stamp()).unwrap_or_else(|e| panic!("{label}: {e}"));
+    }
+    // The empty label is refused one step earlier, when the protocol is built.
+    let empty = FtRecipe {
+        optimizer_recipe: String::new(),
+        ..lora_recipe()
+    };
+    assert!(Protocol::for_recipe(&empty, &"d".repeat(64), &"t".repeat(64), 0).is_err());
+    for label in [
+        "LORA", "Lora", " lora", "lora ", "lora\n", "l\u{43e}ra", "F32", "lora\0", "adamw",
+    ] {
+        let r = FtRecipe {
+            optimizer_recipe: label.into(),
+            ..lora_recipe()
+        };
+        let mut row = base_row(r, 0);
+        row.quick_reason = "label fixture".into();
+        let err = row
+            .line_with(&stamp(), &manifest_extras())
+            .expect_err(&format!("{label:?} must be refused"))
+            .to_string();
+        assert!(err.contains("optimizer_recipe"), "{label:?}: {err}");
+    }
+}
+
 fn ml_python() -> PathBuf {
     PathBuf::from("/Users/bharath/.venvs/ml/bin/python")
 }
@@ -387,16 +623,18 @@ fn pythons_verifier_accepts_a_lora_row() {
         std::fs::remove_dir_all(&dir).unwrap();
     }
     let row = good_row(&f, 0);
-    ledger::append(
+    ledger::append_with(
         &path,
         &row,
+        &manifest_extras(),
         ledger::uuid4().unwrap(),
         "2026-10-17T10:00:00+00:00".into(),
     )
     .unwrap();
-    ledger::append(
+    ledger::append_with(
         &path,
         &row,
+        &manifest_extras(),
         ledger::uuid4().unwrap(),
         "2026-10-17T10:00:01+00:00".into(),
     )
@@ -432,7 +670,8 @@ fn a_provider_listing_its_adapters_in_another_order_gets_the_same_verified_diges
             &[LoraQuickReason::Smoke],
         )
         .unwrap();
-        let v: Value = serde_json::from_str(&row.line(&stamp()).unwrap()).unwrap();
+        let v: Value =
+            serde_json::from_str(&row.line_with(&stamp(), &manifest_extras()).unwrap()).unwrap();
         v["metrics"]["lora.a_init_digest"]["value"]
             .as_str()
             .unwrap()

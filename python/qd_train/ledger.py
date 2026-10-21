@@ -108,6 +108,33 @@ WallClockSource = Literal["caller", "recorder", "unrecorded"]
 
 _RUN_KINDS: frozenset[str] = frozenset(RunKind.__args__)  # type: ignore[attr-defined]
 _STATUSES: frozenset[str] = frozenset(Status.__args__)  # type: ignore[attr-defined]
+
+#: Every ``recipe.optimizer_recipe`` label a row may carry. One set with Rust's
+#: ``qd_train::ledger::OPTIMIZER_RECIPE_LABELS`` and ``tools/real_ft_run.OPTIMIZER_RECIPES`` (a
+#: test pins all three equal). A label outside it is refused whatever its spelling, so no
+#: near-spelling of ``lora`` is a row no gate recognises as one.
+OPTIMIZER_RECIPE_LABELS: frozenset[str] = frozenset({"bf16", "master", "kahan", "f32", "lora"})
+LORA_LABEL = "lora"
+
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+#: ``lora.param_groups`` as Rust's ``lora_ft_row`` writes it: ``name xN at lr_scale S``.
+#: The scale is spelled as Rust's ``f64::from_str`` reads a finite number (no underscores).
+_PARAM_GROUP = re.compile(
+    r"(?P<name>.+) x[1-9][0-9]* at lr_scale "
+    r"(?P<scale>[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)",
+    re.DOTALL,
+)
+#: The evidence a completed ``lora`` row carries, under the names Rust's ``lora_ft_row`` writes
+#: (digest metrics, then the seed and the group summary). The one name set: Fable's ruling
+#: 2026-10-21 made it canonical over the reference driver's earlier ``init.*`` spelling, and
+#: ``tools/lora_reference_run.py`` now writes these.
+_LORA_RUST_DIGESTS: tuple[str, ...] = (
+    "train.span_head_init_digest",
+    "lora.d17_init_digest",
+    "lora.a_init_digest",
+    "lora.base_safetensors_sha256",
+    "lora.dtype_map_sha256",
+)
 #: The cap a `build` row's cost is priced against. `CostEstimate` prices `projected_usd`
 #: from the cap, and a build row is a local gate run whose rate is zero, so the number this
 #: multiplies is zero whatever it is. It is stated rather than left implicit because a cap
@@ -1074,6 +1101,78 @@ class LedgerRow:
         self._validate_train_manifest_sha256(self.train_manifest_sha256)
         self._check_build_marker()
 
+    def check_optimizer_label(self) -> None:
+        """Rust's ``check_optimizer_label``, run by the two doors every row passes:
+        :meth:`Ledger.append` before the write and :meth:`from_json` after the read (so ``rows()``
+        and ``verify_chain()`` refuse a line a raw writer put there). It is not a constructor
+        check, so a row object can still be built and inspected.
+
+        ``recipe.optimizer_recipe``, when the recipe states one, is exactly one of
+        :data:`OPTIMIZER_RECIPE_LABELS`. A ``completed`` row labelled ``lora`` carries its
+        evidence: every digest metric a passed ``ran`` record holding a lowercase hex sha256,
+        ``corpus.plan_seed`` an unsigned integer, a ``lora.param_groups`` summary and
+        ``train_manifest_sha256``. A ``started`` marker, and a ``failed`` or ``killed``
+        row, say a run did not finish: they are no LoRA result and stay writable."""
+        if self.recipe is None or "optimizer_recipe" not in self.recipe:
+            return
+        label = self.recipe["optimizer_recipe"]
+        if not isinstance(label, str) or label not in OPTIMIZER_RECIPE_LABELS:
+            raise ValueError(
+                f"recipe.optimizer_recipe {label!r} is not one of "
+                f"{sorted(OPTIMIZER_RECIPE_LABELS)}"
+            )
+        if label != LORA_LABEL or self.status != "completed":
+            return
+
+        def ran_value(name: str) -> Any:
+            m = self.metrics.get(name)
+            if m is None:
+                raise ValueError(
+                    f"a completed row labelled 'lora' lacks metric {name}: only a lora row "
+                    "writer builds one"
+                )
+            if not isinstance(m, Ran) or m.passed is not True:
+                raise ValueError(
+                    f"a completed row labelled 'lora' has metric {name} that is not a passed "
+                    f"'ran' record ({type(m).__name__}): that is not evidence"
+                )
+            return m.value
+
+        def hex_ok(name: str) -> None:
+            v = ran_value(name)
+            if not isinstance(v, str) or _HEX64.fullmatch(v) is None:
+                raise ValueError(f"metric {name} of a lora row is not a lowercase hex sha256")
+
+        for name in _LORA_RUST_DIGESTS:
+            hex_ok(name)
+        seed = ran_value("corpus.plan_seed")
+        if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
+            raise ValueError("metric corpus.plan_seed of a lora row is not an unsigned integer")
+        groups = ran_value("lora.param_groups")
+        if not isinstance(groups, str) or not self._param_groups_ok(groups):
+            raise ValueError(
+                "metric lora.param_groups of a lora row is not a `name xN at lr_scale S` summary"
+            )
+        if self.train_manifest_sha256 is None:
+            raise ValueError(
+                "a completed row labelled 'lora' records no train_manifest_sha256: the "
+                "release export refuses it"
+            )
+
+    @staticmethod
+    def _param_groups_ok(summary: str) -> bool:
+        for part in summary.split(", "):
+            m = _PARAM_GROUP.fullmatch(part)
+            if m is None:
+                return False
+            try:
+                scale = float(m["scale"])
+            except ValueError:
+                return False
+            if not math.isfinite(scale) or scale < 0:
+                return False
+        return True
+
     @staticmethod
     def _validate_val_without_train(block: Mapping[str, Any] | None) -> None:
         """A recorded block is a string-keyed mapping that survives the trip to JSON.
@@ -1238,7 +1337,7 @@ class LedgerRow:
                 env_raw["causal_conv1d_present"], field="env.causal_conv1d_present"
             ),
         )
-        return cls(
+        row = cls(
             row_id=raw["row_id"],
             written_at=raw["written_at"],
             prev_row_hash=raw["prev_row_hash"],
@@ -1270,6 +1369,8 @@ class LedgerRow:
             val_without_train=raw.get("val_without_train"),
             train_manifest_sha256=raw.get("train_manifest_sha256"),
         )
+        row.check_optimizer_label()
+        return row
 
 
 @dataclass(frozen=True, slots=True)
@@ -1414,6 +1515,7 @@ class Ledger:
     def append(self, row: LedgerRow, *, lock_timeout_s: float = 60.0) -> LedgerRow:
         if lock_timeout_s <= 0:
             raise ValueError(f"lock_timeout_s must be positive, got {lock_timeout_s!r}")
+        row.check_optimizer_label()
         # O_APPEND so concurrent writers cannot interleave a partial line, and
         # fsync so a row survives the crash that a killed run is recording. The
         # flock covers read-predecessor-then-write, which O_APPEND does not.
