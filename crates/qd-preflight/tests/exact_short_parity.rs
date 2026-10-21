@@ -107,6 +107,7 @@ fn builder_and_gate_give_the_same_verdict_on_a_shared_case_table() {
         n: DEFAULT_N,
         threshold: DEFAULT_THRESHOLD,
         threads: 2,
+        run_target: None,
     });
     let gate: BTreeSet<String> = verdict
         .tiers

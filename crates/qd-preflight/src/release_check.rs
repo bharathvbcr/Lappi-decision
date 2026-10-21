@@ -40,6 +40,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::pool_policy::{self, Visibility};
+
 pub const RESULTS_FORMAT: &str = "qd-replay.v1";
 const MANIFEST_FILE: &str = "release_manifest.json";
 const DOC_FILES: [&str; 2] = ["docs/schema-api.md", "docs/caller-contract.md"];
@@ -133,6 +135,12 @@ pub struct ReleaseView {
     /// `train_manifest.ledger_binding` in the manifest: `None` when the block is absent (every
     /// release exported before W7-a).
     pub ledger_binding: Option<LedgerBinding>,
+    /// `train_manifest.path` and `.sha256` in the release manifest: which train manifest the
+    /// weights came from, for the visibility check to read and bind.
+    pub train_manifest_path: Option<String>,
+    pub train_manifest_sha256: Option<String>,
+    /// The release manifest's own `adapter_visibility`, as written (`None`: absent).
+    pub adapter_visibility: Option<Value>,
 }
 
 /// What `qd-export` recorded about tying the train manifest to the ft ledger.
@@ -236,6 +244,15 @@ impl ReleaseView {
             weight_hash: id("weight_hash"),
             calibration_hash: id("calibration_hash"),
             ledger_binding,
+            train_manifest_path: m
+                .pointer("/train_manifest/path")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            train_manifest_sha256: m
+                .pointer("/train_manifest/sha256")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            adapter_visibility: m.get("adapter_visibility").cloned(),
         })
     }
 }
@@ -732,6 +749,72 @@ pub struct Inputs<'a> {
     pub min_answered: usize,
 }
 
+/// Bound on the train manifest this check reads (`qd_export::export::MAX_TRAIN_MANIFEST_BYTES`).
+const MAX_TRAIN_MANIFEST_BYTES: u64 = 1 << 30;
+
+/// `adapter_visibility`: a **public** release must not have been trained on a BY-SA, research-only
+/// or `vani-agreed` row (v2 plan section 6, gate 4; rulings 6 and 7). The rows are read from the
+/// train manifest the release records, whose bytes must hash to the release's recorded sha256 (a
+/// different manifest says nothing about these weights). A release whose manifest does not say
+/// `private`, in the train manifest and the release manifest alike, is public: an absent field
+/// is read as the stricter value. A manifest that cannot be read is `NOT_RUN`, never a pass.
+fn adapter_visibility_check(r: &ReleaseView) -> Check {
+    const NAME: &str = "adapter_visibility";
+    let Some(raw_path) = r.train_manifest_path.as_deref() else {
+        return Check::fail(
+            NAME,
+            "the release manifest records no train_manifest.path, so what the weights were trained on cannot be read to decide who may receive them",
+        );
+    };
+    let mut path = PathBuf::from(raw_path);
+    if path.is_relative() && !path.exists() {
+        path = r.dir.join(raw_path);
+    }
+    let bytes = match std::fs::metadata(&path) {
+        Ok(md) if md.len() > MAX_TRAIN_MANIFEST_BYTES => {
+            return Check::not_run(NAME, format!("{} is {} bytes; the bound is {MAX_TRAIN_MANIFEST_BYTES}", path.display(), md.len()));
+        }
+        Ok(_) => match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => return Check::not_run(NAME, format!("cannot read the train manifest {}: {e}", path.display())),
+        },
+        Err(e) => return Check::not_run(NAME, format!("cannot read the train manifest {}: {e}", path.display())),
+    };
+    let sha = format!("{:x}", Sha256::digest(&bytes));
+    match r.train_manifest_sha256.as_deref() {
+        Some(recorded) if recorded == sha => {}
+        Some(recorded) => {
+            return Check::fail(
+                NAME,
+                format!("the train manifest at {} has sha256 {sha}, but the release records {recorded}: it is not the manifest these weights came from", path.display()),
+            );
+        }
+        None => {
+            return Check::fail(NAME, "the release manifest records no train_manifest.sha256, so the manifest read cannot be bound to these weights");
+        }
+    }
+    let doc: Value = match serde_json::from_slice(&bytes) {
+        Ok(d) => d,
+        Err(e) => return Check::fail(NAME, format!("{} is not JSON: {e}", path.display())),
+    };
+    let visibility = match (
+        pool_policy::parse_visibility(doc.get("adapter_visibility")),
+        pool_policy::parse_visibility(r.adapter_visibility.as_ref()),
+    ) {
+        (Ok(a), Ok(b)) if a == Visibility::Private && b == Visibility::Private => Visibility::Private,
+        (Ok(_), Ok(_)) => Visibility::Public,
+        (Err(e), _) | (_, Err(e)) => return Check::fail(NAME, e.to_string()),
+    };
+    let findings = match pool_policy::scan_manifest(&doc) {
+        Ok(f) => f,
+        Err(e) => return Check::fail(NAME, format!("{}: {e}", path.display())),
+    };
+    match pool_policy::check_visibility(&findings, visibility) {
+        Ok(detail) => Check::pass(NAME, detail),
+        Err(detail) => Check::fail(NAME, detail),
+    }
+}
+
 pub fn run_checks(inp: &Inputs<'_>) -> (Vec<Check>, Option<Vec<Coverage>>) {
     let mut checks = Vec::new();
     let r = inp.release;
@@ -784,6 +867,8 @@ pub fn run_checks(inp: &Inputs<'_>) -> (Vec<Check>, Option<Vec<Coverage>>) {
             format!("train manifest sha256 {} equals the one every ft row records", b.train_manifest_sha256.as_deref().unwrap_or_default()),
         ),
     });
+
+    checks.push(adapter_visibility_check(r));
 
     // Path: a replay that fell back in-process is not the product path.
     let sidecar = res.records.iter().filter(|x| !x.via_socket()).count();

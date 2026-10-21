@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use qd_preflight::release_check::{DocExample, RESULTS_FORMAT, load_examples, request_shape};
 use serde_json::{Value, json};
+use sha2::Digest;
 
 const BIN: &str = env!("CARGO_BIN_EXE_qd-release-check");
 const WEIGHT: &str = "6f7b9ba73bca3a0b2e4ec9b2c0fc2aa6e7459f7e3286b26386633a222667dfcb";
@@ -51,11 +52,24 @@ fn b64(s: &str) -> String {
 
 fn release(dir: &Path, shapes: Option<Value>, weight: &str) {
     std::fs::create_dir_all(dir).unwrap();
+    // The train manifest the release records: a private adapter over permissive rows, which is
+    // what `adapter_visibility` clears. Written beside the release, bound by its sha256.
+    let train = json!({
+        "adapter_visibility": "private",
+        "entries": [{"row_id": "r0", "source_id": "s/permissive", "licence_id": "mit"}],
+    })
+    .to_string();
+    let train_path = dir.join("train-manifest.json");
+    std::fs::write(&train_path, &train).unwrap();
     let mut m = json!({
         "format": "qd-release.v2",
         "trained_families": ["code.defect_class", "fam.b"],
         "excluded_families": [],
-        "train_manifest": {"ledger_binding": {"verified": true, "train_manifest_sha256": "ab".repeat(32)}},
+        "train_manifest": {
+            "path": train_path.display().to_string(),
+            "sha256": format!("{:x}", sha2::Sha256::digest(train.as_bytes())),
+            "ledger_binding": {"verified": true, "train_manifest_sha256": "ab".repeat(32)},
+        },
         "expected_identity": {"weight_hash": weight, "calibration_hash": CALIB},
     });
     if let Some(s) = shapes {

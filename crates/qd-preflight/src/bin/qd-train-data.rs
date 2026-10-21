@@ -7,12 +7,17 @@
 //! qd-train-data --train SHARD_DIR_OR_EXAMPLES.jsonl --target NAME=FILE [--target ...]
 //!               [--examples EXAMPLES.jsonl] [--manifest TRAIN.json]
 //!               [--forbid-family FAMILY ...] [--n 8] [--threshold 0.5] [--threads N]
+//!               [--run-target mac|cloud]
 //! ```
 //!
-//! See `qd_preflight::train_data` for the four tiers and what each needs.
+//! See `qd_preflight::train_data` for the five tiers and what each needs. `--run-target` is the
+//! fifth tier's input (`mac_only`, owner ruling 12): a train set holding `vani-agreed` rows is
+//! refused unless the run is stated to train on the Mac. Omitting it is not a Mac run.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+use qd_preflight::pool_policy::RunTarget;
 
 use qd_preflight::train_data::{
     DEFAULT_N, DEFAULT_THRESHOLD, FORBIDDEN_FAMILIES, Inputs, check, parse_target, summary_lines,
@@ -54,6 +59,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Inputs, String> {
         n: DEFAULT_N,
         threshold: DEFAULT_THRESHOLD,
         threads: std::thread::available_parallelism().map_or(1, |p| p.get().min(16)),
+        run_target: None,
     };
     let mut extra_families: Vec<String> = Vec::new();
     let mut it = args;
@@ -70,6 +76,9 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Inputs, String> {
                 inputs.threshold = value
                     .parse()
                     .map_err(|e| format!("--threshold {value:?}: {e}"))?;
+            }
+            "--run-target" => {
+                inputs.run_target = Some(RunTarget::parse(&value).map_err(|e| e.to_string())?);
             }
             "--threads" => {
                 inputs.threads = value
@@ -107,7 +116,7 @@ fn usage(msg: &str) -> ExitCode {
     eprintln!("qd-train-data: {msg}");
     eprintln!(
         "usage: qd-train-data --train SHARD_DIR|EXAMPLES.jsonl --target NAME=FILE [--target ...] \
-         [--examples FILE] [--manifest FILE] [--forbid-family F] [--n 8] [--threshold 0.5] [--threads N]"
+         [--examples FILE] [--manifest FILE] [--forbid-family F] [--n 8] [--threshold 0.5] [--threads N] [--run-target mac|cloud]"
     );
     ExitCode::from(2)
 }

@@ -15,6 +15,8 @@ use crate::blake2b::Keyed;
 pub const MERSENNE_PRIME: u64 = (1 << 61) - 1;
 /// `MinHasher.base_hash` reads an eight-byte digest.
 const BASE_HASH_BYTES: usize = 8;
+/// The digest size `MinHasher.__init__` derives its key and permutations with.
+const DERIVE_DIGEST_BYTES: usize = 32;
 
 /// `x mod (2**61 - 1)` for any `u128`, exactly.
 ///
@@ -66,6 +68,34 @@ impl Family {
         }
         let hasher = Keyed::new(key, BASE_HASH_BYTES)?;
         Ok(Self { a, b, hasher })
+    }
+
+    /// The family `qd_data.minhash.MinHasher(num_perm=num_perm, seed=seed)` derives: the blake2b
+    /// key is `blake2b(b"qd_data.minhash.v1|<seed>", digest_size=32)`, and permutation `i` is
+    /// `a = int(blob[:16]) % (p - 1) + 1`, `b = int(blob[16:]) % p` of
+    /// `blake2b(i.to_bytes(8, "big"), key=key, digest_size=32)` (big-endian). Python is the
+    /// reference; `derived_family_equals_the_python_minhasher` pins values read off it.
+    pub fn from_seed(num_perm: usize, seed: u64) -> Result<Self, String> {
+        if num_perm == 0 {
+            return Err("num_perm must be >= 1".to_string());
+        }
+        let material = format!("qd_data.minhash.v1|{seed}");
+        let key = Keyed::new(&[], DERIVE_DIGEST_BYTES)?.digest(material.as_bytes());
+        let keyed = Keyed::new(&key, DERIVE_DIGEST_BYTES)?;
+        let p = u128::from(MERSENNE_PRIME);
+        let mut a = Vec::with_capacity(num_perm);
+        let mut b = Vec::with_capacity(num_perm);
+        for i in 0..num_perm {
+            let blob = keyed.digest(&(i as u64).to_be_bytes());
+            let mut hi = [0u8; 16];
+            let mut lo = [0u8; 16];
+            hi.copy_from_slice(&blob[..16]);
+            lo.copy_from_slice(&blob[16..]);
+            // `% (p - 1) + 1` and `% p` are below 2**61, so the narrowing is exact.
+            a.push(u64::try_from(u128::from_be_bytes(hi) % (p - 1) + 1).map_err(|e| e.to_string())?);
+            b.push(u64::try_from(u128::from_be_bytes(lo) % p).map_err(|e| e.to_string())?);
+        }
+        Self::new(&key, a, b)
     }
 
     /// How many permutations, which is the signature's length.
@@ -197,6 +227,25 @@ mod tests {
                 .expect("non-empty");
             assert_eq!(u128::from(got[i]), want);
         }
+    }
+
+    /// Values read off `qd_data.minhash.MinHasher(num_perm=128, seed=20260919)` (CPython, uv
+    /// 2026-10-21): `_a[0]`, `_b[0]`, `_a[127]`, `_b[127]` and the signature of two shingles.
+    #[test]
+    fn derived_family_equals_the_python_minhasher() {
+        let family = Family::from_seed(128, 20_260_919).expect("derives");
+        assert_eq!(family.num_perm(), 128);
+        assert_eq!(family.a[0], 883_333_814_877_907_742);
+        assert_eq!(family.b[0], 134_085_503_977_505_238);
+        assert_eq!(family.a[127], 556_801_461_425_109_011);
+        assert_eq!(family.b[127], 2_045_171_195_252_248_052);
+        let mut sig = vec![0u64; 128];
+        let shingles: [&[u8]; 2] = [b"a b c d e f g h", b"b c d e f g h i"];
+        family.signature(shingles, &mut sig).expect("signs");
+        assert_eq!(sig[0], 1_925_764_502_048_593_531);
+        assert_eq!(sig[1], 840_198_905_161_676_528);
+        assert_eq!(sig[127], 2_103_717_706_075_252_087);
+        assert!(Family::from_seed(0, 1).is_err());
     }
 
     #[test]
