@@ -126,6 +126,12 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     """Characterization: every shard file, sequence index and manifest of a 60-pair build,
     timestamps aside, is the bytes the pipeline wrote before the flag existed.
 
+    Rule set: explicit legacy v5 data rules (``v6_data_rules=False``, i.e.
+    ``DataConfig.legacy_v5()``). This characterizes the shard writer and the exclusion flag, not
+    the v6 data rules: a v6 build of this corpus has no defect class and is refused by design, so
+    the digest below was generated, and is valid, only under v5's rules (a golden names the rule
+    it was generated under; Fable ruling 2026-10-21).
+
     Pinned at d554702 as d67c7de0.... It has moved seven times since, each time by design and
     with every moved byte accounted for. No move was a re-pin to whatever came out:
 
@@ -195,7 +201,7 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
-        val_shards=True, repo_history=False,
+        val_shards=True, repo_history=False, v6_data_rules=False,
     )
     assert build_digest(tmp_path) == (
         "ea81e519a917e7ed644fbf9909d8f45802523fa97493a1473ad257ee147ae47b"
@@ -486,7 +492,9 @@ def test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte(
 
     from qd_train.exclusions import containment_corpus
 
-    config = DataConfig()
+    # The builds below are explicit legacy v5 (a v6 build of this corpus has no defect class and
+    # refuses), so the scan reads the corpus they read and names it as they do.
+    config = DataConfig.legacy_v5()
     rev = resolve_rev(REPO, PIN_REV)
     report = rft.ft_split_report(commitpackft=DOWNLOAD, max_pairs=60, rev=rev, config=config,
                                  repo_history=False)
@@ -507,10 +515,11 @@ def test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte(
     listed = _copy(tmp_path / "scan", tmp_path / "chosen", keys=chosen)
 
     pipeline.run(out=tmp_path / "plain", max_pairs=60, blank_line_runs=False, rev=PIN_REV,
-                 commitpackft=DOWNLOAD, val_shards=True, repo_history=False)
+                 commitpackft=DOWNLOAD, val_shards=True, repo_history=False,
+                 v6_data_rules=False)
     pipeline.run(out=tmp_path / "flag", max_pairs=60, blank_line_runs=False, rev=PIN_REV,
                  commitpackft=DOWNLOAD, val_shards=True, repo_history=False,
-                 exclude_identity_keys=listed)
+                 v6_data_rules=False, exclude_identity_keys=listed)
     plain_val, plain_train = _val_and_train(tmp_path / "plain")
     flag_val, flag_train = _val_and_train(tmp_path / "flag")
     assert plain_val and flag_val == plain_val
