@@ -47,7 +47,7 @@ from typing import Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from mac_footprint import rusage
+from mac_footprint import child_pids, command_line, rusage
 
 #: Exit status when the command ran but no footprint sample could be read.
 NO_SAMPLE: Final[int] = 70
@@ -85,8 +85,29 @@ def stage_name(command: str) -> str:
     return Path(command.split(None, 1)[0]).name if command.strip() else ""
 
 
+def tree_names(libproc: ctypes.CDLL, root: int) -> dict[int, str]:
+    """``{pid: stage name}`` of ``root`` and every descendant, walked through libproc
+    (``proc_listchildpids`` and the process's own command line) so that no process is spawned
+    inside the tree being measured: ``ps`` is setuid, and tools/mac_heavy.sh's reader fails on it
+    (EPERM) and stops the job after three failures in a row."""
+    found: dict[int, str] = {}
+    stack = [root]
+    while stack:
+        pid = stack.pop()
+        if pid in found:
+            continue
+        found[pid] = stage_name(command_line(libproc, pid))
+        try:
+            stack.extend(child_pids(libproc, pid))
+        except OSError:
+            continue
+    return found
+
+
 def process_table() -> list[tuple[int, int, str]]:
-    """``(pid, ppid, stage_name)`` per process."""
+    """``(pid, ppid, stage_name)`` per process, from ``ps``: the fallback when libproc cannot walk
+    the tree. A ``ps`` inside a mac_heavy job is a setuid tree member its reader cannot read, so
+    the walk above is the one the sampling loop uses."""
     out = subprocess.run(
         ["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, check=True,
     ).stdout
@@ -115,7 +136,11 @@ class Tally:
         when nothing could be read. Also folds each process's kernel lifetime max in."""
         per: list[tuple[int, str, int]] = []
         total = 0
-        for pid, name in descendants(root, process_table()).items():
+        try:
+            members = tree_names(libproc, root)
+        except OSError:
+            members = descendants(root, process_table())
+        for pid, name in members.items():
             try:
                 info = rusage(libproc, pid)
             except OSError as exc:
@@ -125,7 +150,7 @@ class Tally:
             now = int(info.ri_phys_footprint)
             total += now
             kept_name, kept = self.lifetime.get(pid, ("", 0))
-            if kept_name and name == "<defunct>":
+            if kept_name and name in ("", "<defunct>"):
                 name = kept_name  # a zombie's command line is gone; keep what it was called
             self.lifetime[pid] = (name, max(kept, int(info.ri_lifetime_max_phys_footprint), now))
             per.append((pid, name, -(-now // MIB)))

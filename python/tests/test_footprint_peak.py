@@ -7,6 +7,7 @@ command (the sum is over the tree, not the root).
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -89,6 +90,34 @@ def test_a_spike_the_root_freed_before_the_next_sample_is_read_from_the_kernel(
     held = [int(v) for v in re.findall(r": (\d+)", stages.group(1))]
     assert max(held) >= HOLD_MIB, done.stderr
     assert "LOWER BOUND" in done.stderr
+
+
+def test_sampling_spawns_no_process_and_still_names_the_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``ps`` run inside a mac_heavy job is a setuid tree member whose footprint the cap's
+    reader cannot read (EPERM); three such failures in a row stop the job. The sampling loop walks
+    the tree through libproc, so it must work with ``subprocess.run`` unavailable."""
+    import ctypes
+
+    from mac_footprint import child_pids, command_line
+
+    def no_spawn(*_a: object, **_k: object) -> None:
+        raise AssertionError("a process was spawned to sample the tree")
+
+    monkeypatch.setattr(footprint_peak.subprocess, "run", no_spawn)
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    child = subprocess.Popen(["sleep", "30"])
+    try:
+        assert child.pid in child_pids(libproc, os.getpid())
+        assert "sleep 30" in command_line(libproc, child.pid)
+        tally = footprint_peak.Tally()
+        got = tally.take(libproc, os.getpid())
+        assert got is not None
+        assert "sleep" in tally.stages()
+    finally:
+        child.kill()
+        child.wait()
 
 
 @pytest.mark.parametrize(("command", "name"), [
