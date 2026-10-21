@@ -42,6 +42,10 @@ from qd_data.render import M_OPT_BEGIN, escape_block, escape_inline  # noqa: E40
 from qd_train.baseline import CharNGramHasher, RequestDoc, request_texts  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
     CODE_THAT_RAN,
+    DECISION_RECORD_BLOB,
+    DECISION_RECORD_COMMIT,
+    DECISION_RECORD_PATH,
+    LIFECYCLE_STARTED_ROW,
     REQUIRED_CONTROLS,
     REQUIRED_GATES,
     Environment,
@@ -332,6 +336,12 @@ def test_a_split_with_no_per_row_option_task_scores_nothing(qd_prep: Path) -> No
 # --- the row, the ledger's join and promotion --------------------------------------------
 
 
+#: What ``RunRecorder`` itself writes on an ft/eval row, whatever the tool: its code digest, the
+#: started row it terminates, and the decision record it was launched under (``RESULT_RUN_KINDS``).
+RECORDER_OWN_METRICS = frozenset({CODE_THAT_RAN, LIFECYCLE_STARTED_ROW, DECISION_RECORD_PATH,
+                                  DECISION_RECORD_BLOB, DECISION_RECORD_COMMIT})
+
+
 def _eval_row(ledger: Path, val: list[RequestDoc], hits: list[bool]) -> str:
     protocol = Protocol(
         data_snapshot_hash="d" * 64, tokenizer_hash="t" * 64, recipe_hash="r" * 64,
@@ -400,8 +410,10 @@ def test_the_option_row_changes_nothing_the_ledger_joins_or_promotion_reads(
     assert all(isinstance(g, NotRun) and "never evaluated" in g.reason
                for g in option.gates.values())
     assert all(isinstance(c, NotRun) for c in option.controls.values())
-    # Beside the recorder's own provenance (`code_that_ran`, on every row of every tool).
-    foreign = [k for k in option.metrics if k != CODE_THAT_RAN
+    # Beside what the recorder itself writes on an ft/eval row, whatever the tool: its code
+    # digest, the started row it terminates, and the decision record it was launched under
+    # (the three `decision_record.*` metrics; `RESULT_RUN_KINDS`).
+    foreign = [k for k in option.metrics if k not in RECORDER_OWN_METRICS
                and not k.startswith((f"{ftc.OPTION_ARM}.", f"{ftc.OPTION_MARGIN}."))]
     assert foreign == []
     assert isinstance(option.metrics[f"{ftc.OPTION_MARGIN}.choice"], Ran)
