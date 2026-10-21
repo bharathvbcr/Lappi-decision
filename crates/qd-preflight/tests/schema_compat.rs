@@ -40,15 +40,110 @@ fn repo_root() -> PathBuf {
 /// `qd_train.tristate` imports nothing outside the standard library, so the training
 /// venv is not required to answer -- any CPython >= 3.11 (for `typing.Self`) will do.
 /// Insisting on `<repo>/.venv` was not a stricter check, only a check that never ran.
+// BEGIN qd-python-resolver
+// The same text sits in qd-prep/tests/convert_licence_parity.rs, qd-metal/tests/ledger_rows.rs and
+// qd-preflight/tests/schema_compat.rs; python/tests/test_qd_python_resolver_pinned.py fails if the
+// three differ. There is no shared test-support crate to own it, and a new workspace member was
+// not authorised, so the text is pinned instead.
+
+/// The interpreters to try, in order: `QD_PYTHON`; this checkout's `.venv/bin/python`; the main
+/// checkout's `.venv/bin/python` when this is a linked worktree (a worktree has no `.venv` of its
+/// own); then `python3`. The caller fails loudly, naming `QD_PYTHON`, when none is usable.
 fn python_candidates() -> Vec<PathBuf> {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    resolve_python_candidates(std::env::var_os("QD_PYTHON"), &repo)
+}
+
+fn resolve_python_candidates(qd_python: Option<std::ffi::OsString>, repo: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    if let Some(p) = std::env::var_os("QD_PYTHON") {
+    if let Some(p) = qd_python {
         out.push(PathBuf::from(p));
     }
-    out.push(repo_root().join(".venv/bin/python"));
+    out.push(repo.join(".venv/bin/python"));
+    if let Some(main) = main_checkout(repo) {
+        out.push(main.join(".venv/bin/python"));
+    }
     out.push(PathBuf::from("python3"));
     out
 }
+
+/// The main checkout's root, from `git rev-parse --git-common-dir`; `None` when `repo` is not in
+/// a git checkout or git cannot run (the candidate list then simply lacks that entry).
+fn main_checkout(repo: &Path) -> Option<PathBuf> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let common = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
+    common.parent().map(Path::to_path_buf)
+}
+
+#[test]
+fn a_linked_worktree_resolves_the_main_checkouts_venv() {
+    let root = std::env::temp_dir().join(format!("qd-python-resolver-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let main = root.join("main");
+    let linked = root.join("linked");
+    std::fs::create_dir_all(main.join(".venv/bin")).unwrap();
+    std::fs::write(main.join(".venv/bin/python"), "").unwrap();
+    let git = |dir: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&main, &["init", "-q"]);
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "x"]);
+    git(&main, &["worktree", "add", "-q", linked.to_str().unwrap()]);
+    let main_py = main.join(".venv/bin/python").canonicalize().unwrap();
+
+    let got = resolve_python_candidates(None, &linked);
+    assert!(
+        got.iter()
+            .any(|p| p.canonicalize().ok().as_deref() == Some(main_py.as_path())),
+        "a linked worktree without a .venv must try the main checkout's: {got:?}"
+    );
+    let order: Vec<_> = got
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        order[0].ends_with("linked/.venv/bin/python"),
+        "own .venv first: {order:?}"
+    );
+    assert_eq!(order.last().map(String::as_str), Some("python3"));
+
+    let with_env = resolve_python_candidates(Some("/x/py".into()), &linked);
+    assert_eq!(
+        with_env[0],
+        PathBuf::from("/x/py"),
+        "QD_PYTHON outranks every checkout"
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+}
+// END qd-python-resolver
 
 /// Run a command, killing it past `limit`.
 ///
