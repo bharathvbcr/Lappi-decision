@@ -32,6 +32,15 @@ from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
 
+#: These tests characterize the val shard set's remap and bytes, not the data rules, and build
+#: from the plain commitpackft download with no ``--defect-class``. v6's R1 refuses that build
+#: ("defect_token_share ... not_run ... Refusing to write a shard set"), correctly: the v6
+#: rules need the defect-class family in the mixture. So every build here runs under the v5
+#: rule set (``v6_data_rules=False``, the pipeline's ``--legacy-v5-data-rules``) and every
+#: reader names the same rules (``DataConfig.legacy_v5()``), which the shard header pins.
+LEGACY_V5_RULES = {"v6_data_rules": False}
+V5_RULES = DataConfig.legacy_v5()
+
 
 @pytest.mark.usefixtures("qd_prep")
 def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path) -> None:
@@ -43,7 +52,7 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
 
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
-        commitpackft=DOWNLOAD, val_shards=True, vocab=pipeline.VOCAB_CORPUS,
+        commitpackft=DOWNLOAD, val_shards=True, vocab=pipeline.VOCAB_CORPUS, **LEGACY_V5_RULES,
     )
 
     coverage = measured.metrics["val_shard_coverage"]
@@ -58,7 +67,7 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     held_out = measured.metrics["remap_covers_heldout_rows"]
     assert isinstance(held_out, Ran) and "train and val remap kept" in held_out.detail
 
-    config = DataConfig()
+    config = V5_RULES
     train = ShardReader(tmp_path / "shards" / "train", config=config, repo_root=tmp_path)
     val = ShardReader(tmp_path / "shards" / "val", config=config, repo_root=tmp_path)
     assert val.header.split == "val"
@@ -76,7 +85,7 @@ def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path
 
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
-        commitpackft=DOWNLOAD, val_shards=True,
+        commitpackft=DOWNLOAD, val_shards=True, **LEGACY_V5_RULES,
     )
 
     vocabulary = measured.metrics["remap_vocabulary"]
@@ -87,7 +96,7 @@ def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path
         got = measured.metrics[name]
         assert isinstance(got, NotRun) and "--vocab full" in got.reason, (name, got)
     train = ShardReader(
-        tmp_path / "shards" / "train", config=DataConfig(), repo_root=tmp_path
+        tmp_path / "shards" / "train", config=V5_RULES, repo_root=tmp_path
     )
     assert train.header.vocab_size == vocabulary.n_total
     # Every embedding row of the checkpoint, including the padding past the tokenizer, so the
@@ -116,7 +125,7 @@ def test_refuse_gold_leaves_the_val_set_byte_identical(tmp_path) -> None:
         out = tmp_path / policy
         pipeline.run(
             out=out, max_pairs=60, blank_line_runs=False, rev="HEAD",
-            commitpackft=DOWNLOAD, val_shards=True, span_collapse_policy=policy,
+            commitpackft=DOWNLOAD, val_shards=True, span_collapse_policy=policy, **LEGACY_V5_RULES,
         )
         outs[policy] = out / "shards" / "val"
     names = sorted(p.name for p in outs["refuse-any"].iterdir())

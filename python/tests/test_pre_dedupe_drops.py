@@ -201,7 +201,15 @@ def test_the_pipeline_and_the_trainers_rebuild_drop_the_same_rows_and_keep_the_v
     path, as the first v5 build's were). The pipeline's build with the list writes
     the val row; without it, dedupe drops it. ``real_ft_run.ft_splits`` with the same list
     rebuilds exactly the manifests the pipeline wrote, which is what the trainer, the
-    containment scan and the linear control rebuild through."""
+    containment scan and the linear control rebuild through.
+
+    Legacy v5 data rules throughout (``DataConfig.legacy_v5()`` for the fixture and the
+    rebuild, ``v6_data_rules=False`` for the pipeline's build). The knock-out this test is built
+    on is a property of the v5 rules: measured on this fixture, the v5 build's dedupe drops the
+    val row ``v0`` in favour of its train twin, and the v6 build's drops the train twin and
+    writes ``v0`` with no list at all (the identity keys are the same under both). So under v6
+    there is no knock-out for the list to undo, and the test would fail its own "the fixture
+    did not reproduce the knock-out" check. A v6-valid fixture is the open follow-up."""
     pytest.importorskip("torch")
     import real_ft_run as rft
     import real_tokenizer_pipeline as pipeline
@@ -247,6 +255,7 @@ def test_the_pipeline_and_the_trainers_rebuild_drop_the_same_rows_and_keep_the_v
     for name, drops in (("plain", None), ("dropped", listed)):
         with pytest.raises(_ManifestsWritten):
             pipeline.run(out=tmp_path / name, max_pairs=3, blank_line_runs=False, rev=rev,
+                         v6_data_rules=False,
                          decisions_pool=pool, pre_dedupe_drops=drops,
                          dedupe_report_out=tmp_path / f"{name}-dedupe.json")
     # The plain build's own dedupe report names the knock-out: the train twin kept, the val
@@ -262,6 +271,7 @@ def test_the_pipeline_and_the_trainers_rebuild_drop_the_same_rows_and_keep_the_v
     assert not any(keys["v0"] in json.dumps(c) for c in components(dropped_report))
     with pytest.raises(SystemExit, match="written once"):
         pipeline.run(out=tmp_path / "again", max_pairs=3, blank_line_runs=False, rev=rev,
+                     v6_data_rules=False,
                      decisions_pool=pool, dedupe_report_out=tmp_path / "plain-dedupe.json")
     val = "data/pool/val.json"
     assert built["v0"].row_id not in _manifest_ids(tmp_path / "plain" / val), (
