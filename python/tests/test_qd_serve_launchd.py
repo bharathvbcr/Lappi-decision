@@ -24,7 +24,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools" / "qd_serve_launchd.py"
-MAC_HEAVY = ROOT / "tools" / "mac_heavy.sh"
+# QD_TEST_MAC_HEAVY points the guard tests at another copy of mac_heavy.sh (the pre-fix script,
+# to show they fail against it); unset, they test this checkout's script.
+MAC_HEAVY = Path(os.environ.get("QD_TEST_MAC_HEAVY") or ROOT / "tools" / "mac_heavy.sh")
 SHA = "6f7b9ba73bca3a0b2e4ec9b2c0fc2aa6e7459f7e3286b26386633a222667dfcb"
 
 FAKE_LAUNCHCTL = """#!/usr/bin/env python3
