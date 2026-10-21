@@ -16,6 +16,7 @@ Torch-gated. Run with the ml venv::
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -75,6 +76,7 @@ def _cfg(env: Env, work: Path, **over) -> drv.LoraRunConfig:
     base = dict(
         out=env.out, backbone=env.snapshot, tokenizer_json=env.tokenizer,
         span_head_init=rg.H64_FILE, span_head_init_manifest=rg.H64_MANIFEST,
+        manifest=env.out / "data" / "pool" / "train.json",
         ledger=work / "ledger.jsonl", loss_log=work / "loss.jsonl",
         checkpoint=work / "ckpt" / "lora.json", seed=0, device="cpu", dtype="fp32",
         max_steps=STEPS, wall_clock_cap_s=600.0, expect_rev=rg.REV,
@@ -131,16 +133,45 @@ def test_the_row_carries_the_seven_digests(env, tmp_path):
     assert dig["dtype_map_sha256"] == stored.dtype_map_sha256
     assert dig["base_safetensors_sha256"] == stored.safetensors_sha256
     for metric, key in (
-        ("init.span_head_digest", "span_head_init_content_digest"),
-        ("init.d17_digest", "d17_init_digest"),
-        ("init.lora_a_digest", "lora_a_digest"),
+        # The Rust names (Fable's ruling 2026-10-21: qd_train::ledger::lora_ft_row's set).
+        ("train.span_head_init_digest", "span_head_init_content_digest"),
+        ("lora.d17_init_digest", "d17_init_digest"),
+        ("lora.a_init_digest", "lora_a_digest"),
         ("init.base_snapshot", "base_snapshot"),
-        ("init.base_safetensors_sha256", "base_safetensors_sha256"),
-        ("init.dtype_map_sha256", "dtype_map_sha256"),
+        ("lora.base_safetensors_sha256", "base_safetensors_sha256"),
+        ("lora.dtype_map_sha256", "dtype_map_sha256"),
         ("corpus.plan_seed", "plan_seed"),
         ("corpus.train_shard_hash", "train_shard_hash"),
     ):
         assert row.metrics[metric].value == dig[key], metric
+    # No init.* spelling of the five digests survives: one name set, the Rust one.
+    old = {"init.span_head_digest", "init.d17_digest", "init.lora_a_digest",
+           "init.base_safetensors_sha256", "init.dtype_map_sha256"}
+    assert not old & set(row.metrics)
+    assert isinstance(row.metrics["corpus.plan_seed"].value, int)
+    assert row.metrics["lora.param_groups"].value.startswith("lora x")
+    # The row records the train manifest file's sha256, and the driver's own gate accepts it.
+    manifest = cfg.manifest
+    assert row.train_manifest_sha256 == hashlib.sha256(manifest.read_bytes()).hexdigest()
+    assert dig["train_manifest_sha256"] == row.train_manifest_sha256
+    row.check_optimizer_label()
+
+
+def test_a_manifest_that_changes_while_it_is_read_is_refused(tmp_path):
+    manifest = tmp_path / "train.json"
+    manifest.write_bytes(b"one")
+
+    def read():
+        manifest.write_bytes(b"two")
+        return "read"
+
+    with pytest.raises(drv.LoraDriverRefusal, match="changed between the hash and the read"):
+        drv.read_with_manifest_sha256(manifest, read)
+    manifest.write_bytes(b"one")
+    value, digest = drv.read_with_manifest_sha256(manifest, lambda: "read")
+    assert value == "read" and digest == hashlib.sha256(b"one").hexdigest()
+    with pytest.raises(drv.LoraDriverRefusal, match="cannot hash the train manifest"):
+        drv.read_with_manifest_sha256(tmp_path / "absent.json", lambda: "read")
 
 
 def test_the_a_digest_moves_with_the_seed(env, tmp_path):

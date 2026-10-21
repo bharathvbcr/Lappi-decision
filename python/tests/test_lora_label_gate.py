@@ -68,14 +68,16 @@ def test_the_label_set_is_the_one_rust_and_real_ft_run_use() -> None:
     )
 
 
-def test_a_complete_rust_spelled_row_and_a_complete_driver_spelled_row_are_accepted(
-    tmp_path: Path,
-) -> None:
+def test_a_complete_rust_named_row_is_accepted_and_the_init_names_are_not(tmp_path: Path) -> None:
     led = Ledger(tmp_path / "runs.jsonl")
     led.append(_row(metrics=RUST_METRICS, row_id="rust"))
-    led.append(_row(metrics=DRIVER_METRICS, manifest=None, row_id="driver"))
     led.verify_chain()
-    assert [r.row_id for r in led.rows()] == ["rust", "driver"]
+    assert [r.row_id for r in led.rows()] == ["rust"]
+    # Fable's ruling 2026-10-21: one name set. The reference driver's earlier init.* spelling,
+    # with or without a manifest sha, is refused.
+    for manifest in ("c" * 64, None):
+        with pytest.raises(ValueError, match="lacks metric"):
+            led.append(_row(metrics=DRIVER_METRICS, manifest=manifest, row_id="driver"))
 
 
 @pytest.mark.parametrize("label", ["LORA", "Lora", " lora", "lora ", "lora\n", "lоra", "adamw", ""])
@@ -134,12 +136,11 @@ def test_missing_metrics_manifest_sha_and_mixed_spellings_are_refused() -> None:
             _row(metrics=partial)
     with pytest.raises(ValueError, match="train_manifest_sha256"):
         _row(metrics=RUST_METRICS, manifest=None)
-    with pytest.raises(ValueError):
-        _row(metrics={**RUST_METRICS, "init.d17_digest": DRIVER_METRICS["init.d17_digest"]},
-             manifest=None, row_id="mixed-missing")
-    partial_driver = {k: v for k, v in DRIVER_METRICS.items() if k != "init.lora_a_digest"}
-    with pytest.raises(ValueError):
-        _row(metrics=partial_driver, manifest=None)
+    # A mixture: some Rust names, the rest under the old init.* spelling.
+    mixed = {k: v for k, v in RUST_METRICS.items() if k != "lora.d17_init_digest"}
+    mixed["init.d17_digest"] = DRIVER_METRICS["init.d17_digest"]
+    with pytest.raises(ValueError, match="lora.d17_init_digest"):
+        _row(metrics=mixed)
     with pytest.raises(ValueError):
         _row(metrics={})
 

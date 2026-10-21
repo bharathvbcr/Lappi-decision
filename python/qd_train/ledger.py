@@ -125,24 +125,15 @@ _PARAM_GROUP = re.compile(
     re.DOTALL,
 )
 #: The evidence a completed ``lora`` row carries, under the names Rust's ``lora_ft_row`` writes
-#: (digest metrics, then the seed and the group summary) ...
+#: (digest metrics, then the seed and the group summary). The one name set: Fable's ruling
+#: 2026-10-21 made it canonical over the reference driver's earlier ``init.*`` spelling, and
+#: ``tools/lora_reference_run.py`` now writes these.
 _LORA_RUST_DIGESTS: tuple[str, ...] = (
     "train.span_head_init_digest",
     "lora.d17_init_digest",
     "lora.a_init_digest",
     "lora.base_safetensors_sha256",
     "lora.dtype_map_sha256",
-)
-#: ... and under the names ``tools/lora_reference_run.py`` writes. The two writers disagree and
-#: the pre-registration names neither (GAP-L5-LORA-METRIC-NAMES-DIVERGE-RUST-VS-REFERENCE-
-#: DRIVER-2026-10-21): until the owner picks one, a row is accepted with either complete set,
-#: never with a mixture or a partial one.
-_LORA_DRIVER_DIGESTS: tuple[str, ...] = (
-    "init.span_head_digest",
-    "init.d17_digest",
-    "init.lora_a_digest",
-    "init.base_safetensors_sha256",
-    "init.dtype_map_sha256",
 )
 #: The cap a `build` row's cost is priced against. `CostEstimate` prices `projected_usd`
 #: from the cap, and a build row is a local gate run whose rate is zero, so the number this
@@ -1118,10 +1109,9 @@ class LedgerRow:
 
         ``recipe.optimizer_recipe``, when the recipe states one, is exactly one of
         :data:`OPTIMIZER_RECIPE_LABELS`. A ``completed`` row labelled ``lora`` carries its
-        evidence: every digest metric a passed ``ran`` record holding a lowercase hex sha256, and
-        either ``corpus.plan_seed`` an unsigned integer plus a ``lora.param_groups`` summary
-        plus ``train_manifest_sha256`` (Rust's writer), or the reference driver's complete set
-        (see :data:`_LORA_DRIVER_DIGESTS`). A ``started`` marker, and a ``failed`` or ``killed``
+        evidence: every digest metric a passed ``ran`` record holding a lowercase hex sha256,
+        ``corpus.plan_seed`` an unsigned integer, a ``lora.param_groups`` summary and
+        ``train_manifest_sha256``. A ``started`` marker, and a ``failed`` or ``killed``
         row, say a run did not finish: they are no LoRA result and stay writable."""
         if self.recipe is None or "optimizer_recipe" not in self.recipe:
             return
@@ -1153,31 +1143,21 @@ class LedgerRow:
             if not isinstance(v, str) or _HEX64.fullmatch(v) is None:
                 raise ValueError(f"metric {name} of a lora row is not a lowercase hex sha256")
 
-        rust_named = any(n.startswith("lora.") for n in self.metrics) or (
-            "train.span_head_init_digest" in self.metrics
-        )
-        if rust_named:
-            for name in _LORA_RUST_DIGESTS:
-                hex_ok(name)
-            seed = ran_value("corpus.plan_seed")
-            if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
-                raise ValueError("metric corpus.plan_seed of a lora row is not an unsigned integer")
-            groups = ran_value("lora.param_groups")
-            if not isinstance(groups, str) or not self._param_groups_ok(groups):
-                raise ValueError(
-                    "metric lora.param_groups of a lora row is not a `name xN at lr_scale S` summary"
-                )
-            if self.train_manifest_sha256 is None:
-                raise ValueError(
-                    "a completed row labelled 'lora' records no train_manifest_sha256: the "
-                    "release export refuses it"
-                )
-            return
-        for name in _LORA_DRIVER_DIGESTS:
+        for name in _LORA_RUST_DIGESTS:
             hex_ok(name)
-        seed_text = ran_value("corpus.plan_seed")
-        if not isinstance(seed_text, str) or not seed_text.isascii() or not seed_text.isdigit():
+        seed = ran_value("corpus.plan_seed")
+        if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
             raise ValueError("metric corpus.plan_seed of a lora row is not an unsigned integer")
+        groups = ran_value("lora.param_groups")
+        if not isinstance(groups, str) or not self._param_groups_ok(groups):
+            raise ValueError(
+                "metric lora.param_groups of a lora row is not a `name xN at lr_scale S` summary"
+            )
+        if self.train_manifest_sha256 is None:
+            raise ValueError(
+                "a completed row labelled 'lora' records no train_manifest_sha256: the "
+                "release export refuses it"
+            )
 
     @staticmethod
     def _param_groups_ok(summary: str) -> bool:

@@ -105,6 +105,45 @@ Runs after the fixes (mac_heavy, MAX_WAIT_S=28800): `cargo test -p qd-train` 274
 `cargo test -p qd-train --test lora_row -- --ignored` 1 passed; `make torch-pytest` narrowed to the
 lora and ledger tests (10 files) 303 passed. Raw output in `build/l5/r3-*.out` (gitignored).
 
+## Fable's ruling on the metric names (2026-10-21): Rust set canonical, implemented
+
+Supersedes item 5 and the dual-set paragraph above; the GAP
+`GAP-L5-LORA-METRIC-NAMES-DIVERGE-RUST-VS-REFERENCE-DRIVER-2026-10-21` is closed with a resolved
+record citing the ruling.
+
+- `tools/lora_reference_run.py` writes `train.span_head_init_digest`, `lora.d17_init_digest`,
+  `lora.a_init_digest`, `lora.base_safetensors_sha256`, `lora.dtype_map_sha256`, `corpus.plan_seed`
+  (an integer now) and `lora.param_groups`, plus `train_manifest_sha256` on the row. The manifest
+  is a new required `--manifest`/`LoraRunConfig.manifest`, hashed before and after the shard door
+  opens (`read_with_manifest_sha256`, as `open_training_data` and qd-train-metal's W2-4 do); changed
+  bytes are refused. `init.base_snapshot`, `init.f32_names_sha256`, `corpus.plan_order_digest` and
+  `corpus.train_shard_hash` stay as extra metrics the gate ignores. Its digests dict gains
+  `train_manifest_sha256`.
+- `python/qd_train/ledger.py`: the "either complete set" branch is gone; one set, Rust's rule.
+- `python/tests/test_lora_reference_driver.py` pins the Rust names (and the manifest sha, and the
+  refusal on changed manifest bytes); the old `init.*` digest names must be absent. Its `_cfg`
+  gained `manifest=`; no other assertion changed.
+- Cross-language parity on the SAME row bytes: fixture
+  `crates/qd-train/tests/fixtures/lora-gate-cases.json` (14 cases, written by
+  `tools/gen_lora_gate_cases.py`; `--check` and a Python test fail if it is stale). Rust:
+  `crates/qd-train/tests/lora_gate_parity.rs` through the new `qd_train::ledger::check_row_line`.
+  Python: `python/tests/test_lora_gate_parity.py` through `verify_chain` and `Ledger.append`. Cases
+  include a valid Rust-named row (accept), an `init.*`-named row (refuse, with and without a manifest
+  sha), a mixed row (refuse), bare, `not_run`, string seed, upper-case digest, bad group summary,
+  upper-case and homoglyph labels (refuse), and an f32 row and a failed lora row without evidence
+  (accept). The Rust-writes/Python-verifies direction remains the ignored
+  `pythons_verifier_accepts_a_lora_row`.
+- Committed ledgers scanned (`RIPGREP_CONFIG_PATH= rg -uu` over `ledger/` and the repo, and
+  `git ls-files '*.jsonl'`): NO lora row and no `init.d17_digest` / `init.lora_a_digest` metric
+  exists in any committed ledger. So no frozen `lora_reference_v0` kind was added, no row ids to
+  list, and no cited verdict rests on an `init.*` row.
+- Runs: `cargo test -p qd-train` 276 passed, 0 failed, 5 ignored (mac_heavy 48);
+  `make torch-pytest` narrowed to the lora, ledger and driver tests (11 files), default load 12,
+  318 passed, 1 deselected. NOT RUN: `test_the_mps_bf16_leg_runs_with_a_bf16_base_f32_stored_tensors_and_f32_adapters`
+  (`-k "not test_the_mps_bf16_leg"`, MPS leg). Committed-ledger verify (`build/l5/verify_all.py`): 99
+  files, 2211 rows, 0 failed. `-p qd-train-metal` was not re-run after this change (no API it uses
+  moved; last run above).
+
 ## First command for the next lane
 
 After ojas ft-b5e64557 phase B puts a LoRA provider behind qd-train's loop (ojas-train, after

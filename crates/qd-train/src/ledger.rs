@@ -1221,6 +1221,38 @@ fn check_optimizer_label(
     Ok(())
 }
 
+/// The reading side of [`check_optimizer_label`]: the verdict Rust's gate gives a ledger line
+/// that already exists as bytes, the way Python's `LedgerRow.from_json` plus
+/// `check_optimizer_label` give it. It reads only what the gate reads (`status`, `recipe`,
+/// `metrics` as tri-states, `train_manifest_sha256`), so `crates/qd-train/tests/lora_gate_parity.rs`
+/// and `python/tests/test_lora_gate_parity.py` can hand both gates the same bytes.
+pub fn check_row_line(line: &str) -> Result<(), LedgerError> {
+    let v: Value = serde_json::from_str(line)
+        .map_err(|e| LedgerError::Refused(format!("the line is not JSON: {e}")))?;
+    let status = match v.get("status").and_then(Value::as_str) {
+        Some("started") => Status::Started,
+        Some("completed") => Status::Completed,
+        Some("killed") => Status::Killed,
+        Some("failed") => Status::Failed,
+        other => return refuse(format!("status {other:?} is not a ledger status")),
+    };
+    let extras = RowExtras::from_line(&v)?;
+    let mut metrics = BTreeMap::new();
+    match v.get("metrics") {
+        Some(Value::Object(m)) => {
+            for (name, raw) in m {
+                metrics.insert(
+                    name.clone(),
+                    crate::tristate::parse_tristate(raw, &format!("metrics.{name}"))?,
+                );
+            }
+        }
+        _ => return refuse("metrics is not an object"),
+    }
+    let recipe = v.get("recipe").cloned().unwrap_or(Value::Null);
+    check_optimizer_label(&recipe, status, &metrics, &extras)
+}
+
 /// Turn an assembled `ft` row into a `lora` row: the checks a LoRA run owes, then the digests
 /// in its metrics. `row.recipe.optimizer_recipe` must already be [`LORA_OPTIMIZER_RECIPE`] and
 /// name no lower-layer split; `entries` and `host` are the plan the run trained
