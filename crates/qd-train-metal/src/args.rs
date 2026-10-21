@@ -32,7 +32,9 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 use qd_train::ft_data::HeadInitPin;
-use qd_train::ledger::{check_ledger_path, prompt_format_extra};
+use qd_train::ledger::{
+    LORA_OPTIMIZER_RECIPE, METAL_FULL_FT_OPTIMIZER_RECIPE, check_ledger_path, prompt_format_extra,
+};
 use qd_train::recipe::LowerLayers;
 use qd_train::run_control::WallClockCap;
 use qd_train::trainer::EtaRule;
@@ -212,12 +214,13 @@ pub const USAGE: &str = "qd-train-metal \
 --out DIR --ledger ledger/mac-ojas-*.jsonl --repo DIR \
 --seed N --lr X --steps N --batch-tokens N --span-weight X --cap-s X --operands exact_f32|bf16 \
 [--epochs N] [--eta-at-step N --eta-margin-s X] [--checkpoint-every N] [--min-lr X] [--resume CKPT_DIR] \
-[--lower-layers-n N --lower-layers-lr-scale X] [--unpinned-ojas]";
+[--lower-layers-n N --lower-layers-lr-scale X] [--optimizer-recipe f32] [--unpinned-ojas]";
 
 /// The one flag that takes no value: run although ojas is not at the locked commit.
 pub const UNPINNED_OJAS: &str = "--unpinned-ojas";
 
-const TAKES_VALUE: [&str; 27] = [
+const TAKES_VALUE: [&str; 28] = [
+    "--optimizer-recipe",
     "--epochs",
     "--head-init-sha256",
     "--head-init-content-digest",
@@ -323,6 +326,26 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
     let req = |flag: &str| get(flag).ok_or_else(|| ArgsError::Usage(format!("{flag} is required")));
     let path = |flag: &str| req(flag).map(PathBuf::from);
 
+    match get("--optimizer-recipe") {
+        None | Some(METAL_FULL_FT_OPTIMIZER_RECIPE) => {}
+        Some(LORA_OPTIMIZER_RECIPE) => {
+            return Err(ArgsError::Refused(format!(
+                "--optimizer-recipe {LORA_OPTIMIZER_RECIPE}: qd-train-metal has no LoRA provider. \
+                 Its Qwen35Provider is full fine-tuning, so a LoRA run here would train every \
+                 weight and write a row labelled {METAL_FULL_FT_OPTIMIZER_RECIPE:?}. The LoRA \
+                 provider is ojas-model's TapeStepProvider::open_lora, which implements \
+                 ojas-train's StepProvider and is not reachable from this crate (no dependency on \
+                 it, and the loop still dispatches optimizer_table, not lora_optimizer_table), so \
+                 qd_train::ledger::lora_ft_row has no caller yet (ft-57fc7484 b5; ojas \
+                 ft-b5e64557 phase B)"
+            )));
+        }
+        Some(other) => {
+            return Err(ArgsError::Usage(format!(
+                "--optimizer-recipe {other:?}: only {METAL_FULL_FT_OPTIMIZER_RECIPE:?} is trained here"
+            )));
+        }
+    }
     let lr: f64 = number("--lr", req("--lr")?)?;
     if !(lr.is_finite() && lr > 0.0) {
         return Err(ArgsError::Usage(format!(

@@ -368,6 +368,130 @@ fn a_full_ft_row_still_says_f32() {
     assert_eq!(LORA_OPTIMIZER_RECIPE, "lora");
 }
 
+fn manifest_extras() -> ledger::RowExtras {
+    ledger::RowExtras {
+        train_manifest_sha256: Some("c".repeat(64)),
+        ..ledger::RowExtras::default()
+    }
+}
+
+fn temp_ledger(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("qd-train-lora-row-{tag}-{}", std::process::id()));
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    dir.join("ledger").join("mac-ojas-lora-row-test.jsonl")
+}
+
+fn f32_row() -> FtRow {
+    let r = FtRecipe {
+        optimizer_recipe: ledger::METAL_FULL_FT_OPTIMIZER_RECIPE.into(),
+        ..lora_recipe()
+    };
+    let mut row = base_row(r, 0);
+    row.quick_reason = "full-FT fixture row".into();
+    row
+}
+
+/// Characterization, taken on the code before the lora label guard existed: the line a non-LoRA
+/// run appends is byte-for-byte what it was. A change to this digest is a change to every Mac
+/// full-FT row and must be argued, not adjusted.
+#[test]
+fn a_non_lora_row_is_appended_byte_for_byte_as_before() {
+    use sha2::{Digest, Sha256};
+    let path = temp_ledger("f32-bytes");
+    ledger::append_with(
+        &path,
+        &f32_row(),
+        &manifest_extras(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(
+        digest, "8251ace8f7fa095517096e2abdc29fce7bf97722a4fdc3ebd92dbb052446110e",
+        "an f32 row's appended bytes ({} bytes) changed",
+        bytes.len()
+    );
+}
+
+/// A row labelled `lora` is the one `lora_ft_row` builds, carrying every digest the
+/// pre-registration names, and the train manifest's sha256. Anything else is refused at the one
+/// locked append, so no path labels a row `lora` without the evidence, and none writes a LoRA
+/// run as `f32`.
+#[test]
+fn a_lora_labelled_row_is_appended_only_when_lora_ft_row_built_it_with_the_manifest_sha() {
+    let f = fixture(0);
+    // Labelled lora by assignment, with none of the digests: refused, nothing written.
+    let mut bare = base_row(lora_recipe(), 0);
+    bare.quick_reason = "labelled lora by assignment".into();
+    let path = temp_ledger("bare");
+    let err = ledger::append_with(
+        &path,
+        &bare,
+        &manifest_extras(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("train.span_head_init_digest") && err.contains("lora_ft_row"),
+        "{err}"
+    );
+    assert!(
+        !path.exists() || std::fs::read(&path).unwrap().is_empty(),
+        "a refused row writes nothing"
+    );
+    // lora_ft_row's row without the manifest sha: refused (the release export would refuse it).
+    let built = good_row(&f, 0);
+    let err = ledger::append_with(
+        &path,
+        &built,
+        &ledger::RowExtras::default(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("train_manifest_sha256"), "{err}");
+    // With it, the row is appended once, labelled lora, carrying the manifest sha.
+    ledger::append_with(
+        &path,
+        &built,
+        &manifest_extras(),
+        stamp().row_id,
+        stamp().written_at,
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(text.lines().count(), 1);
+    let v: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(v["recipe"]["optimizer_recipe"], "lora");
+    assert_eq!(v["train_manifest_sha256"], "c".repeat(64));
+    // The same row id again is refused by the ledger's own duplicate rule.
+    assert!(
+        ledger::append_with(
+            &path,
+            &built,
+            &manifest_extras(),
+            stamp().row_id,
+            stamp().written_at
+        )
+        .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap().lines().count(),
+        1,
+        "written once"
+    );
+}
+
 fn ml_python() -> PathBuf {
     PathBuf::from("/Users/bharath/.venvs/ml/bin/python")
 }

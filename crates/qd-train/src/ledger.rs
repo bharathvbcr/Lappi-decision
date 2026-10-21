@@ -905,6 +905,7 @@ pub fn append_with(
     written_at: String,
 ) -> Result<Stamp, LedgerError> {
     check_ledger_path(path)?;
+    check_lora_label(row, extras)?;
     append_line(path, row_id, written_at, |stamp| {
         row.line_with(stamp, extras)
     })
@@ -1115,6 +1116,43 @@ pub struct LoraInit<'a> {
 
 fn is_hex64(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The metrics [`lora_ft_row`] adds to every row it builds, beyond `ft_metrics`.
+const LORA_ROW_METRICS: [&str; 7] = [
+    "train.span_head_init_digest",
+    "lora.d17_init_digest",
+    "lora.a_init_digest",
+    "lora.base_safetensors_sha256",
+    "lora.dtype_map_sha256",
+    "corpus.plan_seed",
+    "lora.param_groups",
+];
+
+/// The one locked append's gate on the `lora` label: a row labelled [`LORA_OPTIMIZER_RECIPE`]
+/// is one [`lora_ft_row`] built (every digest in [`LORA_ROW_METRICS`]) and carries the train
+/// manifest's sha256, which the release export requires. A row that is not labelled `lora` is
+/// not looked at, so every other row is appended exactly as before.
+fn check_lora_label(row: &FtRow, extras: &RowExtras) -> Result<(), LedgerError> {
+    if row.recipe.optimizer_recipe != LORA_OPTIMIZER_RECIPE {
+        return Ok(());
+    }
+    if let Some(missing) = LORA_ROW_METRICS
+        .iter()
+        .find(|name| !row.metrics.contains_key(**name))
+    {
+        return refuse(format!(
+            "a row labelled {LORA_OPTIMIZER_RECIPE:?} lacks metric {missing}: only lora_ft_row \
+             builds a lora row"
+        ));
+    }
+    if extras.train_manifest_sha256.is_none() {
+        return refuse(format!(
+            "a row labelled {LORA_OPTIMIZER_RECIPE:?} records no train_manifest_sha256: the \
+             release export refuses it"
+        ));
+    }
+    Ok(())
 }
 
 /// Turn an assembled `ft` row into a `lora` row: the checks a LoRA run owes, then the digests
