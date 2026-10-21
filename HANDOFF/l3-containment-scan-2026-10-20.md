@@ -109,6 +109,54 @@ Existing native tests (minhash/lsh parity, composed files, memory): 39 passed, 4
 - Two lock holds were lost to my setup (main .venv has no torch; composed corpus missing in main).
   The first two chain attempts exited in seconds.
 
+## Adversarial round (lead, adv/ft-57fc7484-l3 b9b86fc, 9862a58; fixed in 974cb15)
+Both adversarial files are cherry-picked (909f198, 9df6b69 on this branch); all BREAK tests pass.
+Run: `make torch-pytest` narrowed to these files (the lane's tests, the three adv files, the
+parity, composed-file, memory, fingerprint, mac_heavy_lock and gaps tests; `build/l3/adv_run.sh`)
+under mac_heavy at its default load 12: `278 passed, 4 skipped` (benchmarks opt-in, real-MPS opt-in).
+Only lint edits were made to the adversarial tests (unused noqa, one unused name).
+
+1. **footprint_peak (breaks 1-3).** (a) Why `tools/mac_footprint.py` was not used as the sampler: it
+   is a one-shot reader of the current footprint of pids it is handed (what the cap sums). I imported
+   its `phys_footprint_bytes` and wrote the loop and the walk around it, and kept only the sampled
+   maximum, which is a lower bound; I did not read the kernel's lifetime max. (b) One reader now:
+   `mac_footprint.py` gained `rusage()` and `lifetime_max_phys_footprint_bytes()`;
+   `footprint_peak.py` is the command runner and reporter on top of it (the adv tests, and a run
+   that must launch a command, need a runner; the reader is not duplicated). (c) The tool reads
+   each process's `ri_lifetime_max_phys_footprint` at every sample (exact for any process seen
+   alive once) and takes `wait4`'s `ru_maxrss` of the command, which on macOS covers every reaped
+   descendant (probe: idle root 16 MiB, root + 400 MiB grandchild that exited 417 MiB). The
+   headline `peak` is the largest of those lower bounds and is printed as `LOWER BOUND`, with the
+   sampled tree sum, one process's lifetime max, the reaped RSS and the sum of seen lifetime maxima
+   separately. A tree sum cannot be exact: a child that lived and died between samples is in
+   `ru_maxrss` (RSS, largest single process) but its overlap with the others is unknowable. (d)
+   The timeline opens before the command starts. (e) The stage label parses the whole command line.
+   The summary prints the largest lifetime max per stage (`python`, `qd-prep:minhash`,
+   `qd-prep:lsh`, `qd-prep:containment`). **The 3-of-3 runs above used the older tool**: their
+   peaks are sampled-tree lower bounds at 2 s; after3 never sampled a `qd-prep:minhash` child at
+   all (`peaks.py after3`). The parent, alive for the whole run and above 8 GiB for minutes, was
+   sampled many times; the short children are what the old tool could miss. Whether the three
+   runs must be repeated with this tool is Fable's ruling; they were not re-run.
+2. **Cross-set collision (break 4).** Each distinct set keeps a blake2b-128 content digest (sorted
+   shingle bytes joined by 0xff, a byte UTF-8 never holds). An equal packed form with another digest
+   is a refusal naming the collision, in the build and in `signature()` of a plain set. The
+   docstring no longer says the canaries catch collisions; it says what nothing detects (one
+   shingle colliding across two sets whose packed forms differ, about 1.7e-14 per compared pair, under
+   3e-7 per v6 scan). Memory: 2.41 MiB on the 60-large-row fixture (2.40 before; bound 6); 1,549 B
+   a set on 3,000 small rows (adv bound 2,500).
+3. **Stale packed set (break 5).** `PackedShingles.block` is the owning block's token;
+   `signature()` and `exact_jaccard` refuse another block's set.
+4. **Every batch checked (break 6).** The first and last `NATIVE_MINHASH_CANARIES` (4) sets of every
+   batch are re-signed by the reference and the packed Jaccard of those sets compared. At most 8
+   reference signings a batch; a reply wrong only in sets between a batch's ends is still not
+   caught. A single batch of at most 8 sets is checked whole, as before.
+   Wall-time effect on a small fixture (4,000 distinct 420-word texts, 4 batches of 1,000, entering
+   the block, interleaved, min of 3): 0.99 and 1.08 s before, 1.45 and 1.51 s after (about +0.4 to
+   +0.5 s, +45 %): ~50 us a set for the digest (sort 37 us of it) and 32 reference signings at
+   5.8 ms. Extrapolated to the v6 scan: 511,198 sets x 50 us is ~26 s, and 51 batches x 8 x
+   5.8 ms ~2.4 s, so about +30 s on a ~440-480 s scan (+6 to +7 %), unmeasured at scale: the 5 %
+   wall check stays UNRESOLVED and this adds to it.
+
 ## First command for the next lane
 `bash tools/mac_heavy.sh scan bash build/l3/baseline.sh` reruns after1-3 and base1 (needs the
 worktree's `target/release/qd-prep`, `build/l3/{base,after}-tree` and linked data).
