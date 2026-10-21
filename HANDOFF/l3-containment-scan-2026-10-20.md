@@ -34,8 +34,66 @@ records in `gaps.jsonl` and the audit files, not ledger row ids.
   (`test_containment_scan_interrupted.py`, 9 passed: a request cut at 0, 1, 8 bytes, 25/50/90 % or
   one byte short is refused by qd-prep with no attestation; a rerun refuses to overwrite).
 
-### b3b: v6 scan footprint (GAP-L3-V6-SCAN-FOOTPRINT-BOUNDED-BY-PACKED-NATIVE-MINHASH-2026-10-21)
-All under `tools/mac_heavy.sh` with the unchanged footprint cap (28,672 MiB), measured by
+### b3b, FINAL: six interleaved runs on the tip, exact tool (Fable ruling 2026-10-21)
+Supersedes the three-run table below (old sampled-max tool, scan code before the collision digest and
+per-batch canaries). One `tools/mac_heavy.sh` window (`build/l3/six.sh`; log
+`AUDIT/l3-containment-scan-2026-10-21/six.log`, timelines `six_*.timeline.txt`), unchanged cap 28,672
+MiB, MAC_HEAVY_MAX_LOAD=48 as before, no cap or load change. base = main d09222d's scan
+(`build/l3/base-tree2`), after = lane tip eb67c51 (`after-tree2`), interleaved base/after x3. qd-prep
+was built before the window from d09222d's crates; `git diff d09222d eb67c51 -- crates Cargo.toml
+Cargo.lock` is empty, so one binary serves both arms (sha256 0315d91a...). Measured by
+`tools/footprint_peak.py` at eb67c51 (libproc tree walk; no `ps` in the job: an earlier attempt
+logged mac_heavy "footprint reader failed (1 of 3)", "(2 of 3)" from the setuid `ps` and was stopped
+and restarted after the fix). Host load during the window 18 to 51 (other lanes' jobs).
+
+| run | exit | wall s | parent lifetime MiB | largest child lifetime MiB | tree sampled MiB | reaped RSS MiB | output vs six_base1 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| six_base1 | 0 | 1169.8 | 20,735 | 4,959 (qd-prep:minhash) | 22,904 | 25,385 | reference |
+| six_after1 | 0 | 1502.1 | 10,899 | 3,303 (qd-prep:containment) | 11,022 | 13,130 | byte-identical (3 files) |
+| six_base2 | 0 | 1316.1 | 20,606 | 5,297 (qd-prep:minhash) | 23,607 | 24,062 | byte-identical |
+| six_after2 | 0 | 1931.9 | 10,999 | 3,316 (qd-prep:containment) | 11,199 | 13,135 | byte-identical |
+| six_base3 | 0 | 2189.6 | 22,601 | 5,459 (qd-prep:minhash) | 23,269 | 22,773 | byte-identical |
+| six_after3 | 0 | 1535.8 | 12,046 | 3,304 (qd-prep:containment) | 12,046 | 13,147 | byte-identical |
+
+Output files compared with `cmp`: pairs.tsv (sha d32ea9c2...), exclusions.txt (37b84644...),
+attestation.json (8f0ae9d9...); all six runs equal each other and equal the digests the earlier
+after-runs wrote. "Parent lifetime" is the Python parent's kernel `ri_lifetime_max_phys_footprint`,
+"largest child lifetime" the largest such value among qd-prep processes (the base arm's minhash child
+is one call over all 511,198 sets; the after arm's is a 10,000-set batch, 439-448 MiB, so its
+largest child is the containment stage). "Tree sampled" is the largest sampled sum of current
+footprints, a LOWER bound; "reaped RSS" is wait4's largest single-process RSS (the parent's, which
+exceeds its footprint). The tree can be bounded above by the parent's lifetime max plus the
+concurrent children: for the after arm at most 12,046 + 3,316 MiB ~ 15 GiB, far under memguard's
+32 GiB; every number the tool can produce, including RSS, is under 32 GiB for all three after runs.
+Parent footprint falls from 20.6-22.6 GiB (base) to 10.9-12.0 GiB (after), about -47 %.
+
+**Acceptance (3 after-runs): met.** Each exit 0 under the unchanged cap, per-process peak well below
+32 GiB (parent 10.9 to 12.0 GiB, largest child 3.3 GiB), output byte-identical.
+
+**Wall-time verdict: after is not shown equal to base, and a loss over 5 % cannot be excluded.**
+base 1169.8 / 1316.1 / 2189.6 s (median 1316.1, spread (max-min)/median 77.5 %); after 1502.1 /
+1931.9 / 1535.8 s (median 1535.8, spread 28.0 %). Median +16.7 %, min-of-3 +28.4 %; paired by window
++28.4 %, +46.8 %, -29.9 % (base3 hit a slow window). The spreads, 77.5 % and 28.0 %, are far above
+the 5 % being tested, so the experiment cannot resolve 5 %; on the medians after loses by more than
+5 %. Where: the lsh block (qd-prep lsh plus Python around it) was 243/289/613 s base vs 730/742/414 s
+after; the minhash block 312/407/388 vs 234/498/205; the split stage 1020/1028/1632 vs 1320/1706/1318.
+In the earlier low-load window the lsh block was 119 s base vs 175-182 s after (+56-63 s) while the
+minhash block was 83 s vs 66-73 s. What I could and could not establish: profiling the block entry
+at 60,000 synthetic rows (cProfile, same window) the after code enters in 83.4 s against base 144.7 s
+(base spends 36 s in 25M interning `setdefault` calls; after pays 6 s of `sorted` for the content
+digest), so the new code is not slower to enter at that scale; at 150,000 rows under load 39-51 it
+was slower to enter (495/501 s vs 355/321 s) and faster in dedupe+split, and at 20,000 rows equal in
+lsh. The cause of the lsh-block gap on the full scan is NOT identified, and neither is whether it is
+the code or the host. The costs the code adds that I did measure are about 50 us a set for the digest
+(~26 s over 511,198 sets), ~35 us a set for packing (~18 s) and ~2.4 s of per-batch reference
+signings, about 4 % of the 1,170 s base. Justification offered against these numbers: the parent
+peak halves (-47 %) and the output is unchanged, at a median wall cost of +16.7 % (min +28 %) on a
+loaded host. Fable/the owner decide whether that trade stands; a quiet-host interleaved 3+3 would
+settle the wall question and is not run.
+
+### b3b, SUPERSEDED: the three runs on 1d05037 with the old sampled tool
+SUPERSEDED by the six-run block above (tool could only show a lower bound; code predates the collision
+digest and per-batch canaries). Kept for the record. All under `tools/mac_heavy.sh` with the unchanged footprint cap (28,672 MiB), measured by
 `tools/footprint_peak.py` (mac_footprint's ri_phys_footprint, tree sum, 2 s), v6 rules, the W2-d
 inputs (pool sha 25a88f6e...). Timelines: `AUDIT/l3-containment-scan-2026-10-21/*.timeline.txt`.
 

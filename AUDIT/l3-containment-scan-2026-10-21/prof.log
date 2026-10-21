@@ -1,0 +1,30 @@
+mac_heavy: 2026-10-21T19:06:40Z 'l3-prof' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T19:11:43Z 'l3-prof' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T19:13:24Z 'l3-prof' holds the lock (waited 400s; load 28.19, 1258 processes); running: bash build/l3/prof.sh
+== base-tree2
+enter 144.7 s
+   List reduced from 268 to 9 due to restriction <9>
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+ 24997482   26.388    0.000   26.388    0.000 {method 'setdefault' of 'dict' objects}
+    59946   20.433    0.000   55.533    0.001 /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3
+        1   17.279   17.279  144.695  144.695 /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3
+        1   11.248   11.248   11.248   11.248 {method 'writelines' of '_io._IOBase' objects}
+ 24997482   10.288    0.000   36.301    0.000 /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3
+ 24937541    9.129    0.000    9.129    0.000 {method 'join' of 'str' objects}
+    59946    8.781    0.000    8.781    0.000 {method 'sub' of 're.Pattern' objects}
+ 24997482    8.626    0.000   15.283    0.000 /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3
+        1    8.497    8.497   31.354   31.354 /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3
+== after-tree2
+enter 83.4 s
+   List reduced from 287 to 9 due to restriction <9>
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    59946   15.845    0.000   40.109    0.001 /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3
+        6   13.766    2.294   13.766    2.294 {method 'writelines' of '_io._IOBase' objects}
+    59946    6.904    0.000    6.904    0.000 {method 'sub' of 're.Pattern' objects}
+    59958    6.133    0.000    6.133    0.000 {built-in method builtins.sorted}
+ 24997482    5.768    0.000   10.739    0.000 /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3
+ 24937561    5.426    0.000    5.426    0.000 {method 'join' of 'str' objects}
+ 24997493    5.018    0.000    5.018    0.000 {method 'encode' of 'str' objects}
+       12    3.174    0.264    3.174    0.264 {method 'poll' of 'select.poll' objects}
+        7    2.644    0.378    2.644    0.378 {method 'clear' of 'list' objects}
+mac_heavy: 2026-10-21T19:17:35Z 'l3-prof' finished with exit 0
