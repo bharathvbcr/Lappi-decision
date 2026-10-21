@@ -15,16 +15,28 @@ test_d3_quant_gate.py`` checks it against a hand oracle; mlx is the reference, t
 
 Verdict is tri-state (``qd_train.tristate``): PASS and FAIL are ``Ran``; every input that is
 missing (the pre-registration or its ``d3_gate`` block, mlx, a Metal device, the model, the
-items) or too small is ``NotRun`` with the reason, never PASS. Exit code: PASS 0, FAIL 1,
-NOT_RUN 3 (the Makefile's ``NOT_RUN``).
+items), malformed, refused (dtype, shape, non-finite) or too small is ``NotRun`` with the
+reason, never PASS. Exit code: PASS 0, FAIL 1 (a completed comparison that missed a bar and
+nothing else), NOT_RUN 3 (the Makefile's ``NOT_RUN``), REFUSED 2 (the items path is held-out,
+rule 3; the verdict file says ``REFUSED`` and carries no tri-state, so no reader takes it as a
+pass). At start the tool atomically replaces whatever is at ``--out`` with a NOT_RUN verdict,
+and writes the final one by tmp file, fsync and ``os.replace``, so a crash, a kill or an
+exception never leaves an earlier PASS in place. An unexpected exception is NOT_RUN plus a
+traceback on stderr, never exit 1.
+
+The quantiser (bits 4 or 8) is whatever the pre-registration names: q4 is measured by this
+gate (owner decision section 3) and never built, so refusing 4 here would refuse the
+measurement; a pre-registration that names a quantiser other than the one under test is the
+caller's to catch, and the verdict records the spec and the pre-registration's sha256.
 
     /Users/bharath/.venvs/ml/bin/python tools/d3_quant_gate.py \\
         --preregistration campaign/lora-2b-q8-preregistered.json \\
         --model DIR --items ITEMS.jsonl --out VERDICT.json
 
 Items are JSONL with ``row_id``, ``prompt_ids``, ``letter_ids`` and ``gold_row`` (the format
-``mac_mlx_bench.py`` reads). The tool cannot tell validation from held-out rows: the caller owns
-that, and the verdict records the items file's sha256.
+``mac_mlx_bench.py`` reads). A path under a held-out root or marker is refused through
+``qd_train.data_access.assert_path_not_held_out``; the tool cannot otherwise tell validation
+from train rows, and the verdict records the items file's sha256.
 """
 
 from __future__ import annotations
@@ -33,8 +45,10 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import sys
+import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,7 +58,15 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from qd_data.config import DataConfig  # noqa: E402
+from qd_data.errors import HeldOutViolation  # noqa: E402
+from qd_train.data_access import assert_path_not_held_out  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
+
+#: mlx's floor on an affine group's scale (``max(range / (2**bits - 1), eps)``). Measured on mlx
+#: 0.31.2: a constant or all-zero group quantises to scale -1e-7, and
+#: ``test_d3_quant_gate.py::test_identical_values_round_trip_exactly`` pins it.
+MLX_SCALE_EPS = 1e-7
 
 #: The key of the pre-registration block that carries the gate.
 SPEC_KEY = "d3_gate"
@@ -67,7 +89,7 @@ _TARGET = re.compile(
     r"(?:.*\.)?layers\.\d+\.(" + "|".join(re.escape(s) for s in TARGET_SUFFIXES) + r")\.weight"
 )
 
-EXIT = {"PASS": 0, "FAIL": 1, "NOT_RUN": 3}
+EXIT = {"PASS": 0, "FAIL": 1, "REFUSED": 2, "NOT_RUN": 3}
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +102,16 @@ class GateSpec:
     bits: int
     group_size: int
     mode: str
+
+
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """``object_pairs_hook`` that refuses a key given twice: last-wins would hide a bar."""
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate key {key!r}")
+        out[key] = value
+    return out
 
 
 def _need(block: Mapping[str, Any], key: str, kind: type | tuple[type, ...]) -> Any:
@@ -99,25 +131,28 @@ def load_spec(path: Path) -> GateSpec | NotRun:
             reason=f"pre-registration {path} does not exist, so no D3 threshold is registered"
         )
     try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"pre-registration {path} is not JSON: {exc}") from exc
+        doc = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_no_duplicate_keys)
+    except ValueError as exc:  # JSONDecodeError, a duplicate key, an int too long to parse
+        raise SystemExit(f"pre-registration {path} is not usable JSON: {exc}") from exc
     block = doc.get(SPEC_KEY) if isinstance(doc, dict) else None
     if block is None:
-        return NotRun(
-            reason=f"pre-registration {path} has no {SPEC_KEY!r} block: no D3 threshold"
-        )
+        return NotRun(reason=f"pre-registration {path} has no {SPEC_KEY!r} block: no D3 threshold")
     if not isinstance(block, dict):
         raise SystemExit(f"pre-registration {path}: {SPEC_KEY} must be an object")
     quant = _need(block, "quantiser", dict)
-    spec = GateSpec(
-        argmax_agreement_min=float(_need(block, "argmax_agreement_min", (int, float))),
-        mean_abs_delta_logp_max=float(_need(block, "mean_abs_delta_logp_max", (int, float))),
-        min_prompts=int(_need(block, "min_prompts", int)),
-        bits=int(_need(quant, "bits", int)),
-        group_size=int(_need(quant, "group_size", int)),
-        mode=str(_need(quant, "mode", str)),
-    )
+    try:
+        spec = GateSpec(
+            argmax_agreement_min=float(_need(block, "argmax_agreement_min", (int, float))),
+            mean_abs_delta_logp_max=float(_need(block, "mean_abs_delta_logp_max", (int, float))),
+            min_prompts=int(_need(block, "min_prompts", int)),
+            bits=int(_need(quant, "bits", int)),
+            group_size=int(_need(quant, "group_size", int)),
+            mode=str(_need(quant, "mode", str)),
+        )
+    except (OverflowError, ValueError) as exc:  # a number too large for a float
+        raise SystemExit(
+            f"pre-registration {path}: {SPEC_KEY} has an unusable number: {exc}"
+        ) from exc
     if not 0.0 < spec.argmax_agreement_min <= 1.0:
         raise SystemExit(
             f"{SPEC_KEY}.argmax_agreement_min must be in (0, 1], got {spec.argmax_agreement_min}"
@@ -145,8 +180,20 @@ def fake_quant(w: Any, *, bits: int, group_size: int, name: str = "tensor") -> A
     Refused with ``SystemExit``: an in-features width that is not a multiple of the group (mlx would
     raise; the partial group is never padded), a non-finite weight (mlx quantises NaN to a finite
     number), a non-finite result, and any group whose result is further from its source than the
-    affine step allows (a collapsed scale). The step bound is ojas's (``qwen35_fakequant_base.py``).
+    affine step allows (a collapsed scale). The step bound is ojas's (``qwen35_fakequant_base.py``)
+    with mlx's scale floor. Also refused here, not only in ``quantise_weights``: an empty tensor
+    and any dtype but bfloat16 (the runbook's call quantises a bf16 W so scale and bias are bf16).
     """
+    mx = _mx()
+    if w.dtype != mx.bfloat16:
+        raise SystemExit(f"{name}: dtype {w.dtype}, expected bfloat16")
+    if w.size == 0:
+        raise SystemExit(f"{name}: empty tensor, shape {tuple(w.shape)}")
+    return _fake_quant(w, bits=bits, group_size=group_size, name=name)
+
+
+def _fake_quant(w: Any, *, bits: int, group_size: int, name: str) -> Any:
+    """``fake_quant`` after the dtype and emptiness checks; the oracle tests call it on float32."""
     mx = _mx()
     if w.ndim != 2:
         raise SystemExit(f"{name}: expected a 2-D weight, got shape {tuple(w.shape)}")
@@ -171,7 +218,9 @@ def _check_step_bound(w: Any, deq: Any, bits: int, group_size: int, name: str) -
     mx = _mx()
     g = np.array(w.astype(mx.float32)).reshape(-1, group_size)
     d = np.array(deq.astype(mx.float32)).reshape(-1, group_size)
-    step = (g.max(axis=1) - g.min(axis=1)) / (2**bits - 1)
+    # mlx floors the scale at MLX_SCALE_EPS, so a group narrower than 255 * eps is quantised with
+    # that scale and its exact result is off by up to half of it.
+    step = np.maximum((g.max(axis=1) - g.min(axis=1)) / (2**bits - 1), MLX_SCALE_EPS)
     allowed = (
         1.5 * step + np.abs(g).max(axis=1) * 2.0**-7
     )  # a step, plus bf16 scale/bias/result rounding
@@ -192,10 +241,9 @@ def select_targets(names: Sequence[str]) -> list[str]:
 def quantise_weights(weights: Mapping[str, Any], spec: GateSpec) -> dict[str, Any]:
     """The fake-quantised replacement of every wrapped linear in ``weights`` (only those).
 
-    Each target must be bf16, because the runbook's call quantises a bf16 W so scale and bias are
-    bf16. Zero targets is an error, not an empty success.
+    ``fake_quant`` refuses a target that is not bf16. Zero targets is an error, not an empty
+    success.
     """
-    mx = _mx()
     targets = select_targets(list(weights))
     if not targets:
         raise SystemExit(
@@ -203,8 +251,6 @@ def quantise_weights(weights: Mapping[str, Any], spec: GateSpec) -> dict[str, An
         )
     out: dict[str, Any] = {}
     for name in targets:
-        if weights[name].dtype != mx.bfloat16:
-            raise SystemExit(f"{name}: dtype {weights[name].dtype}, expected bfloat16")
         out[name] = fake_quant(weights[name], bits=spec.bits, group_size=spec.group_size, name=name)
     return out
 
@@ -240,6 +286,8 @@ def compare(
             raise SystemExit(f"item {rid}: {len(a)} letters on one side, {len(b)} on the other")
         if not all(math.isfinite(v) for v in a + b):
             raise SystemExit(f"item {rid}: non-finite letter log-probability")
+        if isinstance(gold[rid], bool) or not isinstance(gold[rid], int):
+            raise SystemExit(f"item {rid}: gold_row {gold[rid]!r} is not an int")
         if not 0 <= gold[rid] < len(a):
             raise SystemExit(f"item {rid}: gold_row {gold[rid]} outside 0..{len(a) - 1}")
         agree += int(max(range(len(a)), key=a.__getitem__) == max(range(len(b)), key=b.__getitem__))
@@ -326,22 +374,63 @@ def _real_preconditions(model: Path, items: Path) -> NotRun | None:
     return None
 
 
+def _int_list(it: Mapping[str, Any], key: str, where: str) -> list[int]:
+    v = it.get(key)
+    if (
+        not isinstance(v, list)
+        or not v
+        or any(isinstance(x, bool) or not isinstance(x, int) for x in v)
+    ):
+        raise SystemExit(f"{where}: {key} must be a non-empty list of ints")
+    return v
+
+
+def read_items(path: Path) -> list[dict[str, Any]]:
+    """The validation items, each checked; anything malformed exits rather than being skipped.
+
+    ``gold_row`` must be a non-bool int inside ``letter_ids`` (never truncated by ``int()``), and
+    ``row_id`` a non-empty string used once.
+    """
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        where = f"{path}:{n}"
+        try:
+            it = json.loads(line)
+        except ValueError as exc:
+            raise SystemExit(f"{where}: not JSON: {exc}") from exc
+        if not isinstance(it, dict):
+            raise SystemExit(f"{where}: an item must be a JSON object")
+        rid = it.get("row_id")
+        if not isinstance(rid, str) or not rid:
+            raise SystemExit(f"{where}: row_id must be a non-empty string")
+        if rid in seen:
+            raise SystemExit(f"{where}: row_id {rid!r} appears twice")
+        seen.add(rid)
+        _int_list(it, "prompt_ids", where)
+        letters = _int_list(it, "letter_ids", where)
+        gold = it.get("gold_row")
+        if isinstance(gold, bool) or not isinstance(gold, int) or not 0 <= gold < len(letters):
+            raise SystemExit(f"{where}: gold_row {gold!r} must be an int in 0..{len(letters) - 1}")
+        items.append(it)
+    return items
+
+
 def _run_real(spec: GateSpec, model_dir: Path, items_path: Path) -> tuple[TriState, Metrics | None]:
     """The real-base gate: letter scoring through ``mac_mlx_bench.score`` on an ``mlx_lm`` model."""
+    items = read_items(items_path)
+    gold = {it["row_id"]: it["gold_row"] for it in items}
+    if len(gold) < spec.min_prompts:
+        return _too_few(len(gold), spec), None
+
     import mac_bench_common as common
     import mac_mlx_bench as bench
     import mlx.core as mx
     from mlx.utils import tree_flatten, tree_unflatten
     from mlx_lm import load
 
-    items = [
-        json.loads(x) for x in items_path.read_text(encoding="utf-8").splitlines() if x.strip()
-    ]
-    gold = {str(it["row_id"]): int(it["gold_row"]) for it in items}
-    if len(gold) != len(items):
-        raise SystemExit("items carry a duplicate row_id")
-    if len(gold) < spec.min_prompts:
-        return _too_few(len(gold), spec), None
     model, _tok = load(str(model_dir))
     weights = dict(tree_flatten(model.parameters()))
 
@@ -351,13 +440,67 @@ def _run_real(spec: GateSpec, model_dir: Path, items_path: Path) -> tuple[TriSta
         out: dict[str, list[float]] = {}
         for it in items:
             z = bench.score(model, it["prompt_ids"], it["letter_ids"]).tolist()
-            out[str(it["row_id"])] = common.letter_record(
-                row_id=str(it["row_id"]), n_tokens=len(it["prompt_ids"]), letter_logits=z
+            out[it["row_id"]] = common.letter_record(
+                row_id=it["row_id"], n_tokens=len(it["prompt_ids"]), letter_logits=z
             )["letter_logsoftmax"]
         mx.eval(model.parameters())
         return out
 
     return run_gate(spec, weights, score_fn, gold)
+
+
+def write_verdict(path: Path, doc: Mapping[str, Any]) -> None:
+    """Replace ``path`` with ``doc`` atomically: a tmp file, fsync, then ``os.replace``."""
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    data = (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, data)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    tmp.replace(path)  # os.replace: atomic on one filesystem
+
+
+def _not_run_doc(reason: str) -> dict[str, Any]:
+    return {"gate": "D3", "verdict": "NOT_RUN", **NotRun(reason=reason).to_json()}
+
+
+def _build_document(args: argparse.Namespace, doc: dict[str, Any]) -> None:
+    """Fill ``doc`` with the verdict. May raise; ``main`` makes every raise NOT_RUN or REFUSED."""
+    prereg = args.preregistration
+    doc["preregistration"] = str(prereg)
+    if prereg.is_file():
+        doc["preregistration_sha256"] = _sha256(prereg)
+    assert_path_not_held_out(args.items, config=DataConfig(), repo_root=REPO)
+    spec = load_spec(prereg)
+    metrics: Metrics | None = None
+    if isinstance(spec, NotRun):
+        result: TriState = spec
+    else:
+        pre = _real_preconditions(args.model, args.items)
+        result, metrics = (
+            (pre, None) if pre is not None else _run_real(spec, args.model, args.items)
+        )
+        doc["spec"] = {
+            "argmax_agreement_min": spec.argmax_agreement_min,
+            "mean_abs_delta_logp_max": spec.mean_abs_delta_logp_max,
+            "min_prompts": spec.min_prompts,
+            "quantiser": {"mode": spec.mode, "bits": spec.bits, "group_size": spec.group_size},
+        }
+    doc.update({"verdict": verdict_name(result), **result.to_json()})
+    if metrics is not None:
+        doc["metrics"] = {
+            "n": metrics.n,
+            "argmax_agreement": metrics.argmax_agreement,
+            "mean_abs_delta_logp": metrics.mean_abs_delta_logp,
+        }
+    if args.items.is_file():
+        doc["items_sha256"] = _sha256(args.items)
+    try:
+        doc["mlx_version"] = _mx().__version__
+    except ImportError:
+        doc["mlx_version"] = None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -375,39 +518,30 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True, help="verdict JSON to write")
     args = ap.parse_args(argv)
 
-    spec = load_spec(args.preregistration)
-    metrics: Metrics | None = None
-    result: TriState
-    if isinstance(spec, NotRun):
-        result = spec
-    else:
-        pre = _real_preconditions(args.model, args.items)
-        result, metrics = (
-            (pre, None) if pre is not None else _run_real(spec, args.model, args.items)
-        )
-
-    doc: dict[str, Any] = {"gate": "D3", "verdict": verdict_name(result), **result.to_json()}
-    doc["preregistration"] = str(args.preregistration)
-    if not isinstance(spec, NotRun):
-        doc["spec"] = {
-            "argmax_agreement_min": spec.argmax_agreement_min,
-            "mean_abs_delta_logp_max": spec.mean_abs_delta_logp_max,
-            "min_prompts": spec.min_prompts,
-            "quantiser": {"mode": spec.mode, "bits": spec.bits, "group_size": spec.group_size},
-        }
-    if metrics is not None:
-        doc["metrics"] = {
-            "n": metrics.n,
-            "argmax_agreement": metrics.argmax_agreement,
-            "mean_abs_delta_logp": metrics.mean_abs_delta_logp,
-        }
-    if args.items.is_file():
-        doc["items_sha256"] = _sha256(args.items)
+    # An earlier PASS at --out must not outlive this run if it dies: replace it first.
     try:
-        doc["mlx_version"] = _mx().__version__
-    except ImportError:
-        doc["mlx_version"] = None
-    args.out.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        write_verdict(args.out, _not_run_doc("the run started and has not finished"))
+    except OSError as exc:
+        print(f"D3 gate: cannot write the verdict to {args.out}: {exc}", file=sys.stderr)
+        return EXIT["NOT_RUN"]
+
+    doc: dict[str, Any] = {"gate": "D3"}
+    try:
+        _build_document(args, doc)
+    except HeldOutViolation as exc:
+        # Rule 3, a refusal and not a could-not-run: no tri-state, so nothing reads it as a pass.
+        doc = {"gate": "D3", "verdict": "REFUSED", "reason": str(exc), "items": str(args.items)}
+    except SystemExit as exc:
+        doc = {**{k: v for k, v in doc.items() if k != "verdict"}, **_not_run_doc(str(exc.code))}
+    except Exception as exc:
+        traceback.print_exc()
+        reason = f"unexpected {type(exc).__name__}: {exc}"
+        doc = {**{k: v for k, v in doc.items() if k != "verdict"}, **_not_run_doc(reason)}
+    try:
+        write_verdict(args.out, doc)
+    except OSError as exc:
+        print(f"D3 gate: cannot write the verdict to {args.out}: {exc}", file=sys.stderr)
+        return EXIT["NOT_RUN"]
     print(f"D3 gate: {doc['verdict']}  {doc.get('detail') or doc.get('reason', '')}")
     return EXIT[doc["verdict"]]
 

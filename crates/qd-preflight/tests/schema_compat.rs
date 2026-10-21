@@ -41,10 +41,11 @@ fn repo_root() -> PathBuf {
 /// venv is not required to answer -- any CPython >= 3.11 (for `typing.Self`) will do.
 /// Insisting on `<repo>/.venv` was not a stricter check, only a check that never ran.
 // BEGIN qd-python-resolver
-// The same text sits in qd-prep/tests/convert_licence_parity.rs, qd-metal/tests/ledger_rows.rs and
-// qd-preflight/tests/schema_compat.rs; python/tests/test_qd_python_resolver_pinned.py fails if the
-// three differ. There is no shared test-support crate to own it, and a new workspace member was
-// not authorised, so the text is pinned instead.
+// The same text sits in qd-prep/tests/convert_licence_parity.rs, qd-metal/tests/ledger_rows.rs,
+// qd-preflight/tests/schema_compat.rs and qd-export/tests/ledger_real_producer.rs;
+// python/tests/test_qd_python_resolver_pinned.py fails if any differ, or if a crate source that
+// reads QD_PYTHON lacks it. There is no shared test-support crate to own it, and a new workspace
+// member was not authorised, so the text is pinned instead.
 
 /// The interpreters to try, in order: `QD_PYTHON`; this checkout's `.venv/bin/python`; the main
 /// checkout's `.venv/bin/python` when this is a linked worktree (a worktree has no `.venv` of its
@@ -67,20 +68,29 @@ fn resolve_python_candidates(qd_python: Option<std::ffi::OsString>, repo: &Path)
     out
 }
 
-/// The main checkout's root, from `git rev-parse --git-common-dir`; `None` when `repo` is not in
-/// a git checkout or git cannot run (the candidate list then simply lacks that entry).
+/// The main checkout's root, from `git rev-parse --git-common-dir`. `None` when `repo` is not in
+/// a git checkout, git cannot run, or the common dir is not named `.git` (a bare repository or a
+/// `--separate-git-dir` checkout has no main working tree to find); the candidate list then
+/// simply lacks that entry. `GIT_DIR` and `GIT_WORK_TREE` are removed from the call so an
+/// inherited value cannot point it at another repository.
 fn main_checkout(repo: &Path) -> Option<PathBuf> {
     let out = Command::new("git")
         .arg("-C")
         .arg(repo)
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
         .stdin(Stdio::null())
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    let common = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
+    let text = String::from_utf8(out.stdout).ok()?;
+    let common = PathBuf::from(text.strip_suffix('\n').unwrap_or(&text));
+    if common.file_name()? != ".git" {
+        return None;
+    }
     common.parent().map(Path::to_path_buf)
 }
 
@@ -105,6 +115,8 @@ fn a_linked_worktree_resolves_the_main_checkouts_venv() {
                 "commit.gpgsign=false",
             ])
             .args(args)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
             .stdin(Stdio::null())
             .output()
             .unwrap();
@@ -141,6 +153,20 @@ fn a_linked_worktree_resolves_the_main_checkouts_venv() {
         PathBuf::from("/x/py"),
         "QD_PYTHON outranks every checkout"
     );
+
+    // A checkout whose git dir is elsewhere has no `.git` common dir to take the main tree from.
+    let separate = root.join("separate");
+    git(
+        &root,
+        &[
+            "init",
+            "-q",
+            "--separate-git-dir",
+            root.join("gitstore").to_str().unwrap(),
+            separate.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(main_checkout(&separate), None);
     std::fs::remove_dir_all(&root).unwrap();
 }
 // END qd-python-resolver

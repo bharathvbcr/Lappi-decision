@@ -18,6 +18,7 @@ SITES = (
     "crates/qd-prep/tests/convert_licence_parity.rs",
     "crates/qd-metal/tests/ledger_rows.rs",
     "crates/qd-preflight/tests/schema_compat.rs",
+    "crates/qd-export/tests/ledger_real_producer.rs",
 )
 BLOCK = re.compile(
     r"^// BEGIN qd-python-resolver\n.*?^// END qd-python-resolver\n", re.DOTALL | re.MULTILINE
@@ -32,7 +33,22 @@ def _block(rel: str) -> str:
     return found[0]
 
 
-def test_the_three_resolver_copies_are_identical() -> None:
+def test_every_crate_source_that_reads_qd_python_carries_the_block() -> None:
+    """A fifth reader of QD_PYTHON anywhere under crates/ (ignored and hidden files included, as
+    ``rg -uu`` would see them; build output excluded) must carry the block, or this fails."""
+    readers = sorted(
+        str(p.relative_to(REPO))
+        for p in (REPO / "crates").rglob("*.rs")
+        if "target" not in p.relative_to(REPO / "crates").parts
+        and "QD_PYTHON" in p.read_text(encoding="utf-8")
+    )
+    assert readers, "no QD_PYTHON reader found: the scan itself is broken"
+    assert readers == sorted(SITES), (
+        f"QD_PYTHON readers {readers} are not the pinned {sorted(SITES)}"
+    )
+
+
+def test_the_resolver_copies_are_identical() -> None:
     blocks = {rel: _block(rel) for rel in SITES}
     first = blocks[SITES[0]]
     for rel, text in blocks.items():

@@ -84,7 +84,11 @@ def oracle_dequant(g: np.ndarray) -> np.ndarray:
 def fq(row: np.ndarray, bits: int = 8, group: int = 64) -> np.ndarray:
     import mlx.core as mx
 
-    out = gate.fake_quant(mx.array(row.astype(np.float32))[None, :], bits=bits, group_size=group)
+    # The float32 oracle checks the quantisation arithmetic exactly; the public ``fake_quant``
+    # accepts bf16 only (tested below), so this goes through the step after that check.
+    out = gate._fake_quant(
+        mx.array(row.astype(np.float32))[None, :], bits=bits, group_size=group, name="row"
+    )
     return np.array(out)[0]
 
 
@@ -184,7 +188,7 @@ def test_non_multiple_of_group_width_is_refused(width: int) -> None:
     import mlx.core as mx
 
     with pytest.raises(SystemExit, match="not a multiple of the group size 64"):
-        gate.fake_quant(mx.zeros((2, width)), bits=8, group_size=64, name="w")
+        gate.fake_quant(mx.zeros((2, width), dtype=mx.bfloat16), bits=8, group_size=64, name="w")
 
 
 @needs_mlx
@@ -195,7 +199,7 @@ def test_non_finite_weight_is_refused(bad: float) -> None:
     row = np.ones((1, 64), dtype=np.float32)
     row[0, 5] = bad
     with pytest.raises(SystemExit, match="non-finite weight"):
-        gate.fake_quant(mx.array(row), bits=8, group_size=64, name="w")
+        gate.fake_quant(mx.array(row).astype(mx.bfloat16), bits=8, group_size=64, name="w")
 
 
 @needs_mlx

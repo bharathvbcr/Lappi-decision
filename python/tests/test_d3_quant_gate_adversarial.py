@@ -44,10 +44,21 @@ def _prereg(tmp_path: Path, text: str | None = None) -> Path:
 def _run(tmp_path: Path, prereg: Path, items: Path, model: Path, out: Path):
     return subprocess.run(
         [
-            sys.executable, str(TOOL), "--preregistration", str(prereg), "--model", str(model),
-            "--items", str(items), "--out", str(out),
+            sys.executable,
+            str(TOOL),
+            "--preregistration",
+            str(prereg),
+            "--model",
+            str(model),
+            "--items",
+            str(items),
+            "--out",
+            str(out),
         ],
-        capture_output=True, text=True, timeout=300, check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
     )
 
 
@@ -78,7 +89,8 @@ def test_BREAK_unreadable_items_exit_code_is_not_the_fail_code(tmp_path: Path) -
     items.write_text("{not json\n")
     r = _run(tmp_path, _prereg(tmp_path), items, model, tmp_path / "v.json")
     assert r.returncode == gate.EXIT["NOT_RUN"] or r.returncode not in (
-        gate.EXIT["PASS"], gate.EXIT["FAIL"]
+        gate.EXIT["PASS"],
+        gate.EXIT["FAIL"],
     ), f"exit {r.returncode} is the FAIL code for a run that never ran: {r.stderr[-200:]}"
 
 
@@ -103,7 +115,8 @@ def test_BREAK_heldout_items_path_is_not_refused(tmp_path: Path) -> None:
     out = tmp_path / "v.json"
     r = _run(tmp_path, _prereg(tmp_path), items, tmp_path, out)
     refused = r.returncode not in (gate.EXIT["NOT_RUN"],) or (
-        out.exists() and "held" in out.read_text().lower().replace("heldout", "held")
+        out.exists()
+        and "held" in out.read_text().lower().replace("heldout", "held")
         and json.loads(out.read_text()).get("verdict") != "NOT_RUN"
     )
     assert refused, "a heldout/ items path went through to the ordinary NOT_RUN/run path"
@@ -117,9 +130,13 @@ def _spec_text(**over: object) -> str:
 
 
 def test_BREAK_huge_int_threshold_is_an_overflow_traceback(tmp_path: Path) -> None:
-    p = _prereg(tmp_path, '{"d3_gate": {"argmax_agreement_min": 1' + "0" * 400
-                + ', "mean_abs_delta_logp_max": 0.02, "min_prompts": 2, "quantiser": '
-                '{"mode": "affine", "bits": 8, "group_size": 64}}}')
+    p = _prereg(
+        tmp_path,
+        '{"d3_gate": {"argmax_agreement_min": 1'
+        + "0" * 400
+        + ', "mean_abs_delta_logp_max": 0.02, "min_prompts": 2, "quantiser": '
+        '{"mode": "affine", "bits": 8, "group_size": 64}}}',
+    )
     with pytest.raises(SystemExit):
         gate.load_spec(p)
 
@@ -251,8 +268,13 @@ def test_held_fake_quant_refusals() -> None:
     inf = mx.random.normal((4, 64)).astype(bf)
     inf[1, 3] = float("-inf")
     for w in (
-        mx.zeros((64,), dtype=bf), mx.zeros((2, 2, 64), dtype=bf), mx.zeros((2, 63), dtype=bf),
-        mx.zeros((2, 127), dtype=bf), mx.zeros((2, 65), dtype=bf), nan, inf,
+        mx.zeros((64,), dtype=bf),
+        mx.zeros((2, 2, 64), dtype=bf),
+        mx.zeros((2, 63), dtype=bf),
+        mx.zeros((2, 127), dtype=bf),
+        mx.zeros((2, 65), dtype=bf),
+        nan,
+        inf,
     ):
         with pytest.raises(SystemExit):
             gate.fake_quant(w, bits=8, group_size=64)
@@ -272,8 +294,10 @@ def test_held_step_bound_catches_a_wrong_result() -> None:
     with pytest.raises(SystemExit):
         gate._check_step_bound(w, _bf(mx.zeros_like(w) + w.mean()), 8, 64, "flat")
     for w in (
-        mx.full((4, 64), 0.5, dtype=mx.bfloat16), mx.zeros((4, 64), dtype=mx.bfloat16),
-        _bf(mx.random.normal((8, 64)) * 1e-3), _bf(mx.full((4, 64), 1e-39)),
+        mx.full((4, 64), 0.5, dtype=mx.bfloat16),
+        mx.zeros((4, 64), dtype=mx.bfloat16),
+        _bf(mx.random.normal((8, 64)) * 1e-3),
+        _bf(mx.full((4, 64), 1e-39)),
     ):
         gate.fake_quant(w, bits=8, group_size=64)
 
@@ -285,6 +309,7 @@ SITES = (
     "crates/qd-prep/tests/convert_licence_parity.rs",
     "crates/qd-metal/tests/ledger_rows.rs",
     "crates/qd-preflight/tests/schema_compat.rs",
+    "crates/qd-export/tests/ledger_real_producer.rs",  # on the pinned block since item 10
 )
 
 
@@ -307,7 +332,10 @@ def test_held_pin_catches_whitespace_crlf_and_missing_trailing_newline(tmp_path:
     src = (REPO / SITES[0]).read_text(encoding="utf-8")
     base = block.findall(src)
     assert len(base) == 1
-    assert block.findall(src.replace("let mut out = Vec::new();", "let mut out = Vec::new(); "))[0] != base[0]
+    assert (
+        block.findall(src.replace("let mut out = Vec::new();", "let mut out = Vec::new(); "))[0]
+        != base[0]
+    )
     assert block.findall(src.replace("\r", "").replace("\n", "\r\n")) == []  # CRLF: no match, loud
     assert block.findall(src.replace("// END qd-python-resolver", "//END qd-python-resolver")) == []
     assert len(block.findall(src + "\n" + base[0])) == 2
