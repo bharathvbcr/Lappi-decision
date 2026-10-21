@@ -180,14 +180,25 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       was remap.json special_ids only: transformers 5.17's Qwen2Tokenizer reported the
       eight named tokens, and Qwen3_5Tokenizer's all_special_ids adds <|im_start|>,
       <|im_end|>, the object-ref, box and quad markers, and <|vision_pad|>. The remap
-      records special_tokens_map, which is those eight ids on 5.17, 5.18 and 5.19."""
+      records special_tokens_map, which is those eight ids on 5.17, 5.18 and 5.19.
+    * The v6 data work since ff39da60 (ft-badf64e2; builds of 171c879 and of this tree on one
+      host, tokenizer and qd-prep binary; the 171c879 build reproduced ff39da60, so the host is
+      not the difference) -> ea81e519...: under explicit legacy v5 data rules, 27 of 33 files are
+      byte-identical (every token, offset, supervision, remap and index file) and the six that
+      differ are JSON. The three shard headers differ only in code_fingerprint (config,
+      decisions, defect_class, schema, sources and split changed; __init__, fingerprint,
+      manifest and pool_builder left it under fingerprint rule 2, recorded as the new
+      code_fingerprint_version) and the shard_hash that covers them. The three manifests differ
+      only in the new keys slot_shape (one per entry, all 86/12/67), slot_shape_digest,
+      val_without_train and split_report.task_holdout_content_disjoint, and built_at_utc. Row
+      ids and their order are equal. Unexplained: 0."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "ff39da60528d170b1f190ef1f80161b096114e2787ba013048fcca9bfb3537d7"
+        "ea81e519a917e7ed644fbf9909d8f45802523fa97493a1473ad257ee147ae47b"
     )
 
 
