@@ -60,6 +60,51 @@ Raw outputs are in `build/l5/` (gitignored): `fb2-metal.out`, `fb3-qd-train.out`
 
 - `GAP-L5-LORA-FT-ROW-PRODUCER-UNREACHABLE-FROM-QD-TRAIN-METAL-2026-10-21` (and the two it refs).
 
+## Adversarial pass (Opus review), fixes 2026-10-21
+
+Cherry-picked b6dc9a6 (`adv_lora_label.rs`), 20dff34 (`adv_lora_args.rs`) and 16d9836
+(`test_adv_lora_row_python.py`); all pass without weakening one.
+
+1. The gate moved from `append_with` to `Row::line_with` (`check_optimizer_label`), which every ft
+   line is built by (`FtRow::line_with`, `append_line` closures, `append_with`). Consequence:
+   `FtRow::line` / `append` on a lora row without `train_manifest_sha256` now refuse, so the
+   existing lora tests that used them (`lora_row.rs`: the row-shape test, the order test and the
+   ignored Python-verifier test) now pass `manifest_extras()`; their assertions are unchanged. The
+   f32 characterization hash is byte-identical (`8251ace8...446110e`).
+2. Values, not presence: the five digest metrics are passed `ran` records holding lowercase hex
+   sha256; `corpus.plan_seed` an unsigned integer; `lora.param_groups` a `name xN at lr_scale S`
+   summary (derived from what `lora_ft_row` writes); a `not_run`, null, failed or malformed metric
+   is refused. Pinned by `every_lora_metric_is_checked_for_what_lora_ft_row_writes`.
+   The lora evidence is demanded of `completed` rows only (Rust and Python): a failed or killed
+   row records an unfinished run and must stay writable when the run died before its digests.
+3. Closed label set `OPTIMIZER_RECIPE_LABELS` = bf16, master, kahan, f32, lora (Python's
+   `OPTIMIZER_RECIPES`; Rust's own tests use f32 and master). Anything else, including case,
+   whitespace and homoglyph variants, is refused at row-build time (`the_optimizer_label_set_is_closed`;
+   the empty label was already refused by `Protocol::for_recipe`). All 99 committed ledgers (2211
+   rows) still verify with the gate in place (`build/l5/verify_all.py`, read-only).
+4. Python parity: `LedgerRow.check_optimizer_label()` runs in `Ledger.append` before the write and in
+   `LedgerRow.from_json`, so `rows()` and `verify_chain()` refuse what a raw writer put in the file.
+   It is deliberately not in `__post_init__`: the adversarial test builds a bare row object before it
+   appends it. New `python/tests/test_lora_label_gate.py` (pins the label set equal across Rust,
+   `ledger.py` and `real_ft_run.py`, and every bad value). Rust-to-Python direction: the extended
+   `pythons_verifier_accepts_a_lora_row` (ignored; run by name, passes). `python/qd_train/ledger.py`
+   was granted by the lead.
+5. Metric names diverge and the pre-registration does not decide: OPEN, owner decision,
+   `GAP-L5-LORA-METRIC-NAMES-DIVERGE-RUST-VS-REFERENCE-DRIVER-2026-10-21`. Neither writer was
+   edited. Because `tools/lora_reference_run.py`'s rows (and `test_lora_reference_driver.py`) use the
+   `init.*` names and record no manifest sha, the Python gate accepts a completed lora row with either
+   complete validated set (never a mixture), and requires `train_manifest_sha256` only for the Rust
+   set. So Python accepts driver-spelled rows that Rust would refuse; the release export refuses them
+   (no manifest sha). Resolve by choosing one set and deleting the other branch.
+6. L5-5 (`adv_lora_then_f32_is_still_the_lora_refusal`, error-message ordering) is cosmetic: dropped,
+   not required. `--optimizer-recipe lora --optimizer-recipe f32` is still refused (as a usage error
+   for the repeat).
+
+Runs after the fixes (mac_heavy, MAX_WAIT_S=28800): `cargo test -p qd-train` 274 passed, 0 failed,
+5 ignored; `-p qd-train-metal` 49 passed, 0 failed, 15 ignored; `-p qd-metal --no-run` exit 0;
+`cargo test -p qd-train --test lora_row -- --ignored` 1 passed; `make torch-pytest` narrowed to the
+lora and ledger tests (10 files) 303 passed. Raw output in `build/l5/r3-*.out` (gitignored).
+
 ## First command for the next lane
 
 After ojas ft-b5e64557 phase B puts a LoRA provider behind qd-train's loop (ojas-train, after

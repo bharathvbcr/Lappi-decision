@@ -627,6 +627,7 @@ impl Row {
                 self.protocol.recipe_hash
             ));
         }
+        check_optimizer_label(&self.recipe, self.status, &self.metrics, extras)?;
         let gates: BTreeMap<String, TriState> = REQUIRED_GATES
             .iter()
             .map(|g| {
@@ -905,7 +906,6 @@ pub fn append_with(
     written_at: String,
 ) -> Result<Stamp, LedgerError> {
     check_ledger_path(path)?;
-    check_lora_label(row, extras)?;
     append_line(path, row_id, written_at, |stamp| {
         row.line_with(stamp, extras)
     })
@@ -1118,33 +1118,99 @@ fn is_hex64(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// The metrics [`lora_ft_row`] adds to every row it builds, beyond `ft_metrics`.
-const LORA_ROW_METRICS: [&str; 7] = [
+/// The metrics [`lora_ft_row`] adds whose value is a lowercase hex sha256 / digest string. The
+/// other two it adds are `corpus.plan_seed` (an unsigned integer) and `lora.param_groups`.
+const LORA_ROW_HEX_METRICS: [&str; 5] = [
     "train.span_head_init_digest",
     "lora.d17_init_digest",
     "lora.a_init_digest",
     "lora.base_safetensors_sha256",
     "lora.dtype_map_sha256",
-    "corpus.plan_seed",
-    "lora.param_groups",
 ];
 
-/// The one locked append's gate on the `lora` label: a row labelled [`LORA_OPTIMIZER_RECIPE`]
-/// is one [`lora_ft_row`] built (every digest in [`LORA_ROW_METRICS`]) and carries the train
-/// manifest's sha256, which the release export requires. A row that is not labelled `lora` is
-/// not looked at, so every other row is appended exactly as before.
-fn check_lora_label(row: &FtRow, extras: &RowExtras) -> Result<(), LedgerError> {
-    if row.recipe.optimizer_recipe != LORA_OPTIMIZER_RECIPE {
+/// Every `recipe.optimizer_recipe` label a row may carry: Python's `OPTIMIZER_RECIPES`
+/// (`tools/real_ft_run.py`) and `python/qd_train/ledger.py`'s `OPTIMIZER_RECIPE_LABELS`. A
+/// label outside the set is refused whatever its spelling, so no near-spelling of `lora` is a
+/// row that no gate recognises as one.
+pub const OPTIMIZER_RECIPE_LABELS: [&str; 5] = ["bf16", "master", "kahan", "f32", "lora"];
+
+/// `lora.param_groups` as [`lora_ft_row`] writes it: `name xN at lr_scale S`, comma-separated.
+fn is_param_group_summary(s: &str) -> bool {
+    !s.is_empty()
+        && s.split(", ").all(|part| {
+            let Some((head, scale)) = part.rsplit_once(" at lr_scale ") else {
+                return false;
+            };
+            let Some((name, count)) = head.rsplit_once(" x") else {
+                return false;
+            };
+            !name.is_empty()
+                && count.bytes().all(|b| b.is_ascii_digit())
+                && !count.starts_with('0')
+                && count.parse::<usize>().is_ok()
+                && scale.parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.0)
+        })
+}
+
+/// The gate every ft line passes ([`Row::line_with`]): `recipe.optimizer_recipe`, when a recipe
+/// states one, is one of [`OPTIMIZER_RECIPE_LABELS`] exactly, and a row labelled
+/// [`LORA_OPTIMIZER_RECIPE`] carries what [`lora_ft_row`] writes: the seven metrics as passed
+/// `ran` records (digests lowercase hex sha256, `corpus.plan_seed` an unsigned integer,
+/// `lora.param_groups` a group summary) and the train manifest's sha256, which the release
+/// export requires. A `not_run`, null, failed or malformed metric is not evidence. A row
+/// labelled otherwise is not looked at beyond the label, so its line is what it always was.
+fn check_optimizer_label(
+    recipe: &Value,
+    status: Status,
+    metrics: &BTreeMap<String, TriState>,
+    extras: &RowExtras,
+) -> Result<(), LedgerError> {
+    let Some(label) = recipe.get("optimizer_recipe") else {
+        return Ok(());
+    };
+    let Some(label) = label.as_str().filter(|l| OPTIMIZER_RECIPE_LABELS.contains(l)) else {
+        return refuse(format!(
+            "recipe.optimizer_recipe {label} is not one of {OPTIMIZER_RECIPE_LABELS:?}"
+        ));
+    };
+    // A failed or killed row records that a run did not finish: it is no LoRA result and its
+    // failure must stay writable even when the run died before its digests existed.
+    if label != LORA_OPTIMIZER_RECIPE || status != Status::Completed {
         return Ok(());
     }
-    if let Some(missing) = LORA_ROW_METRICS
-        .iter()
-        .find(|name| !row.metrics.contains_key(**name))
+    let value_of = |name: &str| -> Result<&Value, LedgerError> {
+        match metrics.get(name) {
+            None => refuse(format!(
+                "a row labelled {LORA_OPTIMIZER_RECIPE:?} lacks metric {name}: only lora_ft_row \
+                 builds a lora row"
+            )),
+            Some(TriState::NotRun { reason }) => refuse(format!(
+                "a row labelled {LORA_OPTIMIZER_RECIPE:?} has metric {name} not_run ({reason}): \
+                 that is not evidence"
+            )),
+            Some(TriState::Ran { passed: false, .. }) => refuse(format!(
+                "a row labelled {LORA_OPTIMIZER_RECIPE:?} has metric {name} failed"
+            )),
+            Some(TriState::Ran { value, .. }) => Ok(value),
+        }
+    };
+    for name in LORA_ROW_HEX_METRICS {
+        if !value_of(name)?.as_str().is_some_and(is_hex64) {
+            return refuse(format!(
+                "metric {name} of a lora row is not a lowercase hex sha256 string"
+            ));
+        }
+    }
+    if value_of("corpus.plan_seed")?.as_u64().is_none() {
+        return refuse("metric corpus.plan_seed of a lora row is not an unsigned integer");
+    }
+    if !value_of("lora.param_groups")?
+        .as_str()
+        .is_some_and(is_param_group_summary)
     {
-        return refuse(format!(
-            "a row labelled {LORA_OPTIMIZER_RECIPE:?} lacks metric {missing}: only lora_ft_row \
-             builds a lora row"
-        ));
+        return refuse(
+            "metric lora.param_groups of a lora row is not a `name xN at lr_scale S` summary",
+        );
     }
     if extras.train_manifest_sha256.is_none() {
         return refuse(format!(

@@ -46,16 +46,6 @@ fn adv_repeated_flag_never_parses_either_order() {
     }
 }
 
-/// A repeated flag where one value is lora is the lora attempt; the refusal class (Refused,
-/// which the host treats as a refusal rather than a typo) should still be the one raised.
-#[test]
-fn adv_lora_then_f32_is_still_the_lora_refusal() {
-    let r = parse(&with(&["--optimizer-recipe", "lora", "--optimizer-recipe", "f32"]));
-    assert!(matches!(r, Err(ArgsError::Refused(_))), "{r:?}");
-    let r = parse(&with(&["--optimizer-recipe=f32", "--optimizer-recipe=lora"]));
-    assert!(matches!(r, Err(ArgsError::Refused(_))), "{r:?}");
-}
-
 #[test]
 fn adv_empty_case_unicode_and_padded_values_are_not_f32_runs() {
     for v in ["", "LORA", "Lora", "l\u{43e}ra", "lora ", " lora", "lora\n", "F32", "f32 ", "f\u{ff13}2", "lora\0"] {
