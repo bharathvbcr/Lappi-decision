@@ -2053,7 +2053,14 @@ def assert_shard_files_trainable(
     """
     root = Path(root)
     assert_path_not_held_out(root, config=config, repo_root=repo_root)
-    entries = list(itertools.islice(root.iterdir(), MAX_SHARD_DIR_ENTRIES + 1))
+    try:
+        entries = list(itertools.islice(root.iterdir(), MAX_SHARD_DIR_ENTRIES + 1))
+    except FileNotFoundError as exc:
+        # The operator needs the file the format requires, not the directory listing's errno.
+        raise FileNotFoundError(
+            exc.errno, f"no shard set at {root}: {root / HEADER_NAME} is missing "
+            "(the directory does not exist)", str(root / HEADER_NAME)
+        ) from exc
     if len(entries) > MAX_SHARD_DIR_ENTRIES:
         raise ShardContractViolation(
             f"{root}: more than {MAX_SHARD_DIR_ENTRIES} entries; refusing to open a "
