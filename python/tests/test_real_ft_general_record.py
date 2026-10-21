@@ -36,7 +36,12 @@ import real_tokenizer_pipeline as pipeline  # noqa: E402
 from repo_git import resolve_rev  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
-from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY  # noqa: E402
+from qd_data.general import (  # noqa: E402
+    REPLAY_FAMILIES,
+    REPLAY_ONLY,
+    REPLAY_ROLE_KEY,
+    partition_replay,
+)
 
 #: A pinned revision in this repository's history, as the other rebuild tests use.
 PINNED = "0632f693d3b765b726499e7b4bf19c67959b75cb"
@@ -44,6 +49,23 @@ PINNED = "0632f693d3b765b726499e7b4bf19c67959b75cb"
 MMLU_ROWS = [
     {"question": f"What follows {i} in the sequence?", "subject": f"s{i % 7}",
      "choices": [str(i + 1), str(i + 2), str(i + 3), str(i + 4)], "answer": 0}
+    for i in range(300)
+]
+#: The family the replay slice is drawn from under v6. MMLU's ``test`` and ``dev`` splits are
+#: decontamination targets there (``benchmark_eval_split_is_a_target``, human ruling 2026-10-17),
+#: so the MMLU rows above are refused and drew nothing; CommonsenseQA's ``train`` split is
+#: pinned to train, which is where a replay row can come from. Words, not numbers, so the rows
+#: are not near-duplicates of one another.
+_WORDS = ("amber", "birch", "cobalt", "dune", "ember", "fjord", "garnet", "harbor", "indigo",
+          "jasper", "kelp", "lagoon", "marble", "nectar", "onyx", "prairie", "quartz", "reef",
+          "saffron", "tundra", "umber", "velvet", "willow", "xenon", "yarrow", "zephyr")
+CSQA_ROWS = [
+    {"id": f"c{i}", "question": f"Which of these belongs with {_WORDS[i % 26]} "
+                                f"{_WORDS[(i * 7 + 3) % 26]} {_WORDS[(i * 11 + 5) % 26]} #{i}?",
+     "question_concept": f"{_WORDS[i % 26]}-{i // 26}",
+     "choices": {"label": ["A", "B", "C", "D", "E"],
+                 "text": [f"{_WORDS[(i + k) % 26]} {_WORDS[(i * 3 + k) % 26]}" for k in range(5)]},
+     "answerKey": "A"}
     for i in range(300)
 ]
 SQUAD_ROWS = [
@@ -67,13 +89,15 @@ def _entry(dataset: str, path: Path, rows: int) -> dict[str, Any]:
 
 
 def _record(root: Path) -> Path:
-    """A fetch record over MMLU (the replay family) and SQuAD, caches beside it."""
+    """A fetch record over MMLU (refused under v6), CommonsenseQA (the replay family) and SQuAD."""
     mmlu = _file(root, "cais__mmlu/rev/test.jsonl", MMLU_ROWS)
     squad = _file(root, "rajpurkar__squad_v2/rev/train.jsonl", SQUAD_ROWS)
+    csqa = _file(root, "tau__commonsense_qa/rev/train.jsonl", CSQA_ROWS)
     path = root / "fetch-record.json"
     path.write_text(json.dumps([
         _entry("cais/mmlu", mmlu, len(MMLU_ROWS)),
         _entry("rajpurkar/squad_v2", squad, len(SQUAD_ROWS)),
+        _entry("tau/commonsense_qa", csqa, len(CSQA_ROWS)),
     ]), encoding="utf-8")
     return path
 
@@ -123,14 +147,16 @@ def test_the_rebuild_is_the_pipelines_own_split_general_rows_and_replay_slice_in
                       ("heldout", "data/heldout/heldout.json")):
         assert sorted(r.row_id for r in splits[name]) == _manifest_ids(out / rel), name
     replay_ids = _manifest_ids(out / rft.REPLAY_MANIFEST)
-    assert replay_ids, "a 15% draw over 300 MMLU rows drew nothing; the fixture is too small"
+    assert replay_ids, "a 15% draw over 300 CommonsenseQA train rows drew nothing"
     train_ids = {r.row_id for r in splits["train"]}
     assert train_ids.isdisjoint(replay_ids)
     assert all(REPLAY_ROLE_KEY not in r.metadata for r in splits["train"])
     # The real SQuAD rows replaced the repository-prose stand-in, on both sides.
     all_rows = [r for rows in splits.values() for r in rows]
     assert any(r.source_id == "rajpurkar/squad_v2" for r in all_rows)
-    assert any(r.source_id == "cais/mmlu" for r in all_rows)
+    assert any(r.source_id == "tau/commonsense_qa" for r in all_rows)
+    # v6 refuses MMLU's test split as a row (it is a target), so none reaches either split.
+    assert not any(r.source_id == "cais/mmlu" for r in all_rows)
 
     # The partition is load-bearing: without it the replay-only rows are gold-trained.
     unpartitioned = rft.ft_splits(commitpackft=None, max_pairs=3, rev=rev, config=config,
@@ -227,6 +253,8 @@ def _facts(out: Path, **kw: Any) -> rft.CorpusFacts:
 
 
 GENERAL = frozenset({"cais/mmlu", "rajpurkar/squad_v2"})
+#: What ``_record`` names: GENERAL plus the CommonsenseQA replay family.
+RECORD_DATASETS = GENERAL | {"tau/commonsense_qa"}
 
 
 def test_a_general_record_set_is_accepted_with_the_record_that_built_it(tmp_path: Path) -> None:
@@ -279,7 +307,7 @@ def test_the_datasets_a_record_names_are_read_through_the_pipelines_parser(
     tmp_path: Path,
 ) -> None:
     assert rft.general_record_datasets(None) is None
-    assert rft.general_record_datasets(_record(tmp_path)) == GENERAL
+    assert rft.general_record_datasets(_record(tmp_path)) == RECORD_DATASETS
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps([{"dataset": "someone/else", "jsonl": "x"}]), encoding="utf-8")
     with pytest.raises(SystemExit, match="is not one of"):
@@ -374,7 +402,9 @@ def test_main_forwards_the_record_and_pairs_a_general_set_by_its_index(
                   "--replay-partition"])
     assert [(c["general_record"], c["general_max_rows"], c["replay_partition"])
             for c in calls] == [(record, 50, True)]
-    assert [(f["general_datasets"], f["replay_partition"]) for f in facts] == [(GENERAL, True)]
+    assert [(f["general_datasets"], f["replay_partition"]) for f in facts] == [
+        (RECORD_DATASETS, True)
+    ]
     assert paired == [True]
 
 
@@ -384,14 +414,60 @@ def test_main_refuses_general_options_without_a_record(tmp_path: Path, flags: li
         rft.main(["--out", str(tmp_path), "--wall-clock-cap-s", "1800", "--rev", "a" * 40, *flags])
 
 
+EMPTY_DRAW_MESSAGE = "the replay draw is empty: 'never in the gold train split' is vacuous"
+
+
+def assert_replay_rows_exist_are_marked_and_stay_out_of_train(
+    record: Path, *, repo_history: bool = False
+) -> None:
+    """The check ``test_replay_rows_are_marked_and_never_in_the_gold_train_split`` makes, on any
+    record. The negative half (no replay-only row in train) holds for an empty draw too, as it
+    did for the MMLU fixture under v6, so the slice must also exist, be marked, and be exactly
+    what the partition took out of train. ``test_adv_general_record_fixture`` runs it on a
+    record that draws nothing and asserts it raises ``EMPTY_DRAW_MESSAGE``."""
+    rev = resolve_rev(REPO, PINNED)
+    config = DataConfig()
+    train, _val = rft.ft_split_rows(commitpackft=None, max_pairs=3, rev=rev,
+                                    config=config, general_record=record,
+                                    replay_partition=True, repo_history=repo_history)
+    assert train
+    assert not any(r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY for r in train)
+
+    unpartitioned, _ = rft.ft_split_rows(commitpackft=None, max_pairs=3, rev=rev,
+                                         config=config, general_record=record,
+                                         repo_history=repo_history)
+    # Only the general families are partitioned (code rows, present with repo history, are not).
+    drawn = partition_replay(
+        [r for r in unpartitioned if r.family_id in REPLAY_FAMILIES], seed=config.seed
+    )
+    assert drawn.replay_rows, EMPTY_DRAW_MESSAGE
+    assert all(r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY for r in drawn.replay_rows)
+    removed = {r.row_id for r in unpartitioned} - {r.row_id for r in train}
+    assert removed == {r.row_id for r in drawn.replay_rows}
+
+
 @pytest.mark.usefixtures("qd_prep")
 def test_replay_rows_are_marked_and_never_in_the_gold_train_split(tmp_path: Path) -> None:
     """The mirror of the pipeline's own invariant, on the rebuild: every replay-only row
     carries its role, and none of them is in the train split ``main`` gold-trains on."""
-    rev = resolve_rev(REPO, PINNED)
-    record = _record(tmp_path)
-    train, _val = rft.ft_split_rows(commitpackft=None, max_pairs=3, rev=rev,
-                                    config=DataConfig(), general_record=record,
-                                    replay_partition=True, repo_history=False)
-    assert train
-    assert not any(r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY for r in train)
+    assert_replay_rows_exist_are_marked_and_stay_out_of_train(_record(tmp_path))
+
+
+def test_v6_refuses_every_mmlu_test_row_so_the_replay_draw_has_nothing_to_draw_from() -> None:
+    """The diagnosis of the two reds this fixture used to cause, as a test. The draw itself is
+    right: the same 300 MMLU test rows give a replay slice under v5 and none under v6, where
+    ``cais/mmlu`` test is a decontamination target (human ruling 2026-10-17). Both halves run
+    here, so a v5 draw of nothing, or a v6 MMLU row that survived, fails this test."""
+    from qd_data.general import partition_replay
+    from qd_data.loaders import parse_mmlu
+    from qd_data.mixture import build_mixture
+
+    raw = [parse_mmlu(r, index=i, split_name="test") for i, r in enumerate(MMLU_ROWS)]
+    v6 = build_mixture({"cais/mmlu": raw}, config=DataConfig())
+    assert len(v6.rows) == 0
+    assert v6.refusals["cais/mmlu"]["benchmark_eval_split_is_a_target"] == len(MMLU_ROWS)
+
+    v5 = build_mixture({"cais/mmlu": raw}, config=DataConfig.legacy_v5())
+    assert len(v5.rows) == len(MMLU_ROWS)
+    part = partition_replay(list(v5.rows), seed=DataConfig().seed)
+    assert 0.10 <= len(part.replay_rows) / len(MMLU_ROWS) <= 0.20, part.counts()
