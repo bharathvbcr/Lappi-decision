@@ -38,11 +38,21 @@ Labels: V = read or run today, I = inferred, NOT RUN = did not happen.
   1 passed 5 failed (new test fails at `schema_compat.rs:120`); qd-metal `ledger_rows` 7 passed 4 failed (new test
   fails at `ledger_rows.rs:113`).
 - NOT RUN: the qd-prep fails-before run of the new test (stopped after hours in the queue).
-- NOT RUN: the fails-before runs for the later resolver changes (GIT_DIR/GIT_WORK_TREE removal, trailing-newline
-  strip, `.git`-name check with its `--separate-git-dir` assertion) and for the qd-export bounded-interpreter test
-  (`a_hung_interpreter_fails_loudly_within_the_bound`; the stub `exec sleep 20` would be accepted by the unbounded
-  code and wait out 20 s). The before-runs were queued and cancelled because the machine lock was held for hours by
-  another session; the tests are on disk and the after-runs are queued.
+- V, fails-before, qd-export hung interpreter (working tree only: `python_from` probe reverted to the unbounded
+  call, new test kept; label `l4-fb-export-hung`, `cargo test -p qd-export --test ledger_real_producer
+  a_hung_interpreter`, MAC_HEAVY_MAX_LOAD=48, exit 101, 2026-10-21T11:40Z): 0 passed, 1 failed in 20.15 s; the
+  unbounded call waited out the 20 s stub and accepted it ("a hung interpreter must fail loudly, not be accepted",
+  `ledger_real_producer.rs:250`).
+- V, fails-before, later resolver changes (working tree only, qd-preflight `schema_compat.rs`: `GIT_DIR` and
+  `GIT_WORK_TREE` removal, newline-only strip and `.git`-name check reverted, tests kept; label
+  `l4-fb-preflight-resolver`, `cargo test -p qd-preflight --test schema_compat a_linked_worktree`, exit 101,
+  2026-10-21T11:40Z): 0 passed, 1 failed; the separate-git-dir assertion at `schema_compat.rs:164` got
+  `Some(".../qd-python-resolver-19125")`, expected `None`. Only the `.git`-name check is exercised by that
+  assertion; the `GIT_DIR` and newline-only changes have no fails-before (NOT RUN).
+- Both reverts were undone by hand (the `git checkout --` was held for a confirmation that timed out): `git status`
+  showed only the untracked `scratch_site/`, `git diff` was empty, and the pin test passed (3 passed). Nothing
+  reverted was committed. After-runs of the two tests (labels `l4-fb-export-hung-after`,
+  `l4-fb-preflight-resolver-after`) are queued.
 - V, qd-prep after-run with the final resolver block (label `l4-b2-after-prep`, `cargo test -p qd-prep --test
   convert_licence_parity`, no `QD_PYTHON`, MAC_HEAVY_MAX_LOAD=48, exit 0, 2026-10-21T10:32Z): 4 passed, 0 failed
   (the 3 former reds plus `a_linked_worktree_resolves_the_main_checkouts_venv`). Only this target ran; the full
