@@ -79,6 +79,10 @@
 #   ticket that load allows may try the lock (rules and bounds at take_ticket below;
 #   $MAC_HEAVY_MAX_QUEUE, default 256 live tickets, is refused above with exit 75).
 #
+# - Serving guard. A job launched with MAC_HEAVY_TRAINING=1 refuses to start (exit 77) while a qd
+#   daemon holds the socket $MAC_HEAVY_QD_SOCKET, and exits 78 when that cannot be determined. It
+#   checks before queueing and again once the lock is held. Not checked while the job runs.
+#
 # OPEN QUESTION FOR THE OWNER (Fable ruling Q17 (a), 2026-10-18; not implemented): the lock already
 # serializes Lappi to one build, so should a job under it run with CARGO_SLOT_HELD set? Its cargo
 # would then skip the machine-wide slot gate, and a Lappi build could never queue behind other
@@ -186,6 +190,31 @@ if [ "$MG_MB" -gt 0 ] && [ "$MAX_FP_MB" -ge "$MG_MB" ]; then
 fi
 [ "$POLL" -ge 1 ] || POLL=1
 [ "$RSS_POLL" -ge 1 ] || RSS_POLL=1
+
+# Training guard (docs/mac-serving-windows-2026-10-21.md). A training run is marked by the explicit
+# opt-in MAC_HEAVY_TRAINING=1; no label or command marks one today. A marked job refuses to start
+# while a qd daemon listens on $MAC_HEAVY_QD_SOCKET (default: the daemon's own default socket). The
+# daemon is found by its socket, never by process name: qd serve writes no pid file. Held (warm or
+# cold, since it loads on any request) is exit 77; a socket that cannot be read is 78, because a
+# guard that could not run is not a guard that passed.
+TRAINING=${MAC_HEAVY_TRAINING:-0}
+case "$TRAINING" in
+  0|1) ;;
+  *) echo "mac_heavy: MAC_HEAVY_TRAINING must be 0 or 1, got '$TRAINING'. Refusing" >&2; exit 64 ;;
+esac
+QD_SOCKET=${MAC_HEAVY_QD_SOCKET:-$HOME/Library/Caches/qd/qd.sock}
+QD_PROBE=$(dirname "$0")/qd_serve_launchd.py
+qd_guard() {
+  [ "$TRAINING" = 1 ] || return 0
+  local out rc
+  out=$(python3 -I "$QD_PROBE" held --socket "$QD_SOCKET" 2>&1); rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    10) echo "mac_heavy: training job '$LABEL' refused: $out. A resident model plus the training budget is what memguard kills the training run for; stop the daemon first (docs/mac-serving-windows-2026-10-21.md); '$LABEL' did NOT run" >&2; exit 77 ;;
+    *) echo "mac_heavy: training job '$LABEL' refused: the qd daemon guard could not run (probe exit $rc): $out; '$LABEL' did NOT run" >&2; exit 78 ;;
+  esac
+}
+qd_guard
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -427,6 +456,8 @@ while :; do
   waited=$((waited + 10#$POLL))
 done
 drop_ticket
+# A daemon may have started while this job waited, possibly for hours.
+qd_guard
 
 vol=/System/Volumes/Data
 [ -d "$vol" ] || vol=/
