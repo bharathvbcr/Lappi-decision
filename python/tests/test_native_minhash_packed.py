@@ -251,3 +251,58 @@ def test_a_signing_call_that_fails_part_way_leaves_nothing_installed(
     assert dedupe_module.MinHasher is MinHasher and split_module.MinHasher is MinHasher
     assert dedupe_module.shingle is shingle
     assert dedupe_module.exact_jaccard is exact_jaccard
+
+
+def test_every_batch_is_checked_against_the_reference_at_both_ends(
+    prep: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """40 distinct sets in batches of 20: each batch re-signs its first and last
+    NATIVE_MINHASH_CANARIES sets in Python (8 of 20), so 16 reference signings in all, and the
+    cost per batch is bounded by that, not by the batch size."""
+    repo = _repo_in("train", "org/t")
+    rows = [_row(f"c{i:03d}", repo=repo, text=" ".join(f"c{i}t{j}" for j in range(20)))
+            for i in range(40)]
+    calls = 0
+    original = MinHasher.signature
+
+    def counting(self: MinHasher, s: Any) -> tuple[int, ...]:
+        nonlocal calls
+        calls += 1
+        return original(self, s)
+
+    monkeypatch.setattr(MinHasher, "signature", counting)
+    with pipeline.native_minhash(rows, config=CONFIG, batch_sets=20):
+        assert calls == 2 * 2 * pipeline.NATIVE_MINHASH_CANARIES
+        _decisions(rows)
+
+
+def test_a_plain_set_with_a_signed_sets_hashes_but_other_content_is_refused(
+    prep: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = _unique(_fixture())
+    plain = shingle(rows[4].dedupe_text, k=CONFIG.shingle_size).shingles
+    old = sorted(plain)[-1]
+    new = b"a shingle that is in no signed set"
+    other = (plain - {old}) | {new}
+    with pipeline.native_minhash(rows, config=CONFIG, batch_sets=3):
+        hasher = dedupe_module.MinHasher(num_perm=CONFIG.num_perm, seed=CONFIG.seed)
+        real = hash
+        monkeypatch.setattr(
+            pipeline, "hash", lambda b: real(old) if b == new else real(b), raising=False
+        )
+        with pytest.raises(SystemExit, match="shingle hash collision"):
+            hasher.signature(other)
+        _decisions(rows)
+
+
+def test_a_packed_set_of_another_block_is_refused_by_exact_jaccard_too(prep: Path) -> None:
+    rows = _unique(_fixture())
+    kept: list[Any] = []
+    with pipeline.native_minhash(rows, config=CONFIG, batch_sets=3):
+        kept.append(dedupe_module.shingle(rows[0].dedupe_text, k=CONFIG.shingle_size).shingles)
+        _decisions(rows)
+    with pipeline.native_minhash(rows, config=CONFIG, batch_sets=3):
+        fresh = dedupe_module.shingle(rows[0].dedupe_text, k=CONFIG.shingle_size).shingles
+        with pytest.raises(SystemExit, match="another native_minhash block"):
+            dedupe_module.exact_jaccard(kept[0], fresh)
+        _decisions(rows)

@@ -65,14 +65,28 @@ class RusageInfoV4(ctypes.Structure):
     _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [(n, ctypes.c_uint64) for n in _FIELDS]
 
 
-def phys_footprint_bytes(libproc: ctypes.CDLL, pid: int) -> int:
+def rusage(libproc: ctypes.CDLL, pid: int) -> RusageInfoV4:
+    """``proc_pid_rusage(pid, RUSAGE_INFO_V4)`` of a live process; ``OSError`` otherwise (ESRCH
+    when it has exited)."""
     info = RusageInfoV4()
     libproc.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
     libproc.proc_pid_rusage.restype = ctypes.c_int
     if libproc.proc_pid_rusage(pid, RUSAGE_INFO_V4, ctypes.addressof(info)) != 0:
         err = ctypes.get_errno()
         raise OSError(err, f"proc_pid_rusage({pid}) failed")
-    return int(info.ri_phys_footprint)
+    return info
+
+
+def phys_footprint_bytes(libproc: ctypes.CDLL, pid: int) -> int:
+    """The process's footprint now: what the cap in tools/mac_heavy.sh sums."""
+    return int(rusage(libproc, pid).ri_phys_footprint)
+
+
+def lifetime_max_phys_footprint_bytes(libproc: ctypes.CDLL, pid: int) -> int:
+    """The largest footprint the process has had since it started, kept by the kernel: exact for
+    that process however briefly it held the memory, unlike any sample of
+    :func:`phys_footprint_bytes`. Readable only while the process is alive."""
+    return int(rusage(libproc, pid).ri_lifetime_max_phys_footprint)
 
 
 def main(argv: list[str]) -> int:

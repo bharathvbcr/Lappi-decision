@@ -57,14 +57,14 @@ def _old_pipeline() -> types.ModuleType:
     module = types.ModuleType(name)
     module.__file__ = str(REPO / "tools" / "real_tokenizer_pipeline.py")
     sys.modules[name] = module
-    exec(compile(done.stdout, module.__file__, "exec"), module.__dict__)  # noqa: S102
+    exec(compile(done.stdout, module.__file__, "exec"), module.__dict__)
     return module
 
 
 def _outcome(rows: list[DataRow]) -> tuple[Any, ...]:
     try:
         return ("ok", _decisions(rows))
-    except BaseException as exc:  # noqa: BLE001 -- the comparison is of outcomes, raised or not
+    except BaseException as exc:
         return ("raised", type(exc).__name__)
 
 
@@ -140,7 +140,7 @@ def test_old_and_new_native_agree_with_the_reference_on_seeded_random_corpora(
         try:
             with pipeline.native_minhash(rows, config=CONFIG, batch_sets=batch):
                 new_got = _outcome(rows)
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             new_got = ("block raised", type(exc).__name__, str(exc)[:120])
         if not (want == old_got == new_got):
             bad.append(f"seed {seed} batch {batch}: ref {want[:1]} old {old_got[:1]} new {new_got}")
@@ -237,7 +237,7 @@ def test_BREAK_a_collision_between_two_different_sets_is_not_silently_merged(
 def test_a_collision_inside_one_set_is_refused_with_a_real_two_shingle_set(
     prep: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    rows, xa, _xb = _two_sets_sharing_all_but_one_shingle()
+    rows, _xa, _xb = _two_sets_sharing_all_but_one_shingle()
     monkeypatch.setattr(pipeline, "hash", lambda _b: 3, raising=False)
     with pytest.raises(SystemExit, match="same 64-bit hash"), pipeline.native_minhash(
         rows, config=CONFIG, batch_sets=1

@@ -69,3 +69,35 @@ def test_descendants_follow_parent_links_and_ignore_other_trees() -> None:
     table = [(1, 0, "init"), (10, 1, "a"), (11, 10, "b"), (12, 11, "c"), (20, 1, "other")]
     assert footprint_peak.descendants(10, table) == {10: "a", 11: "b", 12: "c"}
     assert footprint_peak.descendants(99, table) == {}
+
+
+def test_a_spike_the_root_freed_before_the_next_sample_is_read_from_the_kernel(
+    tmp_path: Path,
+) -> None:
+    """The root holds 300 MiB for an instant and then idles for seconds: no sample sees it, the
+    kernel's lifetime max (ri_lifetime_max_phys_footprint) does. The summary names the stage and
+    says the peak is a lower bound."""
+    code = (
+        "import time\n"
+        f"b = bytearray(b'\\x01') * ({HOLD_MIB} << 20)\n"
+        "del b\n"
+        "time.sleep(2.5)\n"
+    )
+    done, _timeline = _run(tmp_path, [sys.executable, "-c", code])
+    stages = re.search(r"per stage, lifetime max MiB: \{(.*)\}", done.stderr)
+    assert stages, done.stderr
+    held = [int(v) for v in re.findall(r": (\d+)", stages.group(1))]
+    assert max(held) >= HOLD_MIB, done.stderr
+    assert "LOWER BOUND" in done.stderr
+
+
+@pytest.mark.parametrize(("command", "name"), [
+    ("/Users/me/my repo/target/release/qd-prep minhash --input a", "qd-prep:minhash"),
+    ("/x/qd-prep lsh --input a --output b", "qd-prep:lsh"),
+    ("/x/target/release/qd-prep", "qd-prep"),
+    ("/usr/bin/python3 -u tools/containment_scan.py", "python3"),
+    ("python3 /x/qd-prep minhash", "python3"),
+    ("", ""),
+])
+def test_stage_names(command: str, name: str) -> None:
+    assert footprint_peak.stage_name(command) == name
