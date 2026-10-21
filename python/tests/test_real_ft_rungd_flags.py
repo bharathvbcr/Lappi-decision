@@ -144,7 +144,9 @@ def _patch_module(mp: pytest.MonkeyPatch, module: Any, corpus: Corpus) -> None:
     rows = (corpus.train, corpus.val)
     mp.setattr(module, "ft_split_rows", lambda **kw: rows)
     mp.setattr(module, "resolve_rev", lambda repo, rev: rev)
-    mp.setattr(module, "check_defect_source", lambda out, *, defect_class, config: None)
+    # ``config`` is keyword-only on today's tool and absent from the base commit's: a copy of
+    # the tool calls this with whichever it has (test_batch_order's BASE_REF predates it).
+    mp.setattr(module, "check_defect_source", lambda out, *, defect_class, **_kw: None)
     mp.setattr(
         module, "corpus_facts",
         lambda out, **kw: module.CorpusFacts(snapshot_not_run=None, history_rows={}),
