@@ -18,13 +18,18 @@ records in `gaps.jsonl` and the audit files, not ledger row ids.
 - The torch-venv run (the Makefile's torch-pytest form) found 2 more reds on main that the torch-free
   venv hides (`torch-venv-two-reds-summary.txt`): `pipeline.run` defaults to v6 data rules and
   refuses the 60-pair corpus (no defect class); and the characterization digest had moved
-  ff39da60 -> ea81e519. Fixed in 7a74991: `v6_data_rules=False` on the build calls, the drops test
-  scans under `DataConfig.legacy_v5()`, and the pin is re-pinned with every moved byte accounted
-  (171c879 reproduces ff39da60 on this host; 6 of 33 files differ, all JSON: header code
-  fingerprints and shard_hash; manifest keys slot_shape, slot_shape_digest, val_without_train,
-  task_holdout_content_disjoint). After: `32 passed, 0 skipped` (run directly, 44 s, not under the
-  lock). Gap: GAP-L3-CONTAINMENT-EXCLUSIONS-TORCH-VENV-TWO-REDS-FIXED-2026-10-21. **The re-pin is a
-  judgment the owner should look at.**
+  ff39da60 -> ea81e519. Fixed in 67d15db (this branch): `v6_data_rules=False` on the build calls,
+  the drops test scans under `DataConfig.legacy_v5()`, and the characterization test's docstring
+  names its rule set (explicit legacy v5; it characterizes the shard writer and exclusion flag,
+  not the v6 rules; Fable ruling 2026-10-21). The commit message of 67d15db still says
+  "re-pinned": its diff does not touch the digest. **The digest re-pin ff39da60 -> ea81e519 is NOT
+  on this branch's own commits.** It is the one commit 4fba3b4 on `lane/ft-badf64e2-repin` (from
+  d09222d; card ft-badf64e2 owns it), which this branch is rebased onto; the accounting is in the
+  test docstring there (171c879 reproduces ff39da60 on this host; 6 of 33 files differ, all JSON:
+  header code fingerprints and shard_hash; manifest keys slot_shape, slot_shape_digest,
+  val_without_train, task_holdout_content_disjoint). On this branch's tip: `32 passed, 0 skipped`
+  in the torch venv (run directly, 50 s, not under the lock). Gap:
+  GAP-L3-CONTAINMENT-EXCLUSIONS-TORCH-VENV-TWO-REDS-FIXED-2026-10-21.
 - Pinned behaviour, no fix needed: an interrupted scan leaves nothing that passes as complete
   (`test_containment_scan_interrupted.py`, 9 passed: a request cut at 0, 1, 8 bytes, 25/50/90 % or
   one byte short is refused by qd-prep with no attestation; a rerun refuses to overwrite).
@@ -50,9 +55,12 @@ frozenset-of-bytes shingle sets (116-160 B a shingle) plus one 7.3 KB tuple per 
 1..1,000,000; validated) new sets per qd-prep call, a signature matrix instead of tuples.
 What remains is qd_data's own O(corpus) state (peak 'python only' 10.7-10.9 GiB); changing it
 re-fingerprints every pinned shard set and attestation, so it was not touched.
-Benchmark: after2/after3 are +9.5 % / +10.3 % over base1 (n=1 base; after1 +31 % was the first run
-on a loaded host; the after-runs' own spread is 17 %). The cost is packing (~35 us a set, ~18 s) and
-~52 signing calls. Over 5 %, accepted for halving the peak; not distinguished from host noise.
+Benchmark: **the 5 % wall-time check is UNRESOLVED, not passed.** Base n=1 (440.3 s); after-runs
+482.1 / 485.5 / 576.6 s, a 17 % spread among themselves, so the +9.5 % / +10.3 % (and +31 % for the
+first run) deltas are inside the noise and neither confirm nor rule out a slowdown over 5 %. The
+cost the change adds is packing (~35 us a set, ~18 s) and ~52 signing calls. Fable accepted this
+without an interleaved A/B (ruling 2026-10-21); the owner may ask for a 3+3 interleaved A/B at
+merge time (`build/l3/baseline.sh` is the harness shape).
 Note: base1 on current main also passes the cap (22.4 GiB): the earlier 28.7-29.4 GiB kills predate
 the shingle interning that is already on main.
 
@@ -66,11 +74,18 @@ reads. Appending a comment to render.py, mixture.py, loaders.py or general.py do
 `SHARD_CONTENT_MODULES` (GAP-L3-CONTAINMENT-FINGERPRINT-CLOSURE-OMITS-ROW-BUILDING-MODULES-2026-10-21).
 
 ## What changed (commits on lane/ft-57fc7484-l3)
-- a5c9a12 `tools/footprint_peak.py` + test (new). 4a14cc1 its test's name match fix.
-- 1d05037 `tools/real_tokenizer_pipeline.py` `native_minhash` (packed sets, batches, SignatureRow,
+Rebased 2026-10-21 onto `lane/ft-badf64e2-repin` (4fba3b4, the digest re-pin only), so every id
+below is the rewritten one. Pre-rebase ids, which the gap records and the measured-tree names in
+this file cite, map: a5c9a12 -> 3b12f62, 1d05037 -> 45e482e, dc1c711 -> 8f3cfbe,
+7a74991 -> 67d15db, c311913 -> 90fe757, 3a3b16d -> 37cf63f, 9894135 -> 075d227,
+4a14cc1 -> f034df9. `git diff 1d05037 45e482e -- tools` is empty: the scanned code is the same.
+- 3b12f62 `tools/footprint_peak.py` + test (new). f034df9 its test's name match fix.
+- 45e482e `tools/real_tokenizer_pipeline.py` `native_minhash` (packed sets, batches, SignatureRow,
   packed exact_jaccard) + `python/tests/test_native_minhash_packed.py` (18 tests).
-- 7a74991 `test_containment_exclusions.py`. 3a3b16d `test_containment_scan_interrupted.py`.
-- dc1c711, c311913, 9894135 `gaps.jsonl` (5 records appended, O_APPEND). 814 lines added, 42 removed.
+- 67d15db `test_containment_exclusions.py` (rule set, no digest change). 37cf63f
+  `test_containment_scan_interrupted.py`.
+- 8f3cfbe, 90fe757, 075d227 `gaps.jsonl` (5 records appended, O_APPEND), plus the id-mapping
+  record GAP-L3-COMMIT-IDS-REWRITTEN-BY-THE-REPIN-REBASE-2026-10-21.
 
 Fails-before: `test_the_block_holds_hashes_not_shingles` is 27.8 MiB held on the pre-change code against a
 6 MiB bound, 2.4 MiB after; the rest of the new file fails there at the `batch_sets` argument.
@@ -82,7 +97,9 @@ Existing native tests (minhash/lsh parity, composed files, memory): 39 passed, 4
   test_pipeline_val_shards (3), test_qd_prep_spancheck_parity (4), test_real_ft_general_record (2),
   test_split_cache_main, test_pre_dedupe_drops, test_real_ft_pieces, test_ft_linear_control_split_cache
   (3), test_option_control, test_batch_order, test_wall_clock_cap_required,
-  test_real_ft_score_plan, test_ledger_provenance. Not this lane's; L2 owns the torch reds (b1).
+  test_real_ft_score_plan, test_ledger_provenance. Not this lane's. Per the lead (2026-10-21):
+  three of them (two in test_real_ft_general_record, one in test_real_ft_score_plan) are L2's torch
+  reds, now fixed; the other 17 are filed as their own card.
   `test_ledger.py::test_an_interrupt_during_a_suite_takes_its_process_group_down` failed in the
   40-minute run and passes alone (load-sensitive, inferred).
 - The scan inputs `commitpackft-composed-v2`, `defect-noul-v3b`, `own-prose-v1/units.jsonl`,
