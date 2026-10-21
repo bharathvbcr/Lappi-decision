@@ -304,6 +304,35 @@ fn a_report_fitted_under_another_ece_threshold_is_refused() {
     refused(&c, &out, "threshold");
 }
 
+/// The runtime builds its lookup key from the request's row count (`choice:5`), never from text a
+/// manifest wrote. A table that spells the entry `choice:05` and a train manifest that spells the
+/// shape the same way agree with each other and with a passing report, so the declared-shape
+/// comparison passes; the runtime's own `CalibrationTable::lookup(choice, 5)` finds nothing and
+/// would refuse every such request as `calibration_entry_missing`.
+#[test]
+fn a_shape_spelled_so_the_runtimes_lookup_misses_it_is_refused() {
+    let mut c = case(true);
+    let mut doc = serde_json::to_value(table(true)).unwrap();
+    let letters = doc["letters"].as_object_mut().unwrap();
+    let five = letters.remove("choice:5").unwrap();
+    letters.insert("choice:05".to_string(), five);
+    c.table = write_json(&c.fx.dir.0.join("table.json"), &doc);
+    c.table_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(&c.table).unwrap()));
+    // The runtime really does miss it.
+    let read: CalibrationTable = serde_json::from_value(doc).unwrap();
+    assert!(read.lookup("slot", SlotKind::Choice, 5).is_err());
+    let r = report(
+        &c.table_sha,
+        &[("choice:05", ran(0.01)), ("choice:16", ran(0.02))],
+        true,
+        ECE_THRESHOLD,
+    );
+    let shapes = json!({"code.defect_class": [["choice:05", "span"]], "devcouncil.verdict": [["choice:05"]]});
+    let out = run(&c, Some(&r), Some(&shapes), &[]);
+    refused(&c, &out, "choice:05");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("runtime"));
+}
+
 #[test]
 fn a_calibrated_table_whose_checks_all_passed_is_exported_and_the_gate_is_recorded() {
     let c = case(true);

@@ -35,5 +35,7 @@ pub mod safetensors;
 
 pub use calibration_gate::ExcludedFamily;
 pub use ensemble::{EnsembleRequest, EnsembleSummary, export_ensemble};
-pub use export::{AllowedExtra, ExportRequest, ExportSummary, export};
+pub use export::{
+    AllowedExtra, ExportRequest, ExportSummary, export, verify_release_train_manifest,
+};
 pub use refusal::{Refusal, RefusalKind};

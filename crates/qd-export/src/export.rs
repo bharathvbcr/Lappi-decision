@@ -501,6 +501,122 @@ fn verify_ledger_binding(
     }))
 }
 
+/// Verify, after the export, that the train manifest on disk is still the one the release was
+/// bound to. The release records the manifest's file sha256 twice (`train_manifest.sha256` and
+/// `train_manifest.ledger_binding.train_manifest_sha256`, the latter checked at export against
+/// every ft row); the manifest decides what the release admits, and it lives outside the release
+/// directory (`train_manifest.path`, or `manifest_override` when it moved), so an edit after the
+/// export changed nothing the release records. This re-hashes the file and refuses unless:
+///
+/// * the release records a verified `ledger_binding` (a release exported without `--ft-ledger`,
+///   or before W7-a, is refused with that reason, never passed as unexamined);
+/// * the file's sha256 equals both recorded values, which equal each other;
+/// * with `ft_ledger`, every ft row the release names still records that sha256
+///   ([`verify_ledger_binding`]): the hash-chained ledger, not the release's own text, is the
+///   anchor a consistent edit of `release_manifest.json` cannot reach.
+///
+/// Returns the sha256 verified. `manifest_override` and the recorded path go through the same
+/// bounded read as the export's.
+pub fn verify_release_train_manifest(
+    release: &Path,
+    ft_ledger: Option<&Path>,
+    manifest_override: Option<&Path>,
+) -> Result<String> {
+    let k = RefusalKind::TrainManifest;
+    let manifest_path = release.join(qd_runtime::release::MANIFEST_FILE);
+    let bad = |detail: String| refuse(k, format!("{}: {detail}", manifest_path.display()));
+    let doc: Value = serde_json::from_slice(&read_small(&manifest_path, k)?)
+        .map_err(|e| bad(format!("not JSON: {e}")))?;
+    let block = doc
+        .get("train_manifest")
+        .filter(|b| b.is_object())
+        .ok_or_else(|| bad("records no train_manifest block".to_string()))?;
+    let recorded = |v: Option<&Value>, what: &str| -> Result<String> {
+        v.and_then(Value::as_str)
+            .filter(|s| is_hex64(s))
+            .map(str::to_ascii_lowercase)
+            .ok_or_else(|| bad(format!("{what} is absent or not 64 hex digits")))
+    };
+    let binding = block
+        .get("ledger_binding")
+        .filter(|b| b.is_object())
+        .ok_or_else(|| {
+            bad(
+                "records no ledger_binding (exported before W7-a): re-export with --ft-ledger"
+                    .into(),
+            )
+        })?;
+    if binding.get("verified").and_then(Value::as_bool) != Some(true) {
+        return Err(bad(format!(
+            "train_manifest.ledger_binding is not verified ({}): nothing ties the train manifest to the ft rows",
+            binding
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("no reason recorded")
+        )));
+    }
+    let release_sha = recorded(block.get("sha256"), "train_manifest.sha256")?;
+    let bound_sha = recorded(
+        binding.get("train_manifest_sha256"),
+        "train_manifest.ledger_binding.train_manifest_sha256",
+    )?;
+    if release_sha != bound_sha {
+        return Err(bad(format!(
+            "train_manifest.sha256 {release_sha} is not ledger_binding.train_manifest_sha256 {bound_sha}"
+        )));
+    }
+    let path = match manifest_override {
+        Some(path) => path.to_path_buf(),
+        None => PathBuf::from(
+            block
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| bad("train_manifest.path is absent".to_string()))?,
+        ),
+    };
+    let meta =
+        std::fs::metadata(&path).map_err(|e| refuse(k, format!("{}: {e}", path.display())))?;
+    if meta.len() > MAX_TRAIN_MANIFEST_BYTES {
+        return Err(refuse(
+            k,
+            format!(
+                "{}: {} bytes exceeds {MAX_TRAIN_MANIFEST_BYTES}",
+                path.display(),
+                meta.len()
+            ),
+        ));
+    }
+    let on_disk = hex(&sha256_file(&path)?);
+    if on_disk != release_sha {
+        return Err(refuse(
+            k,
+            format!(
+                "{}: sha256 is {on_disk}, but the release was exported from a manifest with sha256 {release_sha}: \
+                 the train manifest was edited or replaced after the export",
+                path.display()
+            ),
+        ));
+    }
+    if let Some(ledger) = ft_ledger {
+        let ids: Vec<String> = binding
+            .get("ft_row_ids")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if ids.is_empty() {
+            return Err(bad(
+                "ledger_binding names no ft_row_ids to check the ledger for".to_string(),
+            ));
+        }
+        verify_ledger_binding(ledger, &ids, &on_disk)?;
+    }
+    Ok(on_disk)
+}
+
 fn verify_shared_init(ledger: &Path, manifest: &SourceManifest) -> Result<Value> {
     let k = RefusalKind::SourceManifest;
     let bad = |detail: String| refuse(k, format!("{}: {detail}", ledger.display()));
