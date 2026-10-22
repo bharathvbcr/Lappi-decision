@@ -96,7 +96,7 @@ def test_the_flag_is_on_the_parser_and_runs_after_the_split_before_training(
 
 def test_the_produced_file_passes_release_replays_binding_check(tmp_path: Path) -> None:
     rft = _rft()
-    train, val, rows = _shard_set(tmp_path / "set")
+    train, _, rows = _shard_set(tmp_path / "set")
     out = tmp_path / "set" / DEFAULT_REL
     n = rft.write_run_val_rows(out, out=tmp_path / "set", val_rows=rows, config=CONFIG)
     assert n == len(rows) > 0
@@ -130,8 +130,8 @@ def test_a_held_out_row_is_never_written(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="ids differ"):
         rft.write_run_val_rows(out, out=tmp_path / "set", val_rows=[*rows, held[0]], config=CONFIG)
     assert not out.exists() and not binding_path(out).exists()
-    written = {json.loads(line)["row_id"] for line in
-               _write_ok(rft, tmp_path / "set", rows, tmp_path / "ok.jsonl").read_text().splitlines()}
+    ok = _write_ok(rft, tmp_path / "set", rows, tmp_path / "ok.jsonl")
+    written = {json.loads(line)["row_id"] for line in ok.read_text().splitlines()}
     assert held[0].row_id not in written
 
 
