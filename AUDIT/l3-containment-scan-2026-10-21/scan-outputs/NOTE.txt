@@ -1,0 +1,7 @@
+The scan outputs the HANDOFF cites (pairs.tsv, exclusions.txt, attestation.json of the runs base1,
+after1..3 and six_base1..3, six_after1..3) are byte-identical across all ten runs (see
+../scan-outputs-manifest.json: one sha256 per file name, repeated per run).
+Committed here: one copy of exclusions.txt (400,741 bytes) and attestation.json (3,524,277 bytes).
+NOT committed: pairs.tsv, 716,976,863 bytes (sha256 d32ea9c2b734933e...), far over the 5 MB limit;
+the manifest records its size and sha256 for every run. The request files (about 1.5 GB each)
+were deleted by the scan after each run.
