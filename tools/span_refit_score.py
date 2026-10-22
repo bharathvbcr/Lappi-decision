@@ -21,6 +21,12 @@ Order of reading, as pre-registered:
 4. per cell (family x pointing/abstain), the exact nulls, the reading thresholds and the
    paired exact McNemar tests the prereg names.
 
+Amendment 2 (the span null): every scored arm also carries ``span_pointers`` (the start and
+end pointers' own top-1 over the pointing rows, under the metric names
+``qd_train.span_null`` defines) and the results carry ``nulls.pointing_added_line`` (the
+random-``+``-line null over the same rows), which are the three numbers ``span_beats_null``
+reads. Results written by an earlier scorer lack them and are void for that gate.
+
 Arm (e) is void, and is not scored, when its derivation fails on more than 0.5% of the
 qa.answer_span/pointing rows (prereg amendment 1; the extraction records each row's
 ``end_status`` under the amended rule). Every cell's failure count is reported beside it.
@@ -42,6 +48,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import span_refit_common as C  # noqa: E402
 
 C.repo_imports()
+from qd_train.span_null import (  # noqa: E402
+    PLUS,
+    SPAN_END_TOP1_METRIC,
+    SPAN_NULL_METRIC,
+    SPAN_START_TOP1_METRIC,
+    plus_line_null,
+)
 
 ROW_6AF73BEF = 5596
 GATE_TOLERANCE = 15
@@ -181,6 +194,22 @@ class ValCache:
             raise SystemExit(f"{self.cache.root}: rows carry no {key}")
         return np.asarray([r[key] for r in self.rows], dtype=np.int64)
 
+    def pointer_top1(self, tops: np.ndarray, *, bad_end: np.ndarray | None = None) -> dict[str, Any]:
+        """Each pointer's own top-1 over the pointing rows (amendment 2): ``n`` hits, ``n_total``
+        the pointing rows, the counts ``span_beats_null`` reads as
+        ``SPAN_START_TOP1_METRIC`` / ``SPAN_END_TOP1_METRIC``. Mirrors
+        ``tools/real_ft_run.span_pointer_states``: start hit iff top_start == gold_start, end hit
+        iff top_end == gold_end, over rows whose gold is not the abstention. ``bad_end`` marks
+        rows whose end could not be derived (arm e); they count as end misses, as in ``correct``.
+        """
+        point = ~self.abstaining
+        start = (tops[:, 0] == self.gold[:, 0]) & point
+        end = (tops[:, 1] == self.gold[:, 1]) & point
+        if bad_end is not None:
+            end = end & ~bad_end
+        return {SPAN_START_TOP1_METRIC: {"n": int(start.sum()), "n_total": int(point.sum())},
+                SPAN_END_TOP1_METRIC: {"n": int(end.sum()), "n_total": int(point.sum())}}
+
     def per_cell(self, correct: np.ndarray) -> dict[str, Any]:
         out: dict[str, Any] = {"overall": {"n": int(correct.sum()), "n_total": int(correct.size)}}
         for cell in C.CELLS:
@@ -224,6 +253,29 @@ def nulls(vc: ValCache) -> dict[str, Any]:
                              "rows": plus_rows, "rows_with_no_plus_line": no_plus},
         "always_abstain": {"n": abstain, "prereg_states": 1881, "agrees": abstain == 1881},
     }
+
+
+def pointing_added_line_null(vc: ValCache) -> dict[str, Any]:
+    """``SPAN_NULL_METRIC`` over the SAME pointing rows as ``pointer_top1`` (amendment 2).
+
+    ``qd_train.span_null.plus_line_null`` -- the function ``real_ft_run`` uses -- over every
+    pointing row (both families), each row's candidate first bytes rebuilt from its cached
+    ``plus_columns`` (a candidate is ``+`` iff its column is listed; ``PLUS`` for those, 0
+    elsewhere, which is all the null reads). ``value`` the null rate, ``n`` the rows whose gold
+    start is an added line, ``n_total`` the pointing rows.
+    """
+    rows = []
+    for r in vc.rows:
+        if r["abstaining"]:
+            continue
+        plus = set(r["plus_columns"])
+        rows.append(([PLUS if j in plus else 0 for j in range(r["n_candidates"])],
+                     int(r["gold_start"])))
+    value, pointing, gold_added = plus_line_null(rows)
+    return {"value": value, "n": gold_added, "n_total": pointing,
+            "metric": SPAN_NULL_METRIC,
+            "rule": "qd_train.span_null.plus_line_null over every pointing row; the per-row null "
+                    "is 1/(candidate '+' lines) when the gold start is one, else 0"}
 
 
 def mcnemar(x: np.ndarray, y: np.ndarray, mask: np.ndarray | None = None) -> dict[str, Any]:
@@ -283,6 +335,8 @@ def main(argv: list[str] | None = None) -> int:
         "gate": {"value_fp32_live": n_live, "target": ROW_6AF73BEF, "tolerance": GATE_TOLERANCE,
                  "passed": gate},
         "fp32_live": vc.per_cell(live_a), "bf16_cache": vc.per_cell(cached_a),
+        "span_pointers": {"cache": "fp32_live",
+                          **vc.pointer_top1(vc.live_tops("live_top_own_head"))},
         "cache_fidelity": {"rows_whose_both_tops_agree_live_vs_cache": agree,
                            "of": len(vc.rows)},
         "reading": reading(n_live),
@@ -300,17 +354,21 @@ def main(argv: list[str] | None = None) -> int:
 
     correct: dict[str, np.ndarray] = {"a": cached_a}
     head_b, meta_b = seed1_head(prereg)
-    correct["b"] = vc.correct_from_tops(vc.cached_tops(head_b, "start"))
+    tops_b = vc.cached_tops(head_b, "start")
+    correct["b"] = vc.correct_from_tops(tops_b)
     live_b = vc.correct_from_tops(vc.live_tops("live_top_seed1_head"))
     result["arms"]["b"] = {"what": "v5 seed-1 span head on the averaged tower", "head": meta_b,
                            "bf16_cache": vc.per_cell(correct["b"]),
                            "fp32_live": vc.per_cell(live_b),
+                           "span_pointers": {"cache": "bf16_cache", **vc.pointer_top1(tops_b)},
                            "reading": reading(int(correct["b"].sum()))}
     if args.head_c is not None:
         head_c, meta_c = refit_head(args.head_c)
-        correct["c"] = vc.correct_from_tops(vc.cached_tops(head_c, "start"))
+        tops_c = vc.cached_tops(head_c, "start")
+        correct["c"] = vc.correct_from_tops(tops_c)
         result["arms"]["c"] = {"what": "refit head, line-start candidates (servable)",
                                "head": meta_c, "bf16_cache": vc.per_cell(correct["c"]),
+                               "span_pointers": {"cache": "bf16_cache", **vc.pointer_top1(tops_c)},
                                "reading": reading(int(correct["c"].sum()))}
     else:
         result["arms"]["c"] = {"not_run": "no --head-c given"}
@@ -341,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
         correct["e"] = ce
         result["arms"]["e"].update({"what": "refit head, last-token candidates (NOT SERVABLE)",
                                     "head": meta_e, "bf16_cache": vc.per_cell(ce),
+                                    "span_pointers": {"cache": "bf16_cache",
+                                                      **vc.pointer_top1(tops_e, bad_end=bad)},
                                     "rows_counted_wrong_for_failed_end": int(bad.sum()),
                                     "reading": reading(int(ce.sum()))})
     else:
@@ -356,12 +416,15 @@ def main(argv: list[str] | None = None) -> int:
         result["arms"]["d"] = {"what": "seed-1 tower + seed-1 head (reference)", "head": meta_b,
                                "tower": vd.cache.layout["weights"],
                                "fp32_live": vd.per_cell(live_d), "bf16_cache": vd.per_cell(cached_d),
+                               "span_pointers": {"cache": "fp32_live",
+                                                 **vd.pointer_top1(vd.live_tops("live_top_own_head"))},
                                "reference_target": TARGET_6626,
                                "reading": reading(int(live_d.sum()))}
     else:
         result["arms"]["d"] = {"not_run": "no --seed1-val-cache given (run only after (a) passes)"}
 
     result["nulls"] = nulls(vc)
+    result["nulls"]["pointing_added_line"] = pointing_added_line_null(vc)
     tests: dict[str, Any] = {}
     if "c" in correct:
         tests["b_vs_c_all_rows (prereg)"] = mcnemar(correct["b"], correct["c"])

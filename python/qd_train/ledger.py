@@ -254,6 +254,16 @@ REQUIRED_DECISIONS: tuple[str, ...] = (
 SPAN_BEATS_NULL: Final[str] = "span_beats_null"
 DECISION_RECORD_BEFORE_RESULTS: Final[str] = "decision_record_before_results"
 RULING_GATES: Final[tuple[str, ...]] = (SPAN_BEATS_NULL, DECISION_RECORD_BEFORE_RESULTS)
+#: sha256 (over file contents) of every ``tools/span_refit_score.py`` that emits the span null
+#: (campaign/span-refit-mac-preregistered.json amendment 2). A completed ``span-refit-*`` row
+#: whose recipe pins one of these as ``script_sha256["span_refit_score.py"]`` must carry the
+#: three metrics ``span_beats_null`` reads; rows under any other scorer sha predate the null and
+#: are void for that gate, never re-read.
+SPAN_REFIT_SPAN_NULL_SCORER_SHAS: Final[frozenset[str]] = frozenset({
+    "8dc59bd4df5f14e4bd106982f3d40119bf33380268e54c87520b166d1f77b2ed",
+})
+SPAN_REFIT_TAG_PREFIX: Final[str] = "span-refit-"
+SPAN_REFIT_VALIDITY_GATE: Final[str] = "span_refit.validity_gate"
 #: The metrics a ft/eval row carries naming the decision record it was launched under.
 DECISION_RECORD_PATH: Final[str] = "decision_record.path"
 DECISION_RECORD_BLOB: Final[str] = "decision_record.blob"
@@ -1159,6 +1169,48 @@ class LedgerRow:
                 "release export refuses it"
             )
 
+    def check_span_refit_span_null(self) -> None:
+        """A completed span-refit row recorded under a scorer that emits the span null carries it.
+
+        Run by the same two doors as :meth:`check_optimizer_label`. ``recipe.tag`` starting
+        ``span-refit-`` and ``recipe.script_sha256["span_refit_score.py"]`` in
+        :data:`SPAN_REFIT_SPAN_NULL_SCORER_SHAS` make the row one that was scored by the
+        amendment-2 scorer; it must then hold ``val_span_start_top1_over_chance``,
+        ``val_span_end_top1_over_chance`` and ``val_span_pointing_added_line_chance`` as ``ran``
+        records over one pointing-row count. The one exception is arm (a)'s row after its
+        validity gate failed, which records no span reading at all (every arm is void). A row
+        under another scorer sha is not checked: it predates the null.
+        """
+        recipe = self.recipe
+        if recipe is None or self.status != "completed":
+            return
+        tag = recipe.get("tag")
+        scripts = recipe.get("script_sha256")
+        if not (isinstance(tag, str) and tag.startswith(SPAN_REFIT_TAG_PREFIX)):
+            return
+        if not isinstance(scripts, Mapping):
+            return
+        if scripts.get("span_refit_score.py") not in SPAN_REFIT_SPAN_NULL_SCORER_SHAS:
+            return
+        gate = self.gates.get(SPAN_REFIT_VALIDITY_GATE)
+        if isinstance(gate, Ran) and gate.passed is False:
+            return
+        totals: set[int | None] = set()
+        for name in (SPAN_START_TOP1_METRIC, SPAN_END_TOP1_METRIC, SPAN_NULL_METRIC):
+            m = self.metrics.get(name)
+            if not isinstance(m, Ran):
+                raise ValueError(
+                    f"a completed {tag} row recorded under a span-null scorer lacks {name} as a "
+                    "'ran' metric: the scorer emits it (amendment 2), so a row without it was "
+                    "not produced by that scorer"
+                )
+            totals.add(m.n_total)
+        if len(totals) != 1 or None in totals:
+            raise ValueError(
+                f"a completed {tag} row's span top-1 and null do not state one pointing-row "
+                f"count (n_total {sorted(str(t) for t in totals)})"
+            )
+
     @staticmethod
     def _param_groups_ok(summary: str) -> bool:
         for part in summary.split(", "):
@@ -1370,6 +1422,7 @@ class LedgerRow:
             train_manifest_sha256=raw.get("train_manifest_sha256"),
         )
         row.check_optimizer_label()
+        row.check_span_refit_span_null()
         return row
 
 
@@ -1516,6 +1569,7 @@ class Ledger:
         if lock_timeout_s <= 0:
             raise ValueError(f"lock_timeout_s must be positive, got {lock_timeout_s!r}")
         row.check_optimizer_label()
+        row.check_span_refit_span_null()
         # O_APPEND so concurrent writers cannot interleave a partial line, and
         # fsync so a row survives the crash that a killed run is recording. The
         # flock covers read-predecessor-then-write, which O_APPEND does not.

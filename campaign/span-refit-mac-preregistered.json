@@ -43,6 +43,26 @@
       "rule": "For the LAST candidate only: if the delimiter's leading newline lies inside the token at start_last, then end_last = start_last, confirmed per row by the token at start_last + 1 decoding to the beginning of '<|qd_context_end|>' (the marker without its newline); a row where that does not hold is a derivation failure, counted and never patched. Every other line keeps the original rule. Monotonicity unchanged: start_j <= end_j < start_{j+1} everywhere, and end_last < the marker's first token.",
       "void_rule": "Arm (e) is void iff derivation failures exceed 0.5% of qa.answer_span/pointing rows (its reading cell, per reading.e_vs_c). The code.defect_class cells report their failure count beside their result; they were already 'reported, not read'.",
       "by": "Fable ruling (advisor), relayed by this session; same file, explicit path, pre-result."
+    },
+    {
+      "id": 2,
+      "recorded": "2026-10-22, in the same commit as the scorer change below. No span-refit row exists in any ledger/*.jsonl (rg -c 'span-refit' over ledger/ matches nothing, checked this day), and no arm result of any kind with the span null has been produced or read. The original text is preserved in the history.",
+      "finding": "tools/span_refit_score.py emitted only nulls.random_plus_line.expected_correct (code.defect_class pointing rows) and the joint val_top1.span count, not each pointer's own top-1 over the pointing rows, so a span-refit row could not carry the three metrics the span_beats_null gate reads (python/qd_train/span_null.py: val_span_start_top1_over_chance, val_span_end_top1_over_chance, val_span_pointing_added_line_chance). span_beats_null therefore read not_run for span-refit rows (GAP-W4A-SPAN-REFIT-ROWS-CARRY-NO-SPAN-NULL-2026-10-18).",
+      "scorer": {
+        "path": "tools/span_refit_score.py",
+        "old_sha256": "b88715afc031a2ef38aead1b0f0320d7d0763d4a990532ac8015c0652d7e07d5",
+        "new_sha256": "8dc59bd4df5f14e4bd106982f3d40119bf33380268e54c87520b166d1f77b2ed",
+        "sha256_over": "the file's contents (sha256sum tools/span_refit_score.py)",
+        "newly_emits": [
+          "arms.<x>.span_pointers: {cache, val_span_start_top1_over_chance: {n, n_total}, val_span_end_top1_over_chance: {n, n_total}} for every scored arm (a, b, c, d, e): start hit iff top_start == gold_start, end hit iff top_end == gold_end, over the pointing rows (gold is not the abstention), n_total the pointing-row count; the tops are the ones the arm's val_top1.span count already uses (fp32 live for a and d, the bf16 cache for b, c, e); arm (e) counts a row whose end could not be derived as an end miss, as its val_top1.span does",
+          "nulls.pointing_added_line: {value, n, n_total, metric: val_span_pointing_added_line_chance}: qd_train.span_null.plus_line_null (the function real_ft_run uses) over every pointing row of both families, each row's candidate first bytes rebuilt from its cached plus_columns; value the null rate, n the rows whose gold start is an added line, n_total the pointing rows, equal to the top-1s' n_total"
+        ],
+        "unchanged": "Every existing output key, the arm definitions, the validity gate (5,596 +/- 15), the population pin, the readings (6,562, 5,667) and the nulls the file already emitted. No threshold, seed count, population or held-out set moves; span_beats_null itself (strictly above the null, both pointers) is the human's 2026-10-17 ruling and is read, not set, here."
+      },
+      "voids": "Results written by the old scorer (sha256 b88715af...) lack the span null. span_beats_null is void for them and they are not reinterpreted: any arm is rerun under the new scorer sha and its row recorded from that run, never read from the old results JSON. tools/span_refit_rows.py refuses a results JSON without the new fields. This file's own sha256 changes with this amendment, so a refit head whose manifest records the previous pre-registration sha256 (b4a370ff133587bf1d8f090aae50a9cbbd09bd4dd207385dcb0e628afd1778a1) is refused by the scorer and is refit, not re-read.",
+      "enforcement": "qd_train.ledger LedgerRow.check_span_refit_span_null (run by Ledger.append and LedgerRow.from_json): a completed span-refit-* row whose recipe pins the new scorer sha as script_sha256['span_refit_score.py'] must carry the three metrics as ran records over one pointing-row count; the one exception is arm (a)'s row after its validity gate failed. A row under another scorer sha is not checked, because it predates the null.",
+      "not_run": "No real span-refit run (it needs the model and the caches) was made with this scorer; every real-row verdict is not run.",
+      "by": "the owner's delegation 2026-10-22 ('spin agent and fix them'); Fable's method: the amendment and the scorer land in one commit. Lane X2 (Sonnet)."
     }
   ],
   "outputs": "the arm-(c) head is also written as a --span-head-init file with a manifest (the LP-FT lever for v6: identical span-head init across seeds)"
