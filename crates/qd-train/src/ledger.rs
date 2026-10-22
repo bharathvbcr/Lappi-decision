@@ -1221,6 +1221,76 @@ fn check_optimizer_label(
     Ok(())
 }
 
+/// sha256 (over file contents) of every `tools/span_refit_score.py` that emits the span null
+/// (`campaign/span-refit-mac-preregistered.json` amendment 2): Python's
+/// `SPAN_REFIT_SPAN_NULL_SCORER_SHAS`. A completed `span-refit-*` row whose recipe pins one of
+/// these as `script_sha256["span_refit_score.py"]` carries [`SPAN_REFIT_METRICS`].
+pub const SPAN_REFIT_SPAN_NULL_SCORER_SHAS: [&str; 1] =
+    ["8dc59bd4df5f14e4bd106982f3d40119bf33380268e54c87520b166d1f77b2ed"];
+const SPAN_REFIT_TAG_PREFIX: &str = "span-refit-";
+const SPAN_REFIT_VALIDITY_GATE: &str = "span_refit.validity_gate";
+/// The three metrics `span_beats_null` reads (`qd_train.span_null`).
+pub const SPAN_REFIT_METRICS: [&str; 3] = [
+    "val_span_start_top1_over_chance",
+    "val_span_end_top1_over_chance",
+    "val_span_pointing_added_line_chance",
+];
+
+/// Python's `LedgerRow.check_span_refit_span_null`: a completed span-refit row recorded under a
+/// scorer that emits the span null holds the three metrics as `ran` records over one pointing-row
+/// count. Not looked at: any other status, tag or scorer sha (it predates the null), and arm (a)'s
+/// row after its validity gate failed, which records no span reading.
+fn check_span_refit_span_null(
+    recipe: &Value,
+    status: Status,
+    metrics: &BTreeMap<String, TriState>,
+    gates: &BTreeMap<String, TriState>,
+) -> Result<(), LedgerError> {
+    let Some(tag) = recipe
+        .get("tag")
+        .and_then(Value::as_str)
+        .filter(|t| t.starts_with(SPAN_REFIT_TAG_PREFIX))
+    else {
+        return Ok(());
+    };
+    if status != Status::Completed {
+        return Ok(());
+    }
+    let pinned = recipe
+        .get("script_sha256")
+        .and_then(|s| s.get("span_refit_score.py"))
+        .and_then(Value::as_str);
+    if !pinned.is_some_and(|s| SPAN_REFIT_SPAN_NULL_SCORER_SHAS.contains(&s)) {
+        return Ok(());
+    }
+    if matches!(
+        gates.get(SPAN_REFIT_VALIDITY_GATE),
+        Some(TriState::Ran { passed: false, .. })
+    ) {
+        return Ok(());
+    }
+    let mut totals = std::collections::BTreeSet::new();
+    for name in SPAN_REFIT_METRICS {
+        match metrics.get(name) {
+            Some(TriState::Ran { coverage, .. }) => {
+                totals.insert(coverage.map(|c| c.n_total));
+            }
+            _ => {
+                return refuse(format!(
+                    "a completed {tag} row recorded under a span-null scorer lacks {name} as a \
+                     'ran' metric: the scorer emits it (amendment 2)"
+                ));
+            }
+        }
+    }
+    if totals.len() != 1 || totals.contains(&None) {
+        return refuse(format!(
+            "a completed {tag} row's span top-1 and null do not state one pointing-row count"
+        ));
+    }
+    Ok(())
+}
+
 /// The reading side of [`check_optimizer_label`]: the verdict Rust's gate gives a ledger line
 /// that already exists as bytes, the way Python's `LedgerRow.from_json` plus
 /// `check_optimizer_label` give it. It reads only what the gate reads (`status`, `recipe`,
@@ -1249,8 +1319,18 @@ pub fn check_row_line(line: &str) -> Result<(), LedgerError> {
         }
         _ => return refuse("metrics is not an object"),
     }
+    let mut gates = BTreeMap::new();
+    if let Some(Value::Object(g)) = v.get("gates") {
+        for (name, raw) in g {
+            gates.insert(
+                name.clone(),
+                crate::tristate::parse_tristate(raw, &format!("gates.{name}"))?,
+            );
+        }
+    }
     let recipe = v.get("recipe").cloned().unwrap_or(Value::Null);
-    check_optimizer_label(&recipe, status, &metrics, &extras)
+    check_optimizer_label(&recipe, status, &metrics, &extras)?;
+    check_span_refit_span_null(&recipe, status, &metrics, &gates)
 }
 
 /// Turn an assembled `ft` row into a `lora` row: the checks a LoRA run owes, then the digests
