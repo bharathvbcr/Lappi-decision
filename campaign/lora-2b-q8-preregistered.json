@@ -1,0 +1,57 @@
+{
+  "name": "lora-2b-q8",
+  "recorded": "2026-10-22, before any lora-2b-q8 row exists anywhere: rg -uu 'q8' over ledger/ matches nothing (checked this day), so there is no prior row to mark quick or excluded. No fake-quant base file has been written and no D3 gate verdict exists. Nothing here reads a result.",
+  "status": "Sibling of campaign/lora-2b-preregistered.json (not edited). Every Mac row of this family is quick (one seed, truncated schedule; rule 8) and cannot promote anything. It registers the D3 quality gate and the procedure for the quantised arm; it does not register a promotion-grade campaign.",
+  "design_by": {
+    "owner_decision": {
+      "path": "AUDIT/lora-2b-quantised-2026-10-17/owner-decision.md",
+      "git_blob_sha": "e2bbc86b609a503199fa28bc62d47b02d912c40d",
+      "section": "5 (What stays as it was)",
+      "note": "The thresholds below are transcribed from section 5, first bullet, and nothing is added: 'argmax agreement >= 99.0% and mean |delta log p| of the gold letter <= 0.02 nats over >= 500 val prompts (never held-out), bf16 vs q8 vs q4, bars written before the run, mlx version named. Rule 2: no threshold moves.' The sibling-file requirement is section 5, second bullet."
+    },
+    "fable_ruling": "Fable 2026-10-22: transcribing a threshold already set is filing, not moving; the conditions are: thresholds verbatim, cite section 5 by path and blob sha, procedure labelled as procedure, mlx version pinned by string, commit lands before any q8 row exists."
+  },
+  "family": {
+    "id": "lora-2b-q8",
+    "optimizer_recipe": "lora",
+    "label": "procedure",
+    "pooling_rule": "PROCEDURE, not a threshold. This family shares optimizer_recipe 'lora' with lora-2b by design (the trainer is unchanged), so a reader keyed on optimizer_recipe alone WOULD pool q8 rows with bf16 rows and must not. The pool key is (family id, base.format, base-file sha256): rows pool only when all three are equal. A row without all three is never pooled with any row of this family or of lora-2b."
+  },
+  "base": {
+    "label": "procedure",
+    "format": "bf16-fakequant-q8-g64",
+    "format_note": "The 150 wrapped linears are dequantize(quantize(W)) from mlx (affine, q8, group 64, bf16 scale and bias); every other tensor is the original. Dense bf16 safetensors; no quantised dtype or kernel is on the path (owner-decision section 3).",
+    "source_model": {
+      "repo": "Qwen/Qwen3.5-2B-Base",
+      "snapshot": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+      "safetensors_sha256": "928acbf11878c32185bbd863514d191769285065ab9ea14fbfe431303f5fdf2d",
+      "source": "campaign/lora-2b-preregistered.json base.run_model"
+    },
+    "fakequant_file_sha256_rule": "Every row of this family records the sha256 of the fake-quant base safetensors file it ran over, and the sha256 of its bf16 source file. A row without both is not a lora-2b-q8-registered row. The fake-quant file's sha256 is not known at filing time (the file is not written) and is not pre-filled.",
+    "mlx_version": "0.31.2",
+    "mlx_version_note": "Read from /Users/bharath/.venvs/ml/bin/python (mlx.core.__version__) on 2026-10-22. The gate verdict records the version it ran under; a different version is a different arm."
+  },
+  "d3_gate": {
+    "argmax_agreement_min": 0.99,
+    "mean_abs_delta_logp_max": 0.02,
+    "min_prompts": 500,
+    "quantiser": {"mode": "affine", "bits": 8, "group_size": 64},
+    "source": "AUDIT/lora-2b-quantised-2026-10-17/owner-decision.md section 5, blob e2bbc86b609a503199fa28bc62d47b02d912c40d",
+    "scope": "validation prompts only, never held-out (rule 3). q4 is measured by the same tool under its own spec and is never built (owner-decision section 3); this block registers the q8 bar.",
+    "read_by": "tools/d3_quant_gate.py load_spec"
+  },
+  "ledger": {
+    "label": "procedure",
+    "kind": "every Mac row quick=true with a quick_reason naming the one seed and the truncated schedule",
+    "order": "No quantised run starts before the bf16 reduced run's ledger row exists, and no row of this family is written before this file is committed (owner-decision section 3).",
+    "numbers": "A number in a report cites a ledger row id (rule 5); a suite that could not run is reported as not run."
+  },
+  "not_decided_here": [
+    "Any quantised dtype, resident q8 storage or dequant kernel (stage 2, owner-decision item 7: not now).",
+    "Extra Mac GPU time for the quantised arm (owner-decision item 6).",
+    "Recipe, schedule, data, head and controls: those are campaign/lora-2b-preregistered.json's, unchanged."
+  ],
+  "amendments": [],
+  "amendments_rule": "An amendment made after any lora-2b-q8 result has been read is void. A change before that is a commit that says what changed and why, and leaves the original text in the history.",
+  "committed_by": "lane X2 (Sonnet), 2026-10-22, delegated by the owner ('spin agent and fix them') under Fable's method. Written without reading a result: none exists."
+}
