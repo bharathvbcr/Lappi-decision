@@ -1,0 +1,18 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "slot_shape_not_trained",
+    "task": "gitpulse.commit_type",
+    "shape": [
+      "choice:13"
+    ],
+    "trained": [
+      [
+        "choice:12"
+      ]
+    ],
+    "contract_section": "docs/caller-contract.md section 4 (Ask only trained shapes)"
+  },
+  "message": "task `gitpulse.commit_type` was trained in the slot shapes [[\"choice:12\"]], and this request's shape is [\"choice:13\"]. A trained family is answered only in a shape it trained; see docs/caller-contract.md section 4 (Ask only trained shapes)"
+}

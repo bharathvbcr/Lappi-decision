@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "count": 61,
+  "count": 62,
   "by_status": {
     "error": 12,
     "ok": 8,
-    "refused": 41
+    "refused": 42
   },
   "entries": [
     {
@@ -314,6 +314,12 @@
       "status": "refused",
       "kind": "task_not_trained",
       "note": "Refusal `task_not_trained`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: task `devcouncil.verdict` is not one this release was trained on; it trained [\"code.defect_class\"]. The model was never shown a request of this task, so its answer would be read from a prompt shape it never saw. A release that does not record its trained families names none and admits no task"
+    },
+    {
+      "file": "refusal-slot_shape_not_trained.json",
+      "status": "refused",
+      "kind": "slot_shape_not_trained",
+      "note": "Refusal `slot_shape_not_trained`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: task `gitpulse.commit_type` was trained in the slot shapes [[\"choice:12\"]], and this request's shape is [\"choice:13\"]. A trained family is answered only in a shape it trained; see docs/caller-contract.md section 4 (Ask only trained shapes)"
     },
     {
       "file": "refusal-rendered_prompt_over_cap.json",
