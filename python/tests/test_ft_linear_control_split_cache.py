@@ -156,7 +156,12 @@ class Fixture:
         terminates it; the marker measures nothing and is not the row asked for."""
         rows = [json.loads(x) for x in (self.tmp / f"{write}.jsonl").read_text(encoding="utf-8")
                 .splitlines() if x.strip()]
+        (started,) = [r for r in rows if r["status"] == "started"]
         (row,) = [r for r in rows if r["status"] != "started"]
+        assert row["status"] in ("completed", "failed", "killed"), row["status"]
+        assert row["metrics"][LIFECYCLE_STARTED_ROW]["value"] == started["row_id"], (
+            "the result row must terminate the started row beside it"
+        )
         return row
 
 

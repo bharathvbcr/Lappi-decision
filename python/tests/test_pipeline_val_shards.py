@@ -32,12 +32,15 @@ from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
 
-#: These tests characterize the val shard set's remap and bytes, not the data rules, and build
-#: from the plain commitpackft download with no ``--defect-class``. v6's R1 refuses that build
-#: ("defect_token_share ... not_run ... Refusing to write a shard set"), correctly: the v6
-#: rules need the defect-class family in the mixture. So every build here runs under the v5
-#: rule set (``v6_data_rules=False``, the pipeline's ``--legacy-v5-data-rules``) and every
-#: reader names the same rules (``DataConfig.legacy_v5()``), which the shard header pins.
+DEFECT_CORPUS = REPO / "data" / "pool" / "commitpackft-corpus-v2"
+
+#: The first test runs under the default v6 rules (a defect corpus and 4 pairs). The other two
+#: characterize the full-vocabulary remap and the refuse-gold byte identity at 60 pairs of the
+#: plain commitpackft download with no ``--defect-class``, which v6's R1 refuses correctly
+#: ("defect_token_share ... not_run ... Refusing to write a shard set"); a v6-valid build is a
+#: different, smaller corpus than the one those two claims were made on, so they run under the
+#: v5 rule set (``v6_data_rules=False``, ``--legacy-v5-data-rules``) with readers on
+#: ``DataConfig.legacy_v5()``, which the shard header pins.
 LEGACY_V5_RULES = {"v6_data_rules": False}
 V5_RULES = DataConfig.legacy_v5()
 
@@ -50,9 +53,15 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     if not any((DOWNLOAD / f"{lang}.jsonl").exists() for lang in ("go", "python")):
         pytest.skip("the commitpackft download is not on this host; only its manifest is")
 
+    if not (DEFECT_CORPUS / "examples.jsonl").is_file():
+        pytest.skip("the qd-mutate defect corpus is not on this host")
+
+    # Under the default v6 rules: a defect corpus and 4 pairs keep code.defect_class above R1's
+    # share floor, so the build is v6-valid and the remap claim is made on it.
     measured = pipeline.run(
-        out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
-        commitpackft=DOWNLOAD, val_shards=True, vocab=pipeline.VOCAB_CORPUS, **LEGACY_V5_RULES,
+        out=tmp_path, max_pairs=4, blank_line_runs=False, rev="HEAD",
+        commitpackft=DOWNLOAD, defect_class=DEFECT_CORPUS, defect_max_rows=40,
+        val_shards=True, vocab=pipeline.VOCAB_CORPUS,
     )
 
     coverage = measured.metrics["val_shard_coverage"]
@@ -67,7 +76,7 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     held_out = measured.metrics["remap_covers_heldout_rows"]
     assert isinstance(held_out, Ran) and "train and val remap kept" in held_out.detail
 
-    config = V5_RULES
+    config = DataConfig()
     train = ShardReader(tmp_path / "shards" / "train", config=config, repo_root=tmp_path)
     val = ShardReader(tmp_path / "shards" / "val", config=config, repo_root=tmp_path)
     assert val.header.split == "val"

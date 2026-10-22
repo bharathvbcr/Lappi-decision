@@ -492,9 +492,9 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     the label its index names, the letters read off the set are consistent, and without
     --defect-class the rebuild is refused.
 
-    Runs under the legacy v5 data rules (``v6_data_rules=False``): it characterizes the label
-    pairing, not the data rules. Under v6 this 20-pair, 40-defect-row build is refused by R1
-    (code.defect_class is 38.7% of written train tokens against a 55.8% floor)."""
+    Runs under the default v6 data rules. The build is 4 pairs with 40 defect rows: R1 needs
+    code.defect_class to be at least 55.8% of written train tokens, and the earlier 20-pair
+    build was refused at 38.7%, so the pair count is what keeps this build v6-valid."""
     pytest.importorskip("transformers")
     import real_tokenizer_pipeline as pipeline
     from repo_git import resolve_rev
@@ -504,16 +504,16 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     rev = resolve_rev(REPO, "7f233553a2766fd2ad956ec018c359eef056d4d2")
     out = tmp_path / "out"
     try:
-        pipeline.run(out=out, max_pairs=20, blank_line_runs=False, rev=rev, commitpackft=CPFT,
-                     defect_class=DEFECT_CORPUS, defect_max_rows=40, v6_data_rules=False)
+        pipeline.run(out=out, max_pairs=4, blank_line_runs=False, rev=rev, commitpackft=CPFT,
+                     defect_class=DEFECT_CORPUS, defect_max_rows=40)
     except OSError as exc:  # pragma: no cover - no cached tokenizer on this host
         pytest.skip(f"the pipeline could not load its tokenizer: {exc}")
-    config = DataConfig.legacy_v5()
+    config = DataConfig()
     manifest = json.loads((out / rft.TRAIN_MANIFEST).read_text())
     reader = ShardReader(out / "shards" / "train", config=config, repo_root=out,
                          expect_rev=rev)
     assert reader.sequence_index is not None
-    train, _ = rft.ft_split_rows(commitpackft=CPFT, max_pairs=20, rev=rev, config=config,
+    train, _ = rft.ft_split_rows(commitpackft=CPFT, max_pairs=4, rev=rev, config=config,
                                  defect_class=DEFECT_CORPUS, defect_max_rows=40)
     assert len(train) == manifest["n_rows"]
     labels, excluded = rft._labels(train, config=config)
@@ -523,7 +523,7 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     assert any(lb.family_id == "code.defect_class" for lb in paired)
     rft._inventory(reader, paired, excluded)
     rft._letter_ids(reader, paired)  # refuses a label on the wrong sequence
-    without, _ = rft.ft_split_rows(commitpackft=CPFT, max_pairs=20, rev=rev, config=config)
+    without, _ = rft.ft_split_rows(commitpackft=CPFT, max_pairs=4, rev=rev, config=config)
     with pytest.raises(SystemExit, match="was not built from these rows"):
         rft.pair_labels(reader, rft._labels(without, config=config)[0], require_index=True)
     with pytest.raises(SystemExit, match="was built with"):

@@ -36,10 +36,18 @@ here on, whoever wrote it and wherever it ran.
 from __future__ import annotations
 
 import json
+import sys
 from collections import Counter
 from pathlib import Path
+from typing import get_args
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "python"))
+
+from qd_train.ledger import Status  # noqa: E402
+
+#: The ledger's own terminal statuses: every status but the ``started`` marker.
+TERMINAL_STATUSES = frozenset(get_args(Status)) - {"started"}
 LEDGER = REPO / "ledger"
 
 #: Training/smoke rows without a closure digest, per ledger file, as of 2026-09-21.
@@ -123,15 +131,22 @@ def _training_rows() -> list[dict]:
     return _training_rows_of(_rows())
 
 
-def _terminated_started_ids(rows: list[dict]) -> set[str]:
-    """The ``row_id`` of every row some other row names in ``lifecycle.started_row_id``: the
-    ``started`` rows that a terminal row ended."""
-    ids: set[str] = set()
+def _ended_started_keys(rows: list[dict]) -> set[tuple[object, object, str]]:
+    """``(ledger file, run_kind, row_id)`` of every started row a terminal row ended.
+
+    A terminal row is one whose status is in the ledger's own set minus ``started`` (completed,
+    failed, killed). It ends a started row only when it sits in the SAME ledger file (ledger/
+    holds duplicate row_ids across files, forks of one ledger), has the same run_kind (one
+    recorder writes both rows), and is not that row itself.
+    """
+    keys: set[tuple[object, object, str]] = set()
     for row in rows:
+        if row.get("status") not in TERMINAL_STATUSES:
+            continue
         state = row.get("metrics", {}).get("lifecycle.started_row_id")
-        if isinstance(state, dict) and state.get("value"):
-            ids.add(str(state["value"]))
-    return ids
+        if isinstance(state, dict) and state.get("value") and state["value"] != row.get("row_id"):
+            keys.add((row.get("_file"), row.get("run_kind"), str(state["value"])))
+    return keys
 
 
 def _training_rows_of(rows: list[dict]) -> list[dict]:
@@ -143,11 +158,12 @@ def _training_rows_of(rows: list[dict]) -> list[dict]:
     stays in and is checked. A ``started`` row nobody terminated stays in too: that is a run
     whose end nobody saw, and it has no digest to show for itself.
     """
-    ended = _terminated_started_ids(rows)
+    ended = _ended_started_keys(rows)
     return [
         r for r in rows
         if r["run_kind"] != "build"
-        and not (r.get("status") == "started" and r.get("row_id") in ended)
+        and not (r.get("status") == "started"
+                 and (r.get("_file"), r.get("run_kind"), r.get("row_id")) in ended)
     ]
 
 

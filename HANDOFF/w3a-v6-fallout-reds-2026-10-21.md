@@ -66,5 +66,33 @@ reading `run_suite` (kills the process group on any BaseException), now with 14 
   not knocked out (v6 dedupe keeps `v0`, drops `t0`), so the drop list has no v6 test; the test runs
   under legacy v5 and says so.
 - Merge main (L2's shards.py) to turn test_wall_clock_cap_required green; I did not edit shards.py.
-- Four legacy-v5 moves (val_shards, spancheck, pre_dedupe, real_ft_pieces) leave no test building a
-  v6-valid shard set end to end from the plain commitpackft download; a bigger defect corpus would.
+- test_qd_prep_spancheck_parity::test_the_pipeline_writes_every_shard_set_the_reference_writes is a
+  weak end-to-end parity test (reviewer finding; it predates W3a). Not fixed here; record on the
+  card log. It stays under legacy v5 (v6 not shown to express it; the default build there has no
+  defect class).
+- Legacy v5 remains only where v6 cannot express the check: pre_dedupe's knock-out, spancheck
+  parity, and val_shards tests 2 and 3 (60 pairs of plain commitpackft: full vocabulary and the
+  refuse-gold byte identity).
+
+## Adversarial round (commit fbc3907 cherry-picked as 19066bf; fixes in the commit after it)
+
+All five items done; make torch-pytest at load 12, host quiet (adv-summary.txt, gl-summary.txt):
+
+1. `_training_rows_of`: a started row is ended only by a terminal row (status in the ledger's own
+   `Status` set minus `started`) of the SAME `_file`, SAME run_kind, that is not the row itself.
+   Break 4 (run_kind) is right, not weakened: one recorder writes both rows, so a terminal row of
+   another run_kind is another run's. test_ledger_provenance 6 passed; adversarial file 8 passed.
+2. v6-valid fixtures: test_real_ft_pieces (4 pairs, 40 defect rows, default rules, no
+   legacy_v5) and test_pipeline_val_shards test 1 (defect corpus, 4 pairs, default rules). Mutation
+   check (mine, scratch worktree basewt): reversing the pairing in `pair_labels`
+   (`reversed(index.sequences)`) makes the v6 relabel test fail (2 failed, 43 passed). The val-remap
+   test was not independently mutated by me; it keeps the adversary's assertions unchanged.
+3. `_patch_module`'s `check_defect_source` stub: `lambda out, *, defect_class, config=None`.
+4. Split-cache `row()`: exactly one started and one terminal row, terminal `lifecycle.started_row_id`
+   equal to the started row's row_id.
+5. Weak spancheck parity test: follow-up above.
+
+Runs: ledger_provenance, adversarial file (8), real_ft_pieces (45), pipeline_val_shards (4),
+ft_linear_control_split_cache (10), batch_order, rungd_flags, split_cache_main, checkpoint_retain,
+v5_prelude_mac (the last three share the stub): all passed, none skipped where counts are shown.
+test_gaps_ledger (10) and test_lint_gate (16) passed. ruff clean.
