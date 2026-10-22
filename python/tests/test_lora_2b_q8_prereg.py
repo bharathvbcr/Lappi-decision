@@ -1,4 +1,4 @@
-"""``campaign/lora-2b-q8-preregistered.json``: the D3 bar is the owner decision's prose, transcribed.
+"""``campaign/lora-2b-q8-preregistered.json``: the D3 bar is the owner decision's prose.
 
 Rule 2: the numbers in the file's ``d3_gate`` block are read back from
 ``AUDIT/lora-2b-quantised-2026-10-17/owner-decision.md`` section 5, so a changed number in either
