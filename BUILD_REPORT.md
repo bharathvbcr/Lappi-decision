@@ -29,6 +29,8 @@ Nothing has been pushed. On 2026-10-21 the owner said "commit and merge all and 
 | 69127ec | ft-57fc7484 b1, b4, b7 (L2) | The three torch reds fixed at their cause: the reader names `header.json`, and the replay fixture is v6-valid. A headerless directory is refused. 10 gaps re-verified. | Fails-before on d09222d: 1 failed, then 2 failed. After, at load 12: 288 passed, 1 deselected (the MPS leg, not run). |
 | f9b9376 | ft-5fdca0a2 (W2c) | Hardening-pass gap triage. Open went from 78 to 47 (the card said 74; the same rule gives 78 at d09222d). | `test_gaps_ledger` green. |
 | 4172319 | ft-57fc7484 b3 (L3) and ft-badf64e2 (re-pin 4fba3b4) | Bounded containment scan: packed shingles, batched signing, a collision digest, per-batch canaries. An exact footprint tool (kernel lifetime max per process). | 3+3 interleaved v6 scans on the tip (Fable). All 6 exit 0 under the unchanged 28,672 MiB cap, with outputs byte-identical. After: parent 10.9-12.0 GiB, largest child 3.3 GiB (base parent 20.6-22.6 GiB). |
+| W2b merge | ft-c5ea3e71 items 1, 5, 6 (W2b) | `--write-val-rows` producer: refuses held-out paths and families, never overwrites. The export gate asks the runtime's `CalibrationTable::lookup`. `verify_release_train_manifest` refuses without a ledger and refuses non-regular or growing files. | Adversarial pass found 6 breaks plus a temp-name race, all fixed. Python 45 passed under the lock; `cargo test -p qd-export` all targets; clippy clean; workspace compiles (139 executables). |
+| W3a merge | ft-cc9fac73 (W3a) | The 17 v6-default reds, each fixed at its diagnosed cause. Two moved to v6-valid fixtures, seven to named legacy-v5 rules. Stale expectations fixed, the stub made strict. | Mutation-tested adversarial pass: every product mutation caught, 4 provenance-helper breaks fixed. On merged main the 12 files gave 223 passed and 1 failed. The failure is a test that fails only in the main checkout, below. |
 | 9795832, 1bfdee2 | post-merge | Lint gate green and one dangling gap reference corrected. L3's AUDIT evidence scripts got per-file ignores, by the existing ruling. | `test_gaps_ledger` + `test_lint_gate` 26 passed. `cargo test --workspace --offline --no-run` on merged main built 138 test executables, exit 0. |
 
 Every merged lane was Opus-reviewed after an adversarial pass:
@@ -56,8 +58,6 @@ No other lane touched a hot path. That is DevMap-incomplete and rg-confirmed, no
 | Lane | Branch | Card | State |
 |---|---|---|---|
 | W2a | lane/ft-951c360d | ft-951c360d | All five v2 Vani gates written. Fails-before ran for the Python visibility test (ImportError) and qd-prep's gates (0/14). The after-runs are queued. **Merge waits on an owner decision** (below). |
-| W2b | lane/ft-c5ea3e71-w2b | ft-c5ea3e71 items 1, 5, 6 | `--write-val-rows` producer (10 tests; 6 failed before, 10 pass after). The export gate asks the runtime's own lookup (fails-before 15/1, after 16). `verify_release_train_manifest` added. The final gaps and lint run is queued. |
-| W3a | lane/ft-cc9fac73 | ft-cc9fac73 | All 17 v6-fallout reds diagnosed: 9 are fixtures moved to named legacy-v5 rules, 6 are stale expectations against the recorder's `started` row, 1 is a test-helper fix, and 1 is fixed by L2's merged commit. The after-runs and both flake arms are queued. |
 | W3b | lane/ft-5dfe48e7 | ft-5dfe48e7 criteria 1-4 | `qd_serve_launchd.py` (temp dir and fake launchctl only; nothing installed). A mac_heavy training guard, opt-in via `MAC_HEAVY_TRAINING=1`. Mac schedule from measured rates. A cloud cost draft marked NEEDS HUMAN YES. The lock suite on the edited `mac_heavy.sh` is queued. |
 
 Open beyond these lanes:
@@ -98,6 +98,16 @@ Open beyond these lanes:
 6. **b4 span-refit.** Amending the sha-pinned `tools/span_refit_score.py`.
 7. **Machine load.** Pausing other repos' heavy jobs would let the four queued lanes verify in hours instead of days.
 8. **From earlier runs, still open:** ft-8139b5b1 (push main, held-out ratio, re-export allowlist, unowned worktrees). Item 13 there looks stale: a rebuilt v6 pool passes the length band (W2c).
+
+## Open on main after the merges
+
+- **One test fails only in the main checkout.** `test_split_cache_main::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows`:
+  - Main checkout: 4 of 4 runs failed ("the letter loss did not fall", 5.4472 rising to 5.5450).
+  - Fresh worktree at the same commit 151ee73: 3 of 3 passed, and it also passed at d09222d.
+  - Tracked files are identical, so it is not shown to be a merge regression.
+  - Recorded as `GAP-SPLIT-CACHE-TOY-TEST-FAILS-ONLY-IN-THE-MAIN-CHECKOUT-2026-10-22` with the eliminations so far. The cause is open.
+- **The flake candidate** `test_an_interrupt_during_a_suite_takes_its_process_group_down` did not fail in 4 quiet runs or 10 loaded runs. It is unclassified.
+- **Lost evidence (my error).** Removing W2b's and W3a's worktrees deleted their gitignored `build/` run logs. `git worktree remove` deletes ignored files without asking. Their HANDOFFs keep the per-run tables and counts. L2, L3 and L5 logs were copied first, into `build/evidence-2026-10-21/`. L3's worktree is still in place.
 
 ## Not run
 
