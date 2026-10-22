@@ -228,3 +228,137 @@ fn with_no_ledger_the_release_says_the_binding_was_not_verified() {
     assert_eq!(b["verified"], json!(false));
     assert!(b["reason"].as_str().unwrap().contains("--ft-ledger"), "{b}");
 }
+
+fn verify_err(out: &Path, ledger: Option<&Path>, over: Option<&Path>, needle: &str) {
+    let err = qd_export::verify_release_train_manifest(out, ledger, over)
+        .expect_err("this verification must be refused");
+    assert!(
+        err.detail.contains(needle),
+        "{needle:?} not in {}",
+        err.detail
+    );
+}
+
+/// Export bound to a ledger; the ledger's path comes back for the verify calls.
+fn bound_release() -> (common::Fixture, String, PathBuf) {
+    let fx = common::standard();
+    let sha = good_manifest(&fx.train_manifest);
+    let mut req = fx.request();
+    let l = ledger(&fx.dir.0, &rows_with(&sha));
+    req.ft_ledger = Some(l.clone());
+    export(&req).expect("bound");
+    (fx, sha, l)
+}
+
+#[test]
+fn an_untouched_train_manifest_verifies_against_the_release_and_the_ledger() {
+    let (fx, sha, l) = bound_release();
+    assert_eq!(
+        qd_export::verify_release_train_manifest(&fx.out, Some(&l), None).unwrap(),
+        sha
+    );
+}
+
+/// A verification with no ft ledger anchors nothing, so it is refused rather than returned as a
+/// pass: the release's own hashes can be rewritten together with the manifest.
+#[test]
+fn a_verification_without_a_ledger_is_refused_not_passed() {
+    let (fx, _, _) = bound_release();
+    verify_err(&fx.out, None, None, "no ft ledger given");
+}
+
+/// Only a completed ft row anchors the binding, at export and at verify time alike.
+#[test]
+fn an_eval_or_failed_row_carrying_the_right_sha_is_not_an_anchor() {
+    for (run_kind, status) in [("eval", "completed"), ("ft", "failed"), ("ft", "started")] {
+        let fx = common::standard();
+        let sha = good_manifest(&fx.train_manifest);
+        let mut rows = rows_with(&sha);
+        rows[0]["run_kind"] = json!(run_kind);
+        rows[0]["status"] = json!(status);
+        let mut req = fx.request();
+        req.ft_ledger = Some(ledger(&fx.dir.0, &rows));
+        refused(&req, "not a completed ft row");
+
+        // And after an export bound to a good ledger, swapping in the bad ledger is refused.
+        let (fx, sha, _) = bound_release();
+        let mut rows = rows_with(&sha);
+        rows[1]["run_kind"] = json!(run_kind);
+        rows[1]["status"] = json!(status);
+        let bad = ledger(&fx.dir.0, &rows);
+        verify_err(&fx.out, Some(&bad), None, "not a completed ft row");
+    }
+}
+
+/// With the ledger given (so the refusal cannot come from its absence), a manifest path that is
+/// not a regular file is refused from its type: `/dev/zero` reports length 0 and would hash
+/// forever, a directory or a FIFO has no bytes the export bound.
+#[test]
+fn a_manifest_path_that_is_not_a_regular_file_is_refused_with_the_ledger_given() {
+    let (fx, _, l) = bound_release();
+    verify_err(
+        &fx.out,
+        Some(&l),
+        Some(Path::new("/dev/zero")),
+        "not a regular file",
+    );
+    verify_err(&fx.out, Some(&l), Some(&fx.dir.0), "not a regular file");
+    let fifo = fx.dir.0.join("train.fifo");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    verify_err(&fx.out, Some(&l), Some(&fifo), "not a regular file");
+}
+
+#[test]
+fn a_train_manifest_edited_after_the_export_is_detected_at_verify_time() {
+    let (fx, _, l) = bound_release();
+    // A consistent edit: the entries and the digest move together, so the manifest still reads.
+    let mut e = entries();
+    e[0]["slot_shape"] = json!(["choice:16"]);
+    write_manifest(&fx.train_manifest, &manifest_doc(&e, Some(&digest(&e))));
+    verify_err(
+        &fx.out,
+        Some(&l),
+        None,
+        "edited or replaced after the export",
+    );
+}
+
+#[test]
+fn an_edit_that_also_rewrites_the_release_manifests_hashes_is_caught_by_the_ledger() {
+    let (fx, _, l) = bound_release();
+    let mut e = entries();
+    e[0]["slot_shape"] = json!(["choice:16"]);
+    let new_sha = write_manifest(&fx.train_manifest, &manifest_doc(&e, Some(&digest(&e))));
+    let path = fx.out.join("release_manifest.json");
+    let mut m = release_manifest(&fx.out);
+    m["train_manifest"]["sha256"] = json!(new_sha);
+    m["train_manifest"]["ledger_binding"]["train_manifest_sha256"] = json!(new_sha);
+    std::fs::write(&path, serde_json::to_vec_pretty(&m).unwrap()).unwrap();
+    // The release's own text now agrees with the edited file; only the chained ledger does not.
+    verify_err(&fx.out, Some(&l), None, "train_manifest_sha256");
+}
+
+#[test]
+fn a_release_exported_without_a_ledger_binding_is_refused_not_passed() {
+    let fx = common::standard();
+    let sha = good_manifest(&fx.train_manifest);
+    export(&fx.request()).expect("exports");
+    let l = ledger(&fx.dir.0, &rows_with(&sha));
+    verify_err(&fx.out, Some(&l), None, "not verified");
+}
+
+#[test]
+fn a_moved_manifest_is_verified_by_override_and_a_missing_one_is_refused() {
+    let (fx, sha, l) = bound_release();
+    let moved = fx.dir.0.join("moved-train.json");
+    std::fs::rename(&fx.train_manifest, &moved).unwrap();
+    verify_err(&fx.out, Some(&l), None, "train.json");
+    assert_eq!(
+        qd_export::verify_release_train_manifest(&fx.out, Some(&l), Some(&moved)).unwrap(),
+        sha
+    );
+}

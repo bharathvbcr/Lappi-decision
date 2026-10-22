@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::calibration_fit::ECE_THRESHOLD;
 use qd_runtime::hex;
+use qd_runtime::schema::SlotKind;
 
 use crate::export::{read_small, refuse, sha256};
 use crate::refusal::{RefusalKind, Result};
@@ -137,6 +138,39 @@ pub(crate) fn is_shape_key(key: &str) -> bool {
     }
 }
 
+/// Whether the runtime would find an entry for the slot shape `key` (`span`, `choice:N`,
+/// `score:N`): the key is read into the `(kind, rows)` the runtime's `CalibrationTable::lookup`
+/// takes, and that lookup answers. `N` must be the decimal the runtime formats back (no sign, no
+/// leading zero, fits `usize`), because the runtime builds its key from the request's row count,
+/// never from text a manifest wrote.
+fn runtime_lookup(table: &CalibrationTable, key: &str) -> std::result::Result<(), String> {
+    let (kind, rows) = match key.split_once(':') {
+        None if key == "span" => (SlotKind::Span, 0),
+        Some((kind, digits)) => {
+            let kind = match kind {
+                "choice" => SlotKind::Choice,
+                "score" => SlotKind::Score,
+                _ => return Err(format!("{key} is not span, choice:N or score:N")),
+            };
+            let rows: usize = digits
+                .parse()
+                .map_err(|e| format!("{key}: the row count is not a usize ({e})"))?;
+            if rows.to_string() != digits {
+                return Err(format!(
+                    "{key}: the runtime looks up {}:{rows}, not the spelling {digits:?}",
+                    kind.as_str()
+                ));
+            }
+            (kind, rows)
+        }
+        None => return Err(format!("{key} is not span, choice:N or score:N")),
+    };
+    table
+        .lookup(key, kind, rows)
+        .map(|_| ())
+        .map_err(|refusal| refusal.to_string())
+}
+
 /// The recorded check at `ece`: ran, passed, and consistent with the registered threshold.
 fn check_ece(key: &str, ece: Option<&Value>) -> Result<f64> {
     let k = RefusalKind::Calibration;
@@ -224,14 +258,6 @@ pub(crate) fn check(
         ));
     }
 
-    let table_doc = serde_json::to_value(table).map_err(|e| refuse(k, e.to_string()))?;
-    let letters: BTreeSet<&str> = table_doc
-        .get("letters")
-        .and_then(Value::as_object)
-        .map(|m| m.keys().map(String::as_str).collect())
-        .unwrap_or_default();
-    let has_span = table_doc.get("span").is_some_and(|s| !s.is_null());
-
     let mut checked: BTreeMap<String, Value> = BTreeMap::new();
     for family in admitted {
         let shapes = trained.get(family).filter(|s| !s.is_empty()).ok_or_else(|| {
@@ -245,15 +271,17 @@ pub(crate) fn check(
         for shape in shapes {
             for key in shape {
                 let key = key.as_str();
+                // The runtime's own lookup decides whether the table has the entry, not a string
+                // comparison of keys: a key the runtime would never build (`choice:04`) is no entry.
+                runtime_lookup(table, key).map_err(|why| {
+                    refuse(
+                        k,
+                        format!(
+                            "{family}: trained slot shape {key} has no calibration entry the runtime would use ({why}); the runtime would refuse it as calibration_entry_missing"
+                        ),
+                    )
+                })?;
                 if key == "span" {
-                    if !has_span {
-                        return Err(refuse(
-                            k,
-                            format!(
-                                "{family}: trained slot shape span has no calibration entry (the table's span is null); the runtime would refuse its span slot as calibration_entry_missing"
-                            ),
-                        ));
-                    }
                     let fitted =
                         report.pointer("/span/fitted").and_then(Value::as_bool) == Some(true);
                     if !fitted {
@@ -270,14 +298,6 @@ pub(crate) fn check(
                     )?;
                     checked.insert("span".to_string(), json!(v));
                 } else {
-                    if !letters.contains(key) {
-                        return Err(refuse(
-                            k,
-                            format!(
-                                "{family}: trained slot shape {key} has no calibration entry; the runtime would refuse it as calibration_entry_missing"
-                            ),
-                        ));
-                    }
                     let ece = report.pointer(&format!("/entries/{key}/scored/ece_after"));
                     let v = check_ece(&format!("{family}/{key}"), ece)?;
                     checked.insert(key.to_string(), json!(v));
