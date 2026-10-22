@@ -99,14 +99,14 @@ fn bracketed(chars: &[char], i: usize, word: &str) -> Option<usize> {
 /// The end of an at-token starting at `i`: `@`, a fullwidth form, a bracketed `at`, or the word
 /// ` at ` (the caller requires a dot in the domain for the word form). Spaces around a symbolic
 /// or bracketed token belong to it.
-fn at_token(chars: &[char], i: usize) -> Option<(usize, bool)> {
+fn at_token(chars: &[char], i: usize) -> Option<usize> {
     let j = skip_spaces(chars, i);
     if let Some(c) = chars.get(j) {
         if AT_SIGNS.contains(c) {
-            return Some((skip_spaces(chars, j + 1), false));
+            return Some(skip_spaces(chars, j + 1));
         }
         if let Some(end) = bracketed(chars, j, "at") {
-            return Some((skip_spaces(chars, end), false));
+            return Some(skip_spaces(chars, end));
         }
     }
     // The word form needs a space before and after: " at ".
@@ -114,7 +114,7 @@ fn at_token(chars: &[char], i: usize) -> Option<(usize, bool)> {
         && let Some(end) = word_at(chars, j, "at")
         && chars.get(end) == Some(&' ')
     {
-        return Some((skip_spaces(chars, end), true));
+        return Some(skip_spaces(chars, end));
     }
     None
 }
@@ -371,8 +371,13 @@ fn inline_name(line: &str) -> Option<(usize, usize)> {
         let tail = line.get(lead + phrase.len()..)?;
         // A comma, colon or dash must follow: "Best of luck", "Best Practices" and "Contact Us"
         // are not sign-offs and labels.
+        // ("Posted by", "Sent by" and "Reach out to" take the name directly.)
         let sep = tail.trim_start_matches(' ');
-        if !sep.starts_with([',', ':', '-', '\u{2013}', '\u{2014}']) {
+        let direct = phrase.ends_with(" by") || phrase.ends_with(" to");
+        if !direct && !sep.starts_with([',', ':', '-', '\u{2013}', '\u{2014}']) {
+            continue;
+        }
+        if direct && tail.len() == sep.len() {
             continue;
         }
         let name = sep
