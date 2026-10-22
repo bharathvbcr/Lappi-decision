@@ -31,7 +31,7 @@ Branch `lane/ft-cc9fac73` (from d09222d, not rebased onto main). Session lappi-d
 | test_batch_order | (c) helper | `_patch_module` stub requires `config`; base ref f168576's tool does not pass it (real_ft_run_base.py:10408) | stub takes `**_kw` in test_real_ft_rungd_flags.py (3796406) | fails before; after: NOT RUN (the differential may expose a further difference) |
 | test_wall_clock_cap_required | (c) cross-lane | expects `header.json` in the missing-shard-set error; L2's 154dfaa changes `shards.py` to raise that, on main | none: needs L2's `python/qd_train/shards.py`, which this lane may not touch and has not merged | red on this branch until main's shards.py is merged; before-arm run: NOT RUN |
 | test_split_cache_main | not reproduced | passes on d09222d (before-summary.txt) | none | passes before |
-| test_real_ft_pieces | not diagnosed | skipped on every run so far (tokenizer path / pool-v2 file); before arm queued | none | NOT RUN |
+| test_real_ft_pieces | (a) fixture, v6 | on d09222d (load-48 arm, before-test_real_ft_pieces.txt): 1 failed, 44 passed; R1 refuses the 20-pair / 40-defect-row build: defect_token_share 0.387384 against floor 0.558 | `v6_data_rules=False` + `legacy_v5()`, docstring names it (a528a37) | fails before; after: NOT RUN |
 
 ## Flake candidate: test_ledger.py::test_an_interrupt_during_a_suite_takes_its_process_group_down
 
