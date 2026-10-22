@@ -27,3 +27,26 @@ fn rust_agrees_with_python_on_every_mutated_line() {
     }
     assert!(diffs.is_empty(), "Rust and Python disagree:\n{}", diffs.join("\n"));
 }
+
+/// X2 noted that `read_entries` does not apply the check. A reader that loads a ledger holding a
+/// row Python's `verify_chain` refuses should not hand it back as a valid entry.
+#[test]
+fn read_entries_refuses_a_line_check_row_line_refuses() {
+    let path = common::crate_dir().join("tests/fixtures/span-refit-gate-cases.json");
+    let cases: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let line = cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "new_sha_missing_the_metrics")
+        .unwrap()["line"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(check_row_line(&line).is_err());
+    let out = std::env::temp_dir().join(format!("adv-x2-{}.jsonl", std::process::id()));
+    std::fs::write(&out, format!("{line}\n")).unwrap();
+    let got = qd_train::ledger::read_entries(&out, true);
+    std::fs::remove_file(&out).unwrap();
+    assert!(got.is_err(), "read_entries returned a row check_row_line refuses");
+}
