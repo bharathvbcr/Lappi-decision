@@ -1,0 +1,122 @@
+{
+ "after1/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "after1/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "after1/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "after2/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "after2/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "after2/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "after3/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "after3/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "after3/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "base1/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "base1/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "base1/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "six_after1/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "six_after1/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "six_after1/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "six_after2/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "six_after2/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "six_after2/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "six_after3/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "six_after3/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "six_after3/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "six_base1/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "six_base1/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "six_base1/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "six_base2/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "six_base2/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "six_base2/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ },
+ "six_base3/attestation.json": {
+  "bytes": 3524277,
+  "sha256": "8f0ae9d9548f4a2d02946b9920fdec29aa5d6f11affd49e83ba06a9dde317a6c"
+ },
+ "six_base3/exclusions.txt": {
+  "bytes": 400741,
+  "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
+ },
+ "six_base3/pairs.tsv": {
+  "bytes": 716976863,
+  "sha256": "d32ea9c2b734933e4fb68b72a5070d68425deeeae18119b048741e9c2bec72b3"
+ }
+}

@@ -1,0 +1,1455 @@
+mac_heavy: 2026-10-21T09:14:52Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:17:14Z 'l3-b3b-baseline' waiting 140s for the lock; holder: label=tessl-gpurun2 pid=64706 start=2026-10-21T06:16:10Z cwd=/Users/bharath/Code/research/tessl 
+mac_heavy: 2026-10-21T09:19:55Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:24:58Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:30:00Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:35:02Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:40:05Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:45:07Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:50:10Z 'l3-b3b-baseline' waiting 2100s for the lock; holder: label=tessl-gpurun2 pid=64706 start=2026-10-21T06:16:10Z cwd=/Users/bharath/Code/research/tessl 
+mac_heavy: 2026-10-21T09:50:30Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T09:55:32Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:00:15Z 'l3-b3b-baseline' waiting 2700s for the lock; holder: label=tessl-gpurun2 pid=64706 start=2026-10-21T06:16:10Z cwd=/Users/bharath/Code/research/tessl 
+mac_heavy: 2026-10-21T10:00:35Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:05:37Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:10:40Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:15:42Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:20:44Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:25:47Z 'l3-b3b-baseline' waiting 4220s for the lock; holder: label=tessl-gpurun2 pid=64706 start=2026-10-21T06:16:10Z cwd=/Users/bharath/Code/research/tessl 
+mac_heavy: 2026-10-21T10:26:27Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:31:30Z 'l3-b3b-baseline' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-21T10:32:30Z 'l3-b3b-baseline' waiting 4620s for the lock; holder: label=7a-base-shard-cpu pid=6769 start=2026-10-21T10:32:28Z cwd=/Users/bharath/Code/research/ojas 
+mac_heavy: 2026-10-21T10:34:31Z 'l3-b3b-baseline' holds the lock (waited 4740s; load 6.81, 1148 processes); running: bash build/l3/baseline.sh
+============================= test session starts ==============================
+platform darwin -- Python 3.14.8, pytest-9.1.1, pluggy-1.7.0
+rootdir: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree
+configfile: pyproject.toml
+plugins: hypothesis-6.170.5, langsmith-0.9.2, anyio-4.14.1
+collected 32 items
+
+build/l3/base-tree/python/tests/test_containment_exclusions.py .F....... [ 28%]
+...............F.......                                                  [100%]
+
+=================================== FAILURES ===================================
+__________ test_a_build_without_the_flag_writes_what_it_wrote_before ___________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-24/test_a_build_without_the_flag_0')
+
+    @pytest.mark.usefixtures("qd_prep")
+    def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) -> None:
+        """Characterization: every shard file, sequence index and manifest of a 60-pair build,
+        timestamps aside, is the bytes the pipeline wrote before the flag existed.
+    
+        Pinned at d554702 as d67c7de0.... It has moved seven times since, each time by design and
+        with every moved byte accounted for. No move was a re-pin to whatever came out:
+    
+        * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
+          headers differ only in five qd_data code fingerprints and their derived hashes, and the
+          manifests only in admitted_source_ids and their derived hashes.
+          See GAP-L-V5DATA-CHARACTERIZATION-DIGEST-MOVES-2026-10-02.
+        * Prompt format 2 -> 3c9ae50a.... Every sequence of all three shard sets (86/86/12) decodes
+          to the format-1 text with exactly two edits: the format line inserted after the begin
+          line, and the question line moved after the context. Each sequence is 9 tokens longer;
+          target_index shifts by that delta; the other supervision arrays are identical. The headers
+          gain prompt_format 2 and move only in fingerprints and derived fields. Unexplained: 0.
+          See AUDIT/v5-fmt-characterization-2026-10-02/ and
+          GAP-L-V5FMT-CHARACTERIZATION-CRITERION-STALE-2026-10-02.
+        * b11e6e0 (CLINC not reportable) -> 9674f8fc..., unseen at the time because this test
+          skips on a host without the commitpackft download. A build at adbaec1 reproduces
+          3c9ae50a...; against it, 30 of 33 files are byte-identical and the three shard headers
+          differ only in code_fingerprint["sources.py"] and the shard_hash that covers it.
+        * The general-decision pool (bench v2 patch) -> d998d6d8...: against the 9674f8fc... build,
+          30 of 33 files are byte-identical, every manifest included (so admitted_source_ids and
+          data_snapshot_hash hold for a build without --decisions-pool), and the three headers
+          differ only in code_fingerprint (decisions.py added; loaders, manifest, mixture, sources
+          changed) and shard_hash. See
+          GAP-CHARACTERIZATION-PIN-STALE-SINCE-B11E6E0-SKIPPED-WITHOUT-COMMITPACKFT-2026-10-03.
+        * The pool's share-alike sources and probability check (bench v3 patch) -> acd6ea15...:
+          against the d998d6d8... build (build/char-v2/out-new, compared with its compare.py), 30 of
+          33 files are byte-identical, every manifest included, and the three shard headers differ
+          only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
+          shard_hash that covers them. Differing binary files: 0.
+        * Exact-content dedupe for structured decision rows and the config-carried candidate bound
+          (the lead's v4 half, Fable's dedupe ruling) -> d65616af...: against the acd6ea15...
+          build (the bench's char-v3/out-v3, whose digest reproduces acd6ea15...), 30 of 33 files
+          are byte-identical, every manifest included -- a corpus with no scoped row and the default
+          bound writes no new report key -- and the three shard headers differ only in
+          code_fingerprint["config.py"], ["dedupe.py"], ["split.py"] and the shard_hash that
+          covers them. Differing binary files: 0.
+          AUDIT/finalize-2026-10-03/dedupe-probe/char-v4-compare.out.
+        * The pool's v4 half (bench): the exact-content marker, the pool's candidate bound in
+          pool_data_config, VitaminC in and two new pool targets -> 82e412c4...: against the
+          d65616af... build (build/char-v4/out-new, compared with char-v2's compare.py), 30 of 33
+          files are byte-identical, every manifest included, and the three shard headers differ
+          only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
+          shard_hash that covers them. Differing binary files: 0.
+        * qd_data fingerprints since that pin, with specials taken from the named map rather
+          than all_special_ids -> ff39da60...: against the recovered 82e412c4 build
+          (qd-campaign v5-decisions-data-2026-10-03/char-v4/out-v4), 30 of 33 files are
+          byte-identical, every manifest and every remap included. The three shard headers
+          differ only in code_fingerprint and shard_hash. caller_records.py is new in the
+          fingerprint. These changed: config.py, decisions.py, dedupe.py, defect_class.py,
+          general.py, licences.py, loaders.py, minhash.py, mixture.py, sources.py, split.py.
+          Differing binary files: 0. The gap from 82e412c4 to a 5.18/5.19 rebuild (5958841b)
+          was remap.json special_ids only: transformers 5.17's Qwen2Tokenizer reported the
+          eight named tokens, and Qwen3_5Tokenizer's all_special_ids adds <|im_start|>,
+          <|im_end|>, the object-ref, box and quad markers, and <|vision_pad|>. The remap
+          records special_tokens_map, which is those eight ids on 5.17, 5.18 and 5.19."""
+        pipeline = _pipeline_or_skip()
+>       pipeline.run(
+            out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
+            val_shards=True, repo_history=False,
+        )
+
+build/l3/base-tree/python/tests/test_containment_exclusions.py:185: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+out = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-24/test_a_build_without_the_flag_0')
+max_pairs = 60, blank_line_runs = False
+rev = 'dec48d8841db21ad0401effdb9fff724977fd47f'
+commitpackft = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree/data/pool/commitpackft')
+val_shards = True, defect_class = None
+defect_download = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree/data/pool/commitpackft')
+defect_max_rows = None, memo_limit = 8192, general_record = None
+general_max_rows = 200000, replay_shards = False, repo_history = False
+vocab = 'full', defect_noul = None, max_seq_len = None
+span_collapse_policy = 'refuse-any', report_only_slice = None, gate_set = None
+replay_exclude = None, exclude_identity_keys = None, decisions_pool = None
+pre_dedupe_drops = None, dedupe_report_out = None, spancheck_in_qd_prep = False
+v6_data_rules = True
+
+    def run(
+        *,
+        out: Path,
+        max_pairs: int,
+        blank_line_runs: bool,
+        rev: str,
+        commitpackft: Path | None = None,
+        val_shards: bool = False,
+        defect_class: Path | None = None,
+        defect_download: Path = DEFAULT_DEFECT_DOWNLOAD,
+        defect_max_rows: int | None = None,
+        memo_limit: int = MEMO_LIMIT,
+        general_record: Path | None = None,
+        general_max_rows: int = DEFAULT_GENERAL_MAX_ROWS,
+        replay_shards: bool = False,
+        repo_history: bool = True,
+        vocab: str = VOCAB_FULL,
+        defect_noul: Path | None = None,
+        max_seq_len: int | None = None,
+        span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
+        report_only_slice: Path | None = None,
+        gate_set: Path | None = None,
+        replay_exclude: Path | None = None,
+        exclude_identity_keys: Path | None = None,
+        decisions_pool: Path | None = None,
+        pre_dedupe_drops: Path | None = None,
+        dedupe_report_out: Path | None = None,
+        spancheck_in_qd_prep: bool = False,
+        v6_data_rules: bool = True,
+    ) -> Measured:
+        """Build, measure and write one shard set, and return what was measured.
+    
+        With ``report_only_slice`` the run builds a report-only slice instead (Fable G5(ii)):
+        its rows are the whole val set, written under ``refuse-gold`` with ``report_only`` in
+        the header to ``shards/`` :data:`REPORT_ONLY_VAL_DIR`, and refused if any of them is a
+        row of ``gate_set``'s gate val set or the remap is not the one ``gate_set`` trained
+        under. The train set it also writes is the base-corpus sample the pipeline needs to
+        measure, not a training set.
+    
+        With ``exclude_identity_keys`` (an ``exclusions.txt`` from ``qd-prep containment``, its
+        attestation beside it) the train rows it names leave the train split right after
+        ``split`` and before ``split_off_replay`` (``qd_train.exclusions.apply_exclusions``), and
+        the train and replay headers carry its sha256. Without it nothing here changes.
+    
+        With ``pre_dedupe_drops`` (``--drop-before-dedupe``) the train rows it names leave the
+        corpus between ``build_mixture`` and ``dedupe`` (``qd_train.exclusions.
+        drop_before_dedupe``), so a val or held-out row they knocked out in dedupe survives; its
+        sha256 is part of the corpus an exclusion list is checked against, and the recipe's.
+    
+        With ``dedupe_report_out`` the stage-2 ``DedupeReport.to_json()`` (every near-duplicate
+        component: its kept unit and the units it removed) is written there, once, so a val or
+        held-out row's absence can be read from the build's own clusters (A7). It names identity
+        keys, not text, and is written outside ``out``. Without it nothing here changes.
+    
+        With ``spancheck_in_qd_prep`` (``--native-spancheck``) the span slots of every shard set
+        written below are projected by ``qd-prep spancheck`` (:func:`build_native_spancheck`, one
+        pre-pass before stage 6) and ``write_shards`` reads the answers through the table it installs
+        for each write; the census keeps the reference. Every lookup the table does not settle runs
+        the reference, so the sets are the reference's byte for byte, and the ``native_spancheck``
+        metric records the binary's sha256. Without it nothing here changes.
+    
+        ``v6_data_rules`` is True by default (``--legacy-v5-data-rules`` makes it False, to reproduce
+        an already-pinned v5 set; human ruling 2026-10-17). With it (Fable's v6 ruling R2) the config is
+        :func:`data_rules`'s v6 one: MMLU and CLINC evaluation splits are targets, never rows, and
+        dedupe keeps by split priority behind the LSH prefilter; both are in the config fingerprint,
+        the corpus name (:func:`name_corpus`) and ``data_snapshot_hash``. The build refuses unless
+        the train split holds no ``knowledge.multiple_choice`` row and ``code.defect_class`` holds at
+        least :data:`DEFECT_TOKEN_SHARE_FLOOR` of the written train tokens (R1); v5's MMLU contrast
+        quota moves to CSQA (``qd_train.contrast.v6_contrast_spec``). Under the legacy v5 rules the
+        share is still measured and recorded, never enforced, and nothing else here changes.
+        """
+        if dedupe_report_out is not None and dedupe_report_out.exists():
+            raise SystemExit(f"--dedupe-report-out {dedupe_report_out} exists; it is written once")
+        if pre_dedupe_drops is not None and report_only_slice is not None:
+            raise SystemExit("--drop-before-dedupe is a corpus build's; a report-only slice takes none")
+        if exclude_identity_keys is not None and replay_exclude is not None:
+            raise SystemExit(
+                "--exclude-identity-keys and --replay-exclude together: the containment list "
+                "already removes every contaminated train row, gold or replay-drawn, before the "
+                "replay draw, so partition_replay is handed no contaminated keys (Fable "
+                "2026-10-02, Q2) and a --replay-exclude key would name no drawn row"
+            )
+        if replay_exclude is not None and not replay_shards:
+            raise SystemExit(
+                "--replay-exclude needs --replay-shards: it removes rows from the replay slice, "
+                "and without one there is nothing to remove them from"
+            )
+        exclude_keys = (
+            read_replay_exclude(replay_exclude) if replay_exclude is not None else frozenset()
+        )
+        if vocab not in VOCAB_POLICIES:
+            raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
+        if max_seq_len is not None and max_seq_len < 2:
+            raise SystemExit(f"--max-seq-len must be at least 2, got {max_seq_len}")
+        if span_collapse_policy not in SPAN_COLLAPSE_POLICIES:
+            raise SystemExit(
+                f"--span-collapse-policy must be one of {SPAN_COLLAPSE_POLICIES}, "
+                f"got {span_collapse_policy!r}"
+            )
+        if defect_noul is not None and defect_class is None:
+            raise SystemExit(
+                "--defect-noul needs --defect-class: its rows are code.defect_class rows whose "
+                "gold is noul, and a family of only abstentions teaches nothing but abstaining"
+            )
+        if replay_shards and general_record is None:
+            raise SystemExit(
+                "--replay-shards needs --general-record: the replay slice is drawn from the "
+                "general families' training rows"
+            )
+        if report_only_slice is not None:
+            # Every val row must be a slice row: any other source puts its own val rows beside
+            # them, and the train side is the slice's base sample alone.
+            others = [
+                name for name, given in (
+                    ("--defect-class (the slice names its own base corpus)", defect_class),
+                    ("--defect-noul", defect_noul),
+                    ("--general-record", general_record),
+                    ("--decisions-pool", decisions_pool),
+                    ("--commitpackft", commitpackft),
+                    ("--replay-shards", replay_shards or None),
+                    ("--exclude-identity-keys (the slice's train side trains nothing)",
+                     exclude_identity_keys),
+                    ("repository history (pass --no-repo-history)", repo_history or None),
+                ) if given is not None
+            ]
+            if others:
+                raise SystemExit(
+                    f"--report-only-slice reads no other source, and this run names {others}: "
+                    "their val rows would enter the slice's val set"
+                )
+            missing = [
+                name for name, ok in (
+                    ("--gate-set", gate_set is not None),
+                    ("--val-shards", val_shards),
+                    ("--vocab full", vocab == VOCAB_FULL),
+                    ("--defect-max-rows (the base sample)", defect_max_rows is not None),
+                    (
+                        f"--span-collapse-policy {SPAN_COLLAPSE_REFUSE_GOLD}",
+                        span_collapse_policy == SPAN_COLLAPSE_REFUSE_GOLD,
+                    ),
+                ) if not ok
+            ]
+            if missing:
+                raise SystemExit(
+                    f"--report-only-slice needs {missing}: the slice is the val set, written "
+                    "under refuse-gold and under the gate set's own full-vocabulary remap"
+                )
+        elif gate_set is not None:
+            raise SystemExit("--gate-set is read only by --report-only-slice")
+        if defect_class is not None:
+            refuse_report_only_corpus(defect_class)
+        if not repo_history and commitpackft is None and defect_class is None and (
+            general_record is None and decisions_pool is None
+        ) and report_only_slice is None:
+            raise SystemExit(
+                "--no-repo-history with no --commitpackft, --defect-class, --general-record or "
+                "--decisions-pool "
+                "reads no source at all; there would be nothing to build"
+            )
+        # A build that reads the decision pool admits its opt-in sources (ARC), with the human's
+        # recorded call; one without keeps the default config, so its manifests do not move.
+        config = data_rules(
+            DataConfig() if decisions_pool is None else pool_data_config(), v6=v6_data_rules
+        )
+        extra_metrics: dict[str, TriState] = {}
+        resolved = resolve_rev(REPO, rev)
+        containment = name_corpus(corpus_identity(
+            rev=resolved, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
+            defect_max_rows=defect_max_rows, repo_history=repo_history,
+            general_record=general_record,
+            general_max_rows=general_max_rows if general_record is not None else None,
+            defect_noul=defect_noul, decisions_pool=decisions_pool,
+            drop_before_dedupe=pre_dedupe_drops,
+        ), config=config) if exclude_identity_keys is not None else {}
+        if exclude_identity_keys is not None:
+            # Verified now, before minutes of building: the same check runs again where it is
+            # applied, after the split.
+            read_exclusions(exclude_identity_keys, corpus=containment)
+        if pre_dedupe_drops is not None:
+            # The list's own form, now; its keys are checked against the rows where it applies.
+            read_pre_dedupe_drops(pre_dedupe_drops)
+        tok = RealTokenizer.load(memo_limit=memo_limit)
+        print(
+            f"tokenizer {type(tok.tok).__name__} for {MODEL}: vocab_size={tok.tok.vocab_size} "
+            f"len={len(tok.tok)} fast={tok.tok.is_fast}"
+        )
+        print(f"corpus revision: {rev} -> {resolved}")
+    
+        base = base_sources(
+            repo_history=repo_history, commitpackft=commitpackft, max_pairs=max_pairs,
+            blank_line_runs=blank_line_runs, rev=resolved,
+        )
+        commits_n, spans_n, pool_total = base.n_commits, base.n_spans, base.pool_total
+        if not repo_history:
+            code_source = (
+                "no row from this repository's history (--no-repo-history)"
+                + (
+                    f"; bigcode/commitpackft from {commitpackft} ({commits_n} of {pool_total} "
+                    "rows, a sha256-ordered sample; files pinned by the download's manifest)"
+                    if pool_total is not None else ""
+                )
+            )
+            quick_reason = quick_reason_for(
+                commitpackft_rows=None if pool_total is None else (commits_n, pool_total),
+                repo_history=False,
+            )
+        elif pool_total is None:
+            code_source = f"this repository's own history at {resolved}"
+            quick_reason = quick_reason_for(commitpackft_rows=None)
+        else:
+            code_source = (
+                f"bigcode/commitpackft from {commitpackft} ({commits_n} of {pool_total} "
+                "rows, a sha256-ordered sample; files pinned by the download's manifest), "
+                f"with span prose from this repository at {resolved}"
+            )
+            quick_reason = quick_reason_for(commitpackft_rows=(commits_n, pool_total))
+        raw: dict[str, list[RawRow | DefectRow]] = dict(base.raw)
+        capped = list(base.capped)
+        if defect_class is not None:
+            # The corpus, its pool and the licence download are each checked against the
+            # sha256 their manifests record, and any row that does not resolve through the
+            # pool to a licence refuses the whole load -- see qd_data.defect_class.
+            load = load_defect_rows(
+                defect_class, download_root=defect_download, config=config, repo_root=REPO,
+                max_rows=defect_max_rows, noul_dir=defect_noul,
+            )
+            raw[DEFECT_SOURCE_ID] = list(load.rows)
+            if load.capped:
+                capped.append(DEFECT_SOURCE_ID)
+            n_main = len(load.rows) - load.n_noul
+            code_source += (
+                f"; {DEFECT_FAMILY_ID} from {defect_class} ({n_main} of "
+                f"{load.n_corpus} qd-mutate examples"
+                + (
+                    f", of which {load.n_composed} composed rows (qd-mutate compose) after "
+                    "their base corpus"
+                    if load.n_composed else ""
+                )
+                + (", a sha256-ordered sample" if load.capped else "")
+                + (
+                    f", plus {load.n_noul} noul rows from {defect_noul} {load.noul_by_source}"
+                    if defect_noul is not None else ""
+                )
+                + (f" by v5 route {load.noul_by_route}" if load.noul_by_route else "")
+                + f"; classes {load.by_class}; span-rebase refusals {load.span_refusals or 'none'})"
+            )
+            print(
+                f"\n{DEFECT_FAMILY_ID}: {n_main} of {load.n_corpus} rows, "
+                f"capped={load.capped}, noul rows {load.n_noul} {load.noul_by_source}, by class "
+                f"{load.by_class}, span-rebase refusals {load.span_refusals or 'none'}"
+                + (f", v5 routes {load.noul_by_route}" if load.noul_by_route else "")
+            )
+        report_slice: ReportOnlySlice | None = None
+        if report_only_slice is not None:
+            if defect_max_rows is None:  # refused above with the other needs; narrowed here
+                raise SystemExit("--report-only-slice needs --defect-max-rows")
+            report_slice = load_report_only_slice(
+                report_only_slice, download_root=defect_download, config=config, repo_root=REPO,
+                base_max_rows=defect_max_rows,
+            )
+            raw[DEFECT_SOURCE_ID] = [*report_slice.base, *report_slice.rows]
+            # The base is always a sample here, so the read is a capped one.
+            capped.append(DEFECT_SOURCE_ID)
+            code_source += (
+                f"; REPORT-ONLY slice {report_only_slice} ({len(report_slice.rows)} rows "
+                f"{report_slice.by_half}, manifest sha256 {report_slice.manifest_sha256[:16]}, "
+                "every row val), over the "
+                f"{len(report_slice.base)} train-split rows of a {report_slice.base_sampled}-row "
+                "sha256-ordered sample of its base corpus"
+            )
+            print(
+                f"\nreport-only slice: {len(report_slice.rows)} rows {report_slice.by_half}; "
+                f"base carrier {len(report_slice.base)} train rows of {report_slice.base_sampled} "
+                "sampled"
+            )
+        general: GeneralLoad | None = None
+        if general_record is not None:
+            general = general_rows(general_record, max_rows_per_file=general_max_rows)
+            for dataset, rows in general.raw.items():
+                # Real SQuAD replaces the repository-prose stand-in under the same source.
+                raw[dataset] = list(rows)
+            capped = [c for c in capped if c not in general.raw] + list(general.capped)
+            code_source += (
+                f"; general families from {general_record} (sha256 "
+                f"{general.record_sha256[:16]}; "
+                + ", ".join(f"{d} {len(r)}" for d, r in sorted(general.raw.items()))
+                + "; real SQuAD replaces the prose stand-in)"
+            )
+            print(
+                f"\ngeneral families: {({d: len(r) for d, r in sorted(general.raw.items())})}, "
+                f"capped={list(general.capped) or 'none'}, clinc domain map="
+                f"{general.clinc_domain_map is not None}"
+            )
+        if decisions_pool is not None:
+            # Read whole or refused (load_decision_pool): every decision about a row was made
+            # by qd-prep decisions, and its manifest names the rows by sha256.
+            pool = load_decision_pool(decisions_pool, config=config)
+            clash = sorted(set(pool.raw) & set(raw))
+            if clash:
+                raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
+            raw.update({source_id: list(rows) for source_id, rows in pool.raw.items()})
+            code_source += (
+                f"; general-decision pool {decisions_pool} (examples sha256 "
+                f"{pool.examples_sha256[:16]}; "
+                + ", ".join(f"{s} {len(r)}" for s, r in sorted(pool.raw.items())) + ")"
+            )
+            print(f"\ndecision pool: {({s: len(r) for s, r in sorted(pool.raw.items())})}")
+        print(
+            f"\ncorpus: {commits_n} real (commit, path) pairs, {spans_n} real prose "
+            f"passages; blank_line_runs={blank_line_runs}; capped={capped or 'none'}"
+        )
+    
+        mixture = build_mixture(
+            raw, config=config, capped_sources=capped,
+            clinc_domain_map=general.clinc_domain_map if general is not None else None,
+            max_consistency_rows=PIPELINE_MAX_CONSISTENCY_ROWS,
+        )
+        if isinstance(mixture.prompt_consistency, NotRun):
+            # Fail fast: a capped read is accepted below as a deliberate NotRun, but an
+            # unchecked corpus reaches write_shards' own contradiction refusal twenty
+            # minutes later, having removed nothing.
+            raise SystemExit(
+                "build_mixture could not run its consistency pass, so contradictory "
+                f"prompts were not removed: {mixture.prompt_consistency.reason}"
+            )
+        extra_metrics["prompt_consistency"] = mixture.prompt_consistency
+        n_attempted = sum(
+            len(v) for v in raw.values()
+        )
+        print("\n== stage 1: build_mixture ==")
+        print(f"  raw rows in: {n_attempted}   DataRows out: {len(mixture.rows)}")
+        print(f"  status: {json.dumps(mixture.status.to_json(), sort_keys=True)[:600]}")
+        print(
+            "  prompt consistency: "
+            f"{json.dumps(mixture.prompt_consistency.to_json(), sort_keys=True)[:800]}"
+        )
+        for source_id, counts in sorted(mixture.refusals.items()):
+            for code, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+                print(f"    refused {source_id} {code}: {n}")
+    
+        deduped_rows, drops, dropped_rows = drop_before_dedupe(
+            mixture.rows, pre_dedupe_drops, config=config
+        )
+        if drops is not None:
+            by_family = collections.Counter(r.family_id for r in dropped_rows)
+            extra_metrics["pre_dedupe_drops"] = Ran(
+                passed=True, value=len(dropped_rows), n=len(dropped_rows),
+                n_total=len(mixture.rows),
+                detail=(
+                    f"{len(dropped_rows)} train row(s) under {len(drops.keys)} identity key(s) of "
+                    f"{drops.path} (sha256 {drops.sha256}) left the corpus before dedupe, by "
+                    f"family {dict(sorted(by_family.items()))}; every one is a row the split puts "
+                    "in train"
+                ),
+            )
+            print(f"\n== stage 1b: pre-dedupe drops ==\n  {len(dropped_rows)} train row(s), "
+                  f"{len(drops.keys)} key(s), sha256 {drops.sha256}, by family "
+                  f"{dict(sorted(by_family.items()))}")
+        with native_minhash(deduped_rows, config=config):
+            report = dedupe(list(deduped_rows), config=config)
+            split_report = split(report, config=config)
+        if dedupe_report_out is not None:
+            with dedupe_report_out.open("x", encoding="utf-8") as fh:
+                json.dump(report.to_json(), fh, sort_keys=True)
+                fh.write("\n")
+        print("\n== stage 2: dedupe + split ==")
+        print(f"  rows in: {len(deduped_rows)}   kept: {len(report.kept)}")
+        if dedupe_report_out is not None:
+            print(f"  dedupe report: {dedupe_report_out} ({len(report.clusters)} clusters)")
+        print(f"  split counts: {split_report.counts()}")
+        if DEFECT_SOURCE_ID in raw:
+            # The number the rung-3 collapse (46/90, the val majority) is read against: a
+            # choice head that learned nothing scores exactly this on each split.
+            for split_name, split_rows in sorted(split_report.rows_by_split.items()):
+                print(f"  {split_name}: {json.dumps(defect_balance(list(split_rows)))}")
+        print(f"  split status: {json.dumps(split_report.status.to_json(), sort_keys=True)[:400]}")
+    
+        # Fable's v5 rule, then v5's contrast rows: once each, after the split and before the
+        # replay draw. Without either flag this returns split_report itself.
+        post = exclusions_then_contrast(
+            split_report, exclude_identity_keys=exclude_identity_keys, corpus=containment,
+            defect_noul=defect_noul, config=config,
+        )
+        split_report, exclusions, excluded_rows = post.report, post.exclusions, post.excluded_rows
+        contrast_header = None if post.contrast is None else post.contrast.header()
+        if post.contrast_status is not None:
+            extra_metrics["contrast_rows"] = post.contrast_status
+            print(f"  contrast rows: {json.dumps(post.contrast_status.to_json())[:600]}")
+        if v6_data_rules:
+            # R2: MMLU's evaluation splits are targets, so no knowledge.multiple_choice row may
+            # reach train -- after the contrast rows, which are code.defect_class rows.
+            mmlu_train = sum(
+                1 for r in split_report.rows_by_split.get("train", ())
+                if r.family_id == V6_EMPTY_TRAIN_FAMILY
+            )
+            if mmlu_train:
+                raise SystemExit(
+                    f"v6 data rules: {mmlu_train} {V6_EMPTY_TRAIN_FAMILY} row(s) in the train "
+                    "split; v6 trains on none (Fable R2: MMLU at zero). Refusing to write a shard set"
+                )
+            extra_metrics["v6_knowledge_multiple_choice_train_rows"] = Ran(
+                passed=True, value=0, n=0,
+                n_total=len(split_report.rows_by_split.get("train", ())),
+                detail=f"{V6_EMPTY_TRAIN_FAMILY} train rows under the v6 data rules (Fable R2: zero)",
+            )
+        exclusions_sha256 = "" if exclusions is None else exclusions.sha256
+        if exclusions is not None:
+            extra_metrics["decontam_exclusion"] = Ran(
+                passed=True, value=len(excluded_rows), n=len(excluded_rows),
+                n_total=len(excluded_rows) + len(split_report.rows_by_split.get("train", ())),
+                detail=(
+                    f"{len(excluded_rows)} train row(s) under {len(exclusions.keys)} identity "
+                    f"key(s) of {exclusions.path} (sha256 {exclusions.sha256}) left the train "
+                    "split before the replay draw; val and held-out are untouched"
+                ),
+            )
+            print(f"  decontamination exclusion: {len(excluded_rows)} train row(s), "
+                  f"{len(exclusions.keys)} key(s), exclusions sha256 {exclusions.sha256}")
+    
+        replay_report: SplitReport | None = None
+        if replay_shards:
+            split_report, replay_report, partition = split_off_replay(
+                split_report, seed=config.seed, exclude=exclude_keys
+            )
+            drawn = sum(sum(c.values()) for c in partition.counts().values())
+            excluded_note = (
+                f" {len(partition.excluded_rows)} replay-drawn row(s) excluded by --replay-exclude "
+                f"({replay_exclude}, {len(exclude_keys)} identity key(s)): neither replayed nor "
+                "gold-trained."
+                if replay_exclude is not None else ""
+            )
+            extra_metrics["replay_partition"] = Ran(
+                passed=True, value=len(partition.replay_rows), n=len(partition.replay_rows),
+                n_total=drawn,
+                detail=(
+                    f"replay-only rows drawn from the replay families' train rows at "
+                    f"fraction {partition.fraction}: {partition.counts()}.{excluded_note} Not yet "
+                    "decontaminated: tools/replay_decontam.py attests the replay set."
+                ),
+            )
+            print(f"  replay partition: {partition.counts()}")
+        manifests = build_manifests(
+            config=config, mixture=mixture, dedupe_report=report, split_report=split_report
+        )
+        without_train = manifests["train"].val_without_train
+        if without_train and without_train["count"]:
+            # Recorded in every manifest; printed because a manifest field is not read at launch.
+            print(
+                f"\n  VAL WITHOUT TRAIN: {without_train['count']} family(ies) have val rows and no "
+                f"train rows: {without_train['families']}; no control can be fitted for them, so a "
+                "gate pooled over them is not_run "
+                "(GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05)"
+            )
+        snapshot_status = manifests["train"].status
+        not_run_snapshot =snapshot_status.to_json()["state"] == "not_run"
+        if not_run_snapshot:
+            # Stated, never absorbed. The manifest door and `open_training_data` both refuse a
+            # not-run snapshot by default, and this run overrides both -- so the reason it
+            # overrode them is printed rather than left in a file nobody reads.
+            print(
+                "\n  NOT-RUN SNAPSHOT, accepted deliberately for this measurement:\n"
+                f"    {snapshot_status.to_json()['reason']}"
+            )
+        paths = _write_manifests(manifests, out, allow_not_run=not_run_snapshot)
+        replay_rows: list[DataRow] = []
+        if replay_report is not None:
+            replay_rows = list(replay_report.rows_by_split["train"])
+            paths["replay"] = out / "data" / "pool" / "train-replay.json"
+            build_manifests(
+                config=config, mixture=mixture, dedupe_report=report,
+                split_report=replay_report,
+            )["train"].write(paths["replay"], allow_not_run=not_run_snapshot)
+            print(f"  replay manifest: {paths['replay']} ({len(replay_rows)} entries)")
+        train_rows = list(split_report.rows_by_split.get("train", ()))
+        print(f"  train manifest: {paths['train']} ({len(train_rows)} entries)")
+        gate_remap_hash = gate_val_shard_hash = ""
+        if report_slice is not None:
+            if gate_set is None:  # refused above with the other needs; narrowed here
+                raise SystemExit("--report-only-slice needs --gate-set")
+            slice_ids = {f"qdm:{DEFECT_FAMILY_ID}:{r.example_id}" for r in report_slice.rows}
+            by_split = {
+                s: {r.row_id for r in split_report.rows_by_split.get(s, ())}
+                for s in ("train", "val", HELD_OUT)
+            }
+            gate_ids, gate_remap_hash, gate_val_shard_hash = gate_val_row_ids(
+                gate_set, config=config
+            )
+            check_slice_split(report_slice, by_split=by_split, gate_ids=gate_ids)
+            lost = len(slice_ids) - len(by_split["val"])
+            extra_metrics["report_only_slice_rows"] = Ran(
+                passed=True, value=len(by_split["val"]), n=len(by_split["val"]),
+                n_total=len(slice_ids),
+                detail=(
+                    f"report_only=true; not a gate population. Slice rows that reached the val "
+                    f"split of the {len(slice_ids)} read ({lost} removed by build_mixture or "
+                    f"dedupe), by half {report_slice.by_half}; 0 shared with the gate val set at "
+                    f"{gate_set} ({len(gate_ids)} row ids, val shard_hash {gate_val_shard_hash}); "
+                    "0 claiming the needle suite's identity. Slice manifest sha256 "
+                    f"{report_slice.manifest_sha256}, examples sha256 "
+                    f"{report_slice.examples_sha256}, seen_filler needles seen as fillers in "
+                    f"examples sha256 {report_slice.diag_train_corpus_sha256}"
+                ),
+            )
+            print(
+                f"  report-only slice: {len(by_split['val'])} of {len(slice_ids)} slice rows in "
+                f"val, 0 of them in the gate val set ({len(gate_ids)} ids)"
+            )
+    
+        print("\n== stage 3: census (unmodified write_shards work, per row) ==")
+        cen = census(
+            train_rows, tok=tok, config=config, max_seq_len=max_seq_len,
+            span_collapse_policy=span_collapse_policy,
+        )
+        print(f"  rows in: {cen.rows_in}   rows that encoded: {cen.rows_out}   "
+              f"sequences: {cen.sequences_out}   span sequences: {cen.span_rows_out}")
+        for name, n in sorted(cen.refused.items(), key=lambda kv: (-kv[1], kv[0])):
+            fatal = " FATAL(aborts the write)" if name in cen.fatal_classes else ""
+            print(f"    {name}: {n}{fatal}")
+            print(f"      e.g. {cen.examples[name][:300]}")
+        if not cen.refused:
+            print("    (no row was refused)")
+        for name, n in sorted(cen.refused_slot.items(), key=lambda kv: (-kv[1], kv[0])):
+            fatal = " FATAL(aborts the write)" if name in cen.fatal_classes else ""
+            print(f"    slot-scoped {name}: {n} of {cen.slots_in} slot(s){fatal}")
+            print(f"      e.g. {cen.examples[name][:300]}")
+        if DEFECT_SOURCE_ID in raw:
+            print(
+                "  train, as written: "
+                + json.dumps(defect_balance(
+                    train_rows, refused=cen.refused_rows, refused_slots=cen.refused_slots
+                ))
+            )
+        print(
+            f"  accepted line-start candidates: {cen.candidates_total}, of which "
+            f"{cen.candidates_not_at_token_start} sit inside a token that begins earlier "
+            "(accepted by design: the writer takes the token containing the line start)"
+        )
+    
+        if cen.composed_span:
+            # Fable round K's pre-registered readout, before (refuse-any) and after (the run's
+            # policy), on the build row.
+            for by in ("length", "files"):
+                survival = composed_span_survival(
+                    cen.composed_span, by=by, policy=span_collapse_policy
+                )
+                extra_metrics[f"composed_span_survival_by_{by}"] = survival
+                print(f"  composed span survival by {by}: {json.dumps(survival.to_json())[:1200]}")
+    
+        if not cen.lengths:
+            raise SystemExit(
+                f"no row of {cen.rows_in} survived the census, so there is nothing to write. "
+                f"Refusals: {dict(cen.refused)}"
+            )
+        tokens_by_family, defect_share = train_token_share(
+            train_rows, cen, defect_source_read=DEFECT_SOURCE_ID in raw
+        )
+        extra_metrics["train_tokens_by_family"] = tokens_by_family
+        extra_metrics["defect_token_share"] = defect_share
+        print(f"  defect token share: {json.dumps(defect_share.to_json())[:600]}")
+        if v6_data_rules and not (isinstance(defect_share, Ran) and defect_share.passed):
+            # Before any shard is written (R1): a share that failed, or could not be measured, is
+            # not a v6 shard set.
+>           raise SystemExit(
+                f"v6 data rules: defect_token_share {json.dumps(defect_share.to_json())}; "
+                f"train tokens by family {json.dumps(tokens_by_family.to_json())}. Refusing to "
+                "write a shard set (Fable R1)"
+            )
+E           SystemExit: v6 data rules: defect_token_share {"state": "not_run", "reason": "this build read no --defect-class, so code.defect_class's share of train tokens is not the mixture bound's question"}; train tokens by family {"state": "ran", "passed": true, "value": 53217, "n": 53217, "n_total": 53217, "detail": "{\"train_tokens_by_family\": {\"code.change_scope\": 26526, \"code.commit_intent\": 26691}}"}. Refusing to write a shard set (Fable R1)
+
+build/l3/base-tree/tools/real_tokenizer_pipeline.py:3804: SystemExit
+----------------------------- Captured stdout call -----------------------------
+tokenizer Qwen3_5Tokenizer for Qwen/Qwen3.5-2B-Base: vocab_size=248044 len=248077 fast=True
+corpus revision: dec48d8841db21ad0401effdb9fff724977fd47f -> dec48d8841db21ad0401effdb9fff724977fd47f
+
+corpus: 60 real (commit, path) pairs, 0 real prose passages; blank_line_runs=False; capped=['bigcode/commitpackft']
+
+== stage 1: build_mixture ==
+  raw rows in: 60   DataRows out: 165
+  status: {"reason": "the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents", "state": "not_run"}
+  prompt consistency: {"detail": "165 of 165 rows grouped into 165 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers", "n": 165, "n_total": 165, "passed": true, "state": "ran", "value": 0}
+    refused bigcode/commitpackft licence:agpl-3.0: 9
+    refused bigcode/commitpackft licence:lgpl-2.1: 6
+
+== stage 2: dedupe + split ==
+  rows in: 165   kept: 165
+  split counts: {'train': 86, 'val': 12, 'heldout': 67}
+  split status: {"n": 5, "n_total": 5, "passed": true, "state": "ran"}
+
+  NOT-RUN SNAPSHOT, accepted deliberately for this measurement:
+    data_snapshot: 1 of 3 inputs did not run -> mixture: the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents
+  train manifest: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-24/test_a_build_without_the_flag_0/data/pool/train.json (86 entries)
+
+== stage 3: census (unmodified write_shards work, per row) ==
+  rows in: 86   rows that encoded: 86   sequences: 86   span sequences: 0
+    (no row was refused)
+  accepted line-start candidates: 0, of which 0 sit inside a token that begins earlier (accepted by design: the writer takes the token containing the line start)
+  defect token share: {"state": "not_run", "reason": "this build read no --defect-class, so code.defect_class's share of train tokens is not the mixture bound's question"}
+----------------------------- Captured stderr call -----------------------------
+minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 0.1 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 0.1 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+____ test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte ____
+
+qd_prep_bin = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep')
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-24/test_a_build_with_the_list_dro0')
+
+    @pytest.mark.slow
+    @pytest.mark.usefixtures("qd_prep")
+    def test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte(
+        qd_prep_bin: Path, tmp_path: Path,
+    ) -> None:
+        """The 60-pair build of the characterization above, scanned by the real export and
+        binary, then built twice: without the list and with it. Rule 2's proof is the val
+        side, byte for byte; the train side loses exactly the listed rows, its header names the
+        list, and the trainer's rebuild with the same list holds exactly the rows the set does.
+        The scan finds what it finds on this corpus; the list applied is two of its train rows'
+        keys under the scan's own attestation (re-signed for the list), so the drop is never
+        vacuous."""
+        pipeline = _pipeline_or_skip()
+        pytest.importorskip("torch")
+        import real_ft_run as rft
+        from repo_git import resolve_rev
+    
+        from qd_train.exclusions import containment_corpus
+    
+        config = DataConfig()
+        rev = resolve_rev(REPO, PIN_REV)
+        report = rft.ft_split_report(commitpackft=DOWNLOAD, max_pairs=60, rev=rev, config=config,
+                                     repo_history=False)
+        corpus = containment_corpus(pipeline.corpus_identity(
+            rev=rev, max_pairs=60, commitpackft=DOWNLOAD, defect_class=None, defect_max_rows=None,
+            repo_history=False,
+        ))
+        sets, strip = scan_sets(report, config=config)
+        request = tmp_path / "scan.request.bin"
+        with request.open("xb") as fh:
+            write_request(fh, sets, runnable_scans(sets), corpus=corpus,
+                          export={"template_strip": strip}, checks=splitter_checks(report))
+        run_containment(qd_prep_bin, request, tmp_path / "scan", threads=4, timeout_s=300.0)
+        att = json.loads((tmp_path / "scan" / ATTESTATION_NAME).read_text(encoding="utf-8"))
+        assert att["clean"] is True, att["not_clean_because"]
+        train_keys = sorted({r.identity_key for r in report.rows_by_split["train"]}, key=str.encode)
+        chosen = sorted({train_keys[0], train_keys[len(train_keys) // 2]}, key=str.encode)
+        listed = _copy(tmp_path / "scan", tmp_path / "chosen", keys=chosen)
+    
+>       pipeline.run(out=tmp_path / "plain", max_pairs=60, blank_line_runs=False, rev=PIN_REV,
+                     commitpackft=DOWNLOAD, val_shards=True, repo_history=False)
+
+build/l3/base-tree/python/tests/test_containment_exclusions.py:498: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+out = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-24/test_a_build_with_the_list_dro0/plain')
+max_pairs = 60, blank_line_runs = False
+rev = 'dec48d8841db21ad0401effdb9fff724977fd47f'
+commitpackft = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree/data/pool/commitpackft')
+val_shards = True, defect_class = None
+defect_download = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree/data/pool/commitpackft')
+defect_max_rows = None, memo_limit = 8192, general_record = None
+general_max_rows = 200000, replay_shards = False, repo_history = False
+vocab = 'full', defect_noul = None, max_seq_len = None
+span_collapse_policy = 'refuse-any', report_only_slice = None, gate_set = None
+replay_exclude = None, exclude_identity_keys = None, decisions_pool = None
+pre_dedupe_drops = None, dedupe_report_out = None, spancheck_in_qd_prep = False
+v6_data_rules = True
+
+    def run(
+        *,
+        out: Path,
+        max_pairs: int,
+        blank_line_runs: bool,
+        rev: str,
+        commitpackft: Path | None = None,
+        val_shards: bool = False,
+        defect_class: Path | None = None,
+        defect_download: Path = DEFAULT_DEFECT_DOWNLOAD,
+        defect_max_rows: int | None = None,
+        memo_limit: int = MEMO_LIMIT,
+        general_record: Path | None = None,
+        general_max_rows: int = DEFAULT_GENERAL_MAX_ROWS,
+        replay_shards: bool = False,
+        repo_history: bool = True,
+        vocab: str = VOCAB_FULL,
+        defect_noul: Path | None = None,
+        max_seq_len: int | None = None,
+        span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
+        report_only_slice: Path | None = None,
+        gate_set: Path | None = None,
+        replay_exclude: Path | None = None,
+        exclude_identity_keys: Path | None = None,
+        decisions_pool: Path | None = None,
+        pre_dedupe_drops: Path | None = None,
+        dedupe_report_out: Path | None = None,
+        spancheck_in_qd_prep: bool = False,
+        v6_data_rules: bool = True,
+    ) -> Measured:
+        """Build, measure and write one shard set, and return what was measured.
+    
+        With ``report_only_slice`` the run builds a report-only slice instead (Fable G5(ii)):
+        its rows are the whole val set, written under ``refuse-gold`` with ``report_only`` in
+        the header to ``shards/`` :data:`REPORT_ONLY_VAL_DIR`, and refused if any of them is a
+        row of ``gate_set``'s gate val set or the remap is not the one ``gate_set`` trained
+        under. The train set it also writes is the base-corpus sample the pipeline needs to
+        measure, not a training set.
+    
+        With ``exclude_identity_keys`` (an ``exclusions.txt`` from ``qd-prep containment``, its
+        attestation beside it) the train rows it names leave the train split right after
+        ``split`` and before ``split_off_replay`` (``qd_train.exclusions.apply_exclusions``), and
+        the train and replay headers carry its sha256. Without it nothing here changes.
+    
+        With ``pre_dedupe_drops`` (``--drop-before-dedupe``) the train rows it names leave the
+        corpus between ``build_mixture`` and ``dedupe`` (``qd_train.exclusions.
+        drop_before_dedupe``), so a val or held-out row they knocked out in dedupe survives; its
+        sha256 is part of the corpus an exclusion list is checked against, and the recipe's.
+    
+        With ``dedupe_report_out`` the stage-2 ``DedupeReport.to_json()`` (every near-duplicate
+        component: its kept unit and the units it removed) is written there, once, so a val or
+        held-out row's absence can be read from the build's own clusters (A7). It names identity
+        keys, not text, and is written outside ``out``. Without it nothing here changes.
+    
+        With ``spancheck_in_qd_prep`` (``--native-spancheck``) the span slots of every shard set
+        written below are projected by ``qd-prep spancheck`` (:func:`build_native_spancheck`, one
+        pre-pass before stage 6) and ``write_shards`` reads the answers through the table it installs
+        for each write; the census keeps the reference. Every lookup the table does not settle runs
+        the reference, so the sets are the reference's byte for byte, and the ``native_spancheck``
+        metric records the binary's sha256. Without it nothing here changes.
+    
+        ``v6_data_rules`` is True by default (``--legacy-v5-data-rules`` makes it False, to reproduce
+        an already-pinned v5 set; human ruling 2026-10-17). With it (Fable's v6 ruling R2) the config is
+        :func:`data_rules`'s v6 one: MMLU and CLINC evaluation splits are targets, never rows, and
+        dedupe keeps by split priority behind the LSH prefilter; both are in the config fingerprint,
+        the corpus name (:func:`name_corpus`) and ``data_snapshot_hash``. The build refuses unless
+        the train split holds no ``knowledge.multiple_choice`` row and ``code.defect_class`` holds at
+        least :data:`DEFECT_TOKEN_SHARE_FLOOR` of the written train tokens (R1); v5's MMLU contrast
+        quota moves to CSQA (``qd_train.contrast.v6_contrast_spec``). Under the legacy v5 rules the
+        share is still measured and recorded, never enforced, and nothing else here changes.
+        """
+        if dedupe_report_out is not None and dedupe_report_out.exists():
+            raise SystemExit(f"--dedupe-report-out {dedupe_report_out} exists; it is written once")
+        if pre_dedupe_drops is not None and report_only_slice is not None:
+            raise SystemExit("--drop-before-dedupe is a corpus build's; a report-only slice takes none")
+        if exclude_identity_keys is not None and replay_exclude is not None:
+            raise SystemExit(
+                "--exclude-identity-keys and --replay-exclude together: the containment list "
+                "already removes every contaminated train row, gold or replay-drawn, before the "
+                "replay draw, so partition_replay is handed no contaminated keys (Fable "
+                "2026-10-02, Q2) and a --replay-exclude key would name no drawn row"
+            )
+        if replay_exclude is not None and not replay_shards:
+            raise SystemExit(
+                "--replay-exclude needs --replay-shards: it removes rows from the replay slice, "
+                "and without one there is nothing to remove them from"
+            )
+        exclude_keys = (
+            read_replay_exclude(replay_exclude) if replay_exclude is not None else frozenset()
+        )
+        if vocab not in VOCAB_POLICIES:
+            raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
+        if max_seq_len is not None and max_seq_len < 2:
+            raise SystemExit(f"--max-seq-len must be at least 2, got {max_seq_len}")
+        if span_collapse_policy not in SPAN_COLLAPSE_POLICIES:
+            raise SystemExit(
+                f"--span-collapse-policy must be one of {SPAN_COLLAPSE_POLICIES}, "
+                f"got {span_collapse_policy!r}"
+            )
+        if defect_noul is not None and defect_class is None:
+            raise SystemExit(
+                "--defect-noul needs --defect-class: its rows are code.defect_class rows whose "
+                "gold is noul, and a family of only abstentions teaches nothing but abstaining"
+            )
+        if replay_shards and general_record is None:
+            raise SystemExit(
+                "--replay-shards needs --general-record: the replay slice is drawn from the "
+                "general families' training rows"
+            )
+        if report_only_slice is not None:
+            # Every val row must be a slice row: any other source puts its own val rows beside
+            # them, and the train side is the slice's base sample alone.
+            others = [
+                name for name, given in (
+                    ("--defect-class (the slice names its own base corpus)", defect_class),
+                    ("--defect-noul", defect_noul),
+                    ("--general-record", general_record),
+                    ("--decisions-pool", decisions_pool),
+                    ("--commitpackft", commitpackft),
+                    ("--replay-shards", replay_shards or None),
+                    ("--exclude-identity-keys (the slice's train side trains nothing)",
+                     exclude_identity_keys),
+                    ("repository history (pass --no-repo-history)", repo_history or None),
+                ) if given is not None
+            ]
+            if others:
+                raise SystemExit(
+                    f"--report-only-slice reads no other source, and this run names {others}: "
+                    "their val rows would enter the slice's val set"
+                )
+            missing = [
+                name for name, ok in (
+                    ("--gate-set", gate_set is not None),
+                    ("--val-shards", val_shards),
+                    ("--vocab full", vocab == VOCAB_FULL),
+                    ("--defect-max-rows (the base sample)", defect_max_rows is not None),
+                    (
+                        f"--span-collapse-policy {SPAN_COLLAPSE_REFUSE_GOLD}",
+                        span_collapse_policy == SPAN_COLLAPSE_REFUSE_GOLD,
+                    ),
+                ) if not ok
+            ]
+            if missing:
+                raise SystemExit(
+                    f"--report-only-slice needs {missing}: the slice is the val set, written "
+                    "under refuse-gold and under the gate set's own full-vocabulary remap"
+                )
+        elif gate_set is not None:
+            raise SystemExit("--gate-set is read only by --report-only-slice")
+        if defect_class is not None:
+            refuse_report_only_corpus(defect_class)
+        if not repo_history and commitpackft is None and defect_class is None and (
+            general_record is None and decisions_pool is None
+        ) and report_only_slice is None:
+            raise SystemExit(
+                "--no-repo-history with no --commitpackft, --defect-class, --general-record or "
+                "--decisions-pool "
+                "reads no source at all; there would be nothing to build"
+            )
+        # A build that reads the decision pool admits its opt-in sources (ARC), with the human's
+        # recorded call; one without keeps the default config, so its manifests do not move.
+        config = data_rules(
+            DataConfig() if decisions_pool is None else pool_data_config(), v6=v6_data_rules
+        )
+        extra_metrics: dict[str, TriState] = {}
+        resolved = resolve_rev(REPO, rev)
+        containment = name_corpus(corpus_identity(
+            rev=resolved, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
+            defect_max_rows=defect_max_rows, repo_history=repo_history,
+            general_record=general_record,
+            general_max_rows=general_max_rows if general_record is not None else None,
+            defect_noul=defect_noul, decisions_pool=decisions_pool,
+            drop_before_dedupe=pre_dedupe_drops,
+        ), config=config) if exclude_identity_keys is not None else {}
+        if exclude_identity_keys is not None:
+            # Verified now, before minutes of building: the same check runs again where it is
+            # applied, after the split.
+            read_exclusions(exclude_identity_keys, corpus=containment)
+        if pre_dedupe_drops is not None:
+            # The list's own form, now; its keys are checked against the rows where it applies.
+            read_pre_dedupe_drops(pre_dedupe_drops)
+        tok = RealTokenizer.load(memo_limit=memo_limit)
+        print(
+            f"tokenizer {type(tok.tok).__name__} for {MODEL}: vocab_size={tok.tok.vocab_size} "
+            f"len={len(tok.tok)} fast={tok.tok.is_fast}"
+        )
+        print(f"corpus revision: {rev} -> {resolved}")
+    
+        base = base_sources(
+            repo_history=repo_history, commitpackft=commitpackft, max_pairs=max_pairs,
+            blank_line_runs=blank_line_runs, rev=resolved,
+        )
+        commits_n, spans_n, pool_total = base.n_commits, base.n_spans, base.pool_total
+        if not repo_history:
+            code_source = (
+                "no row from this repository's history (--no-repo-history)"
+                + (
+                    f"; bigcode/commitpackft from {commitpackft} ({commits_n} of {pool_total} "
+                    "rows, a sha256-ordered sample; files pinned by the download's manifest)"
+                    if pool_total is not None else ""
+                )
+            )
+            quick_reason = quick_reason_for(
+                commitpackft_rows=None if pool_total is None else (commits_n, pool_total),
+                repo_history=False,
+            )
+        elif pool_total is None:
+            code_source = f"this repository's own history at {resolved}"
+            quick_reason = quick_reason_for(commitpackft_rows=None)
+        else:
+            code_source = (
+                f"bigcode/commitpackft from {commitpackft} ({commits_n} of {pool_total} "
+                "rows, a sha256-ordered sample; files pinned by the download's manifest), "
+                f"with span prose from this repository at {resolved}"
+            )
+            quick_reason = quick_reason_for(commitpackft_rows=(commits_n, pool_total))
+        raw: dict[str, list[RawRow | DefectRow]] = dict(base.raw)
+        capped = list(base.capped)
+        if defect_class is not None:
+            # The corpus, its pool and the licence download are each checked against the
+            # sha256 their manifests record, and any row that does not resolve through the
+            # pool to a licence refuses the whole load -- see qd_data.defect_class.
+            load = load_defect_rows(
+                defect_class, download_root=defect_download, config=config, repo_root=REPO,
+                max_rows=defect_max_rows, noul_dir=defect_noul,
+            )
+            raw[DEFECT_SOURCE_ID] = list(load.rows)
+            if load.capped:
+                capped.append(DEFECT_SOURCE_ID)
+            n_main = len(load.rows) - load.n_noul
+            code_source += (
+                f"; {DEFECT_FAMILY_ID} from {defect_class} ({n_main} of "
+                f"{load.n_corpus} qd-mutate examples"
+                + (
+                    f", of which {load.n_composed} composed rows (qd-mutate compose) after "
+                    "their base corpus"
+                    if load.n_composed else ""
+                )
+                + (", a sha256-ordered sample" if load.capped else "")
+                + (
+                    f", plus {load.n_noul} noul rows from {defect_noul} {load.noul_by_source}"
+                    if defect_noul is not None else ""
+                )
+                + (f" by v5 route {load.noul_by_route}" if load.noul_by_route else "")
+                + f"; classes {load.by_class}; span-rebase refusals {load.span_refusals or 'none'})"
+            )
+            print(
+                f"\n{DEFECT_FAMILY_ID}: {n_main} of {load.n_corpus} rows, "
+                f"capped={load.capped}, noul rows {load.n_noul} {load.noul_by_source}, by class "
+                f"{load.by_class}, span-rebase refusals {load.span_refusals or 'none'}"
+                + (f", v5 routes {load.noul_by_route}" if load.noul_by_route else "")
+            )
+        report_slice: ReportOnlySlice | None = None
+        if report_only_slice is not None:
+            if defect_max_rows is None:  # refused above with the other needs; narrowed here
+                raise SystemExit("--report-only-slice needs --defect-max-rows")
+            report_slice = load_report_only_slice(
+                report_only_slice, download_root=defect_download, config=config, repo_root=REPO,
+                base_max_rows=defect_max_rows,
+            )
+            raw[DEFECT_SOURCE_ID] = [*report_slice.base, *report_slice.rows]
+            # The base is always a sample here, so the read is a capped one.
+            capped.append(DEFECT_SOURCE_ID)
+            code_source += (
+                f"; REPORT-ONLY slice {report_only_slice} ({len(report_slice.rows)} rows "
+                f"{report_slice.by_half}, manifest sha256 {report_slice.manifest_sha256[:16]}, "
+                "every row val), over the "
+                f"{len(report_slice.base)} train-split rows of a {report_slice.base_sampled}-row "
+                "sha256-ordered sample of its base corpus"
+            )
+            print(
+                f"\nreport-only slice: {len(report_slice.rows)} rows {report_slice.by_half}; "
+                f"base carrier {len(report_slice.base)} train rows of {report_slice.base_sampled} "
+                "sampled"
+            )
+        general: GeneralLoad | None = None
+        if general_record is not None:
+            general = general_rows(general_record, max_rows_per_file=general_max_rows)
+            for dataset, rows in general.raw.items():
+                # Real SQuAD replaces the repository-prose stand-in under the same source.
+                raw[dataset] = list(rows)
+            capped = [c for c in capped if c not in general.raw] + list(general.capped)
+            code_source += (
+                f"; general families from {general_record} (sha256 "
+                f"{general.record_sha256[:16]}; "
+                + ", ".join(f"{d} {len(r)}" for d, r in sorted(general.raw.items()))
+                + "; real SQuAD replaces the prose stand-in)"
+            )
+            print(
+                f"\ngeneral families: {({d: len(r) for d, r in sorted(general.raw.items())})}, "
+                f"capped={list(general.capped) or 'none'}, clinc domain map="
+                f"{general.clinc_domain_map is not None}"
+            )
+        if decisions_pool is not None:
+            # Read whole or refused (load_decision_pool): every decision about a row was made
+            # by qd-prep decisions, and its manifest names the rows by sha256.
+            pool = load_decision_pool(decisions_pool, config=config)
+            clash = sorted(set(pool.raw) & set(raw))
+            if clash:
+                raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
+            raw.update({source_id: list(rows) for source_id, rows in pool.raw.items()})
+            code_source += (
+                f"; general-decision pool {decisions_pool} (examples sha256 "
+                f"{pool.examples_sha256[:16]}; "
+                + ", ".join(f"{s} {len(r)}" for s, r in sorted(pool.raw.items())) + ")"
+            )
+            print(f"\ndecision pool: {({s: len(r) for s, r in sorted(pool.raw.items())})}")
+        print(
+            f"\ncorpus: {commits_n} real (commit, path) pairs, {spans_n} real prose "
+            f"passages; blank_line_runs={blank_line_runs}; capped={capped or 'none'}"
+        )
+    
+        mixture = build_mixture(
+            raw, config=config, capped_sources=capped,
+            clinc_domain_map=general.clinc_domain_map if general is not None else None,
+            max_consistency_rows=PIPELINE_MAX_CONSISTENCY_ROWS,
+        )
+        if isinstance(mixture.prompt_consistency, NotRun):
+            # Fail fast: a capped read is accepted below as a deliberate NotRun, but an
+            # unchecked corpus reaches write_shards' own contradiction refusal twenty
+            # minutes later, having removed nothing.
+            raise SystemExit(
+                "build_mixture could not run its consistency pass, so contradictory "
+                f"prompts were not removed: {mixture.prompt_consistency.reason}"
+            )
+        extra_metrics["prompt_consistency"] = mixture.prompt_consistency
+        n_attempted = sum(
+            len(v) for v in raw.values()
+        )
+        print("\n== stage 1: build_mixture ==")
+        print(f"  raw rows in: {n_attempted}   DataRows out: {len(mixture.rows)}")
+        print(f"  status: {json.dumps(mixture.status.to_json(), sort_keys=True)[:600]}")
+        print(
+            "  prompt consistency: "
+            f"{json.dumps(mixture.prompt_consistency.to_json(), sort_keys=True)[:800]}"
+        )
+        for source_id, counts in sorted(mixture.refusals.items()):
+            for code, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+                print(f"    refused {source_id} {code}: {n}")
+    
+        deduped_rows, drops, dropped_rows = drop_before_dedupe(
+            mixture.rows, pre_dedupe_drops, config=config
+        )
+        if drops is not None:
+            by_family = collections.Counter(r.family_id for r in dropped_rows)
+            extra_metrics["pre_dedupe_drops"] = Ran(
+                passed=True, value=len(dropped_rows), n=len(dropped_rows),
+                n_total=len(mixture.rows),
+                detail=(
+                    f"{len(dropped_rows)} train row(s) under {len(drops.keys)} identity key(s) of "
+                    f"{drops.path} (sha256 {drops.sha256}) left the corpus before dedupe, by "
+                    f"family {dict(sorted(by_family.items()))}; every one is a row the split puts "
+                    "in train"
+                ),
+            )
+            print(f"\n== stage 1b: pre-dedupe drops ==\n  {len(dropped_rows)} train row(s), "
+                  f"{len(drops.keys)} key(s), sha256 {drops.sha256}, by family "
+                  f"{dict(sorted(by_family.items()))}")
+        with native_minhash(deduped_rows, config=config):
+            report = dedupe(list(deduped_rows), config=config)
+            split_report = split(report, config=config)
+        if dedupe_report_out is not None:
+            with dedupe_report_out.open("x", encoding="utf-8") as fh:
+                json.dump(report.to_json(), fh, sort_keys=True)
+                fh.write("\n")
+        print("\n== stage 2: dedupe + split ==")
+        print(f"  rows in: {len(deduped_rows)}   kept: {len(report.kept)}")
+        if dedupe_report_out is not None:
+            print(f"  dedupe report: {dedupe_report_out} ({len(report.clusters)} clusters)")
+        print(f"  split counts: {split_report.counts()}")
+        if DEFECT_SOURCE_ID in raw:
+            # The number the rung-3 collapse (46/90, the val majority) is read against: a
+            # choice head that learned nothing scores exactly this on each split.
+            for split_name, split_rows in sorted(split_report.rows_by_split.items()):
+                print(f"  {split_name}: {json.dumps(defect_balance(list(split_rows)))}")
+        print(f"  split status: {json.dumps(split_report.status.to_json(), sort_keys=True)[:400]}")
+    
+        # Fable's v5 rule, then v5's contrast rows: once each, after the split and before the
+        # replay draw. Without either flag this returns split_report itself.
+        post = exclusions_then_contrast(
+            split_report, exclude_identity_keys=exclude_identity_keys, corpus=containment,
+            defect_noul=defect_noul, config=config,
+        )
+        split_report, exclusions, excluded_rows = post.report, post.exclusions, post.excluded_rows
+        contrast_header = None if post.contrast is None else post.contrast.header()
+        if post.contrast_status is not None:
+            extra_metrics["contrast_rows"] = post.contrast_status
+            print(f"  contrast rows: {json.dumps(post.contrast_status.to_json())[:600]}")
+        if v6_data_rules:
+            # R2: MMLU's evaluation splits are targets, so no knowledge.multiple_choice row may
+            # reach train -- after the contrast rows, which are code.defect_class rows.
+            mmlu_train = sum(
+                1 for r in split_report.rows_by_split.get("train", ())
+                if r.family_id == V6_EMPTY_TRAIN_FAMILY
+            )
+            if mmlu_train:
+                raise SystemExit(
+                    f"v6 data rules: {mmlu_train} {V6_EMPTY_TRAIN_FAMILY} row(s) in the train "
+                    "split; v6 trains on none (Fable R2: MMLU at zero). Refusing to write a shard set"
+                )
+            extra_metrics["v6_knowledge_multiple_choice_train_rows"] = Ran(
+                passed=True, value=0, n=0,
+                n_total=len(split_report.rows_by_split.get("train", ())),
+                detail=f"{V6_EMPTY_TRAIN_FAMILY} train rows under the v6 data rules (Fable R2: zero)",
+            )
+        exclusions_sha256 = "" if exclusions is None else exclusions.sha256
+        if exclusions is not None:
+            extra_metrics["decontam_exclusion"] = Ran(
+                passed=True, value=len(excluded_rows), n=len(excluded_rows),
+                n_total=len(excluded_rows) + len(split_report.rows_by_split.get("train", ())),
+                detail=(
+                    f"{len(excluded_rows)} train row(s) under {len(exclusions.keys)} identity "
+                    f"key(s) of {exclusions.path} (sha256 {exclusions.sha256}) left the train "
+                    "split before the replay draw; val and held-out are untouched"
+                ),
+            )
+            print(f"  decontamination exclusion: {len(excluded_rows)} train row(s), "
+                  f"{len(exclusions.keys)} key(s), exclusions sha256 {exclusions.sha256}")
+    
+        replay_report: SplitReport | None = None
+        if replay_shards:
+            split_report, replay_report, partition = split_off_replay(
+                split_report, seed=config.seed, exclude=exclude_keys
+            )
+            drawn = sum(sum(c.values()) for c in partition.counts().values())
+            excluded_note = (
+                f" {len(partition.excluded_rows)} replay-drawn row(s) excluded by --replay-exclude "
+                f"({replay_exclude}, {len(exclude_keys)} identity key(s)): neither replayed nor "
+                "gold-trained."
+                if replay_exclude is not None else ""
+            )
+            extra_metrics["replay_partition"] = Ran(
+                passed=True, value=len(partition.replay_rows), n=len(partition.replay_rows),
+                n_total=drawn,
+                detail=(
+                    f"replay-only rows drawn from the replay families' train rows at "
+                    f"fraction {partition.fraction}: {partition.counts()}.{excluded_note} Not yet "
+                    "decontaminated: tools/replay_decontam.py attests the replay set."
+                ),
+            )
+            print(f"  replay partition: {partition.counts()}")
+        manifests = build_manifests(
+            config=config, mixture=mixture, dedupe_report=report, split_report=split_report
+        )
+        without_train = manifests["train"].val_without_train
+        if without_train and without_train["count"]:
+            # Recorded in every manifest; printed because a manifest field is not read at launch.
+            print(
+                f"\n  VAL WITHOUT TRAIN: {without_train['count']} family(ies) have val rows and no "
+                f"train rows: {without_train['families']}; no control can be fitted for them, so a "
+                "gate pooled over them is not_run "
+                "(GAP-PAIRED-MARGIN-POOL-INCLUDES-A-FAMILY-WITH-NO-TRAINING-ROWS-2026-10-05)"
+            )
+        snapshot_status = manifests["train"].status
+        not_run_snapshot =snapshot_status.to_json()["state"] == "not_run"
+        if not_run_snapshot:
+            # Stated, never absorbed. The manifest door and `open_training_data` both refuse a
+            # not-run snapshot by default, and this run overrides both -- so the reason it
+            # overrode them is printed rather than left in a file nobody reads.
+            print(
+                "\n  NOT-RUN SNAPSHOT, accepted deliberately for this measurement:\n"
+                f"    {snapshot_status.to_json()['reason']}"
+            )
+        paths = _write_manifests(manifests, out, allow_not_run=not_run_snapshot)
+        replay_rows: list[DataRow] = []
+        if replay_report is not None:
+            replay_rows = list(replay_report.rows_by_split["train"])
+            paths["replay"] = out / "data" / "pool" / "train-replay.json"
+            build_manifests(
+                config=config, mixture=mixture, dedupe_report=report,
+                split_report=replay_report,
+            )["train"].write(paths["replay"], allow_not_run=not_run_snapshot)
+            print(f"  replay manifest: {paths['replay']} ({len(replay_rows)} entries)")
+        train_rows = list(split_report.rows_by_split.get("train", ()))
+        print(f"  train manifest: {paths['train']} ({len(train_rows)} entries)")
+        gate_remap_hash = gate_val_shard_hash = ""
+        if report_slice is not None:
+            if gate_set is None:  # refused above with the other needs; narrowed here
+                raise SystemExit("--report-only-slice needs --gate-set")
+            slice_ids = {f"qdm:{DEFECT_FAMILY_ID}:{r.example_id}" for r in report_slice.rows}
+            by_split = {
+                s: {r.row_id for r in split_report.rows_by_split.get(s, ())}
+                for s in ("train", "val", HELD_OUT)
+            }
+            gate_ids, gate_remap_hash, gate_val_shard_hash = gate_val_row_ids(
+                gate_set, config=config
+            )
+            check_slice_split(report_slice, by_split=by_split, gate_ids=gate_ids)
+            lost = len(slice_ids) - len(by_split["val"])
+            extra_metrics["report_only_slice_rows"] = Ran(
+                passed=True, value=len(by_split["val"]), n=len(by_split["val"]),
+                n_total=len(slice_ids),
+                detail=(
+                    f"report_only=true; not a gate population. Slice rows that reached the val "
+                    f"split of the {len(slice_ids)} read ({lost} removed by build_mixture or "
+                    f"dedupe), by half {report_slice.by_half}; 0 shared with the gate val set at "
+                    f"{gate_set} ({len(gate_ids)} row ids, val shard_hash {gate_val_shard_hash}); "
+                    "0 claiming the needle suite's identity. Slice manifest sha256 "
+                    f"{report_slice.manifest_sha256}, examples sha256 "
+                    f"{report_slice.examples_sha256}, seen_filler needles seen as fillers in "
+                    f"examples sha256 {report_slice.diag_train_corpus_sha256}"
+                ),
+            )
+            print(
+                f"  report-only slice: {len(by_split['val'])} of {len(slice_ids)} slice rows in "
+                f"val, 0 of them in the gate val set ({len(gate_ids)} ids)"
+            )
+    
+        print("\n== stage 3: census (unmodified write_shards work, per row) ==")
+        cen = census(
+            train_rows, tok=tok, config=config, max_seq_len=max_seq_len,
+            span_collapse_policy=span_collapse_policy,
+        )
+        print(f"  rows in: {cen.rows_in}   rows that encoded: {cen.rows_out}   "
+              f"sequences: {cen.sequences_out}   span sequences: {cen.span_rows_out}")
+        for name, n in sorted(cen.refused.items(), key=lambda kv: (-kv[1], kv[0])):
+            fatal = " FATAL(aborts the write)" if name in cen.fatal_classes else ""
+            print(f"    {name}: {n}{fatal}")
+            print(f"      e.g. {cen.examples[name][:300]}")
+        if not cen.refused:
+            print("    (no row was refused)")
+        for name, n in sorted(cen.refused_slot.items(), key=lambda kv: (-kv[1], kv[0])):
+            fatal = " FATAL(aborts the write)" if name in cen.fatal_classes else ""
+            print(f"    slot-scoped {name}: {n} of {cen.slots_in} slot(s){fatal}")
+            print(f"      e.g. {cen.examples[name][:300]}")
+        if DEFECT_SOURCE_ID in raw:
+            print(
+                "  train, as written: "
+                + json.dumps(defect_balance(
+                    train_rows, refused=cen.refused_rows, refused_slots=cen.refused_slots
+                ))
+            )
+        print(
+            f"  accepted line-start candidates: {cen.candidates_total}, of which "
+            f"{cen.candidates_not_at_token_start} sit inside a token that begins earlier "
+            "(accepted by design: the writer takes the token containing the line start)"
+        )
+    
+        if cen.composed_span:
+            # Fable round K's pre-registered readout, before (refuse-any) and after (the run's
+            # policy), on the build row.
+            for by in ("length", "files"):
+                survival = composed_span_survival(
+                    cen.composed_span, by=by, policy=span_collapse_policy
+                )
+                extra_metrics[f"composed_span_survival_by_{by}"] = survival
+                print(f"  composed span survival by {by}: {json.dumps(survival.to_json())[:1200]}")
+    
+        if not cen.lengths:
+            raise SystemExit(
+                f"no row of {cen.rows_in} survived the census, so there is nothing to write. "
+                f"Refusals: {dict(cen.refused)}"
+            )
+        tokens_by_family, defect_share = train_token_share(
+            train_rows, cen, defect_source_read=DEFECT_SOURCE_ID in raw
+        )
+        extra_metrics["train_tokens_by_family"] = tokens_by_family
+        extra_metrics["defect_token_share"] = defect_share
+        print(f"  defect token share: {json.dumps(defect_share.to_json())[:600]}")
+        if v6_data_rules and not (isinstance(defect_share, Ran) and defect_share.passed):
+            # Before any shard is written (R1): a share that failed, or could not be measured, is
+            # not a v6 shard set.
+>           raise SystemExit(
+                f"v6 data rules: defect_token_share {json.dumps(defect_share.to_json())}; "
+                f"train tokens by family {json.dumps(tokens_by_family.to_json())}. Refusing to "
+                "write a shard set (Fable R1)"
+            )
+E           SystemExit: v6 data rules: defect_token_share {"state": "not_run", "reason": "this build read no --defect-class, so code.defect_class's share of train tokens is not the mixture bound's question"}; train tokens by family {"state": "ran", "passed": true, "value": 53217, "n": 53217, "n_total": 53217, "detail": "{\"train_tokens_by_family\": {\"code.change_scope\": 26526, \"code.commit_intent\": 26691}}"}. Refusing to write a shard set (Fable R1)
+
+build/l3/base-tree/tools/real_tokenizer_pipeline.py:3804: SystemExit
+----------------------------- Captured stdout call -----------------------------
+tokenizer Qwen3_5Tokenizer for Qwen/Qwen3.5-2B-Base: vocab_size=248044 len=248077 fast=True
+corpus revision: dec48d8841db21ad0401effdb9fff724977fd47f -> dec48d8841db21ad0401effdb9fff724977fd47f
+
+corpus: 60 real (commit, path) pairs, 0 real prose passages; blank_line_runs=False; capped=['bigcode/commitpackft']
+
+== stage 1: build_mixture ==
+  raw rows in: 60   DataRows out: 165
+  status: {"reason": "the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents", "state": "not_run"}
+  prompt consistency: {"detail": "165 of 165 rows grouped into 165 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers", "n": 165, "n_total": 165, "passed": true, "state": "ran", "value": 0}
+    refused bigcode/commitpackft licence:agpl-3.0: 9
+    refused bigcode/commitpackft licence:lgpl-2.1: 6
+
+== stage 2: dedupe + split ==
+  rows in: 165   kept: 165
+  split counts: {'train': 86, 'val': 12, 'heldout': 67}
+  split status: {"n": 5, "n_total": 5, "passed": true, "state": "ran"}
+
+  NOT-RUN SNAPSHOT, accepted deliberately for this measurement:
+    data_snapshot: 1 of 3 inputs did not run -> mixture: the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents
+  train manifest: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-24/test_a_build_with_the_list_dro0/plain/data/pool/train.json (86 entries)
+
+== stage 3: census (unmodified write_shards work, per row) ==
+  rows in: 86   rows that encoded: 86   sequences: 86   span sequences: 0
+    (no row was refused)
+  accepted line-start candidates: 0, of which 0 sit inside a token that begins earlier (accepted by design: the writer takes the token containing the line start)
+  defect token share: {"state": "not_run", "reason": "this build read no --defect-class, so code.defect_class's share of train tokens is not the mixture bound's question"}
+----------------------------- Captured stderr call -----------------------------
+minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 0.1 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 0.1 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 0.0 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/target/release/qd-prep in 0.1 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+=============================== warnings summary ===============================
+python/tests/test_containment_exclusions.py::test_a_build_without_the_flag_writes_what_it_wrote_before
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_containment_exclusions.py::test_a_build_without_the_flag_writes_what_it_wrote_before
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED build/l3/base-tree/python/tests/test_containment_exclusions.py::test_a_build_without_the_flag_writes_what_it_wrote_before
+FAILED build/l3/base-tree/python/tests/test_containment_exclusions.py::test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte
+================== 2 failed, 30 passed, 2 warnings in 25.81s ===================
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+torch pytest exit 1
+# base1 start 2026-10-21T10:34:58Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base-tree HEAD a5c9a121dfd629158aef5eef093f0a08eeb28e91 dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+torch is not importable from this interpreter. The repo venv carries none on purpose (pyproject: torch is the optional `mac` extra). Run this with
+    /Users/bharath/.venvs/ml/bin/python tools/real_ft_run.py --out <dir>
+Refusing rather than reporting a vacuous pass.
+footprint_peak: peak 18 MiB, wall 2.1 s, exit 1, 1 samples, 0 failed reads, command /Users/bharath/Code/research/Lappi-decision/.venv/bin/python
+# base1 end 2026-10-21T10:35:01Z scan exit 1
+base1 exit 1
+# after1 start 2026-10-21T10:35:01Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after-tree HEAD 1d05037eb2afa57f6408741143bdd3d573a95a99 dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+torch is not importable from this interpreter. The repo venv carries none on purpose (pyproject: torch is the optional `mac` extra). Run this with
+    /Users/bharath/.venvs/ml/bin/python tools/real_ft_run.py --out <dir>
+Refusing rather than reporting a vacuous pass.
+footprint_peak: peak 21 MiB, wall 2.0 s, exit 1, 1 samples, 0 failed reads, command /Users/bharath/Code/research/Lappi-decision/.venv/bin/python
+# after1 end 2026-10-21T10:35:03Z scan exit 1
+after1 exit 1
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/pairs.tsv: No such file or directory
+after1 DIFFERS pairs.tsv
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/exclusions.txt: No such file or directory
+after1 DIFFERS exclusions.txt
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/attestation.json: No such file or directory
+after1 DIFFERS attestation.json
+# after2 start 2026-10-21T10:35:03Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after-tree HEAD 1d05037eb2afa57f6408741143bdd3d573a95a99 dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+torch is not importable from this interpreter. The repo venv carries none on purpose (pyproject: torch is the optional `mac` extra). Run this with
+    /Users/bharath/.venvs/ml/bin/python tools/real_ft_run.py --out <dir>
+Refusing rather than reporting a vacuous pass.
+footprint_peak: peak 21 MiB, wall 2.0 s, exit 1, 1 samples, 0 failed reads, command /Users/bharath/Code/research/Lappi-decision/.venv/bin/python
+# after2 end 2026-10-21T10:35:05Z scan exit 1
+after2 exit 1
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/pairs.tsv: No such file or directory
+after2 DIFFERS pairs.tsv
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/exclusions.txt: No such file or directory
+after2 DIFFERS exclusions.txt
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/attestation.json: No such file or directory
+after2 DIFFERS attestation.json
+# after3 start 2026-10-21T10:35:05Z tree /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after-tree HEAD 1d05037eb2afa57f6408741143bdd3d573a95a99 dirty 0
+pool sha256 25a88f6e46af92e82e7edb26c0745552badc9b7ea2f009e10e0f4197948d6e0e
+torch is not importable from this interpreter. The repo venv carries none on purpose (pyproject: torch is the optional `mac` extra). Run this with
+    /Users/bharath/.venvs/ml/bin/python tools/real_ft_run.py --out <dir>
+Refusing rather than reporting a vacuous pass.
+footprint_peak: peak 21 MiB, wall 2.0 s, exit 1, 1 samples, 0 failed reads, command /Users/bharath/Code/research/Lappi-decision/.venv/bin/python
+# after3 end 2026-10-21T10:35:08Z scan exit 1
+after3 exit 1
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/pairs.tsv: No such file or directory
+after3 DIFFERS pairs.tsv
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/exclusions.txt: No such file or directory
+after3 DIFFERS exclusions.txt
+cmp: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/attestation.json: No such file or directory
+after3 DIFFERS attestation.json
+shasum: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/base1/*: No such file or directory
+shasum: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after1/*: No such file or directory
+shasum: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after2/*: No such file or directory
+shasum: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-abad50f046f9b7286/build/l3/after3/*: No such file or directory
+mac_heavy: 2026-10-21T10:35:09Z 'l3-b3b-baseline' finished with exit 1
