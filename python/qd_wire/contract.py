@@ -214,6 +214,12 @@ REFUSAL_KINDS: Final[dict[str, dict[str, str]]] = {
         'cap': 'usize',
         'index': 'usize',
     },
+    'slot_shape_not_trained': {
+        'contract_section': 'String',
+        'shape': 'Vec<String>',
+        'task': 'String',
+        'trained': 'Vec<Vec<String>>',
+    },
     'task_not_trained': {
         'available': 'Vec<String>',
         'task': 'String',

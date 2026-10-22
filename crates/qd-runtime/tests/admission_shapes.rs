@@ -24,7 +24,9 @@ use qd_runtime::registry::HeadRegistry;
 use qd_runtime::release::{MANIFEST_FILE, MANIFEST_FORMAT, Release};
 use qd_runtime::render::{PROMPT_FORMAT, RenderCaps};
 use qd_runtime::runtime::Runtime;
+use qd_runtime::refusal::BackendError;
 use qd_runtime::schema::{DecisionRequest, Response};
+use qd_runtime::service::{RuntimeFactory, Service, ServiceConfig};
 use qd_runtime::wire::{Incoming, parse_line};
 use serde_json::{Value, json};
 
@@ -458,4 +460,72 @@ fn a_malformed_or_incoherent_trained_slot_shapes_refuses_the_release_at_open() {
             "{tag}: the refusal should name `{needle}`: {err}"
         );
     }
+}
+
+/// A service over `dir`'s release, as `qd-metal-serve` builds one (`Runtime::from_release`).
+fn service_over(dir: &Path) -> Service {
+    let dir = dir.to_path_buf();
+    let factory: RuntimeFactory = Arc::new(move || {
+        let release = Release::open(&dir).map_err(|e| BackendError::Unavailable {
+            detail: e.to_string(),
+        })?;
+        Runtime::from_release(
+            &release,
+            Arc::new(ReferenceBackend::new(true)) as Arc<dyn DecisionBackend>,
+            HeadRegistry::new(),
+            RenderCaps::DEFAULT,
+        )
+    });
+    Service::with_factory(ServiceConfig::default(), factory)
+}
+
+fn status_line(service: &Service) -> Value {
+    let reply = service.handle_line(br#"{"op":"status"}"#);
+    serde_json::from_slice(&reply).expect("the status reply is JSON")
+}
+
+#[test]
+fn the_status_op_says_whether_the_shape_check_runs() {
+    // Recorded: `checked`. Legacy (no `trained_slot_shapes`): `not_recorded`, never `checked`.
+    let recorded = contract_release("status-recorded");
+    let legacy = release_dir("status-legacy", Some(json!([COMMIT])), None);
+    for (dir, want) in [(&recorded, "checked"), (&legacy, "not_recorded")] {
+        let service = service_over(&dir.0);
+        // Nothing is warm yet: no claim either way, not a default of either word.
+        let cold = status_line(&service);
+        assert_eq!(cold["status"], json!("status"), "{cold}");
+        assert_eq!(cold["slot_shape_check"], Value::Null, "{want}: {cold}");
+        let reply = service.handle_request(&request(COMMIT, "d", vec![choice("t", 11)]));
+        answered(reply);
+        let warm = status_line(&service);
+        assert_eq!(warm["slot_shape_check"], json!(want), "{warm}");
+    }
+}
+
+#[test]
+fn a_legacy_release_serves_a_shape_the_recorded_release_refuses_and_status_tells_them_apart() {
+    let recorded = contract_release("pair-recorded");
+    let legacy = release_dir("pair-legacy", Some(json!([COMMIT])), None);
+    let wrong = || request(COMMIT, "d", vec![choice("t", 3)]);
+    let on_recorded = service_over(&recorded.0);
+    let on_legacy = service_over(&legacy.0);
+    refused(on_recorded.handle_request(&wrong()), "slot_shape_not_trained");
+    answered(on_legacy.handle_request(&wrong()));
+    assert_ne!(
+        status_line(&on_recorded)["slot_shape_check"],
+        status_line(&on_legacy)["slot_shape_check"]
+    );
+}
+
+#[test]
+fn a_runtime_with_no_release_reports_no_release_not_checked() {
+    let runtime = Runtime::with_backend(
+        Arc::new(ReferenceBackend::new(true)),
+        CalibrationTable::reference(),
+        HeadRegistry::new(),
+        RenderCaps::DEFAULT,
+    )
+    .expect("assembles");
+    assert_eq!(runtime.trained_slot_shapes().check_state(), "no_release");
+    assert!(!runtime.trained_slot_shapes().is_checked());
 }

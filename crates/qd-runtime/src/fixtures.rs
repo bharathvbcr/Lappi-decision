@@ -505,6 +505,12 @@ pub fn all_refusals() -> Vec<Refusal> {
             task: "devcouncil.verdict".into(),
             available: vec!["code.defect_class".into()],
         },
+        Refusal::SlotShapeNotTrained {
+            task: "gitpulse.commit_type".into(),
+            shape: vec!["choice:13".into()],
+            trained: vec![vec!["choice:12".into()]],
+            contract_section: crate::admission::CONTRACT_SHAPES_SECTION.into(),
+        },
         Refusal::RenderedPromptOverCap {
             cap: 802_816,
             actual: 900_000,

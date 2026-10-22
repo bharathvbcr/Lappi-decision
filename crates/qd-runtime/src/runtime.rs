@@ -19,7 +19,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::admission::TrainedFamilies;
+use crate::admission::{TrainedFamilies, TrainedShapes};
 use crate::answer::{AnswerContext, Deadline, answer};
 use crate::backend::{BackendIdentity, DecisionBackend};
 use crate::calibration::CalibrationTable;
@@ -58,6 +58,8 @@ pub struct Runtime {
     caps: RenderCaps,
     /// What admission checks a request's task against (`crate::admission`).
     trained: TrainedFamilies,
+    /// What admission checks a trained family's request shape against (`crate::admission`).
+    shapes: TrainedShapes,
     degraded: bool,
     cold_start: Duration,
 }
@@ -74,6 +76,7 @@ impl std::fmt::Debug for Runtime {
             .field("cold_start_ms", &self.cold_start.as_millis())
             .field("registered_tasks", &self.registry.tasks())
             .field("trained_families", &self.trained)
+            .field("trained_slot_shapes", &self.shapes)
             .finish()
     }
 }
@@ -107,6 +110,7 @@ impl Runtime {
             HeadRegistry::new(),
             cfg.caps,
             TrainedFamilies::NoRelease,
+            TrainedShapes::NoRelease,
             started.elapsed(),
         )
     }
@@ -139,6 +143,7 @@ impl Runtime {
             registry,
             caps,
             TrainedFamilies::of_release(release.trained_families()),
+            TrainedShapes::of_release(release.trained_slot_shapes()),
             Duration::ZERO,
         )
     }
@@ -195,6 +200,7 @@ impl Runtime {
             registry,
             caps,
             TrainedFamilies::of_release(ensemble.trained_families()),
+            TrainedShapes::of_release(ensemble.trained_slot_shapes()),
             Duration::ZERO,
         )
     }
@@ -219,6 +225,7 @@ impl Runtime {
             registry,
             caps,
             TrainedFamilies::NoRelease,
+            TrainedShapes::NoRelease,
             Duration::ZERO,
         )
     }
@@ -229,6 +236,7 @@ impl Runtime {
         registry: HeadRegistry,
         caps: RenderCaps,
         trained: TrainedFamilies,
+        shapes: TrainedShapes,
         cold_start: Duration,
     ) -> Result<Self, BackendError> {
         caps.validate().map_err(|e| BackendError::Unavailable {
@@ -258,6 +266,7 @@ impl Runtime {
             registry,
             caps,
             trained,
+            shapes,
             degraded,
             cold_start,
         })
@@ -301,6 +310,12 @@ impl Runtime {
     /// or no release at all (the check not run).
     pub fn trained_families(&self) -> &TrainedFamilies {
         &self.trained
+    }
+
+    /// What a request's slot shape is checked against: the release's record, a release without
+    /// one (the check not run), or no release at all (the check not run).
+    pub fn trained_slot_shapes(&self) -> &TrainedShapes {
+        &self.shapes
     }
 
     /// Compare every hash the caller pinned against the loaded build.
@@ -385,7 +400,7 @@ impl Runtime {
         self.check_hashes(&request.expect, &head_hash)?;
         // Before the model: a task the release did not train, or a context its task was never
         // trained on, is refused, not answered.
-        crate::admission::admit(request, &self.trained)?;
+        crate::admission::admit(request, &self.trained, &self.shapes)?;
 
         let ctx = AnswerContext {
             backend: self.backend.as_ref(),

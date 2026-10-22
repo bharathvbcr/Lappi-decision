@@ -466,6 +466,10 @@ impl Service {
             warm: st.warm.is_some(),
             degraded: st.warm.as_ref().is_some_and(|r| r.is_degraded()),
             backend: st.warm.as_ref().map(|r| r.identity().clone()),
+            slot_shape_check: st
+                .warm
+                .as_ref()
+                .map(|r| r.trained_slot_shapes().check_state().to_string()),
             in_flight: st.in_flight,
             max_in_flight: self.cfg.max_in_flight,
             requests_served: st.requests_served,
@@ -547,6 +551,10 @@ pub struct StatusReport {
     pub degraded: bool,
     /// `None` when nothing is warm. Absent is not the same as "a clean build with empty hashes".
     pub backend: Option<BackendIdentity>,
+    /// Whether admission checks a trained family's slot shape on the warm runtime: `checked`,
+    /// `not_recorded` (a release with no `trained_slot_shapes`; the check does not run) or
+    /// `no_release` (the check does not run). `None` when nothing is warm: no claim either way.
+    pub slot_shape_check: Option<String>,
     pub in_flight: usize,
     pub max_in_flight: usize,
     pub requests_served: u64,

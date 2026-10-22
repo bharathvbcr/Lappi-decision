@@ -78,7 +78,7 @@ fn the_corpus_on_disk_is_what_this_build_emits() {
 fn the_corpus_covers_every_refusal_and_every_backend_error() {
     // A corpus missing a variant teaches the other lane that the variant does not exist. The
     // counts are pinned rather than merely compared to each other, so adding a variant without a
-    // fixture fails here as well as in `refusal_is_not_noul.rs`. 39 until `task_not_trained`.
+    // fixture fails here as well as in `refusal_is_not_noul.rs`. 39 until `task_not_trained`; 40 until `slot_shape_not_trained`.
     let entries = fixtures::corpus().expect("the corpus generates");
     let refusal_kinds: BTreeSet<&str> = entries
         .iter()
@@ -89,7 +89,7 @@ fn the_corpus_covers_every_refusal_and_every_backend_error() {
         .collect();
     assert_eq!(
         refusal_kinds.len(),
-        40,
+        41,
         "every refusal kind needs a fixture; missing one hides a whole failure mode from the \
          other lane"
     );

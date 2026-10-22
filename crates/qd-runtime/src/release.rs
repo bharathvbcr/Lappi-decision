@@ -41,6 +41,17 @@
 //! ([`validate_trained_families`]), so an empty `available` in a refusal always means "not
 //! recorded". An [`Ensemble`]'s members must record the same list, or record none alike.
 //!
+//! `trained_slot_shapes` (`{family: [[slot key, ...], ...]}`, `qd-export` writes it from the train
+//! manifest's per-entry `slot_shape`) is the shapes each of those families trained in; admission
+//! refuses a trained family's request in any other as
+//! [`crate::refusal::Refusal::SlotShapeNotTrained`]. A manifest without it (or with `null`)
+//! opens, and the shape check does not run for it ([`crate::admission::TrainedShapes`]). A recorded
+//! set must name exactly the `trained_families` (a family with no shape, a family not trained, or
+//! shapes with no families are a manifest that disagrees with itself), hold only slot keys a
+//! request can produce ([`is_slot_key`]), each shape sorted, and stay under
+//! [`MAX_SHAPES_PER_FAMILY`], or the release is refused at open
+//! ([`validate_trained_slot_shapes`]). An ensemble's members must record the same set.
+//!
 //! # An ensemble of towers
 //!
 //! [`Ensemble::open`] reads `ensemble_manifest.json` (`qd-ensemble.v1`, written by
@@ -60,6 +71,7 @@
 //! between the two reads is not caught here; closing that needs the backend to take the verified
 //! bytes, which is a change to the backend's constructor.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -154,6 +166,60 @@ pub fn validate_trained_families(families: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The manifest key recording, per trained family, the slot shapes it trained on. One spelling for
+/// the writer (`qd-export`) and the reader.
+pub const TRAINED_SLOT_SHAPES_KEY: &str = "trained_slot_shapes";
+
+/// Bound on the shapes recorded for one family: a refusal echoes all of them, so the list is
+/// bounded like any payload. A family trains a handful (the contract's callers use one each).
+pub const MAX_SHAPES_PER_FAMILY: usize = 256;
+
+/// Per trained family, the request shapes it trained on. A shape is a request's sorted slot keys
+/// (`choice:N`, `score:N`, `span`; N counts the reserved noul row).
+pub type TrainedSlotShapes = BTreeMap<String, BTreeSet<Vec<String>>>;
+
+/// Whether `key` is a slot key a request can produce: `span`, or `choice:N` / `score:N` with N a
+/// canonically spelled positive integer. `choice:05` names a row count no request computes, so a
+/// release recording it would be recording a shape nothing can match.
+pub fn is_slot_key(key: &str) -> bool {
+    match key.split_once(':') {
+        None => key == "span",
+        Some((kind, rows)) => {
+            matches!(kind, "choice" | "score")
+                && rows.parse::<u32>().is_ok_and(|n| n > 0 && n.to_string() == rows)
+        }
+    }
+}
+
+/// Refuse a `trained_slot_shapes` a release must never carry, with what is wrong. Held against
+/// the release's own `trained_families`: the shapes are recorded for exactly the families the
+/// release admits, so a family with no shapes (nothing it could be admitted in) or shapes for a
+/// family it does not admit are both a manifest that disagrees with itself.
+pub fn validate_trained_slot_shapes(
+    shapes: &TrainedSlotShapes,
+    families: Option<&[String]>,
+) -> Result<(), String> {
+    let Some(families) = families else {
+        return Err(format!(
+            "{TRAINED_SLOT_SHAPES_KEY} is recorded but {TRAINED_FAMILIES_KEY} is not: the shapes \
+             belong to the families the release admits, and it records none"
+        ));
+    };
+    if let Some(family) = shapes.keys().find(|f| !families.contains(f)) {
+        return Err(format!(
+            "{TRAINED_SLOT_SHAPES_KEY} names family `{family}`, which {TRAINED_FAMILIES_KEY} does \
+             not list"
+        ));
+    }
+    if let Some(family) = families.iter().find(|f| !shapes.contains_key(*f)) {
+        return Err(format!(
+            "{TRAINED_FAMILIES_KEY} lists family `{family}` but {TRAINED_SLOT_SHAPES_KEY} records \
+             no shape for it, so no request could be admitted in any shape"
+        ));
+    }
+    Ok(())
+}
+
 /// Why a release was refused at load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReleaseRefusalKind {
@@ -229,6 +295,8 @@ pub struct Tower {
     tokenizer_hash: String,
     /// `None` when the manifest does not record what the tower was trained on.
     trained_families: Option<Vec<String>>,
+    /// `None` when the manifest does not record the shapes each family trained on.
+    trained_slot_shapes: Option<TrainedSlotShapes>,
     prompt_format: u32,
 }
 
@@ -348,6 +416,82 @@ impl Manifest {
             .collect::<Result<Vec<_>, _>>()?;
         validate_trained_families(&families).map_err(|detail| self.refuse(detail))?;
         Ok(Some(families))
+    }
+
+    /// `trained_slot_shapes`: `None` when absent or `null`, else `{family: [[key, ...], ...]}`
+    /// with every key a [`is_slot_key`], each shape's keys strictly ascending (the sorted form a
+    /// request's shape is compared in, never re-sorted here), each family's shapes distinct and
+    /// non-empty, and the set coherent with `families` ([`validate_trained_slot_shapes`]).
+    fn trained_slot_shapes(
+        &self,
+        families: Option<&[String]>,
+    ) -> Result<Option<TrainedSlotShapes>, ReleaseRefusal> {
+        let value = match self.doc.get(TRAINED_SLOT_SHAPES_KEY) {
+            None | Some(Value::Null) => return Ok(None),
+            Some(value) => value,
+        };
+        let key = TRAINED_SLOT_SHAPES_KEY;
+        let object = value.as_object().ok_or_else(|| {
+            self.refuse(format!("{key} is {}, not an object", json_kind(value)))
+        })?;
+        let mut out = TrainedSlotShapes::new();
+        for (family, shapes) in object {
+            let shapes = shapes.as_array().filter(|a| !a.is_empty()).ok_or_else(|| {
+                self.refuse(format!("{key}[{family}] is not a non-empty array of shapes"))
+            })?;
+            if shapes.len() > MAX_SHAPES_PER_FAMILY {
+                return Err(self.refuse(format!(
+                    "{key}[{family}] lists {} shapes, over the bound of {MAX_SHAPES_PER_FAMILY}; \
+                     every slot_shape_not_trained refusal names them all",
+                    shapes.len()
+                )));
+            }
+            let mut set = BTreeSet::new();
+            for (i, shape) in shapes.iter().enumerate() {
+                let slots = shape.as_array().filter(|a| !a.is_empty()).ok_or_else(|| {
+                    self.refuse(format!(
+                        "{key}[{family}][{i}] is not a non-empty array of slot keys"
+                    ))
+                })?;
+                if slots.len() > crate::wire::MAX_SLOTS {
+                    return Err(self.refuse(format!(
+                        "{key}[{family}][{i}] has {} slot keys, over the {} slots a request may \
+                         carry; no request could match it",
+                        slots.len(),
+                        crate::wire::MAX_SLOTS
+                    )));
+                }
+                let mut keys = Vec::with_capacity(slots.len());
+                for slot in slots {
+                    let text = slot.as_str().ok_or_else(|| {
+                        self.refuse(format!(
+                            "{key}[{family}][{i}] holds {slot}, not a string slot key"
+                        ))
+                    })?;
+                    if !is_slot_key(text) {
+                        return Err(self.refuse(format!(
+                            "{key}[{family}][{i}] holds {text:?}, not `span`, `choice:N` or \
+                             `score:N` with N a canonical positive integer"
+                        )));
+                    }
+                    keys.push(text.to_string());
+                }
+                if keys.windows(2).any(|pair| pair[0] > pair[1]) {
+                    return Err(self.refuse(format!(
+                        "{key}[{family}][{i}] {keys:?} is not sorted; the writer records a shape \
+                         as its sorted slot keys, the form a request is compared in"
+                    )));
+                }
+                if !set.insert(keys) {
+                    return Err(self.refuse(format!(
+                        "{key}[{family}] lists the same shape twice (entry {i})"
+                    )));
+                }
+            }
+            out.insert(family.clone(), set);
+        }
+        validate_trained_slot_shapes(&out, families).map_err(|detail| self.refuse(detail))?;
+        Ok(Some(out))
     }
 
     /// `expected_identity.prompt_format`, refused unless it is a positive integer equal to
@@ -524,6 +668,7 @@ fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
             )
         })?;
     let trained_families = manifest.trained_families()?;
+    let trained_slot_shapes = manifest.trained_slot_shapes(trained_families.as_deref())?;
     let recorded_config = manifest.file_sha256(CONFIG_FILE)?;
     if recorded_config != bound_config {
         return Err(manifest.refuse(format!(
@@ -555,6 +700,7 @@ fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
         weight_hash,
         tokenizer_hash,
         trained_families,
+        trained_slot_shapes,
         prompt_format,
     };
     Ok((tower, manifest))
@@ -643,6 +789,12 @@ impl Tower {
         self.trained_families.as_deref()
     }
 
+    /// The slot shapes each trained family trained on; `None` when the manifest does not record
+    /// them, and then admission's shape check does not run.
+    pub fn trained_slot_shapes(&self) -> Option<&TrainedSlotShapes> {
+        self.trained_slot_shapes.as_ref()
+    }
+
     /// The prompt format the manifest binds: always [`crate::render::PROMPT_FORMAT`], because
     /// [`Tower::open`] refuses any other.
     pub fn prompt_format(&self) -> u32 {
@@ -721,6 +873,12 @@ impl Release {
     /// them, and then the release admits no task.
     pub fn trained_families(&self) -> Option<&[String]> {
         self.tower.trained_families()
+    }
+
+    /// The slot shapes each trained family trained on; `None` when the manifest does not record
+    /// them, and then admission's shape check does not run.
+    pub fn trained_slot_shapes(&self) -> Option<&TrainedSlotShapes> {
+        self.tower.trained_slot_shapes()
     }
 }
 
@@ -893,6 +1051,18 @@ impl Ensemble {
                     ),
                 ));
             }
+            if tower.trained_slot_shapes() != first.trained_slot_shapes() {
+                return Err(ReleaseRefusal::new(
+                    ReleaseRefusalKind::MembersDisagree,
+                    format!(
+                        "ensemble member {i} records trained_slot_shapes {:?}, member 0 records \
+                         {:?}. The mean of towers trained in different request shapes answers no \
+                         shape any one of them was trained on",
+                        tower.trained_slot_shapes(),
+                        first.trained_slot_shapes()
+                    ),
+                ));
+            }
             if let Some(j) = towers[..i]
                 .iter()
                 .position(|other| other.weight_hash() == tower.weight_hash())
@@ -973,5 +1143,12 @@ impl Ensemble {
     /// task.
     pub fn trained_families(&self) -> Option<&[String]> {
         self.towers.first().and_then(Tower::trained_families)
+    }
+
+    /// The slot shapes every member trained on ([`Ensemble::open`] refuses members that
+    /// disagree); `None` when the members do not record them, and then admission's shape check
+    /// does not run.
+    pub fn trained_slot_shapes(&self) -> Option<&TrainedSlotShapes> {
+        self.towers.first().and_then(Tower::trained_slot_shapes)
     }
 }

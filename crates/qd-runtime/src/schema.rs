@@ -240,6 +240,23 @@ pub struct DecisionRequest {
 }
 
 impl DecisionRequest {
+    /// The request's slot shape: its slots' keys, sorted. `choice:N` and `score:N` count the
+    /// decode rows including the reserved `noul` row, `span` has one key; the spelling the
+    /// calibration table keys letters by, `python/qd_data/schema.py::slot_shape_keys` and
+    /// `trained_slot_shapes` record. Duplicates are kept: two spans are not one.
+    pub fn slot_shape(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self
+            .slots
+            .iter()
+            .map(|slot| match slot.answer_rows() {
+                Some(rows) => format!("{}:{rows}", slot.kind().as_str()),
+                None => slot.kind().as_str().to_string(),
+            })
+            .collect();
+        keys.sort();
+        keys
+    }
+
     /// SHA-256 over every field that can change the answer. Seeds the option permutation, so the
     /// second pass is reproducible for a given request rather than run-to-run random.
     pub fn digest(&self) -> [u8; 32] {

@@ -66,6 +66,7 @@ fn kind_of(refusal: &Refusal) -> &'static str {
         Refusal::ContextNotUnifiedDiff { .. } => "context_not_unified_diff",
         Refusal::ContextLanguageNotInPool { .. } => "context_language_not_in_pool",
         Refusal::TaskNotTrained { .. } => "task_not_trained",
+        Refusal::SlotShapeNotTrained { .. } => "slot_shape_not_trained",
         Refusal::RenderedPromptOverCap { .. } => "rendered_prompt_over_cap",
         Refusal::EmptyOption { .. } => "empty_option",
         Refusal::OptionTextOverCap { .. } => "option_text_over_cap",
@@ -129,9 +130,9 @@ fn every_variant_is_covered_and_names_its_own_check() {
     // 36 until `slot_name_over_cap` landed with `MAX_SLOT_NAME_BYTES`
     // (`GAP-RT-SLOT-NAME-UNCAPPED`); 37 until admission (`context_not_unified_diff`,
     // `context_language_not_in_pool`); 39 until `task_not_trained` (Fable's pipeline ruling,
-    // item 4). The literal is deliberate: a kind that loses its fixture must fail here rather
+    // item 4); 40 until `slot_shape_not_trained` (lane X1). The literal is deliberate: a kind that loses its fixture must fail here rather
     // than quietly shrink the set this file claims to cover.
-    assert_eq!(refusal_kinds.len(), 40, "a refusal kind lost its fixture");
+    assert_eq!(refusal_kinds.len(), 41, "a refusal kind lost its fixture");
     let error_kinds: std::collections::BTreeSet<_> =
         all_backend_errors().iter().map(|e| e.kind()).collect();
     assert_eq!(
