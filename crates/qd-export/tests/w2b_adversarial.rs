@@ -360,12 +360,16 @@ fn a_200_mb_manifest_verifies() {
     let manifest = dir.0.join("train.json");
     let mut f = std::fs::File::create(&manifest).unwrap();
     let chunk = vec![b' '; 1 << 20];
+    // Hashed incrementally here too, so the peak RSS belongs to the function under test.
+    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+    sha2::Digest::update(&mut hasher, b"{}");
     f.write_all(b"{}").unwrap();
     for _ in 0..200 {
         f.write_all(&chunk).unwrap();
+        sha2::Digest::update(&mut hasher, &chunk);
     }
     drop(f);
-    let digest = sha(&std::fs::read(&manifest).unwrap());
+    let digest = qd_runtime::hex(&sha2::Digest::finalize(hasher));
     let rel = dir.0.join("release");
     std::fs::create_dir_all(&rel).unwrap();
     write_json(
