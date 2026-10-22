@@ -777,7 +777,8 @@ def test_the_pipeline_writes_every_shard_set_the_reference_writes(
     set written without decode -- is the reference's in every file, and so is everything
     ``run`` measured but the one metric the flag adds. Needs ``transformers``, the model's
     tokenizer in the HF cache and the commitpackft download under :data:`DATA_ROOT`; SKIPPED
-    without any of them.
+    without any of them. Runs under the legacy v5 data rules (``v6_data_rules=False``): it
+    characterizes the span check, not the data rules.
 
     Blank-line runs are passages joined by two blank lines, which Qwen3.5's BPE merges into one
     token holding several line starts. Every passage then collapses: refuse-any refuses each
@@ -800,6 +801,11 @@ def test_the_pipeline_writes_every_shard_set_the_reference_writes(
             out=out, max_pairs=60, blank_line_runs=blank_line_runs, rev="HEAD",
             commitpackft=download, val_shards=True, span_collapse_policy=policy,
             spancheck_in_qd_prep=flag,
+            # Legacy v5 data rules (the pipeline's --legacy-v5-data-rules). This test is the
+            # native-vs-reference span check's parity, not the data rules, and it builds from
+            # the plain commitpackft download; v6's R1 refuses a build with no --defect-class
+            # ("defect_token_share ... not_run ... Refusing to write a shard set").
+            v6_data_rules=False,
         )
         sets = {d.name: _artifacts(d) for d in sorted((out / "shards").iterdir())}
         built[arm] = (_measured(measured, out), sets)

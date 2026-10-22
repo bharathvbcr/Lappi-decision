@@ -48,13 +48,13 @@ import ft_linear_control as ftc  # noqa: E402
 from data_fixtures import commitpackft_row  # noqa: E402
 from test_control_label_space import _csqa_raw  # noqa: E402
 from test_ft_linear_control import REV, _write_verdicts  # noqa: E402
-from test_option_control import _eval_row  # noqa: E402
+from test_option_control import RECORDER_OWN_METRICS, _eval_row  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.mixture import build_mixture  # noqa: E402
 from qd_data.rows import DataRow, row_content_hash  # noqa: E402
 from qd_train.baseline import request_texts  # noqa: E402
-from qd_train.ledger import CODE_THAT_RAN  # noqa: E402
+from qd_train.ledger import LIFECYCLE_STARTED_ROW  # noqa: E402
 
 #: The fixture eval row's ``data_snapshot_hash`` (``test_option_control._eval_row``). A real eval
 #: row's is its shard set's header's, which ``real_ft_run.corpus_facts`` holds equal to the
@@ -151,9 +151,18 @@ class Fixture:
                 "--split-cache-shards", str(self.shards if shards is None else shards))
 
     def row(self, write: str) -> dict:
-        (line,) = [x for x in (self.tmp / f"{write}.jsonl").read_text(encoding="utf-8")
-                   .splitlines() if x.strip()]
-        return json.loads(line)
+        """The run's one result row. ``RunRecorder`` appends a ``started`` marker row before the
+        run does anything (the run-lifecycle protocol), so the file holds that and the row that
+        terminates it; the marker measures nothing and is not the row asked for."""
+        rows = [json.loads(x) for x in (self.tmp / f"{write}.jsonl").read_text(encoding="utf-8")
+                .splitlines() if x.strip()]
+        (started,) = [r for r in rows if r["status"] == "started"]
+        (row,) = [r for r in rows if r["status"] != "started"]
+        assert row["status"] in ("completed", "failed", "killed"), row["status"]
+        assert row["metrics"][LIFECYCLE_STARTED_ROW]["value"] == started["row_id"], (
+            "the result row must terminate the started row beside it"
+        )
+        return row
 
 
 def build_fixture(tmp: Path) -> Fixture:
@@ -194,7 +203,9 @@ def fx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path) -> Fixtur
 
 def comparable(row: dict, *drop_metrics: str) -> dict:
     out = {k: v for k, v in row.items() if k not in IDENTITY}
-    out["metrics"] = {k: v for k, v in row["metrics"].items() if k not in drop_metrics}
+    # ``lifecycle.started_row_id`` names the run's own ``started`` marker row: identity too.
+    dropped = (*drop_metrics, LIFECYCLE_STARTED_ROW)
+    out["metrics"] = {k: v for k, v in row["metrics"].items() if k not in dropped}
     return out
 
 
@@ -261,7 +272,7 @@ def test_miss_then_hit_write_the_letter_and_option_rows_the_uncached_run_writes(
     assert comparable(option["hit"], OPTION_METRIC) == comparable(option["off"])
     assert OPTION_METRIC not in letter["hit"]["metrics"]
     assert LETTER_METRIC not in option["hit"]["metrics"]
-    foreign = [k for k in option["hit"]["metrics"] if k != CODE_THAT_RAN
+    foreign = [k for k in option["hit"]["metrics"] if k not in RECORDER_OWN_METRICS
                and not k.startswith((f"{ftc.OPTION_ARM}.", f"{ftc.OPTION_MARGIN}."))]
     assert foreign == [], "the option row carries only its own keys"
 

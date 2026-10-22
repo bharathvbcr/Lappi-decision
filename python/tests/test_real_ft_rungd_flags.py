@@ -144,7 +144,10 @@ def _patch_module(mp: pytest.MonkeyPatch, module: Any, corpus: Corpus) -> None:
     rows = (corpus.train, corpus.val)
     mp.setattr(module, "ft_split_rows", lambda **kw: rows)
     mp.setattr(module, "resolve_rev", lambda repo, rev: rev)
-    mp.setattr(module, "check_defect_source", lambda out, *, defect_class, config: None)
+    # Exactly the parameters the two copies pass: ``out`` positional and ``defect_class`` by
+    # keyword (both), ``config`` by keyword (today's tool only; test_batch_order's BASE_REF
+    # predates it). A new kwarg, or a dropped ``defect_class``, in either call fails here.
+    mp.setattr(module, "check_defect_source", lambda out, *, defect_class, config=None: None)
     mp.setattr(
         module, "corpus_facts",
         lambda out, **kw: module.CorpusFacts(snapshot_not_run=None, history_rows={}),

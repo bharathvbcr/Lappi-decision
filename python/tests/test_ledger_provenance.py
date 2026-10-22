@@ -36,10 +36,18 @@ here on, whoever wrote it and wherever it ran.
 from __future__ import annotations
 
 import json
+import sys
 from collections import Counter
 from pathlib import Path
+from typing import get_args
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "python"))
+
+from qd_train.ledger import Status  # noqa: E402
+
+#: The ledger's own terminal statuses: every status but the ``started`` marker.
+TERMINAL_STATUSES = frozenset(get_args(Status)) - {"started"}
 LEDGER = REPO / "ledger"
 
 #: Training/smoke rows without a closure digest, per ledger file, as of 2026-09-21.
@@ -120,7 +128,43 @@ def _training_rows() -> list[dict]:
     written on this Mac from a real git checkout, where `code_commit` means what it says.
     Its "closure" is the whole workspace, which no digest of `qd_train` would describe.
     """
-    return [r for r in _rows() if r["run_kind"] != "build"]
+    return _training_rows_of(_rows())
+
+
+def _ended_started_keys(rows: list[dict]) -> set[tuple[object, object, str]]:
+    """``(ledger file, run_kind, row_id)`` of every started row a terminal row ended.
+
+    A terminal row is one whose status is in the ledger's own set minus ``started`` (completed,
+    failed, killed). It ends a started row only when it sits in the SAME ledger file (ledger/
+    holds duplicate row_ids across files, forks of one ledger), has the same run_kind (one
+    recorder writes both rows), and is not that row itself.
+    """
+    keys: set[tuple[object, object, str]] = set()
+    for row in rows:
+        if row.get("status") not in TERMINAL_STATUSES:
+            continue
+        state = row.get("metrics", {}).get("lifecycle.started_row_id")
+        if isinstance(state, dict) and state.get("value") and state["value"] != row.get("row_id"):
+            keys.add((row.get("_file"), row.get("run_kind"), str(state["value"])))
+    return keys
+
+
+def _training_rows_of(rows: list[dict]) -> list[dict]:
+    """:func:`_training_rows`'s rule over any list of rows.
+
+    A ``started`` row is also left out once a terminal row names it. It is the lifecycle marker
+    ``RunRecorder.__enter__`` appends FIRST, before the digest is computed (so that a SIGKILLed
+    run still leaves a row), and it measures nothing; its digest is on the terminal row, which
+    stays in and is checked. A ``started`` row nobody terminated stays in too: that is a run
+    whose end nobody saw, and it has no digest to show for itself.
+    """
+    ended = _ended_started_keys(rows)
+    return [
+        r for r in rows
+        if r["run_kind"] != "build"
+        and not (r.get("status") == "started"
+                 and (r.get("_file"), r.get("run_kind"), r.get("row_id")) in ended)
+    ]
 
 
 def test_the_ledger_is_readable_and_not_empty() -> None:
@@ -206,3 +250,37 @@ def test_code_commit_does_not_distinguish_the_two_groups() -> None:
         "become able to distinguish a row written by a provenance-recording tool from one "
         "that was not, and this file's premise needs re-deriving rather than inheriting"
     )
+
+
+def _row(row_id: str, *, status: str, digest: bool = False, ended: str | None = None) -> dict:
+    metrics: dict[str, dict] = {}
+    if digest:
+        metrics["code_that_ran"] = {"state": "ran", "passed": True, "value": "d" * 64}
+    if ended is not None:
+        metrics["lifecycle.started_row_id"] = {"state": "ran", "passed": True, "value": ended}
+    return {"row_id": row_id, "run_kind": "smoke", "status": status, "metrics": metrics}
+
+
+def test_a_started_marker_is_not_a_training_row_once_a_terminal_row_ended_it() -> None:
+    """``RunRecorder.__enter__`` appends the ``started`` row before it computes the digest, so
+    that row can never carry one; the terminal row that names it does, and is the one checked.
+    Counting the marker made the 2026-10-18 LoRA-2B shard build read as two rows that "arrived
+    without saying what produced them" (``mac-v6-lora2b-shards-2026-10-18.jsonl``)."""
+    rows = [
+        _row("s1", status="started"),
+        _row("t1", status="completed", digest=True, ended="s1"),
+    ]
+    assert [r["row_id"] for r in _training_rows_of(rows)] == ["t1"]
+
+
+def test_an_unended_started_row_and_a_terminal_row_without_a_digest_still_count() -> None:
+    """The exemption is for the marker a terminal row ended, and no wider: a run nobody saw
+    end (no terminal row names it) and a terminal row that lost its digest both stay in."""
+    rows = [
+        _row("s2", status="started"),
+        _row("s3", status="started"),
+        _row("t3", status="completed", ended="s3"),
+    ]
+    kept = _training_rows_of(rows)
+    assert [r["row_id"] for r in kept] == ["s2", "t3"]
+    assert not any(_has_digest(r) for r in kept)
