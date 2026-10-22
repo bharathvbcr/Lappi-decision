@@ -1,128 +1,109 @@
-# BUILD_REPORT: GitPulse backlog, 2026-10-17/18 (session lappi-decision-10, formerly -34)
+# BUILD_REPORT: GitPulse backlog, 2026-10-20/22 (session lappi-decision-0f)
 
-The previous report (2026-10-13) is in git at bffcf83.
+The previous report (2026-10-17..19) is in git at 33adfc7.
 
-Nothing has been pushed; local `main` is ahead of `origin/main`. A peer session, `lappi-decision-ce`, ran a hardening pass in parallel on the owner's instructions. Its merges are listed under "Shared main" and its own record is `HANDOFF/harden-2026-10-17.md`.
+Nothing has been pushed. On 2026-10-21 the owner said "commit and merge all and clean branches and next wave". The merges below follow from that instruction. Lanes still in flight merge only once they pass review.
 
 ## Method
 
-- **Order.** There is no `AUDIT_REPORT.md`, so I ordered the work by priority, then severity, then dependencies. Fable ruled on the order at 2733015. Almost every card was already in review. The one workable P1 card was ft-3b8126cd, the Lappi-side prerequisites of the LoRA-2B smoke.
-- **Merge rule.** Fable's Q15 makes a fails-before that actually ran a precondition for merging (`AUDIT/harden-2026-10-17/fable-rulings-2026-10-18c.md:9`). Rust stays off `main` until every downstream crate compiles (Q1). Every merge below cites its runs.
-- **Heavy runs.** Every cargo and torch run went through `tools/mac_heavy.sh`. Rust tests ran at `MAC_HEAVY_MAX_LOAD=48`, one crate per job (Fable Q8, `fable-rulings-2026-10-18b.md:9`). Machine load from other repos (tessl, GitPulse, Go `-race`) ran at 50–140 for most of the run, so lock waits of 2–8 hours were normal.
-- **DevMap.** DevMap answered for status, impact and affected tests (generation 3933 and later). Every impact walk came back `walk_incomplete`, so I read blast radius as unknown, not as safe.
-- **GitPulse.** The worktree and collision facets failed under load early in the run ("deferred under load") and recovered later. Two sessions shared this worktree, and I coordinated with the other through `SendMessage` with file claims.
-- **`dev verify`: NOT RUN.** No card moved to done; done is evidence-gated, and that gate belongs to the owner.
+- **Order.** There is no `AUDIT_REPORT.md`, so the order is priority, then severity, then dependencies. Fable ruled on every sequencing and judgment call (listed below).
+- **Roles.**
+  - Sonnet subagents implemented the lanes, at most 4 at a time. Twice a resume briefly made it 5; both times I paused a lane.
+  - Opus (this session) wrote each brief and reviewed each diff.
+  - A separate Sonnet attacked each lane before review.
+- **Branching.** Each lane worked in its own worktree on a `lane/<card>` branch. Nothing merged before the owner's yes.
+- **Heavy runs.** Every cargo and pytest job went through `tools/mac_heavy.sh`: cargo at `MAC_HEAVY_MAX_LOAD=48`, pytest at the default 12.
+- **Load-48 grants.** Fable granted 48 to two pytest baselines, each with conditions: L2's and W3a's.
+- **Host load.** Load ran 14-130 for most of the run, from other repos (tessl GPU runs, cargo slots held). Lock waits of 4-10 hours were normal, and several jobs expired unrun (exit 76). Those are reported as not run.
+- **DevMap.** It answered status at generation 4003. Every impact and affected-tests walk came back `walk_incomplete` or `fail_closed`, so I read blast radius as unknown, not safe.
+- **GitPulse.** Insights and collision risk were deferred under load from wave 2 on (`GAP-WAVE2-COLLISION-RISK-DEFERRED-UNDER-LOAD-2026-10-21`). Lanes owned disjoint files by assignment; that was not a clean scan.
+- **`dev verify`: NOT RUN.** No card moved to done. Done is evidence-gated, and that gate belongs to the owner.
 
-## Cards moved
+## Merged to main
 
-| Card | Now | Evidence |
+| Merge | Card | What | Verified |
+|---|---|---|---|
+| 4c30649 | ft-d066187f (L1) | HANDOFF and gap only. The switch onto ojas-train is **blocked**: ojas-train at 4123dfb lacks Lappi's canonical LoRA-A draw order (amendment 4). | Verified by diff, not graph-confirmed. Filed ojas card ft-30dd709e (P0). |
+| cdd7c4b | ft-57fc7484 b6, b2 (L4) | `tools/d3_quant_gate.py`: MLX affine fake-quant against mlx's own quantize, tri-state, threshold read from a pre-registration `d3_gate` block. One pinned `QD_PYTHON` resolver in qd-prep, qd-metal, qd-preflight and qd-export, with a pin test. | `make torch-pytest` (3 files) 75 passed. Cargo after-runs: qd-prep 4, qd-preflight 6, qd-metal 11, qd-export 5, all passed with `QD_PYTHON` unset. Fails-before ran for the resolver (preflight 1/5, metal 7/4) and the qd-export timeout (exit 101 at 20.15 s). |
+| 9dc5aeb | ft-57fc7484 b5 (L5) | LoRA runs refused before any GPU work. The lora-row gate is in `Row::line_with`: closed label set, value validation, manifest sha. Python parity. The reference driver writes the Rust metric names (Fable). | `cargo test -p qd-train` 276 passed; `qd-train-metal` 49 passed; torch-pytest 318 passed; adversarial driver file 37 passed; 99 committed ledgers (2211 rows) verify. |
+| 69127ec | ft-57fc7484 b1, b4, b7 (L2) | The three torch reds fixed at their cause: the reader names `header.json`, and the replay fixture is v6-valid. A headerless directory is refused. 10 gaps re-verified. | Fails-before on d09222d: 1 failed, then 2 failed. After, at load 12: 288 passed, 1 deselected (the MPS leg, not run). |
+| f9b9376 | ft-5fdca0a2 (W2c) | Hardening-pass gap triage. Open went from 78 to 47 (the card said 74; the same rule gives 78 at d09222d). | `test_gaps_ledger` green. |
+| 4172319 | ft-57fc7484 b3 (L3) and ft-badf64e2 (re-pin 4fba3b4) | Bounded containment scan: packed shingles, batched signing, a collision digest, per-batch canaries. An exact footprint tool (kernel lifetime max per process). | 3+3 interleaved v6 scans on the tip (Fable). All 6 exit 0 under the unchanged 28,672 MiB cap, with outputs byte-identical. After: parent 10.9-12.0 GiB, largest child 3.3 GiB (base parent 20.6-22.6 GiB). |
+| 9795832, 1bfdee2 | post-merge | Lint gate green and one dangling gap reference corrected. L3's AUDIT evidence scripts got per-file ignores, by the existing ruling. | `test_gaps_ledger` + `test_lint_gate` 26 passed. `cargo test --workspace --offline --no-run` on merged main built 138 test executables, exit 0. |
+
+Every merged lane was Opus-reviewed after an adversarial pass:
+
+| Lane | Breaks | Outcome |
 |---|---|---|
-| ft-3b8126cd (LoRA-2B smoke prerequisites, Lappi side) | review (revision 4) | Three of its four build items are on main: D17 host objective, LoRA parameter plan with the `"lora"` row, and the torch reference driver. The fourth, the converter, is **blocked** on ojas phase B. The card log lists the open items. |
+| L4 | 10 | All fixed. Among them: a stale PASS surviving a refused run, could-not-run exiting with FAIL's code, and a fourth `QD_PYTHON` reader outside the pin. |
+| L5 | 4 real | All fixed. Among them: metric values were never checked, the gate could be bypassed through `append_line`, and Python accepted what Rust refused. |
+| L2 | 2 | Fixed. |
+| L3 | 6 | All fixed. Among them: the footprint sampler missed short-lived children, and two distinct shingle sets could silently merge. |
 
-No other card was moved. The other non-review cards each need an owner decision or a GPU or box run (ft-bd80c52e, ft-12da8e67, ft-afb31d47, ft-be802e07, ft-882ed8fc), or their workable parts were already met. Per Fable's 2026-10-17 staleness check: ft-0f5a10c9's loader half is met by `crates/qd-metal/src/span.rs` and its calibration criterion needs an MPS re-score; ft-ac6677c7 criterion 2 is met by `held_out.rs` and its other criteria are owner or app-side.
+### Benchmark deltas
 
-## What landed on main (mine)
+Only L3 touched a hot path, the v6 containment scan:
 
-| Merge | What | Verified |
-|---|---|---|
-| c324c49 (fast-forwarded to main by peer) | ojas pin 5b67cdd → 04277f8, delta report, LoRA-2B amendment 1 | **Pin verification NOT RUN when committed.** ojas has since moved to 0e95fe7, so the pin gate is red (owner decision 10). |
-| fecfd5d | Wave 1. L1: D17 host objective (`d17.rs`, `LetterSpanObjective::with_d17`, torch-oracle fixture). L2: LoRA plan and `"lora"` row (`recipe.rs`, `lora_init.rs`, `ledger.rs lora_ft_row`). L3: torch driver `tools/lora_reference_run.py`. L3 adversarial tests. | `cargo test -p qd-train` 237 passed / 0 failed / 5 ignored. Fails-before: lora_init failed 2, lora_row failed 1. The integrator fixed a 24-ulp RNG mismatch (ATen accumulates in double), a fixture encoding error and a duplicated const. Merged before `qd-train-metal` ran, on the owner's direct "merge all"; it later ran green (37 passed / 0 failed, 14 GPU-ignored). |
-| 99eb78b | Gaps and lint fixes from that merge | test_gaps_ledger went from 3 failed to 10 passed; ruff from 32 findings to 2 |
-| 0a15658 | W2-1: `Status::Started` in the Rust mirror; `val_without_train` (Fable Q14 P2) and `train_manifest_sha256` as optional row fields | Rust: qd-train 77 passed / 0 failed. Rust fails-before: 1 failed. Python: 50 passed; fails-before: 16 failed. `qd-train-metal` and `qd-metal` compile (`--no-run`, exit 0). Every committed ledger still verifies, and `protocol_hash` is unchanged. |
-| f22a5c7 | W2-4: `qd-train-metal` writes `train_manifest_sha256` (hashed before and after the read); `ledger::append_with` is the one locked append | qd-train and qd-train-metal: every target ok. GPU row test 1 passed; GPU fails-before on main's `run.rs`: `left: None`. `qd-metal` compile not run; inferred safe, since the change is an additive public fn and nothing glob-imports. |
-| ca4616c, d969810 | A gap record for the LoRA row producer; Fable's W2-2 ruling recorded verbatim | — |
-| 08436f8 | W2-2: driver applies v6 data rules and refuses `legacy_v5`; `qd-prereg-bind` at entry, where NOT_RUN refuses; 7 adversarial BREAKs fixed; both B017s pinned | Driver files on the main-merged branch: 60 passed / 1 skipped (MPS) / 1 strict-xfail. Fails-before: 13 failed. Ruff repo-wide: 0 findings. |
+- **Memory.** Parent peak about 47% lower.
+- **Wall time.** After is **+16.7% on medians, +28.4% min-of-3**. Base runs were 1169.8 / 1316.1 / 2189.6 s; after runs were 1502.1 / 1931.9 / 1535.8 s. The spreads were 77.5% and 28.0% under load 18-51, so **the 5% check is unresolved**, not passed.
+- **Measured added cost.** The digest, packing and canaries add about 4%. The remaining gap is in the lsh stage, cause unidentified (code or host).
+- **Justification.** Written against real numbers in `HANDOFF/l3-containment-scan-2026-10-20.md`. A quiet-host 3+3 would settle it, and the owner may ask for it.
 
-Lines: the wave-1 merge added about 33k lines, of which a 25.9k-line JSON oracle fixture is most. Nothing was removed beyond each lane's own replaced code.
+No other lane touched a hot path. That is DevMap-incomplete and rg-confirmed, not graph-confirmed.
 
-### Adversarial outcomes (L3 driver)
+## In flight (code committed on the branch, verification queued behind the lock)
 
-- **Held-out symlink bypass:** fixed in the driver. The shared reader `shards.py` still has the hole; the peer's lane W9-c fixes it there and deletes the driver's copy.
-- **Output clobbering:** three BREAKs, all fixed.
-- **Malformed safetensors:** fixed.
-- **Missing ledger row on A-digest drift:** fixed.
-- **Loss log not fsynced:** fixed.
-- **Read-before-validate, quick/promotion, determinism:** held.
-- **Open:** the LoRA-A digest depends on module registration order. It is kept as `xfail(strict=True)` per Fable's ruling (`AUDIT/lora-2b-w2-2-2026-10-18/fable-ruling.md`). That test failure is how this report knows ojas and the oracle register qkv, z, out while real HF registers out first.
+| Lane | Branch | Card | State |
+|---|---|---|---|
+| W2a | lane/ft-951c360d | ft-951c360d | All five v2 Vani gates written. Fails-before ran for the Python visibility test (ImportError) and qd-prep's gates (0/14). The after-runs are queued. **Merge waits on an owner decision** (below). |
+| W2b | lane/ft-c5ea3e71-w2b | ft-c5ea3e71 items 1, 5, 6 | `--write-val-rows` producer (10 tests; 6 failed before, 10 pass after). The export gate asks the runtime's own lookup (fails-before 15/1, after 16). `verify_release_train_manifest` added. The final gaps and lint run is queued. |
+| W3a | lane/ft-cc9fac73 | ft-cc9fac73 | All 17 v6-fallout reds diagnosed: 9 are fixtures moved to named legacy-v5 rules, 6 are stale expectations against the recorder's `started` row, 1 is a test-helper fix, and 1 is fixed by L2's merged commit. The after-runs and both flake arms are queued. |
+| W3b | lane/ft-5dfe48e7 | ft-5dfe48e7 criteria 1-4 | `qd_serve_launchd.py` (temp dir and fake launchctl only; nothing installed). A mac_heavy training guard, opt-in via `MAC_HEAVY_TRAINING=1`. Mac schedule from measured rates. A cloud cost draft marked NEEDS HUMAN YES. The lock suite on the edited `mac_heavy.sh` is queued. |
 
-## Shared main (peer session, for context)
+Open beyond these lanes:
 
-`lappi-decision-ce` merged: the human ruling (6b0ab85); LoRA-2B amendments 3 (v5r withdrawn) and later; hardening lanes L-data, L-ledger, L-ops and L-release; W2-a/b/c, W3, W4-b/d/e, W5-a/b/c, W6-a/b/c, W7-a/b, W8-a and W9-a. Its record is in `HANDOFF/harden-2026-10-17.md`.
+- **ft-57fc7484.** b5's producer needs ojas-model's LoRA provider to be reachable. b4's span-refit half needs the pinned scorer amended, which is the owner's call.
+- **ft-c5ea3e71 items 3, 4, 7, 8.** Item 3 is the owner's. Items 4, 7 and 8 wait on W2a's and W2b's files. Item 8 (hardlinks) was ruled by Fable: refuse `st_nlink > 1`, and measure the on-disk count first.
+- **Follow-ups found this run:**
+  - qd-runtime admission does not bind family to slot shape (W2b item 5, narrowed).
+  - `verify_release_train_manifest` has no caller yet (it goes in qd-release-check after W2a).
+  - Training launchers do not set `MAC_HEAVY_TRAINING`.
+  - A v6-valid fixture for `test_pre_dedupe_drops`.
 
-## Benchmark deltas
+## New tasks filed
 
-None measured. No hot path was benchmarked. Fable Q17 rules timings taken under load 60–90 invalid as an A/B. `uniform_f32` changed precision, but that was a correctness fix, not a performance change.
-
-## New tasks and gaps filed
-
-- GAP-LORA-FT-ROW-HAS-NO-PRODUCER-AND-MUST-CARRY-TRAIN-MANIFEST-SHA-2026-10-18 (open)
-- GAP-W2-2-LORA-A-DIGEST-DEPENDS-ON-MODULE-REGISTRATION-ORDER-2026-10-18 (open; owner amendment)
-- GAP-LEDGER-TRAIN-MANIFEST-SHA256-FIELD-LANDED-PRODUCERS-NOT-WIRED-2026-10-18 (closed by W2-4 and W7-b)
-- GAP-STARTED-STATUS-RUST-MIRROR-RESOLVED-CAMPAIGN-DRIVER-CORRECTED-2026-10-18 (resolved)
-- The lane gaps GAP-L1-*, GAP-L2-*, GAP-L3-* and GAP-W2-2-*, with closures appended
-
-No new board cards: every finding folded into an existing card or into a peer lane (W9-c).
+- **ojas ft-30dd709e (P0).** ojas-train's `lora_adapter_layout` lacks the canonical LoRA-A draw order. It blocks ft-d066187f.
+- **Lappi ft-cc9fac73 (P1).** 17 v6-default fallout reds (now lane W3a).
 
 ## Fable's decisions this run
 
-1. **Sequencing at 2733015.** Items 1–3 workable; the converter blocked; waves split by file.
-2. **Q8 (load).** Serialized `cargo test -p` at load 48; pytest and torch stay at 12.
-3. **Q15 (merge rule).** A fails-before that actually ran is required.
-4. **W2-2.** The A-digest order is a rule defect: amend `lora-2b-preregistered.json:169` to layer index, then suffix order. Merge with a strict xfail meanwhile. The `shards.py` fix belongs to its owner and is not stop-ship.
+1. **Wave 1.** Four lanes with exclusive file ownership. The qd-train moving set was frozen until ft-d066187f, then narrowed to the 8 modules once that card was blocked on ojas. Merges wait for the owner.
+2. **Hardlinks (ft-c5ea3e71 item 8).** This is Fable's call, not the owner's: refuse `st_nlink > 1` after measuring the on-disk count.
+3. **R2 caps and the Vani pre-registration.** These are owner decisions. An agent may draft them.
+4. **Load grants.** L2's baseline and W3a's runs got load 48 with conditions: `QD_PREP_BIN` pre-built outside the lock, a stdlib per-file wrapper (counting from the lock hold), and timeouts reported as not run. The flake's alone arm waits for load below 12.
+5. **L3 re-pin.** Running the scan characterization under named legacy-v5 rules is acceptable. The digest re-pin belongs to ft-badf64e2 and lands as its own commit.
+6. **L3 evidence.** The sampled-max runs were not acceptance. Fable required 3+3 interleaved runs on the tip with the exact tool, and the 5% check is written against real numbers.
+7. **LoRA metric names.** The Rust set is canonical. The driver writes it plus `train_manifest_sha256`. No committed row used the `init.*` names, so no legacy kind was added.
 
 ## Owner decisions pending
 
-1. **The ojas pin.** The sibling is at 0e95fe7 and the lock pins 04277f8, so every pin step is red. Bump with a delta report? (Also HANDOFF item 10.)
-2. **The LoRA-A canonical order amendment** to `campaign/lora-2b-preregistered.json:169`. It must be committed before any LoRA-2B result is read.
-3. **Re-export of existing models.** Since W7-a, export refuses ft rows without `train_manifest_sha256`, which covers v0.1, v5, the averaged models and the ft-0f5a10c9 span re-export. Allow them through an owner-signed (row id, manifest sha256) allowlist? (Also HANDOFF item 3.)
-4. **Push.** `main` is far ahead of `origin` on a public repository, and nothing is pushed.
-5. **Unknown-owner worktree** `build/main-gates-2026-10-15` (detached, 3 dirty files): keep or remove?
-6. Still open from 2026-10-17 (Fable's final ruling §6): the quantised arm, 4-bit, extra Mac GPU time and peft.
-
-## Addendum, 2026-10-19
-
-- **W2-5** was merged as e8aade9 on the owner's "merge all". `tools/gen_ledger_schema_fixture.py` now hands RunRecorder its entry point, and its recipe spelling is pinned in `test_tool_call_sites.py`, with no exemption list.
-  - Fails-before: 2 failed / 19 passed.
-  - After: 48 passed.
-  - Rust `cargo test -p qd-train --test ledger_schema` on main after the merge: 9 passed, 0 failed (main-w2-5-ledger-schema, 16:10Z).
-- **W3-1, HELD**, branch `w3-1-lora-a-canonical-order-2026-10-19` (200a2d2, be52013).
-  - It makes the LoRA-A draw order canonical in `lora.py` and `lora_init.rs`/`recipe.rs`/`ledger.rs`, and removes the strict-xfail.
-  - The committed oracle digests are unchanged, because that fixture already uses the ojas order.
-  - A model registered in HF order now matches the ojas-order digests at every seed.
-  - **No test has run**: mac_heavy refused both cargo attempts at 8 GB free (exit 74).
-  - It does not merge until the owner approves the amendment drafted in `AUDIT/lora-2b-w2-2-2026-10-18/amendment-draft-lora-a-order.md`.
-- **Cards to review, with Fable's staleness findings recorded:** ft-0f5a10c9 and ft-ac6677c7. Neither has a criterion an agent can work.
-- **Branches:** every lane branch of mine is merged and deleted, except W3-1, which is held.
-
-## Wrap-up, 2026-10-19
-
-**Owner decisions taken** (`AUDIT/lora-2b-w2-2-2026-10-18/owner-decision-2026-10-19.md`):
-- The LoRA-A canonical-order amendment.
-- The ojas pin to 4123dfb (phase A+B).
-
-**What merged:**
-- **0089cee:** LoRA-2B amendment 4. `init.lora_a.rule` now names the canonical order: layer index, then the suffix table.
-- **d74bc85:** W3-2, the ojas pin 04277f8 → 4123dfb.
-  - `qd-train`: 260 passed, 0 failed. `qd-train-metal`: 41 passed, 0 failed. `qd-metal` and `qd-export` compile (`--no-run`).
-  - No Lappi source changed. `Cargo.lock` gains `ojas-train`.
-  - **Not run:** `make pin` and the `qd-pin` checks. The harness refuses paths outside the repo, so the owner has to run those commands; they are in `AUDIT/ojas-pin-4123dfb-2026-10-19/delta-report.md` §4 and tracked as GAP-OJAS-PIN-4123DFB-SOURCE-DIFF-AND-PIN-GATE-PENDING-2026-10-19.
-- **a5d1881:** W3-1, the canonical LoRA-A draw order in Python and Rust.
-  - `qd-train`: 265 passed, 0 failed. `qd-train-metal`: 41 passed, 0 failed. Torch, on the merged tree: 91 passed, with the formerly strict-xfail order test now passing.
-  - Fails-before: `main`'s `lora.py`, loaded by an explicit path, gives different digests for the two registration orders, and the new code gives equal ones.
-
-**Card ft-3b8126cd:** ojas phase B now ships adapter checkpoint layout v1 (ojas 3f87e76). The blocked converter item is therefore workable in a new session. It was not started, per the owner's wrap-up instruction.
-
-**Branches:** every lane branch and auto-branch of this session is merged and deleted. Left on purpose:
-- `span-pin-8a531e8-verdicts`, still needed by card ft-0f5a10c9;
-- `build/main-gates-2026-10-15`, whose owner is unknown, with 3 dirty files; the owner decides.
-
-Nothing has been pushed; `main` is 510 commits ahead of `origin`.
+1. **W2a merge: `qd-release-check` now refuses releases it used to pass.**
+   - It refuses a release without a train manifest matching its sha256.
+   - It refuses BY-SA, research-only or `vani-agreed` rows unless the release is marked `private`. v5's `squad_v2` is CC BY-SA 4.0, so a v5 or v0.1 re-release must be marked private.
+   - The question: merge as written, or scope the rule to v2 pools?
+2. **L3's time-for-memory trade** (about +17% wall time for a 47% lower peak), or a quiet-host 3+3 first.
+3. **Three adversarial branches** (`adv/ft-57fc7484-l2`, `-l4`, `-l5`). Their tests are on main. The blast-radius gate held `git branch -D` (5 commits would be unreachable): approve, or keep them.
+4. **ojas.** The canonical-order fix (ojas ft-30dd709e) must be done from a session rooted in ojas. After it, the Lappi pin bump past 4123dfb needs your yes, and `make pin` is owner-run.
+5. **D3 threshold.** Owner item 5: the q8 pre-registration carrying a machine-readable `d3_gate` block. Until it exists, the gate reports NOT_RUN.
+6. **b4 span-refit.** Amending the sha-pinned `tools/span_refit_score.py`.
+7. **Machine load.** Pausing other repos' heavy jobs would let the four queued lanes verify in hours instead of days.
+8. **From earlier runs, still open:** ft-8139b5b1 (push main, held-out ratio, re-export allowlist, unowned worktrees). Item 13 there looks stale: a rebuilt v6 pool passes the length band (W2c).
 
 ## Not run
 
-- `make pin` and `test_pin_gate` on main: red on the stale pin.
-- The full Python and torch suites on the final main.
-- Any real 0.8B or 2B model run.
-- `qd-metal` tests: only `--no-run` was run for W2-1, and nothing for W2-4.
-- `dev verify`.
-- The v6 LoRA-2B shards are not built yet; the peer's W2-d lane builds them and writes amendment 4.
+- **On merged main:** the full Python and torch suites. Only the gaps and lint tests and targeted files ran. L3's qd-prep-dependent tests (68 skipped without a binary) are queued as `main-postmerge-l3-tests`.
+- **GPU-ignored tests:** `gpu_*` in qd-train-metal and qd-metal, and the MPS legs.
+- **Real-model runs:** the D3 real-base verdict and any LoRA run.
+- **`make pin` and the qd-pin checks:** the harness refuses paths outside the repo.
+- **`dev verify`.**
+- **Fails-before not run:** the qd-prep new worktree test, and the `GIT_DIR` and newline resolver hardening (L4).
