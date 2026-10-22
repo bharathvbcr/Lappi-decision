@@ -378,7 +378,7 @@ fn a_failed_or_non_ft_ledger_row_is_not_an_anchor() {
         json!({"row_id": "ft-a", "run_kind": "eval", "status": "completed", "train_manifest_sha256": d}),
         json!({"row_id": "ft-a", "run_kind": "ft", "status": "failed", "train_manifest_sha256": d}),
     ] {
-        let ledger = ft_ledger(&dir.0, &[row.clone()]);
+        let ledger = ft_ledger(&dir.0, std::slice::from_ref(&row));
         assert!(
             qd_export::verify_release_train_manifest(&rel, Some(&ledger), None).is_err(),
             "{row} anchored the release"
