@@ -4,6 +4,7 @@ Each test states the invariant it expects; a failing one is a reported break."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 from dataclasses import replace
@@ -62,10 +63,8 @@ def test_dangling_symlink_out_does_not_write_through_to_the_target(tmp_path: Pat
     target = tmp_path / "elsewhere" / "x.jsonl"
     out = tmp_path / "val_rows.jsonl"
     out.symlink_to(target)
-    try:
+    with contextlib.suppress(ValueError, OSError):
         write_val_rows(out=out, **kw)  # type: ignore[arg-type]
-    except (ValueError, OSError):
-        pass
     assert not target.exists()
 
 

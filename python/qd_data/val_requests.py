@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import secrets
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -33,6 +34,7 @@ from typing import Protocol
 from qd_train.data_access import assert_path_not_held_out
 
 from .config import DataConfig
+from .errors import HeldOutViolation
 from .manifest import Manifest
 from .rows import DataRow, row_content_hash
 from .schema import Request
@@ -99,12 +101,7 @@ def write_val_requests(rows: Iterable[_HasRequest], path: Path, *, split_of: dic
                 "val rows only"
             )
         lines.append(json.dumps(row.request.to_wire(), sort_keys=True, separators=(",", ":")))
-    tmp = path.with_name(path.name + ".partial")
-    with tmp.open("w", encoding="utf-8") as f:
-        f.write("".join(line + "\n" for line in lines))
-        f.flush()
-        os.fsync(f.fileno())
-    tmp.replace(path)
+    _write_atomic(path, "".join(line + "\n" for line in lines))
     return len(lines)
 
 
@@ -121,12 +118,19 @@ def _sha256_file(path: Path) -> str:
 
 
 def _write_atomic(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".partial")
-    with tmp.open("w", encoding="utf-8") as f:
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    tmp.replace(path)
+    """Write ``text`` to ``path`` through a temp file no other writer shares (pid and a random
+    suffix, created ``O_EXCL``), then rename it into place; the temp is removed on any failure."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(8)}.partial")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def write_val_rows(
@@ -149,6 +153,10 @@ def write_val_rows(
     """
     assert_path_not_held_out(val_manifest, config=config, repo_root=repo_root)
     assert_path_not_held_out(train_manifest, config=config, repo_root=repo_root)
+    # The output paths go through the same door, before anything is written: a rows file under a
+    # held-out root, or reached through a symlink into one, is refused.
+    assert_path_not_held_out(out, config=config, repo_root=repo_root)
+    assert_path_not_held_out(binding_path(out), config=config, repo_root=repo_root)
     manifest = Manifest.read(val_manifest)
     if manifest.split != "val":
         raise ValueError(f"{val_manifest} declares split {manifest.split!r}, not 'val'")
@@ -164,6 +172,17 @@ def write_val_rows(
     lines: list[str] = []
     for entry in manifest.entries:
         row = by_id[entry.row_id]
+        # Whatever the hashes say, a held-out family never reaches a replay file.
+        for family in {entry.family_id, row.family_id}:
+            if config.is_held_out_family(family):
+                raise HeldOutViolation(
+                    expected="a val row outside the held-out families",
+                    actual=family,
+                    detail=(
+                        f"row {entry.row_id!r} is in held-out family {family!r}; {val_manifest} "
+                        "is corrupt or forged, and VAL_ROWS never carries a held-out row"
+                    ),
+                )
         if row_content_hash(row) != entry.content_hash:
             raise ValueError(f"row {entry.row_id!r}'s content hash is not {val_manifest}'s")
         wire = {"row_id": row.row_id, "split": "val", "request": row.request.to_wire()}

@@ -210,6 +210,34 @@ def test_rewriting_identical_bytes_is_a_no_op_and_different_bytes_are_refused(
     assert out.read_bytes() == b"{}\n"
 
 
+def test_concurrent_writers_never_share_a_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+    real = Path.replace
+
+    def replace(self: Path, target: Any) -> Path:
+        seen.append(self.name)
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    val_requests._write_atomic(tmp_path / "v.jsonl", "a\n")
+    val_requests._write_atomic(tmp_path / "v.jsonl", "a\n")
+    monkeypatch.undo()
+    assert len(set(seen)) == 2, seen
+    assert all(n.startswith(".v.jsonl.") and str(os.getpid()) in n for n in seen), seen
+
+    # A second writer that drew the same name does not interleave: O_EXCL refuses it, and the
+    # first writer's temp file is left as it was.
+    monkeypatch.setattr(val_requests.secrets, "token_hex", lambda _n: "0" * 16)
+    taken = tmp_path / f".w.jsonl.{os.getpid()}.{'0' * 16}.partial"
+    taken.write_text("the other writer's bytes", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        val_requests._write_atomic(tmp_path / "w.jsonl", "mine\n")
+    assert taken.read_text(encoding="utf-8") == "the other writer's bytes"
+    assert not (tmp_path / "w.jsonl").exists()
+
+
 @pytest.mark.parametrize("fail_on", [1, 2])
 def test_an_interrupted_write_leaves_no_file_that_passes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_on: int,

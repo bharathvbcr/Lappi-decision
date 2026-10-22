@@ -60,14 +60,21 @@ fn case(letters: &[&str]) -> Case {
     }
     let path = write_json(&fx.dir.0.join("table.json"), &doc);
     let table_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(&path).unwrap()));
-    Case { fx, table: path, table_sha }
+    Case {
+        fx,
+        table: path,
+        table_sha,
+    }
 }
 
 fn report(c: &Case, keys: &[&str]) -> Value {
     let entries: serde_json::Map<String, Value> = keys
         .iter()
         .map(|k| {
-            ((*k).to_string(), json!({"kind": "choice", "n": 500, "scored": {"ece_after": ran(0.01)}}))
+            (
+                (*k).to_string(),
+                json!({"kind": "choice", "n": 500, "scored": {"ece_after": ran(0.01)}}),
+            )
         })
         .collect();
     json!({
@@ -102,14 +109,22 @@ fn train_manifest(c: &Case, shapes: &Value) -> PathBuf {
 
 fn run(c: &Case, report: &Value, shapes: &Value, extra: &[&str]) -> Output {
     let mut cmd = Command::new(BIN);
-    cmd.arg("--source").arg(&c.fx.source)
-        .arg("--base-snapshot").arg(&c.fx.snapshot)
-        .arg("--tokenizer-sha256").arg(common::tokenizer_sha256(&c.fx.snapshot))
-        .arg("--expect-vocab-size").arg(common::VOCAB.to_string())
-        .arg("--train-manifest").arg(train_manifest(c, shapes))
-        .arg("--calibration").arg(&c.table)
-        .arg("--calibration-report").arg(write_json(&c.fx.dir.0.join("report.json"), report))
-        .arg("--out").arg(&c.fx.out);
+    cmd.arg("--source")
+        .arg(&c.fx.source)
+        .arg("--base-snapshot")
+        .arg(&c.fx.snapshot)
+        .arg("--tokenizer-sha256")
+        .arg(common::tokenizer_sha256(&c.fx.snapshot))
+        .arg("--expect-vocab-size")
+        .arg(common::VOCAB.to_string())
+        .arg("--train-manifest")
+        .arg(train_manifest(c, shapes))
+        .arg("--calibration")
+        .arg(&c.table)
+        .arg("--calibration-report")
+        .arg(write_json(&c.fx.dir.0.join("report.json"), report))
+        .arg("--out")
+        .arg(&c.fx.out);
     cmd.args(extra);
     cmd.output().expect("the binary runs")
 }
@@ -150,7 +165,10 @@ fn ambiguous_shape_keys_are_all_refused() {
             "{key:?} was not refused: {}",
             String::from_utf8_lossy(&out.stderr)
         );
-        assert!(!c.fx.out.exists(), "{key:?}: a refused export left a release");
+        assert!(
+            !c.fx.out.exists(),
+            "{key:?}: a refused export left a release"
+        );
     }
 }
 
@@ -165,7 +183,12 @@ fn a_canonical_score_shape_with_an_entry_is_accepted() {
         &json!({"code.defect_class": [["choice:5", "span"]], "devcouncil.verdict": [["score:5"]]}),
         &[],
     );
-    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// An excluded family's shapes are not gated: a spelling the runtime would miss in an EXCLUDED
@@ -173,14 +196,23 @@ fn a_canonical_score_shape_with_an_entry_is_accepted() {
 #[test]
 fn exclude_family_still_exempts_a_family_with_an_unlookable_shape() {
     let c = case(&["choice:5"]);
-    let shapes = json!({"code.defect_class": [["choice:05", "span"]], "devcouncil.verdict": [["choice:5"]]});
+    let shapes =
+        json!({"code.defect_class": [["choice:05", "span"]], "devcouncil.verdict": [["choice:5"]]});
     let out = run(
         &c,
         &report(&c, &["choice:5"]),
         &shapes,
-        &["--exclude-family", "code.defect_class=span and 05 shape are not served"],
+        &[
+            "--exclude-family",
+            "code.defect_class=span and 05 shape are not served",
+        ],
     );
-    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 // --- verify_release_train_manifest --------------------------------------------------------------
@@ -212,7 +244,11 @@ fn rewrite_hashes(rel: &Path, new_sha: &str) {
 
 fn ft_ledger(dir: &Path, rows: &[Value]) -> PathBuf {
     let path = dir.join("ft-ledger.jsonl");
-    std::fs::write(&path, rows.iter().map(|r| format!("{r}\n")).collect::<String>()).unwrap();
+    std::fs::write(
+        &path,
+        rows.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
     path
 }
 
@@ -234,7 +270,10 @@ fn a_swapped_manifest_with_rewritten_release_hashes_is_not_ok_without_a_ledger()
     std::fs::write(&manifest, evil).unwrap();
     rewrite_hashes(&rel, &sha(evil));
     let verdict = qd_export::verify_release_train_manifest(&rel, None, None);
-    assert!(verdict.is_err(), "swap with rewritten hashes passed with no ledger: {verdict:?}");
+    assert!(
+        verdict.is_err(),
+        "swap with rewritten hashes passed with no ledger: {verdict:?}"
+    );
 }
 
 /// The same swap with the ledger as anchor is refused (the ledger rows still name the original).
@@ -263,11 +302,8 @@ fn a_non_regular_manifest_path_is_refused_not_hashed_forever() {
     let rel = release(&dir.0, &manifest, b"{}", &["ft-a"]);
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let verdict = qd_export::verify_release_train_manifest(
-            &rel,
-            None,
-            Some(Path::new("/dev/zero")),
-        );
+        let verdict =
+            qd_export::verify_release_train_manifest(&rel, None, Some(Path::new("/dev/zero")));
         let _sent = tx.send(verdict.is_err());
     });
     match rx.recv_timeout(Duration::from_secs(10)) {
@@ -378,7 +414,10 @@ fn a_200_mb_manifest_verifies() {
             "ledger_binding": {"verified": true, "train_manifest_sha256": digest, "ft_row_ids": ["x"]}}}),
     );
     let t = std::time::Instant::now();
-    let got = qd_export::verify_release_train_manifest(&rel, None, None).unwrap();
+    // The verifier refuses to run without an anchor, so the ledger the release names is given;
+    // the timing and RSS being measured are the hash's.
+    let ledger = ft_ledger(&dir.0, &[ft_row("x", &digest)]);
+    let got = qd_export::verify_release_train_manifest(&rel, Some(&ledger), None).unwrap();
     eprintln!("200 MB verified in {:?}", t.elapsed());
     assert_eq!(got, digest);
 }

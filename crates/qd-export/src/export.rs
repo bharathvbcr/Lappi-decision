@@ -476,6 +476,21 @@ fn verify_ledger_binding(
                 found.len()
             )));
         };
+        // Only a completed ft row anchors the binding: an eval or failed row carrying the sha
+        // says nothing about what the weights trained from.
+        if row.get("run_kind").and_then(Value::as_str) != Some("ft")
+            || row.get("status").and_then(Value::as_str) != Some("completed")
+        {
+            // The kind `verify_shared_init` gives the same finding: it is about the rows the
+            // source manifest names, whichever check reaches them first.
+            return Err(refuse(
+                RefusalKind::SourceManifest,
+                format!(
+                    "{}: row {id} is not a completed ft row, so its train_manifest_sha256 anchors nothing",
+                    ledger.display()
+                ),
+            ));
+        }
         match row.get("train_manifest_sha256").and_then(Value::as_str) {
             None => {
                 return Err(bad(format!(
@@ -511,7 +526,7 @@ fn verify_ledger_binding(
 /// * the release records a verified `ledger_binding` (a release exported without `--ft-ledger`,
 ///   or before W7-a, is refused with that reason, never passed as unexamined);
 /// * the file's sha256 equals both recorded values, which equal each other;
-/// * with `ft_ledger`, every ft row the release names still records that sha256
+/// * every ft row the release names, read from `ft_ledger` (required), is a completed ft row that still records that sha256
 ///   ([`verify_ledger_binding`]): the hash-chained ledger, not the release's own text, is the
 ///   anchor a consistent edit of `release_manifest.json` cannot reach.
 ///
@@ -525,6 +540,15 @@ pub fn verify_release_train_manifest(
     let k = RefusalKind::TrainManifest;
     let manifest_path = release.join(qd_runtime::release::MANIFEST_FILE);
     let bad = |detail: String| refuse(k, format!("{}: {detail}", manifest_path.display()));
+    // Fail closed: the release's own text is the attacker's to rewrite, so a verification with no
+    // ft ledger anchors nothing and is refused, not returned as a pass.
+    let Some(ft_ledger) = ft_ledger else {
+        return Err(bad(
+            "no ft ledger given: the release's recorded hashes can be rewritten together with the \
+             manifest, so only the hash-chained ft rows anchor the check; pass the ledger"
+                .to_string(),
+        ));
+    };
     let doc: Value = serde_json::from_slice(&read_small(&manifest_path, k)?)
         .map_err(|e| bad(format!("not JSON: {e}")))?;
     let block = doc
@@ -574,19 +598,7 @@ pub fn verify_release_train_manifest(
                 .ok_or_else(|| bad("train_manifest.path is absent".to_string()))?,
         ),
     };
-    let meta =
-        std::fs::metadata(&path).map_err(|e| refuse(k, format!("{}: {e}", path.display())))?;
-    if meta.len() > MAX_TRAIN_MANIFEST_BYTES {
-        return Err(refuse(
-            k,
-            format!(
-                "{}: {} bytes exceeds {MAX_TRAIN_MANIFEST_BYTES}",
-                path.display(),
-                meta.len()
-            ),
-        ));
-    }
-    let on_disk = hex(&sha256_file(&path)?);
+    let on_disk = sha256_regular_file_bounded(&path, MAX_TRAIN_MANIFEST_BYTES)?;
     if on_disk != release_sha {
         return Err(refuse(
             k,
@@ -597,24 +609,78 @@ pub fn verify_release_train_manifest(
             ),
         ));
     }
-    if let Some(ledger) = ft_ledger {
-        let ids: Vec<String> = binding
-            .get("ft_row_ids")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if ids.is_empty() {
-            return Err(bad(
-                "ledger_binding names no ft_row_ids to check the ledger for".to_string(),
+    let ids: Vec<String> = binding
+        .get("ft_row_ids")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    if ids.is_empty() {
+        return Err(bad(
+            "ledger_binding names no ft_row_ids to check the ledger for".to_string(),
+        ));
+    }
+    verify_ledger_binding(ft_ledger, &ids, &on_disk)?;
+    Ok(on_disk)
+}
+
+/// SHA-256 of the regular file at `path`, read no further than the length it had when opened.
+/// A path that is not a regular file (a device, a FIFO, a directory) is refused before it is
+/// opened, so a device that reports length 0 cannot be hashed forever; a file that is longer when
+/// the read ends than when it began is refused (it grew while it was being hashed).
+fn sha256_regular_file_bounded(path: &Path, limit: u64) -> Result<String> {
+    use std::io::Read;
+
+    let k = RefusalKind::TrainManifest;
+    let io = |e: std::io::Error| refuse(k, format!("{}: {e}", path.display()));
+    if !std::fs::metadata(path).map_err(io)?.is_file() {
+        return Err(refuse(
+            k,
+            format!("{} is not a regular file", path.display()),
+        ));
+    }
+    let mut file = File::open(path).map_err(io)?;
+    let meta = file.metadata().map_err(io)?;
+    if !meta.is_file() {
+        return Err(refuse(
+            k,
+            format!("{} is not a regular file", path.display()),
+        ));
+    }
+    let declared = meta.len();
+    if declared > limit {
+        return Err(refuse(
+            k,
+            format!("{}: {declared} bytes exceeds {limit}", path.display()),
+        ));
+    }
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; CHUNK_BYTES];
+    let mut left = declared;
+    while left > 0 {
+        let want = usize::try_from(left.min(len64(&buf)?))
+            .map_err(|e| refuse(k, format!("chunk size: {e}")))?;
+        let n = file.read(&mut buf[..want]).map_err(io)?;
+        if n == 0 {
+            return Err(refuse(
+                k,
+                format!("{}: shrank while it was being hashed", path.display()),
             ));
         }
-        verify_ledger_binding(ledger, &ids, &on_disk)?;
+        hasher.update(&buf[..n]);
+        left -= len64(&buf[..n])?;
     }
-    Ok(on_disk)
+    let mut extra = [0u8; 1];
+    if file.read(&mut extra).map_err(io)? != 0 {
+        return Err(refuse(
+            k,
+            format!("{}: grew while it was being hashed", path.display()),
+        ));
+    }
+    Ok(hex(&hasher.finalize()))
 }
 
 fn verify_shared_init(ledger: &Path, manifest: &SourceManifest) -> Result<Value> {

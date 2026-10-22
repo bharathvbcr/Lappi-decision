@@ -18,6 +18,21 @@ Lane W2b of ft-c5ea3e71 (items 1, 5, 6). Branch `lane/ft-c5ea3e71-w2b`, based on
 - `crates/qd-export/src/calibration_gate.rs`: shape presence is decided by `qd_runtime::calibration::CalibrationTable::lookup`, not a string comparison of keys.
 - `crates/qd-export/src/export.rs`, `lib.rs`: `verify_release_train_manifest(release, ft_ledger, manifest_override)`.
 
+## Adversarial pass (adv/ft-c5ea3e71-w2b: 291011e, 40bc0df, df77b4e, cherry-picked)
+
+Six breaks fixed in code; no BREAK test was weakened.
+
+1. and 2. `write_val_rows` passes `out` and its sidecar path through `assert_path_not_held_out` (the existing door, symlinks resolved there) before anything is written.
+3. `write_val_rows` raises `HeldOutViolation` for any entry or row whose family is in `config.held_out_families`, hashes consistent or not.
+4. `verify_release_train_manifest` with no ft ledger now returns Err. Chosen over a typed result because a typed Ok can still be read as "verified" by a caller that ignores the field, and the release's own hashes are the attacker's to rewrite, so a ledger-less check anchors nothing. The owner override that exists (`manifest_override`) only moves the file path; it is not an anchor and does not waive the ledger.
+5. `sha256_regular_file_bounded`: refuses a non-regular path (checked on the path before opening, so a FIFO cannot block, and again on the handle), hashes no further than the length at open, refuses a file that is longer or shorter when the read ends.
+6. `verify_ledger_binding` (used by export and by verify) refuses a row that is not `run_kind: ft` with `status: completed`. Its refusal kind is `SourceManifest`, as `verify_shared_init` gives the same finding (an existing test pins that kind and message).
+7. Temp files: `_write_atomic` uses `.NAME.PID.RANDOM.partial` created `O_EXCL`, removed on failure; `write_val_requests` now goes through it (it had its own `.partial` copy).
+
+Tests of mine changed by the new rule: the verify tests that called with no ledger now pass one, or assert the refusal (`a_verification_without_a_ledger_is_refused_not_passed`); `a_200_mb_manifest_verifies` (ignored, the reviewer's) now passes a ledger, because the verifier refuses to run without one. Added: eval, failed and started rows refused at export and at verify; non-regular manifest paths refused with the ledger given (the reviewer's `/dev/zero` and directory tests pass trivially without a ledger now, so mine make the type check the cause); concurrent temp names and `O_EXCL`. `cargo fmt` also reformatted the reviewer's `w2b_adversarial.rs`. `SIM105` in the reviewer's python file fixed with `contextlib.suppress` (same behaviour).
+
+Not tested: a file that grows between the length check and the end of the hash. It needs a concurrent writer and no deterministic hook exists in the function, so the refusal is read off the code, not run.
+
 ## Findings that changed the card
 
 - Item 6's gap no longer held as written: the ft ledger row already records `train_manifest_sha256` (ledger.py:1046/1216, written by real_ft_run since 9536245) and export refuses a differing one. The remaining hole was after export, which is what the new function closes.

@@ -257,10 +257,59 @@ fn an_untouched_train_manifest_verifies_against_the_release_and_the_ledger() {
         qd_export::verify_release_train_manifest(&fx.out, Some(&l), None).unwrap(),
         sha
     );
-    assert_eq!(
-        qd_export::verify_release_train_manifest(&fx.out, None, None).unwrap(),
-        sha
+}
+
+/// A verification with no ft ledger anchors nothing, so it is refused rather than returned as a
+/// pass: the release's own hashes can be rewritten together with the manifest.
+#[test]
+fn a_verification_without_a_ledger_is_refused_not_passed() {
+    let (fx, _, _) = bound_release();
+    verify_err(&fx.out, None, None, "no ft ledger given");
+}
+
+/// Only a completed ft row anchors the binding, at export and at verify time alike.
+#[test]
+fn an_eval_or_failed_row_carrying_the_right_sha_is_not_an_anchor() {
+    for (run_kind, status) in [("eval", "completed"), ("ft", "failed"), ("ft", "started")] {
+        let fx = common::standard();
+        let sha = good_manifest(&fx.train_manifest);
+        let mut rows = rows_with(&sha);
+        rows[0]["run_kind"] = json!(run_kind);
+        rows[0]["status"] = json!(status);
+        let mut req = fx.request();
+        req.ft_ledger = Some(ledger(&fx.dir.0, &rows));
+        refused(&req, "not a completed ft row");
+
+        // And after an export bound to a good ledger, swapping in the bad ledger is refused.
+        let (fx, sha, _) = bound_release();
+        let mut rows = rows_with(&sha);
+        rows[1]["run_kind"] = json!(run_kind);
+        rows[1]["status"] = json!(status);
+        let bad = ledger(&fx.dir.0, &rows);
+        verify_err(&fx.out, Some(&bad), None, "not a completed ft row");
+    }
+}
+
+/// With the ledger given (so the refusal cannot come from its absence), a manifest path that is
+/// not a regular file is refused from its type: `/dev/zero` reports length 0 and would hash
+/// forever, a directory or a FIFO has no bytes the export bound.
+#[test]
+fn a_manifest_path_that_is_not_a_regular_file_is_refused_with_the_ledger_given() {
+    let (fx, _, l) = bound_release();
+    verify_err(
+        &fx.out,
+        Some(&l),
+        Some(Path::new("/dev/zero")),
+        "not a regular file",
     );
+    verify_err(&fx.out, Some(&l), Some(&fx.dir.0), "not a regular file");
+    let fifo = fx.dir.0.join("train.fifo");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    verify_err(&fx.out, Some(&l), Some(&fifo), "not a regular file");
 }
 
 #[test]
@@ -276,7 +325,6 @@ fn a_train_manifest_edited_after_the_export_is_detected_at_verify_time() {
         None,
         "edited or replaced after the export",
     );
-    verify_err(&fx.out, None, None, "edited or replaced after the export");
 }
 
 #[test]
@@ -291,26 +339,26 @@ fn an_edit_that_also_rewrites_the_release_manifests_hashes_is_caught_by_the_ledg
     m["train_manifest"]["ledger_binding"]["train_manifest_sha256"] = json!(new_sha);
     std::fs::write(&path, serde_json::to_vec_pretty(&m).unwrap()).unwrap();
     // The release's own text now agrees with the edited file; only the chained ledger does not.
-    assert!(qd_export::verify_release_train_manifest(&fx.out, None, None).is_ok());
     verify_err(&fx.out, Some(&l), None, "train_manifest_sha256");
 }
 
 #[test]
 fn a_release_exported_without_a_ledger_binding_is_refused_not_passed() {
     let fx = common::standard();
-    good_manifest(&fx.train_manifest);
+    let sha = good_manifest(&fx.train_manifest);
     export(&fx.request()).expect("exports");
-    verify_err(&fx.out, None, None, "not verified");
+    let l = ledger(&fx.dir.0, &rows_with(&sha));
+    verify_err(&fx.out, Some(&l), None, "not verified");
 }
 
 #[test]
 fn a_moved_manifest_is_verified_by_override_and_a_missing_one_is_refused() {
-    let (fx, sha, _) = bound_release();
+    let (fx, sha, l) = bound_release();
     let moved = fx.dir.0.join("moved-train.json");
     std::fs::rename(&fx.train_manifest, &moved).unwrap();
-    verify_err(&fx.out, None, None, "train.json");
+    verify_err(&fx.out, Some(&l), None, "train.json");
     assert_eq!(
-        qd_export::verify_release_train_manifest(&fx.out, None, Some(&moved)).unwrap(),
+        qd_export::verify_release_train_manifest(&fx.out, Some(&l), Some(&moved)).unwrap(),
         sha
     );
 }
