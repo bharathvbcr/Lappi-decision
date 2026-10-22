@@ -490,7 +490,11 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     real_tokenizer_pipeline.run(--defect-class), then rebuild its labels the way main does
     and pair them to sequences through the writer's sequence index. Every sequence gets
     the label its index names, the letters read off the set are consistent, and without
-    --defect-class the rebuild is refused."""
+    --defect-class the rebuild is refused.
+
+    Runs under the legacy v5 data rules (``v6_data_rules=False``): it characterizes the label
+    pairing, not the data rules. Under v6 this 20-pair, 40-defect-row build is refused by R1
+    (code.defect_class is 38.7% of written train tokens against a 55.8% floor)."""
     pytest.importorskip("transformers")
     import real_tokenizer_pipeline as pipeline
     from repo_git import resolve_rev
@@ -501,10 +505,10 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     out = tmp_path / "out"
     try:
         pipeline.run(out=out, max_pairs=20, blank_line_runs=False, rev=rev, commitpackft=CPFT,
-                     defect_class=DEFECT_CORPUS, defect_max_rows=40)
+                     defect_class=DEFECT_CORPUS, defect_max_rows=40, v6_data_rules=False)
     except OSError as exc:  # pragma: no cover - no cached tokenizer on this host
         pytest.skip(f"the pipeline could not load its tokenizer: {exc}")
-    config = DataConfig()
+    config = DataConfig.legacy_v5()
     manifest = json.loads((out / rft.TRAIN_MANIFEST).read_text())
     reader = ShardReader(out / "shards" / "train", config=config, repo_root=out,
                          expect_rev=rev)
@@ -523,7 +527,7 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     with pytest.raises(SystemExit, match="was not built from these rows"):
         rft.pair_labels(reader, rft._labels(without, config=config)[0], require_index=True)
     with pytest.raises(SystemExit, match="was built with"):
-        rft.check_defect_source(out, defect_class=None, config=DataConfig())
+        rft.check_defect_source(out, defect_class=None, config=config)
 
 
 class _Index:
