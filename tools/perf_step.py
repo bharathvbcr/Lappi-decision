@@ -51,6 +51,39 @@ def _append(path: Path, row: dict[str, Any]) -> None:
         os.close(fd)
 
 
+STALE_CODE_BANNER = (
+    "STALE CODE: --allow-stale-shards reads a shard set whose qd_data code moved "
+    "(allow_stale_code=True). Every row this run writes is marked stale_code: true and quick "
+    "(rule 8). Its numbers are NOT the performance of pinned code, and no report may cite them "
+    "as such (Fable 2026-10-22)."
+)
+STALE_CODE_QUICK_REASON = (
+    "stale_code: true -- read with allow_stale_code=True, so the shard set's code is not the "
+    "loaded code; a throughput or same-batches measurement, not the performance of pinned code"
+)
+
+
+def enable_stale_code() -> dict[str, Any]:
+    """The one place the perf tools turn ``allow_stale_code`` on (perf_step and perf_parity).
+
+    Deliberate and recorded: J2's probe-8k set was written by older qd_data code. Its tokens
+    are real; a throughput or same-batches parity measurement does not read its labels as
+    labels. The production reader is never patched, only this process's binding. Prints the
+    banner to stderr (stdout carries one JSON object per line) and returns the fields every
+    row this run writes must carry.
+    """
+    import functools
+
+    import qd_train.shards as shards_mod
+
+    shards_mod.assert_shard_trainable = functools.partial(
+        shards_mod.assert_shard_trainable, allow_stale_code=True
+    )
+    print(STALE_CODE_BANNER, file=sys.stderr, flush=True)
+    return {"allow_stale_shards": True, "stale_code": True, "quick": True,
+            "quick_reason": STALE_CODE_QUICK_REASON}
+
+
 def _parse_config(text: str, n_layers: int) -> dict[str, Any]:
     parts = text.split("+")
     head = parts[0]
@@ -247,17 +280,7 @@ def run_profile(args: argparse.Namespace) -> int:
 
     config = DataConfig()
     if args.allow_stale_shards:
-        # Deliberate and recorded: J2's probe-8k set was written by older qd_data code. Its
-        # tokens are real; a throughput or same-batches parity measurement does not read
-        # its labels as labels. The production reader is never patched.
-        import functools
-
-        import qd_train.shards as shards_mod
-
-        shards_mod.assert_shard_trainable = functools.partial(
-            shards_mod.assert_shard_trainable, allow_stale_code=True
-        )
-        base["allow_stale_shards"] = True
+        base.update(enable_stale_code())
     reader = ShardReader(args.out / "shards" / "train", config=config, repo_root=args.out)
     batches, sel = _select_batches(
         reader, batch_tokens=args.batch_tokens, seed=config.seed, width_min=args.width_min,
@@ -574,6 +597,10 @@ def summarize(path: Path) -> int:
             "not_ran": sorted({f"{r.get('status')}: {r.get('reason', '')}"[:120]
                                for r in rs if r.get("status") != "ran"}),
         }
+        if any(r.get("stale_code") for r in rs):
+            out["stale_code"] = True
+            out["quick"] = True
+            out["note"] = "stale_code: not the performance of pinned code"
         if ran:
             best = min(ran, key=lambda r: r.get("step_s_window_mean", r["step_s_median"]))
             out.update({

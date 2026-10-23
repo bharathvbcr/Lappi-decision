@@ -74,6 +74,23 @@ def _append(path: Path, row: dict[str, Any]) -> None:
         os.close(fd)
 
 
+def stale_ledger_marks(stale: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """What an arm run under ``--allow-stale-shards`` adds to the ledger row it writes.
+
+    ``stale`` is :func:`perf_step.enable_stale_code`'s return (empty when the flag is off).
+    The row is quick (rule 8) for the stale reason, and carries the metric ``stale_code`` =
+    true, through ``real_ft_run._RUN_METRICS``: the seam every row of a run already reads, so
+    ``real_ft_run`` itself is unchanged.
+    """
+    if not stale.get("stale_code"):
+        return [], {}
+    from qd_train.tristate import Ran
+
+    return [str(stale["quick_reason"])], {
+        "stale_code": Ran(passed=True, value=True, detail=str(stale["quick_reason"]))
+    }
+
+
 def run_arm(args: argparse.Namespace) -> int:
     if args.deterministic:
         # What real_ft_run.py does at import for --deterministic, done before torch loads.
@@ -83,7 +100,7 @@ def run_arm(args: argparse.Namespace) -> int:
     sys.path.insert(0, str(code_root / "tools"))
     import real_ft_run
     import torch
-    from perf_step import _select_batches
+    from perf_step import _select_batches, enable_stale_code
 
     from qd_data.config import DataConfig
     from qd_train.artifacts import SLOT_SPAN
@@ -94,14 +111,7 @@ def run_arm(args: argparse.Namespace) -> int:
 
     if args.deterministic:
         torch.use_deterministic_algorithms(True)
-    if args.allow_stale_shards:
-        import functools
-
-        import qd_train.shards as shards_mod
-
-        shards_mod.assert_shard_trainable = functools.partial(
-            shards_mod.assert_shard_trainable, allow_stale_code=True
-        )
+    stale = enable_stale_code() if args.allow_stale_shards else {}
     config = DataConfig()
     reader = ShardReader(args.out / "shards" / "train", config=config, repo_root=args.out)
     plan, selection = _select_batches(
@@ -142,21 +152,29 @@ def run_arm(args: argparse.Namespace) -> int:
     if on_cuda:
         torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
-    run = real_ft_run._train(
-        reader=reader, plan=plan, passes=args.passes, device=args.device, seed=args.seed,
-        hidden=64, heads=2, lr=args.lr, span_weight=1.0, ledger=ledger, tag=args.tag,
-        quick_reasons=[
-            f"perf parity arm: {len(plan)} batches x {args.passes} passes on a fixed "
-            "subset; a comparison of code paths, not a training run"
-        ],
-        backbone=None if args.stand_in else args.backbone,
-        optimizer_recipe="bf16" if args.stand_in else "master", deterministic=args.deterministic,
-        attn_implementation="sdpa", n_gpus=1, usd_per_hour=2.29, instance="lambda-1xgh200",
-        cap_s=args.cap_s, batch_tokens=args.batch_tokens,
-        # Kept on so wall_s keeps meaning what every recorded parity arm measured: the loop
-        # plus the whole-plan evaluation. train_wall_s is the loop alone.
-        evaluate_plan=True, **extra,
-    )
+    stale_reasons, stale_metrics = stale_ledger_marks(stale)
+    real_ft_run._RUN_METRICS.update(stale_metrics)
+    try:
+        run = real_ft_run._train(
+            reader=reader, plan=plan, passes=args.passes, device=args.device, seed=args.seed,
+            hidden=64, heads=2, lr=args.lr, span_weight=1.0, ledger=ledger, tag=args.tag,
+            quick_reasons=[
+                f"perf parity arm: {len(plan)} batches x {args.passes} passes on a fixed "
+                "subset; a comparison of code paths, not a training run",
+                *stale_reasons,
+            ],
+            backbone=None if args.stand_in else args.backbone,
+            optimizer_recipe="bf16" if args.stand_in else "master",
+            deterministic=args.deterministic,
+            attn_implementation="sdpa", n_gpus=1, usd_per_hour=2.29, instance="lambda-1xgh200",
+            cap_s=args.cap_s, batch_tokens=args.batch_tokens,
+            # Kept on so wall_s keeps meaning what every recorded parity arm measured: the loop
+            # plus the whole-plan evaluation. train_wall_s is the loop alone.
+            evaluate_plan=True, **extra,
+        )
+    finally:
+        for name in stale_metrics:
+            real_ft_run._RUN_METRICS.pop(name, None)
     wall = time.perf_counter() - t0
     step = run.pop("_step")
     row = next(r for r in ledger.rows() if r.row_id == run["ft_row_id"])
@@ -191,6 +209,7 @@ def run_arm(args: argparse.Namespace) -> int:
                            if on_cuda else None),
     }
     out["pos_per_s"] = round(out["positions"] / float(run["wall_clock_s"]), 1)
+    out.update(stale)
     _append(args.result, out)
     print(json.dumps({k: out[k] for k in ("tag", "steps", "loss_log_digest", "consumed_digest",
                                           "pos_per_s", "peak_alloc_gib", "termination")}),
