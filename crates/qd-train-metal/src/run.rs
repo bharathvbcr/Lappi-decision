@@ -170,6 +170,24 @@ pub fn read_with_manifest_sha256<T>(
     Ok((value, before))
 }
 
+/// The metric names a row carries for its train shard set's code-fingerprint coverage. The same
+/// name `tools/real_ft_run.py` writes (`qd_train.ledger.SHARD_NOT_COVERED_METRIC`), which
+/// `Ledger.promotion_verdict` reads: a row on a set whose fingerprint rule did not cover every
+/// shard-content module (or that drifted and was read with `allow_stale_code`) does not promote
+/// without a byte-identity record.
+pub const SHARD_NOT_COVERED_METRIC: &str = "shard.code_not_covered";
+
+/// The coverage metrics for the train set `reader` opened through the door: the door's
+/// `shard_code_not_covered` verdict, copied. A reader that holds no such verdict records a
+/// `not_run` with that reason, never nothing: an absent metric would read as "covered" and a
+/// row written from it could promote.
+pub fn shard_coverage_metrics(reader: &ShardReader) -> Vec<(String, TriState)> {
+    let state = reader.check("shard_code_not_covered").cloned().unwrap_or_else(|| {
+        TriState::not_run("the shard reader recorded no shard_code_not_covered verdict")
+    });
+    vec![(SHARD_NOT_COVERED_METRIC.to_owned(), state)]
+}
+
 /// The optional row fields this run records: the train manifest file's sha256.
 pub fn row_extras(train_manifest_sha256: &str) -> ledger::RowExtras {
     ledger::RowExtras {
@@ -494,6 +512,9 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         eta: a.eta,
     };
     let mut metrics = ledger::ft_metrics(&result, &facts).map_err(failed("the metrics"))?;
+    for (name, state) in shard_coverage_metrics(&reader) {
+        metrics.insert(name, state);
+    }
     metrics.insert(
         "deterministic_kernels".into(),
         TriState::not_run("one run; repeat-run equality was not measured by this run"),

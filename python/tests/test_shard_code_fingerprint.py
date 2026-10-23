@@ -20,7 +20,7 @@ sys.path.insert(0, str(REPO / "python"))
 import qd_data.fingerprint as fp  # noqa: E402
 from qd_train import artifacts  # noqa: E402
 from qd_train.artifacts import ShardContractViolation, ShardHeader  # noqa: E402
-from qd_train.tristate import Ran  # noqa: E402
+from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 QD_DATA = REPO / "python" / "qd_data"
 
@@ -190,3 +190,77 @@ def test_the_writer_stamps_the_current_version() -> None:
     src = (REPO / "python" / "qd_train" / "shards.py").read_text(encoding="utf-8")
     assert "code_fingerprint=shard_code_fingerprint()" in src
     assert "code_fingerprint_version=FINGERPRINT_VERSION" in src
+
+
+# --- rule 3 (ft-2eb31e7d9863d70a25807b3425fa6057) ---------------------------------------------
+
+PINNED_V2_MODULES = (
+    "caller_records.py", "config.py", "decisions.py", "dedupe.py", "defect_class.py",
+    "errors.py", "general.py", "licences.py", "loaders.py", "minhash.py", "mixture.py",
+    "render.py", "rows.py", "schema.py", "sources.py", "split.py",
+)
+NOT_COVERED_BY_V2 = ("manifest.py", "val_requests.py")
+
+
+def test_rule_3_is_current_and_v2_is_frozen_as_the_pinned_sets_recorded_it() -> None:
+    assert fp.FINGERPRINT_VERSION == 3
+    assert fp.KNOWN_FINGERPRINT_VERSIONS == (1, 2, 3)
+    assert fp.SHARD_CONTENT_MODULES_V2 == PINNED_V2_MODULES
+    assert fp.SHARD_CONTENT_MODULES_BY_RULE == {
+        2: fp.SHARD_CONTENT_MODULES_V2, 3: fp.SHARD_CONTENT_MODULES,
+    }
+    added = set(fp.SHARD_CONTENT_MODULES) - set(fp.SHARD_CONTENT_MODULES_V2)
+    assert added == set(NOT_COVERED_BY_V2)
+    # A set difference over what a header recorded, never a function of its version.
+    assert fp.uncovered_modules(fp.shard_code_fingerprint(rule=2)) == NOT_COVERED_BY_V2
+    assert fp.uncovered_modules(fp.shard_code_fingerprint(rule=3)) == ()
+    assert fp.uncovered_modules(fp.code_fingerprint()) == ()
+    drifted = dict(fp.shard_code_fingerprint(rule=3))
+    drifted["render.py"] = "0" * 64
+    assert fp.uncovered_modules(drifted) == ("render.py",)
+    with pytest.raises(ValueError):
+        fp.shard_code_fingerprint(rule=1)
+
+
+def test_a_v2_header_verifies_over_its_recorded_modules_and_names_not_covered() -> None:
+    recorded = fp.shard_code_fingerprint(rule=2)
+    assert sorted(recorded) == sorted(PINNED_V2_MODULES)
+    header = _header(code_fingerprint=recorded, code_fingerprint_version=2)
+    state = _check(header)
+    assert isinstance(state, Ran) and state.passed, state
+    assert "not_covered: [manifest.py, val_requests.py]" in state.detail
+    nc = artifacts._shard_code_not_covered_check(header)
+    assert isinstance(nc, Ran) and nc.value == "manifest.py,val_requests.py"
+
+
+def test_a_v3_header_covers_every_listed_module_and_not_covered_is_empty() -> None:
+    header = _header(code_fingerprint=fp.shard_code_fingerprint(), code_fingerprint_version=3)
+    state = _check(header)
+    assert isinstance(state, Ran) and state.passed and "not_covered" not in state.detail
+    nc = artifacts._shard_code_not_covered_check(header)
+    assert isinstance(nc, Ran) and nc.value == ""
+    assert "manifest.py" in header.code_fingerprint
+    assert "val_requests.py" in header.code_fingerprint
+
+
+def test_a_stale_v2_header_is_still_refused_over_its_own_modules() -> None:
+    stale = dict(fp.shard_code_fingerprint(rule=2))
+    stale["split.py"] = "0" * 64
+    state = _check(_header(code_fingerprint=stale, code_fingerprint_version=2))
+    assert isinstance(state, Ran) and not state.passed and "changed: split.py" in state.detail
+
+
+def test_the_reader_branches_on_the_recorded_rule_not_on_the_module_count() -> None:
+    """A header labelled v2 that records 18 modules is a v2 header: verified over rule 2's
+    16, so the extra two read as drift. A header labelled v3 that records 16 is refused as
+    missing two. The count never picks the rule."""
+    as_v2 = _header(code_fingerprint=fp.shard_code_fingerprint(rule=3), code_fingerprint_version=2)
+    bad2 = _check(as_v2)
+    assert isinstance(bad2, Ran) and not bad2.passed and "removed since" in bad2.detail
+    as_v3 = _header(code_fingerprint=fp.shard_code_fingerprint(rule=2), code_fingerprint_version=3)
+    bad3 = _check(as_v3)
+    assert isinstance(bad3, Ran) and not bad3.passed and "added since" in bad3.detail
+
+
+def test_a_header_without_a_fingerprint_cannot_say_what_it_covers() -> None:
+    assert isinstance(artifacts._shard_code_not_covered_check(_header()), NotRun)

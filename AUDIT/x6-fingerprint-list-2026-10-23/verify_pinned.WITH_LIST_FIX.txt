@@ -1,0 +1,29 @@
+lora2b-train.header.json: recorded shard_hash 94bef49aa2c13ed675d64d1d93b75ce201c2b47932596908e927c7172e01a0ac
+  from_json accepted; recomputed shard_hash equals recorded: True
+  _shard_code_check: Ran passed=False
+  detail: lora2b-train.header.json: qd_data has changed since this shard set was written (v2 rule, shard-content modules) -- added since: manifest.py, val_requests.py. The corpus, tokenizer and remap hashes all still match, because none of them covers the code that turns the corpus into rows: this set's labels were produced by code that is no longer what would run. Regenerate the shard set, or pass allow_stale_code=True to read it deliberately.
+lora2b-val.header.json: recorded shard_hash 58bd753fc93391f191f9f7ff2bf8a5ea3d1e990f83c33752c7399a951a62435b
+  from_json accepted; recomputed shard_hash equals recorded: True
+  _shard_code_check: Ran passed=False
+  detail: lora2b-val.header.json: qd_data has changed since this shard set was written (v2 rule, shard-content modules) -- added since: manifest.py, val_requests.py. The corpus, tokenizer and remap hashes all still match, because none of them covers the code that turns the corpus into rows: this set's labels were produced by code that is no longer what would run. Regenerate the shard set, or pass allow_stale_code=True to read it deliberately.
+fingerprint a rebuild would record now:
+{
+ "caller_records.py": "2947780ff8697e3e195c8259d1bcc7c068bc082df578a8ca0b4daf22c3e55b68",
+ "config.py": "a5e84ac85455ce3df6ccafbde237073288b4af9eb1b58c6dcbfac39a20753800",
+ "decisions.py": "025073798d1e451c107af856f4a8abae51d285e41c8e51c84820a270f401c74b",
+ "dedupe.py": "a1d0700beef31df260fbd2084db59d6a2ec85305ddf3748d708a6ff2e2aafb81",
+ "defect_class.py": "dffbc5d04d0c5b2aea9988c9324ca5b59299e8cfbad420538078313870f1522b",
+ "errors.py": "625c9e8c0b3e21044b1575b1f2a55e62e101009e3f6cfb194d2657c417517318",
+ "general.py": "27cfe6e19956ec7a8fddffab80f74d2f58632fc776f5498c8984df6c77276f53",
+ "licences.py": "967d80d2a7fd4e0a0d7e0f6d27d5e062f4f6e083ea36d8ca39d53a0d3c7ef1c9",
+ "loaders.py": "176287abb33b816f407379103e882dc979abad91a316b24d98e23dde9a53a872",
+ "manifest.py": "76dd21734ad1fff97f2d2689cf29495c7ee73085ef91fa6a0a126becc3804e01",
+ "minhash.py": "a1ac0dbd1c08f4a48f3c62eadb7a3b490d1c5bc304fb947887875f9ec413634b",
+ "mixture.py": "7145d950d3496ebf7fd8306cbab450db677deca6fbe621eeaf43df288c07f79c",
+ "render.py": "cc3179586c1cf08412d4ae485640754beeb01482711425c1fdce0ecf736d163a",
+ "rows.py": "a34aa98d75ee58e21e08d1ead12100c8d82e57335b692ce7ccb29dd747f308fb",
+ "schema.py": "4c80934cd4d0360cf76f287e11ff008590b619332ddddc4eabadc0777310edce",
+ "sources.py": "7f426e292896402e0fa2f58b220d3aa250ff7158746914bb37d556cd50b0a27a",
+ "split.py": "f2c01469440505b7fa08650b64d83291168d3c5a1c1114412582eccffd44cc2d",
+ "val_requests.py": "8e4bde0e69f8759d8b48a0481cc17e678fdfdbfc97816931b941fae39c98fd4d"
+}

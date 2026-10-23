@@ -104,7 +104,9 @@ def _env() -> Environment:
 
 def _family(tmp_path: Path, n_seeds: int = 3, *, pooled: TriState = POOLED_NOT_RUN,
             defect: dict[int, TriState | str] | None = None,
-            shuffled: dict[int, TriState | str] | None = None) -> Ledger:
+            shuffled: dict[int, TriState | str] | None = None,
+            train_recipe: dict[str, object] | None = None,
+            train_metrics: dict[str, TriState] | None = None) -> Ledger:
     """``n_seeds`` eval rows differing only in seed, each with the control row that
     supplements it (tools/ft_linear_control.py's shape: the pooled gate plus the per-family
     margins). Everything else green. ``defect`` and ``shuffled`` override per seed; the
@@ -113,7 +115,9 @@ def _family(tmp_path: Path, n_seeds: int = 3, *, pooled: TriState = POOLED_NOT_R
     led = Ledger(tmp_path / "family.jsonl")
     for seed in range(n_seeds):
         with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env(),
-                         wall_clock_s=None, cost=None) as rec:
+                         wall_clock_s=None, cost=None, recipe=train_recipe) as rec:
+            for name, state in (train_metrics or {}).items():
+                rec.metric(name, state)
             for g in REQUIRED_GATES:
                 if g != "paired_margin_vs_linear":
                     rec.gate(g, GREEN)

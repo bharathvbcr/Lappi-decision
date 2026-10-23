@@ -56,17 +56,65 @@ fn the_v64_fixture_passes_the_door_and_is_the_identity_over_the_snapshots_64_ids
     );
 }
 
-/// A v2 shard set (`code_fingerprint_version` 2, fingerprint over the live `python/qd_data`'s
+/// A current-rule shard set (`code_fingerprint_version` 3, fingerprint over the live `python/qd_data`'s
 /// `SHARD_CONTENT_MODULES`) opens through the same door `run()` uses, which is `qd-train`'s
 /// reader: no `allow_stale_code`, and the live package carries unlisted modules the v64
 /// fixture's frozen copy never had. Before `qd-train` read the version it hashed every `*.py` and
 /// refused this set as "added since", so no v6 set could reach a LoRA lane.
 #[test]
-fn a_v2_shard_set_opens_through_the_door_run_uses() {
+fn a_current_rule_shard_set_opens_through_the_door_run_uses() {
+    let reader = door_reader_under_rule("v3-door", 3);
+    assert!(reader.check("shard_code_current").unwrap().is_pass());
+    assert_eq!(reader.header().code_fingerprint_version, 3);
+}
+
+/// The fingerprint metric a Rust ft row carries (`run::shard_coverage_metrics`, the one place
+/// `run()` takes it from): a v3 set records nothing uncovered, a v2 set records the two modules
+/// rule 3 added, so `Ledger.promotion_verdict` can refuse its row. Without this a row written on
+/// a v2 set carried no metric and read as covered.
+#[test]
+fn a_rust_ft_row_on_a_v2_set_is_marked_not_covered_and_a_v3_set_is_not() {
+    use qd_train::tristate::TriState;
+    use qd_train_metal::run::{SHARD_NOT_COVERED_METRIC, shard_coverage_metrics};
+    let value_of = |reader: &ShardReader| match shard_coverage_metrics(reader).as_slice() {
+        [(name, TriState::Ran { value, passed: true, .. })] => {
+            assert_eq!(name, SHARD_NOT_COVERED_METRIC);
+            assert_eq!(SHARD_NOT_COVERED_METRIC, "shard.code_not_covered");
+            value.clone()
+        }
+        other => panic!("expected one passing Ran metric, got {other:?}"),
+    };
+    assert_eq!(
+        value_of(&door_reader_under_rule("v2-row", 2)),
+        serde_json::json!("manifest.py,val_requests.py")
+    );
+    assert_eq!(
+        value_of(&door_reader_under_rule("v3-row", 3)),
+        serde_json::json!("")
+    );
+}
+
+/// A door whose `qd_data` cannot say which modules a header covers (the v64 fixture's frozen copy
+/// states no module list) records a `not_run` metric, never nothing and never a clean pass.
+#[test]
+fn a_rust_ft_row_whose_qd_data_cannot_decide_coverage_records_not_run() {
+    use qd_train::tristate::TriState;
+    use qd_train_metal::run::shard_coverage_metrics;
+    match shard_coverage_metrics(&reader()).as_slice() {
+        [(_, TriState::NotRun { reason })] => {
+            assert!(reason.contains("could not be decided"), "{reason}");
+        }
+        other => panic!("expected one not_run metric, got {other:?}"),
+    }
+}
+
+/// The v64 fixture's train set re-stamped to fingerprint rule `rule` over the live
+/// `python/qd_data`, opened the way `run()` opens it (no `allow_stale_code`).
+fn door_reader_under_rule(tag: &str, rule: u64) -> ShardReader {
     use qd_train::shards::{ShardHeader, shard_code_fingerprint};
-    let a = args(&scratch("v2-door"), 1);
+    let a = args(&scratch(tag), 1);
     let live_qd_data = repo().join("python").join("qd_data");
-    let shards = scratch("v2-door-set").join("train");
+    let shards = scratch(&format!("{tag}-set")).join("train");
     std::fs::create_dir_all(&shards).unwrap();
     for entry in std::fs::read_dir(&a.shards).unwrap() {
         let entry = entry.unwrap();
@@ -76,21 +124,20 @@ fn a_v2_shard_set_opens_through_the_door_run_uses() {
     let mut raw: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let mut header = ShardHeader::from_json(&raw).expect("the v64 fixture header");
-    let fingerprint = shard_code_fingerprint(&live_qd_data).expect("the live qd_data fingerprint");
+    let fingerprint =
+        shard_code_fingerprint(&live_qd_data, rule).expect("the live qd_data fingerprint");
     header.code_fingerprint = fingerprint.clone();
-    header.code_fingerprint_version = 2;
+    header.code_fingerprint_version = rule;
     raw["code_fingerprint"] = serde_json::to_value(&fingerprint).unwrap();
-    raw["code_fingerprint_version"] = serde_json::json!(2);
+    raw["code_fingerprint_version"] = serde_json::json!(rule);
     raw["shard_hash"] = serde_json::json!(header.shard_hash().unwrap());
     std::fs::write(&path, serde_json::to_vec_pretty(&raw).unwrap()).unwrap();
 
     let mut opts = ShardOpen::new(DataConfig::default(), a.data_root.clone(), live_qd_data);
     opts.expect_rev = a.expect_rev.clone();
     opts.files = Arc::new(OsFiles);
-    let reader = ShardReader::open(&shards, &a.manifest, &opts)
-        .unwrap_or_else(|e| panic!("a v2 set is refused at the door: {e}"));
-    assert!(reader.check("shard_code_current").unwrap().is_pass());
-    assert_eq!(reader.header().code_fingerprint_version, 2);
+    ShardReader::open(&shards, &a.manifest, &opts)
+        .unwrap_or_else(|e| panic!("a rule {rule} set is refused at the door: {e}"))
 }
 
 /// A checkpoint root as `run()` leaves one: `<root>/recipe.json` beside `<root>/ckpt-<step>/`.

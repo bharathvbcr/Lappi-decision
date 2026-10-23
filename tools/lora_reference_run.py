@@ -89,7 +89,13 @@ from qd_train import lora
 from qd_train.backbone import BackboneContractViolation, load_text_tower, remap_text_tower
 from qd_train.data_access import _file_sha256, assert_path_not_held_out
 from qd_train.heads import SpanPointerHead
-from qd_train.ledger import Environment, Ledger, RunRecorder
+from qd_train.ledger import (
+    SHARD_NOT_COVERED_METRIC,
+    Environment,
+    Ledger,
+    RunRecorder,
+    shard_coverage_state,
+)
 from qd_train.memory import ADAMW_BF16, ADAMW_FP32, CheckpointRefused, spec_from_checkpoint
 from qd_train.run_control import RunControl, WallClockCap
 from qd_train.shards import ShardReader, assert_shard_files_trainable
@@ -529,6 +535,9 @@ def run(cfg: LoraRunConfig) -> LoraRunResult:
     }
     for name, (what, value) in formulas.items():
         recorder.metric(name, _stat(what, value, value))
+    # What the train set's fingerprint cannot vouch for (`ledger._shard_not_covered_refusals`):
+    # this row is quick today, and does not rely on that to stay unpromotable.
+    recorder.metric(SHARD_NOT_COVERED_METRIC, shard_coverage_state(reader.checks))
     recorder.metric(
         "device_budget",
         NotRun(

@@ -221,12 +221,16 @@ from qd_train.heads import (
 )
 from qd_train.ledger import (
     DEFAULT_LEDGER_PATH,
+    SHARD_NOT_COVERED_METRIC,
     SUPPLEMENT_KEY,
+    VAL_SHARD_HASH_METRIC,
+    VAL_SHARD_NOT_COVERED_METRIC,
     Environment,
     Ledger,
     LedgerRow,
     Protocol,
     RunRecorder,
+    shard_coverage_state,
 )
 from qd_train.memory import (
     ADAMW_BF16,
@@ -2893,6 +2897,10 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     )
     for name, value in _RUN_METRICS.items():
         recorder.metric(name, value)
+    # What the train set's fingerprint cannot vouch for. A row that trained on a set with a
+    # non-empty answer, or whose reader said nothing (a NotRun), does not promote without a
+    # byte-identity record (`ledger._shard_not_covered_refusals`).
+    recorder.metric(SHARD_NOT_COVERED_METRIC, shard_coverage_state(reader.checks))
     return recorder
 
 
@@ -5384,6 +5392,13 @@ def open_val_reader(
             f"{train.header.remap_hash[:16]}: the same id would name a different embedding "
             "row in the model being scored"
         )
+    # Promotion is decided on val metrics, so a val set whose fingerprint rule did not cover
+    # every shard-content module marks every row this run writes from here on, as the train
+    # set does in `_recorder` (`ledger._shard_not_covered_refusals`, per split).
+    _RUN_METRICS[VAL_SHARD_NOT_COVERED_METRIC] = shard_coverage_state(reader.checks)
+    # The val set's identity beside it: an ft row's recipe carries the train hash only, and a
+    # byte-identity record lifts a set by its hash (ledger._split_shard_hash).
+    _RUN_METRICS[VAL_SHARD_HASH_METRIC] = Ran(passed=True, value=reader.header.shard_hash())
     return reader
 
 

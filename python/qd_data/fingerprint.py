@@ -38,6 +38,16 @@ relative, top level and in-function) of the shard-building entry points
 module in it is missing from the list or the list names one outside it. The one named
 exemption is this module, which describes the code and runs in no row pipeline.
 
+**Version 3** (2026-10-23; ``FINGERPRINT_VERSION``): the same rule with the two modules the
+closure test found missing from version 2's list, ``manifest.py`` and ``val_requests.py``
+(ft-2eb31e7d9863d70a25807b3425fa6057). Version 2's list is frozen as
+:data:`SHARD_CONTENT_MODULES_V2`. A reader branches on the rule the header records, never on
+how many modules it lists: a v2 header is verified over its own recorded modules and the
+verdict carries ``not_covered`` (:func:`uncovered_modules`), the modules rule 3 fingerprints
+that the header could not have. Verifying a v2 header over rule 3's list would refuse every
+pinned v2 shard set ("added since"); silently verifying it over its own list would read an
+uncovered set as covered. Neither is done.
+
 Containment attestations (``qd_train.exclusions.containment_corpus``) have the same two rules
 under their own number, ``CONTAINMENT_FINGERPRINT_VERSION``: rule 1 is every module, rule 2 is
 :data:`CONTAINMENT_CONTENT_MODULES`, the closure of ``qd_train/exclusions.py``'s ``qd_data``
@@ -63,12 +73,16 @@ __all__ = [
     "CONTAINMENT_FINGERPRINT_VERSION",
     "FINGERPRINT_SUFFIX",
     "FINGERPRINT_VERSION",
+    "KNOWN_FINGERPRINT_VERSIONS",
     "SHARD_CONTENT_MODULES",
+    "SHARD_CONTENT_MODULES_BY_RULE",
+    "SHARD_CONTENT_MODULES_V2",
     "code_fingerprint",
     "containment_code_fingerprint",
     "describe_drift",
     "drifted_modules",
     "shard_code_fingerprint",
+    "uncovered_modules",
 ]
 
 #: Only ``*.py``. A ``.pyc`` is derived, and ``__pycache__`` is excluded by it.
@@ -77,12 +91,16 @@ FINGERPRINT_SUFFIX: Final[str] = ".py"
 
 #: The fingerprint rule a new shard header records (``code_fingerprint_version``). A header
 #: that records none was written under rule 1: every module.
-FINGERPRINT_VERSION: Final[int] = 2
+FINGERPRINT_VERSION: Final[int] = 3
 
-#: The ``qd_data`` modules that determine shard bytes, sorted. Derived, and checked, as the
-#: import closure of the shard-building entry points (see the module docstring); add a module
-#: here when ``test_every_module_the_shard_builders_import_is_in_the_list`` says to.
-SHARD_CONTENT_MODULES: Final[tuple[str, ...]] = (
+#: Every rule a reader knows. A header is read by the rule it records, never by counting its
+#: modules; a number not in here is refused.
+KNOWN_FINGERPRINT_VERSIONS: Final[tuple[int, ...]] = (1, 2, FINGERPRINT_VERSION)
+
+#: Rule 2's list, frozen as the headers written under it recorded it (16 modules). A v2 header
+#: is verified over these and no others, and the modules rule 3 added are its ``not_covered``.
+#: Never edited: it is what the pinned v2 shard sets were written under.
+SHARD_CONTENT_MODULES_V2: Final[tuple[str, ...]] = (
     "caller_records.py",
     "config.py",
     "decisions.py",
@@ -100,6 +118,37 @@ SHARD_CONTENT_MODULES: Final[tuple[str, ...]] = (
     "sources.py",
     "split.py",
 )
+
+#: The ``qd_data`` modules that determine shard bytes, sorted: rule 3's list, the current one.
+#: Derived, and checked, as the import closure of the shard-building entry points (see the
+#: module docstring); add a module here, under a new rule number, when
+#: ``test_every_module_the_shard_builders_import_is_in_the_list`` says to.
+SHARD_CONTENT_MODULES: Final[tuple[str, ...]] = (
+    "caller_records.py",
+    "config.py",
+    "decisions.py",
+    "dedupe.py",
+    "defect_class.py",
+    "errors.py",
+    "general.py",
+    "licences.py",
+    "loaders.py",
+    "manifest.py",
+    "minhash.py",
+    "mixture.py",
+    "render.py",
+    "rows.py",
+    "schema.py",
+    "sources.py",
+    "split.py",
+    "val_requests.py",
+)
+
+#: The module list each shard-content rule verifies a header over.
+SHARD_CONTENT_MODULES_BY_RULE: Final[dict[int, tuple[str, ...]]] = {
+    2: SHARD_CONTENT_MODULES_V2,
+    3: SHARD_CONTENT_MODULES,
+}
 
 #: The fingerprint rule a new containment attestation's corpus records
 #: (``qd_data_fingerprint_version``; ``qd_train.exclusions.containment_corpus``). An attestation
@@ -189,9 +238,39 @@ def _listed_fingerprint(
     return {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in modules}
 
 
-def shard_code_fingerprint(directory: Path | None = None) -> dict[str, str]:
-    """Rule 2: ``{module: sha256}`` over :data:`SHARD_CONTENT_MODULES` only."""
-    return _listed_fingerprint(SHARD_CONTENT_MODULES, directory, "shard-content")
+def shard_code_fingerprint(
+    directory: Path | None = None, rule: int = FINGERPRINT_VERSION
+) -> dict[str, str]:
+    """``{module: sha256}`` over the modules rule ``rule`` lists (rule 2 or 3; 3 by default).
+
+    A rule with no list here (1 hashes every module, by :func:`code_fingerprint`; anything
+    else is unknown) is refused, never mapped to the current list.
+    """
+    modules = SHARD_CONTENT_MODULES_BY_RULE.get(rule)
+    if modules is None:
+        raise ValueError(
+            f"fingerprint rule {rule!r} has no shard-content list "
+            f"(rules with one: {sorted(SHARD_CONTENT_MODULES_BY_RULE)})"
+        )
+    return _listed_fingerprint(modules, directory, "shard-content")
+
+
+def uncovered_modules(
+    recorded: dict[str, str], directory: Path | None = None
+) -> tuple[str, ...]:
+    """The current rule's modules a recorded fingerprint cannot vouch for, sorted.
+
+    A set difference over what the header RECORDED, not a function of its version number: a
+    module on the current rule-3 list that the header did not record, plus a listed module
+    the header recorded whose digest is not the code loaded now (a drifted set read with
+    ``allow_stale_code`` is not covered either). A truncated v2 header, a forged version and a
+    drifted v3 header all name their modules; only a header that records every listed module
+    at today's bytes names none.
+    """
+    current = shard_code_fingerprint(directory, FINGERPRINT_VERSION)
+    missing = set(current) - set(recorded)
+    changed = {m for m, digest in current.items() if m in recorded and recorded[m] != digest}
+    return tuple(sorted(missing | changed))
 
 
 def containment_code_fingerprint(directory: Path | None = None) -> dict[str, str]:

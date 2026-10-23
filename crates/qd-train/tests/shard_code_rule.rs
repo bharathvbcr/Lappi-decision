@@ -19,11 +19,12 @@ use common::{copy_dir, fixture, fixture_open, qd_data_dir, scratch};
 use qd_train::files::OsFiles;
 use qd_train::shards::{
     ShardHeader, ShardReader, code_fingerprint, shard_code_fingerprint, shard_content_modules,
+    uncovered_modules,
 };
+use qd_train::tristate::TriState;
 use serde_json::{Value, json};
 
-const FP_PY: &[u8] =
-    b"\"\"\"mini.\"\"\"\n\nSHARD_CONTENT_MODULES: Final[tuple[str, ...]] = (\n    \"a.py\",\n    \"b.py\",\n)\n";
+const FP_PY: &[u8] = b"\"\"\"mini.\"\"\"\n\nSHARD_CONTENT_MODULES_V2: Final[tuple[str, ...]] = (\n    \"a.py\",\n    \"b.py\",\n)\n\nSHARD_CONTENT_MODULES: Final[tuple[str, ...]] = (\n    \"a.py\",\n    \"b.py\",\n    \"c.py\",\n)\n";
 const A_PY: &[u8] = b"a = 1\n";
 const B_PY: &[u8] = b"b = 2\n";
 const C_PY: &[u8] = b"c = 3\n";
@@ -31,8 +32,12 @@ const C_PY: &[u8] = b"c = 3\n";
 /// Python-written, `code_fingerprint_version=2`: `{a.py, b.py}`.
 const PY_V2: &str = r#"{"buckets": [8], "code_fingerprint": {"a.py": "cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2", "b.py": "17dd98c94951360cbd9b278de6650598290a9f9121367458640c94bfbbd2c037"}, "code_fingerprint_version": 2, "corpus_rev": "92e1c74", "created_at": "2026-10-18T01:47:22.825896+00:00", "data_snapshot_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "dtype": "uint32", "format": "qd-shard-v1", "max_seq_len": 8, "n_sequences": 3, "packed": false, "remap_hash": "9999999999999999999999999999999999999999999999999999999999999999", "sequence_index_hash": "", "shard_hash": "91cbf91505257a45d1f1745e39a3c4424c5602567a8c00765a00d18cd8dbdacf", "split": "train", "tokenizer_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "total_tokens": 10, "vocab_size": 64}"#;
 
+/// Python-written, `code_fingerprint_version=3`: `{a.py, b.py, c.py}`. Made by
+/// `AUDIT/x6-fingerprint-list-2026-10-23/make_rust_fixtures.py`, as are the other two.
+const PY_V3: &str = r#"{"format": "qd-shard-v1", "split": "train", "data_snapshot_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "tokenizer_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "remap_hash": "9999999999999999999999999999999999999999999999999999999999999999", "vocab_size": 64, "n_sequences": 3, "total_tokens": 10, "max_seq_len": 8, "buckets": [8], "packed": false, "dtype": "uint32", "created_at": "2026-10-18T01:47:22.825896+00:00", "code_fingerprint": {"a.py": "cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2", "b.py": "17dd98c94951360cbd9b278de6650598290a9f9121367458640c94bfbbd2c037", "c.py": "1b0c816fe818ab7f866b923a450b5afee2622b53f387fe9277e38ac265d38303"}, "corpus_rev": "92e1c74", "sequence_index_hash": "", "code_fingerprint_version": 3, "shard_hash": "fc7fc04f4d88c777030bce6e32792de0c71ec7d390ace8596f0ac5c853a3bfb0"}"#;
+
 /// Python-written, rule 1 (no version field): every module of the mini package.
-const PY_V1: &str = r#"{"buckets": [8], "code_fingerprint": {"a.py": "cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2", "b.py": "17dd98c94951360cbd9b278de6650598290a9f9121367458640c94bfbbd2c037", "c.py": "1b0c816fe818ab7f866b923a450b5afee2622b53f387fe9277e38ac265d38303", "fingerprint.py": "ee224bb129330207fe8539a09b1703ca1a33c7729f11c90628900b245fd3639f"}, "corpus_rev": "92e1c74", "created_at": "2026-10-18T01:47:22.826231+00:00", "data_snapshot_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "dtype": "uint32", "format": "qd-shard-v1", "max_seq_len": 8, "n_sequences": 3, "packed": false, "remap_hash": "9999999999999999999999999999999999999999999999999999999999999999", "sequence_index_hash": "", "shard_hash": "a855f1adf50feca716ac8050eb5de0be14355ba0b94502cff2f569d28f55357b", "split": "train", "tokenizer_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "total_tokens": 10, "vocab_size": 64}"#;
+const PY_V1: &str = r#"{"buckets": [8], "code_fingerprint": {"a.py": "cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2", "b.py": "17dd98c94951360cbd9b278de6650598290a9f9121367458640c94bfbbd2c037", "c.py": "1b0c816fe818ab7f866b923a450b5afee2622b53f387fe9277e38ac265d38303", "fingerprint.py": "9f8a393497322af44c1e3548bc6b9ad27f0da19665c583071cd4f0060657580a"}, "corpus_rev": "92e1c74", "created_at": "2026-10-18T01:47:22.826231+00:00", "data_snapshot_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "dtype": "uint32", "format": "qd-shard-v1", "max_seq_len": 8, "n_sequences": 3, "packed": false, "remap_hash": "9999999999999999999999999999999999999999999999999999999999999999", "sequence_index_hash": "", "shard_hash": "901c5986450a91319bbd27354bfcfb4242c5564b4f321cc7f84f1f4eac81f60e", "split": "train", "tokenizer_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "total_tokens": 10, "vocab_size": 64}"#;
 
 fn mini_qd_data(tag: &str) -> PathBuf {
     let dir = scratch(tag).join("qd_data");
@@ -48,13 +53,21 @@ fn mini_qd_data(tag: &str) -> PathBuf {
     dir
 }
 
+/// The `value` of a `Ran` check; anything else fails the test.
+fn value_of(state: &TriState) -> Value {
+    match state {
+        TriState::Ran { value, .. } => value.clone(),
+        other => panic!("expected a Ran check, got {other:?}"),
+    }
+}
+
 fn parse(text: &str) -> Value {
     serde_json::from_str(text).expect("JSON")
 }
 
 #[test]
 fn a_python_written_v2_header_verifies_and_a_v1_header_still_does() {
-    for text in [PY_V2, PY_V1] {
+    for text in [PY_V2, PY_V3, PY_V1] {
         let raw = parse(text);
         let header = ShardHeader::from_json(&raw).unwrap_or_else(|e| panic!("refused: {e}"));
         assert_eq!(Value::from(header.shard_hash().unwrap()), raw["shard_hash"]);
@@ -76,7 +89,7 @@ fn a_python_written_v2_header_verifies_and_a_v1_header_still_does() {
 
 #[test]
 fn an_unknown_or_mistyped_version_is_refused_and_the_version_is_covered_by_the_hash() {
-    for bad in [json!(3), json!(0), json!("2"), json!(2.0), json!(true)] {
+    for bad in [json!(4), json!(0), json!("2"), json!(2.0), json!(true)] {
         let mut raw = parse(PY_V2);
         raw["code_fingerprint_version"] = bad;
         let err = ShardHeader::from_json(&raw).expect_err("refused");
@@ -93,8 +106,8 @@ fn an_unknown_or_mistyped_version_is_refused_and_the_version_is_covered_by_the_h
 #[test]
 fn the_module_list_is_read_from_the_package_it_describes() {
     let dir = mini_qd_data("list");
-    assert_eq!(shard_content_modules(&dir).unwrap(), ["a.py", "b.py"]);
-    let fp = shard_code_fingerprint(&dir).unwrap();
+    assert_eq!(shard_content_modules(&dir, 2).unwrap(), ["a.py", "b.py"]);
+    let fp = shard_code_fingerprint(&dir, 2).unwrap();
     assert_eq!(fp.keys().collect::<Vec<_>>(), ["a.py", "b.py"]);
     assert_eq!(
         Value::from(fp["a.py"].clone()),
@@ -102,10 +115,87 @@ fn the_module_list_is_read_from_the_package_it_describes() {
         "the digest Python recorded"
     );
     std::fs::remove_file(dir.join("b.py")).unwrap();
-    let err = shard_code_fingerprint(&dir).expect_err("a listed module is missing");
+    let err = shard_code_fingerprint(&dir, 2).expect_err("a listed module is missing");
     assert!(err.to_string().contains("b.py"), "{err}");
     std::fs::write(dir.join("fingerprint.py"), b"x = 1\n").unwrap();
-    assert!(shard_content_modules(&dir).is_err(), "no tuple, no guess");
+    assert!(shard_content_modules(&dir, 2).is_err(), "no tuple, no guess");
+}
+
+#[test]
+fn the_current_rule_lists_what_rule_2_did_not_and_that_difference_is_not_covered() {
+    let dir = mini_qd_data("not-covered");
+    assert_eq!(
+        shard_content_modules(&dir, 3).unwrap(),
+        ["a.py", "b.py", "c.py"]
+    );
+    // A set difference over what a header recorded, not a function of its version.
+    let recorded = |header: &str| recorded_of(&fp_of(header));
+    assert_eq!(uncovered_modules(&recorded(PY_V2), &dir).unwrap(), ["c.py"]);
+    assert!(uncovered_modules(&recorded(PY_V3), &dir).unwrap().is_empty());
+    assert!(uncovered_modules(&recorded(PY_V1), &dir).unwrap().is_empty());
+    let mut drifted = recorded(PY_V3);
+    drifted.insert("a.py".to_owned(), "0".repeat(64));
+    assert_eq!(uncovered_modules(&drifted, &dir).unwrap(), ["a.py"]);
+    assert!(shard_content_modules(&dir, 1).is_err(), "rule 1 has no list");
+    assert!(shard_code_fingerprint(&dir, 9).is_err());
+}
+
+#[test]
+fn a_v2_set_opens_and_its_verdict_names_what_it_does_not_cover() {
+    let qd = mini_qd_data("v2-nc");
+    let shards = set_with_fingerprint("v2-nc-set", 2, &fp_of(PY_V2));
+    let reader = open(&shards, &qd).unwrap_or_else(|e| panic!("a v2 set is refused: {e}"));
+    let nc = reader.check("shard_code_not_covered").expect("recorded");
+    assert!(nc.is_pass());
+    assert_eq!(value_of(nc), json!("c.py"), "{nc:?}");
+    // c.py is not covered by v2: editing it still cannot drift the set, and the set still says so.
+    std::fs::write(qd.join("c.py"), b"c = 'edited'\n").unwrap();
+    let reader = open(&shards, &qd).expect("an edit to an uncovered module does not refuse v2");
+    assert_eq!(
+        value_of(reader.check("shard_code_not_covered").unwrap()),
+        json!("c.py")
+    );
+}
+
+#[test]
+fn a_v3_set_covers_every_listed_module_and_is_refused_when_one_drifts() {
+    let qd = mini_qd_data("v3");
+    let shards = set_with_fingerprint("v3-set", 3, &fp_of(PY_V3));
+    let reader = open(&shards, &qd).unwrap_or_else(|e| panic!("a v3 set is refused: {e}"));
+    assert!(reader.check("shard_code_current").unwrap().is_pass());
+    assert_eq!(
+        value_of(reader.check("shard_code_not_covered").unwrap()),
+        json!("")
+    );
+    std::fs::write(qd.join("c.py"), b"c = 'edited'\n").unwrap();
+    let err = open(&shards, &qd).expect_err("c.py is covered under rule 3");
+    assert!(err.to_string().contains("changed: c.py"), "{err}");
+}
+
+#[test]
+fn the_reader_branches_on_the_recorded_rule_never_on_the_module_count() {
+    let qd = mini_qd_data("by-rule");
+    // Labelled v2, but records three modules: verified over rule 2's two, so c.py reads as
+    // removed. Labelled v3, but records two: verified over rule 3's three, so c.py reads as added.
+    let as_v2 = set_with_fingerprint("by-rule-v2", 2, &fp_of(PY_V3));
+    let err = open(&as_v2, &qd).expect_err("v2 label, three modules");
+    assert!(err.to_string().contains("removed since: c.py"), "{err}");
+    let as_v3 = set_with_fingerprint("by-rule-v3", 3, &fp_of(PY_V2));
+    let err = open(&as_v3, &qd).expect_err("v3 label, two modules");
+    assert!(err.to_string().contains("added since: c.py"), "{err}");
+}
+
+/// The repository's own lists. Rule 2's is frozen at the 16 modules the pinned v2 sets recorded,
+/// and rule 3 adds exactly the two modules the closure test found missing.
+#[test]
+fn the_real_lists_are_rule_2_frozen_plus_the_two_modules_rule_3_added() {
+    let dir = qd_data_dir();
+    assert_eq!(shard_content_modules(&dir, 2).unwrap().len(), 16);
+    assert_eq!(
+        uncovered_modules(&shard_code_fingerprint(&dir, 2).unwrap(), &dir).unwrap(),
+        ["manifest.py", "val_requests.py"]
+    );
+    assert_eq!(shard_content_modules(&dir, 3).unwrap().len(), 18);
 }
 
 /// The repository's own list: every entry exists in `python/qd_data`, and it is a strict subset
@@ -113,12 +203,12 @@ fn the_module_list_is_read_from_the_package_it_describes() {
 #[test]
 fn the_real_qd_data_list_parses_and_names_files_that_exist() {
     let dir = qd_data_dir();
-    let names = shard_content_modules(&dir).expect("the repository's fingerprint.py parses");
+    let names = shard_content_modules(&dir, 3).expect("the repository's fingerprint.py parses");
     assert!(names.len() >= 10, "{names:?}");
     let all = code_fingerprint(&dir).unwrap();
     assert!(names.iter().all(|n| all.contains_key(n)), "{names:?}");
     assert!(names.len() < all.len(), "rule 2 is narrower than rule 1");
-    assert_eq!(shard_code_fingerprint(&dir).unwrap().len(), names.len());
+    assert_eq!(shard_code_fingerprint(&dir, 3).unwrap().len(), names.len());
 }
 
 /// The fixture's train set with `header.json` rewritten to `fingerprint` under `version`
@@ -151,6 +241,50 @@ fn open(shards: &Path, qd_data: &Path) -> Result<ShardReader, qd_train::shards::
         &fixture().join("data").join("pool").join("train.json"),
         &opts,
     )
+}
+
+fn recorded_of(fingerprint: &Value) -> std::collections::BTreeMap<String, String> {
+    serde_json::from_value(fingerprint.clone()).expect("a {module: sha256} map")
+}
+
+/// Like [`open`] but with `allow_stale_code`, as a read of a drifted set deliberately does.
+fn open_stale(shards: &Path, qd_data: &Path) -> ShardReader {
+    let mut opts = fixture_open(Arc::new(OsFiles));
+    opts.qd_data_dir = qd_data.to_path_buf();
+    opts.allow_stale_code = true;
+    ShardReader::open(
+        shards,
+        &fixture().join("data").join("pool").join("train.json"),
+        &opts,
+    )
+    .unwrap_or_else(|e| panic!("a stale read is refused: {e}"))
+}
+
+#[test]
+fn a_drifted_v3_set_read_with_allow_stale_code_names_the_drifted_module_as_not_covered() {
+    let qd = mini_qd_data("v3-stale");
+    let shards = set_with_fingerprint("v3-stale-set", 3, &fp_of(PY_V3));
+    std::fs::write(qd.join("c.py"), b"c = 'edited'\n").unwrap();
+    let reader = open_stale(&shards, &qd);
+    assert!(reader.check("shard_code_current").unwrap().is_fail());
+    assert_eq!(
+        value_of(reader.check("shard_code_not_covered").unwrap()),
+        json!("c.py"),
+        "a drifted set must not read as 'nothing uncovered'"
+    );
+}
+
+#[test]
+fn a_truncated_v2_set_names_what_it_did_not_record_not_just_the_rule_3_additions() {
+    let qd = mini_qd_data("v2-trunc");
+    let mut one = recorded_of(&fp_of(PY_V2));
+    one.remove("b.py");
+    let shards = set_with_fingerprint("v2-trunc-set", 2, &serde_json::to_value(&one).unwrap());
+    let reader = open_stale(&shards, &qd);
+    assert_eq!(
+        value_of(reader.check("shard_code_not_covered").unwrap()),
+        json!("b.py,c.py")
+    );
 }
 
 fn fp_of(header: &str) -> Value {
