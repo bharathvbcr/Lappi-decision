@@ -66,7 +66,7 @@ from qd_train.span_null import (  # noqa: E402
 )
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
 
-PREREG_SHA256: Final[str] = "2252f630eeda39f907d03e339b6e2eea31f61fa932184281828d502f760c2cde"
+PREREG_SHA256: Final[str] = "229b6f76e7686b0d57dbecfbe5c2d587b9aa69a5acefbc7c8cec0f05d73318d5"
 POPULATION_PIN: Final[str] = "bdd571b675d83b92b2180d900cee79c9a89553f240c07fac421bcff47eb4e626"
 EVAL_ROW_PREFIX: Final[str] = "6af73bef"
 GATE_TARGET: Final[int] = 5596
