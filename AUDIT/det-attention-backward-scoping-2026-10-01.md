@@ -101,3 +101,7 @@ session 2. The human picks a route. Evidence labels: **[V]** measured or read, *
    after J5′.
 3. Route e is the fallback if d fails Tier B or a later shape needs a mask (for example, packed
    varlen). Route a only if both d and e fail, and only after the human says yes to cudarc.
+
+## Correction (2026-10-22)
+
+The numbers this report cites from lines 10-15 and 48 (9,983, 15,280 and 25,703 pos/s, 3.19 and 1.934 s/step) stand as measured. They were measured with `tools/perf_step.py --allow-stale-shards`, and the result rows say so (`allow_stale_shards: true` in AUDIT/perf-train-step-2026-10-01/session1.jsonl (7 rows), session2/bench.jsonl (9) and session2/probe-nomask.jsonl (2)). They are labelled allow_stale_shards, not performance of pinned code: the shard set's `qd_data` code had moved, the rows are not `quick`-marked, and no row carries `stale_code`. Nothing above this section was edited. One gap links all five reports that cite them: GAP-X5-PERF-STALE-NUMBERS-CITED-AS-PINNED-CODE-PERFORMANCE-2026-10-22. Fable's ruling of 2026-10-22 (lane X5) confines the flag: from that date every such row is marked `stale_code: true` and `quick`.

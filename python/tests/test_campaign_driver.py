@@ -1131,7 +1131,11 @@ def test_the_p1_queue_refuses_until_filled_then_loads_as_preregistered(tmp_path:
     assert p2.requires is not None
     assert [(m.json_key, m.equals) for m in p2.requires.markers] == [
         ("word", "admissible"), (None, None)]
-    assert [p.sha256[:8] for p in cfg.pins] == ["900534f1", "a0841f0d", "a8ab2a11"]
+    # Repointed to the v6 shards 2026-10-22: the v5 drop list (a8ab2a11) is no longer passed
+    # or pinned, and the v6 scan's exclusion list (37b84644) is.
+    assert [p.sha256[:8] for p in cfg.pins] == ["900534f1", "a0841f0d", "37b84644"]
+    assert "--drop-before-dedupe" not in next(iter(arms.values()))
+    assert not any("v5_data_dir" in a for argv in arms.values() for a in argv)
 
 
 def test_a_reader_unit_gets_the_ft_row_id_its_arm_wrote(

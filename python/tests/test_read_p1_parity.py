@@ -27,6 +27,38 @@ from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder  # noqa: 
 from qd_train.run_control import _payload_digest  # noqa: E402
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _data_fact_recomputed(tmp_path_factory, monkeypatch):
+    """These tests exercise the reading's arithmetic. The committed pre-registration's
+    P1.data_fact is void until recomputed on the v6 set (amendment_2), which makes the reader
+    refuse, so they read a copy that states it recomputed; the void itself is tested below."""
+    doc = json.loads((REPO / p1.PREREG).read_text())
+    doc["P1"]["data_fact"]["status"] = p1.DATA_FACT_CURRENT
+    path = tmp_path_factory.mktemp("prereg") / "prereg.json"
+    path.write_text(json.dumps(doc))
+    monkeypatch.setattr(p1, "_prereg_file", lambda: path)
+
+
+def test_the_committed_data_fact_is_void_and_the_reader_refuses_it(monkeypatch):
+    monkeypatch.setattr(p1, "_prereg_file", lambda: REPO / p1.PREREG)
+    doc = json.loads((REPO / p1.PREREG).read_text())
+    assert doc["P1"]["data_fact"]["status"] == "void_until_recomputed_on_v6"
+    reading = p1.read({}, {}, [])
+    assert reading.word == "refused"
+    assert any("data_fact" in r and "void_until_recomputed_on_v6" in r
+               for r in reading.refusals), reading.refusals
+
+
+def test_a_data_fact_without_a_status_is_refused(tmp_path, monkeypatch):
+    doc = json.loads((REPO / p1.PREREG).read_text())
+    del doc["P1"]["data_fact"]["status"]
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps(doc))
+    monkeypatch.setattr(p1, "_prereg_file", lambda: path)
+    assert any("data_fact" in r for r in p1.read({}, {}, []).refusals)
+
+
 N_VAL = 400
 BASE = [2.0 - 1.5 * s / p1.STEPS for s in range(1, p1.STEPS + 1)]
 SHAPE = {"rows": 1, "widths": [2048, 4096], "loss": "proxy", "gradient_checkpointing": True,

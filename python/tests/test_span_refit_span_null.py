@@ -217,10 +217,12 @@ def test_the_ledger_names_this_scorers_sha_and_the_amendment_does_too() -> None:
     if SCORER != REPO / "tools" / "span_refit_score.py":
         pytest.skip("scorer overridden")
     assert NEW_SHA in L.SPAN_REFIT_SPAN_NULL_SCORER_SHAS
-    amendment = json.loads(PREREG.read_text(encoding="utf-8"))["amendments"][-1]
-    assert amendment["id"] == 2
+    amendments = {a["id"]: a for a in json.loads(PREREG.read_text(encoding="utf-8"))["amendments"]}
+    amendment = amendments[2]
     assert amendment["scorer"]["new_sha256"] == NEW_SHA
     assert amendment["scorer"]["old_sha256"] not in L.SPAN_REFIT_SPAN_NULL_SCORER_SHAS
+    # Amendment 3 (v6 shards) keeps amendment 2's scorer: it names the same sha, it moves none.
+    assert amendments[3]["scorer"]["sha256"] == NEW_SHA
 
 
 def test_the_recorders_prereg_pin_is_the_amended_file() -> None:

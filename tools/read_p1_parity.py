@@ -72,6 +72,8 @@ from qd_train.tristate import Ran
 #: The rule this reader implements. The 2026-10-06 DRAFT is superseded by the pre-registration
 #: (bab4adb, with Fable's 2026-10-08 ruling and the Mac data fact applied).
 PREREG: Final[str] = "campaign/next-train-first-box-preregistered.json"
+#: P1.data_fact.status once its |S| was recomputed on the v6 train set. Anything else refuses.
+DATA_FACT_CURRENT: Final[str] = "recomputed_on_v6"
 ARMS: Final[tuple[str, ...]] = ("master", "master-repeat", "kahan")
 #: Which ``--optimizer`` each arm was trained with (ft row ``recipe.optimizer_recipe``).
 ARM_RECIPE: Final[Mapping[str, str]] = {"master": "master", "master-repeat": "master",
@@ -438,6 +440,15 @@ def _prereg_refusal() -> str | None:
         return f"the preregistration {PREREG} could not be read ({exc})"
     if not isinstance(doc, dict) or not isinstance(doc.get("P1"), dict):
         return f"the preregistration {PREREG} holds no P1 object"
+    fact = doc["P1"].get("data_fact")
+    status = fact.get("status") if isinstance(fact, dict) else None
+    if status != DATA_FACT_CURRENT:
+        # The floor of 108 letter-supervised steps was measured on the retired v5r train set
+        # (amendment_2). Until it is recomputed on the v6 set, the precondition it states is
+        # unknown, and unknown is not 'met'.
+        return (f"P1.data_fact is {status!r}, not {DATA_FACT_CURRENT!r}: its |S| was computed "
+                "on the retired v5r train set and must be recomputed on the v6 set "
+                "(promoted.amendment_2) before this reading can stand")
     return None
 
 

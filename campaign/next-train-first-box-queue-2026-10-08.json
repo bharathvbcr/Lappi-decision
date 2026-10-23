@@ -6,21 +6,23 @@
     "Arms: v5's data argv (build/post-queue/box_q_v6x.sh SPLIT, 'verbatim from v5_common.sh V5_SPLIT') and v5's ft recipe (the same file's RECIPE less --noul-weight 4, v6x's one lever; agrees with v5 ft row 8079c966's recipe as copied in build/v6x/fixtures/v5rows.jsonl) except --optimizer; plus --max-steps 600 (with --epoch, which it needs), --score-val with a per-arm --verdicts-out (the per-row val results the paired bootstrap needs), seed 0, one --checkpoint-dir per arm with --checkpoint-every 100 (nonzero: the final checkpoint, which carries letter_log, is written only then). --max-steps makes every row quick (rule 8); each unit also declares quick, and the driver fails a unit that writes a non-quick row.",
     "expect_rows 2 per arm: the epoch arm's ft row and --score-val's eval row (real_ft_run --score-val help: 'write one eval row per seed'). The footprint sweeps (gh200_footprint.py --out, one file per optimizer), the reader and P2's tools write no ledger row. Their outputs live under <run_dir>/p1 and <run_dir>/markers, which 'carry' puts in every snapshot; each unit's log travels too. Checkpoints do not travel (no unit declares a checkpoint spec): the reader runs here, on the box.",
     "P1's reading is the unit read-p1: tools/read_p1_parity.py over the three arms (the final checkpoint epoch-seed0-cuda.json, the arm's ft row id filled by the driver from {ft_row_id:<arm>}, its verdicts) and the two footprints, --out <run_dir>/markers/P1_VERDICT.json. Its exit 3 (refused) fails the unit and ends the campaign before P2; the JSON it wrote stays. P2 runs only if that file's word == 'admissible' AND <run_dir>/markers/HUMAN_4B_DOWNLOAD_YES exists (the human's yes on the 4B download); any other word, or no marker within wait_max_s or the box budget, ends the campaign with P2 not_run.",
-    "Pins: the qd-prep binary v5 ran (sha256 from build/v5-h100/v5_common.filled.sh and box_q_v6x.sh PREP_SHA256), the general fetch record (general_record_sha256 in v5-era ledger rows), the pre-dedupe drop list (campaign/v5-preregistered.json). Not pinnable by the driver (directories, or no recorded file sha256): v5_data_dir, decisions_pool, exclusions, backbone, snapshot_4b; real_ft_run records shard_hash and exclusions_sha256 in every row, which the P1 reading compares against v5's (108082545a66..., c38dd2ca3e8f...)."
+    "Pins: the qd-prep binary v5 ran (sha256 from build/v5-h100/v5_common.filled.sh and box_q_v6x.sh PREP_SHA256), the general fetch record (general_record_sha256 in v5-era ledger rows), the pre-dedupe drop list (campaign/v5-preregistered.json). Not pinnable by the driver (directories, or no recorded file sha256): v5_data_dir, decisions_pool, exclusions, backbone, snapshot_4b; real_ft_run records shard_hash and exclusions_sha256 in every row, which the P1 reading compares against v5's (108082545a66..., c38dd2ca3e8f...).",
+    "REPOINTED 2026-10-22 (Fable: 'repoint the queue now'; campaign/next-train-first-box-preregistered.json promoted.amendment_2). The v5r shard set is retired: contaminated (LoRA-2B amendment 3). Arms now read the v6-rule rebuild pinned by LoRA-2B's entry n = 5 (train shard_hash 94bef49aa2c1..., val 58bd753fc933...): {v6_data_dir} replaces {v5_data_dir}, --exclude-identity-keys is the v6 scan's list (pinned below), the v5 pre-dedupe drop list is NOT passed (the v6 split-aware keep rule supersedes it, as in that entry), --legacy-v5-data-rules is absent so the rebuild is under v6's rules, and {decisions_pool} must be pool-v6-decisions-v1 (see that entry for its examples sha256). The comparison of the arms' shard_hash with v5's 108082545a66... / c38dd2ca3e8f... is DROPPED; the reading's expected shard_hash is the v6 train 94bef49a....",
+    "HELD: the queue is not launchable. See 'hold'."
   ],
   "name": "next-train-first-box-p1-p2-2026-10-08",
   "placeholders": {
     "run_dir": null,
     "py": null,
     "qd_prep_bin": null,
-    "v5_data_dir": null,
     "general_record": null,
     "decisions_pool": null,
-    "drop_before_dedupe": null,
     "exclusions": null,
     "backbone": null,
     "snapshot_4b": null,
-    "approved_by": null
+    "approved_by": null,
+    "v6_data_dir": null,
+    "v6_shards_verified": null
   },
   "state_dir": "{run_dir}/state",
   "ledger": "{run_dir}/ledger/gh200-next-train-p1-2026-10-08.jsonl",
@@ -56,8 +58,8 @@
       "sha256": "a0841f0d9990bbc0fa8c46ad559e0c33d2f1bedbd2b5e9e30454d4c1d6ba5555"
     },
     {
-      "path": "{drop_before_dedupe}",
-      "sha256": "a8ab2a11d3a42c7f7d9e063d8ffb79d689657fd62c28e1f174a6b7070356a9e7"
+      "path": "{exclusions}",
+      "sha256": "37b84644f5718869ea57372681a21a6ad6b8105a398ee45f1cffa143688a3ff7"
     }
   ],
   "phases": [
@@ -77,7 +79,7 @@
             "-u",
             "tools/real_ft_run.py",
             "--out",
-            "{v5_data_dir}",
+            "{v6_data_dir}",
             "--no-repo-history",
             "--rev",
             "8e6a00952a09e31a09cc3f5270229a935b7235cc",
@@ -93,8 +95,6 @@
             "200000",
             "--decisions-pool",
             "{decisions_pool}",
-            "--drop-before-dedupe",
-            "{drop_before_dedupe}",
             "--exclude-identity-keys",
             "{exclusions}",
             "--real-backbone",
@@ -160,7 +160,7 @@
             "-u",
             "tools/real_ft_run.py",
             "--out",
-            "{v5_data_dir}",
+            "{v6_data_dir}",
             "--no-repo-history",
             "--rev",
             "8e6a00952a09e31a09cc3f5270229a935b7235cc",
@@ -176,8 +176,6 @@
             "200000",
             "--decisions-pool",
             "{decisions_pool}",
-            "--drop-before-dedupe",
-            "{drop_before_dedupe}",
             "--exclude-identity-keys",
             "{exclusions}",
             "--real-backbone",
@@ -243,7 +241,7 @@
             "-u",
             "tools/real_ft_run.py",
             "--out",
-            "{v5_data_dir}",
+            "{v6_data_dir}",
             "--no-repo-history",
             "--rev",
             "8e6a00952a09e31a09cc3f5270229a935b7235cc",
@@ -259,8 +257,6 @@
             "200000",
             "--decisions-pool",
             "{decisions_pool}",
-            "--drop-before-dedupe",
-            "{drop_before_dedupe}",
             "--exclude-identity-keys",
             "{exclusions}",
             "--real-backbone",
@@ -456,5 +452,12 @@
   "carry": [
     "{run_dir}/p1",
     "{run_dir}/markers"
-  ]
+  ],
+  "hold": {
+    "status": "held",
+    "since": "2026-10-22",
+    "why": "Repointing was done from the text of LoRA-2B's entry n = 5, not from a run: whether the box's real_ft_run, given {v6_data_dir} (a directory laid out as <out>/shards/{train,val} plus the manifests real_ft_run reads) and these inputs, reproduces the v6 shard_hash 94bef49a... has not been run. The directory the v6 set was built in no longer exists, and main's copy holds only the shards.",
+    "released_by": "fill the placeholder v6_shards_verified with the path of a run that reproduced train 94bef49a... and val 58bd753f... from these argv, then --plan",
+    "enforced_by": "the driver refuses an unfilled placeholder (tools/campaign_driver.py _placeholders), so no unit launches while v6_shards_verified is null"
+  }
 }

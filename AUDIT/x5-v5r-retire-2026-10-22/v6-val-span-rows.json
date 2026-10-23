@@ -1,0 +1,21 @@
+{
+ "abstain": 1884,
+ "cells": {
+  "qdm:code.defect_class/abstain": 369,
+  "qdm:code.defect_class/pointing": 1735,
+  "squad:qa.answer_span/abstain": 1515,
+  "squad:qa.answer_span/pointing": 3624
+ },
+ "command": "count_v6_span_rows.py's count() over the v6 val shard directory (supervision.npz, sequence_index.json, header.json read; no token opened), run 2026-10-22 with /Users/bharath/.venvs/ml/bin/python -I",
+ "cross_check": "val/span_check.json in the same directory states n = n_total = 7243 span sequences, state ran, passed true",
+ "n_sequences": 23109,
+ "pointing": 5359,
+ "shard_dir": "/Users/bharath/Code/research/Lappi-decision/build/shards-v6-lora2b-6bf4abfc/val",
+ "shard_hash": "58bd753fc93391f191f9f7ff2bf8a5ea3d1e990f83c33752c7399a951a62435b",
+ "span_rows": 7243,
+ "v5r_val_for_comparison": {
+  "source": "campaign/span-refit-mac-preregistered.json population",
+  "span_rows": 7238,
+  "cells": {"qa.answer_span/pointing": 3624, "qa.answer_span/abstain": 1515, "code.defect_class/pointing": 1733, "code.defect_class/abstain": 366}
+ }
+}
