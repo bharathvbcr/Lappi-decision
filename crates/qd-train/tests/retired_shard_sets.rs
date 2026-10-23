@@ -10,9 +10,10 @@ use std::path::Path;
 use qd_train::shards::{RETIRED_DATA_SNAPSHOTS, RETIRED_SHARD_SETS, ShardHeader};
 use serde_json::{Value, json};
 
-/// A valid synthetic v5 header (the one `shard_header_parity.rs` verifies), so only the field a
-/// test changes can refuse it.
-const HEADER: &str = r#"{"buckets": [1024, 2048], "code_fingerprint": {"mixture.py": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "render.py": "abababababababababababababababababababababababababababababababab"}, "corpus_rev": "92e1c74", "created_at": "2026-10-02T12:00:00+00:00", "data_snapshot_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "dtype": "uint32", "format": "qd-shard-v1", "max_seq_len": 2048, "n_sequences": 3, "packed": false, "prompt_format": 2, "remap_hash": "9999999999999999999999999999999999999999999999999999999999999999", "report_only": true, "sequence_index_hash": "5555555555555555555555555555555555555555555555555555555555555555", "shard_hash": "6ec84e5f67a901100ed7c779d9f6906bf12cbcd971492511ee0333c3ff5113cd", "split": "val", "tokenizer_hash": "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927", "total_tokens": 4097, "vocab_size": 248320}"#;
+/// A valid synthetic v5 val header, so only the field a test changes can refuse it. Its
+/// `shard_hash` is the one both Python's `ShardHeader.from_json` and this crate derive for these
+/// fields (checked against both).
+const HEADER: &str = r#"{"buckets": [1024, 2048], "code_fingerprint": {"mixture.py": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "render.py": "abababababababababababababababababababababababababababababababab"}, "corpus_rev": "92e1c74", "created_at": "2026-10-02T12:00:00+00:00", "data_snapshot_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "dtype": "uint32", "format": "qd-shard-v1", "max_seq_len": 2048, "n_sequences": 3, "packed": false, "prompt_format": 2, "remap_hash": "9999999999999999999999999999999999999999999999999999999999999999", "report_only": true, "sequence_index_hash": "5555555555555555555555555555555555555555555555555555555555555555", "shard_hash": "989de8e6bdc1d95c736b449beb71c1dc9cff4135763e9a580bff24e999781c73", "split": "val", "tokenizer_hash": "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927", "total_tokens": 4097, "vocab_size": 248320}"#;
 
 fn registry() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
