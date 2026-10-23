@@ -144,6 +144,15 @@ pub(crate) fn is_shape_key(key: &str) -> bool {
 /// leading zero, fits `usize`), because the runtime builds its key from the request's row count,
 /// never from text a manifest wrote.
 fn runtime_lookup(table: &CalibrationTable, key: &str) -> std::result::Result<(), String> {
+    // A release records only keys the runtime's reader accepts, and a request cannot produce any
+    // other (`choice:0` has no decode rows): a table entry for one is an entry nothing can reach,
+    // and the release that recorded the shape would be refused at open.
+    if !qd_runtime::release::is_slot_key(key) {
+        return Err(format!(
+            "{key} is not a slot key a request can produce (`span`, or `choice:N` / `score:N` with \
+             N a canonical positive integer); the runtime's reader refuses a release recording it"
+        ));
+    }
     let (kind, rows) = match key.split_once(':') {
         None if key == "span" => (SlotKind::Span, 0),
         Some((kind, digits)) => {

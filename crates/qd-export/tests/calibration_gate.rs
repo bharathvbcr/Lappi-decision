@@ -333,6 +333,35 @@ fn a_shape_spelled_so_the_runtimes_lookup_misses_it_is_refused() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("runtime"));
 }
 
+/// A table that has an entry spelled `choice:0` and a train manifest that records the shape
+/// `choice:0` agree with each other and with a passing report, and `CalibrationTable::lookup(choice,
+/// 0)` finds the entry. The runtime still refuses to open a release recording the shape
+/// (`release::is_slot_key`: no request has zero decode rows), so an export that passed the gate
+/// would write a release nothing can serve. The gate must stop it, by the runtime's own rule.
+#[test]
+fn a_shape_no_request_can_produce_is_refused_though_the_table_has_the_entry() {
+    let mut c = case(true);
+    let mut doc = serde_json::to_value(table(true)).unwrap();
+    let letters = doc["letters"].as_object_mut().unwrap();
+    let five = letters.remove("choice:5").unwrap();
+    letters.insert("choice:0".to_string(), five);
+    c.table = write_json(&c.fx.dir.0.join("table.json"), &doc);
+    c.table_sha = qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(&c.table).unwrap()));
+    // The runtime's lookup really does find it: only the shape rule can stop this.
+    let read: CalibrationTable = serde_json::from_value(doc).unwrap();
+    assert!(read.lookup("slot", SlotKind::Choice, 0).is_ok());
+    assert!(!qd_runtime::release::is_slot_key("choice:0"));
+    let r = report(
+        &c.table_sha,
+        &[("choice:0", ran(0.01)), ("choice:16", ran(0.02))],
+        true,
+        ECE_THRESHOLD,
+    );
+    let shapes = json!({"code.defect_class": [["choice:0", "span"]], "devcouncil.verdict": [["choice:0"]]});
+    let out = run(&c, Some(&r), Some(&shapes), &[]);
+    refused(&c, &out, "choice:0");
+}
+
 #[test]
 fn a_calibrated_table_whose_checks_all_passed_is_exported_and_the_gate_is_recorded() {
     let c = case(true);

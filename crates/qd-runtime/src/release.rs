@@ -44,7 +44,8 @@
 //! `trained_slot_shapes` (`{family: [[slot key, ...], ...]}`, `qd-export` writes it from the train
 //! manifest's per-entry `slot_shape`) is the shapes each of those families trained in; admission
 //! refuses a trained family's request in any other as
-//! [`crate::refusal::Refusal::SlotShapeNotTrained`]. A manifest without it (or with `null`)
+//! [`crate::refusal::Refusal::SlotShapeNotTrained`]. A manifest without the key (an explicit `null`
+//! is refused, never read as absent)
 //! opens, and the shape check does not run for it ([`crate::admission::TrainedShapes`]). A recorded
 //! set must name exactly the `trained_families` (a family with no shape, a family not trained, or
 //! shapes with no families are a manifest that disagrees with itself), hold only slot keys a
@@ -418,7 +419,7 @@ impl Manifest {
         Ok(Some(families))
     }
 
-    /// `trained_slot_shapes`: `None` when absent or `null`, else `{family: [[key, ...], ...]}`
+    /// `trained_slot_shapes`: `None` only when the key is absent (`null` is refused), else `{family: [[key, ...], ...]}`
     /// with every key a [`is_slot_key`], each shape's keys strictly ascending (the sorted form a
     /// request's shape is compared in, never re-sorted here), each family's shapes distinct and
     /// non-empty, and the set coherent with `families` ([`validate_trained_slot_shapes`]).
@@ -426,9 +427,11 @@ impl Manifest {
         &self,
         families: Option<&[String]>,
     ) -> Result<Option<TrainedSlotShapes>, ReleaseRefusal> {
-        let value = match self.doc.get(TRAINED_SLOT_SHAPES_KEY) {
-            None | Some(Value::Null) => return Ok(None),
-            Some(value) => value,
+        // Only an ABSENT key is a release that predates the record (the shape check then does not
+        // run, and `status` says so). An explicit `null` is a writer that wrote the key and lost
+        // the value: it is refused below as a non-object, never read as "legacy".
+        let Some(value) = self.doc.get(TRAINED_SLOT_SHAPES_KEY) else {
+            return Ok(None);
         };
         let key = TRAINED_SLOT_SHAPES_KEY;
         let object = value.as_object().ok_or_else(|| {
@@ -628,7 +631,70 @@ fn load_calibration(dir: &Path, manifest: &Manifest) -> Result<CalibrationTable,
     Ok(table)
 }
 
-/// Read `path` as a manifest of `format`: bounded, JSON, and of exactly that format.
+/// Name the first object key a JSON document gives twice, at any depth. `serde_json::Value` keeps
+/// the later value of a repeated key, so a manifest that says `{"fam": [[a]], "fam": [[b]]}` would
+/// be read as the second while a reader of the text sees both: for `trained_slot_shapes` that
+/// widens or narrows what a release admits without a trace. `bytes` must already be valid JSON; the
+/// scan only tracks nesting and strings. The same scan is in `qd-prep` (`allocate.rs`) and
+/// `qd-export` (`safetensors.rs`); this crate cannot depend on either.
+pub fn first_duplicate_json_key(bytes: &[u8]) -> Option<String> {
+    struct Frame {
+        object: bool,
+        expect_key: bool,
+        seen: BTreeSet<String>,
+    }
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => stack.push(Frame {
+                object: true,
+                expect_key: true,
+                seen: BTreeSet::new(),
+            }),
+            b'[' => stack.push(Frame {
+                object: false,
+                expect_key: false,
+                seen: BTreeSet::new(),
+            }),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            b',' => {
+                if let Some(frame) = stack.last_mut() {
+                    frame.expect_key = frame.object;
+                }
+            }
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                if let Some(frame) = stack.last_mut()
+                    && frame.object
+                    && frame.expect_key
+                {
+                    // Valid JSON, so the slice is one string literal; if it somehow is not, the
+                    // raw text stands in for the key rather than the scan passing over it.
+                    let end = i.min(bytes.len() - 1);
+                    let key = serde_json::from_slice::<String>(&bytes[start..=end])
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&bytes[start..=end]).into());
+                    if !frame.seen.insert(key.clone()) {
+                        return Some(key);
+                    }
+                    frame.expect_key = false;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Read `path` as a manifest of `format`: bounded, JSON, of exactly that format, and without a
+/// repeated object key anywhere.
 fn read_manifest(path: PathBuf, format: &str) -> Result<(Manifest, Vec<u8>), ReleaseRefusal> {
     let bytes = read_bounded(&path, ReleaseRefusalKind::Manifest)?;
     let doc: Value = serde_json::from_slice(&bytes).map_err(|e| {
@@ -637,6 +703,16 @@ fn read_manifest(path: PathBuf, format: &str) -> Result<(Manifest, Vec<u8>), Rel
             format!("{}: not JSON: {e}", path.display()),
         )
     })?;
+    if let Some(key) = first_duplicate_json_key(&bytes) {
+        return Err(ReleaseRefusal::new(
+            ReleaseRefusalKind::Manifest,
+            format!(
+                "{}: the key {key:?} is given twice in one object; a reader keeping the later \
+                 value would admit something the text does not say once",
+                path.display()
+            ),
+        ));
+    }
     let manifest = Manifest { path, doc };
     match manifest.doc.get("format").and_then(Value::as_str) {
         Some(found) if found == format => Ok((manifest, bytes)),
