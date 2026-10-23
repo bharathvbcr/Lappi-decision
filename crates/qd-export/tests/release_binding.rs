@@ -433,8 +433,11 @@ fn four_option_request(expect_calibration: &str) -> qd_runtime::schema::Decision
         "schema_version": 1, "task": "devcouncil.verdict",
         "context_b64": qd_runtime::b64::encode(context), "context_len": context.len(),
         "question": "Does this diff implement what the commit message claims?",
+        // The release's recorded shape for this family is `[choice:5, span]` (the exporter records
+        // the table's first choice entry plus span, `common/mod.rs`), so the request is asked in it.
         "slots": [{"name": "verdict", "type": "choice",
-                   "options": ["stub", "logic", "cosmetic", "clean"]}],
+                   "options": ["stub", "logic", "cosmetic", "clean"]},
+                  {"name": "evidence", "type": "span"}],
         "route": "generic",
         "expect": {"calibration_hash": expect_calibration},
     });
@@ -509,12 +512,34 @@ fn a_runtime_built_from_the_release_refuses_a_task_the_release_did_not_train() {
     let table = fitted_table();
     let serve = |trained: Option<Value>| {
         let (fx, summary) = exported();
+        // `trained_slot_shapes` is kept coherent with `trained_families` (the reader refuses a
+        // manifest whose two records disagree): it keeps the shapes the exporter recorded for
+        // exactly the families listed, and goes away with the families when there are none.
         rewrite_manifest(&fx.out, |m| match trained {
-            Some(families) => m["trained_families"] = families,
+            Some(families) => {
+                let recorded = m["trained_slot_shapes"]
+                    .as_object()
+                    .expect("the exporter recorded trained_slot_shapes")
+                    .clone();
+                let kept: serde_json::Map<String, Value> = families
+                    .as_array()
+                    .expect("families is a list")
+                    .iter()
+                    .map(|family| {
+                        let name = family.as_str().expect("a family id is a string");
+                        let shapes = recorded
+                            .get(name)
+                            .unwrap_or_else(|| panic!("the exporter recorded no shape for {name}"));
+                        (name.to_string(), shapes.clone())
+                    })
+                    .collect();
+                m["trained_families"] = families;
+                m["trained_slot_shapes"] = Value::Object(kept);
+            }
             None => {
-                m.as_object_mut()
-                    .expect("the manifest is an object")
-                    .remove("trained_families");
+                let object = m.as_object_mut().expect("the manifest is an object");
+                object.remove("trained_families");
+                object.remove("trained_slot_shapes");
             }
         });
         let release = Release::open(&fx.out).expect("the edited release opens");

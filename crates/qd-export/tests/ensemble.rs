@@ -778,11 +778,39 @@ fn the_binary_writes_what_the_reader_opens_and_exits_2_on_a_refusal() {
 // -- trained families (Fable's pipeline ruling, item 4) ------------------------------------------
 
 /// Set a member release's `trained_families`, as a release exported from another train manifest
-/// would carry it.
+/// would carry it. `trained_slot_shapes` is rewritten to name exactly the new families, because the
+/// reader refuses a manifest whose two records disagree: a family the exporter recorded keeps its
+/// shapes, and a family the helper adds gets the shapes the exporter recorded for the fixture's
+/// train manifest, which feeds one request shape to every family
+/// (`common::write_train_manifest`), never a shape made up here.
 fn set_trained_families(release: &Path, families: Value) -> String {
     let path = release.join(MANIFEST_FILE);
     let mut doc: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let recorded = doc["trained_slot_shapes"]
+        .as_object()
+        .expect("the exporter recorded trained_slot_shapes")
+        .clone();
+    let fixture_shapes = recorded
+        .values()
+        .next()
+        .expect("the exporter recorded a shape for at least one family")
+        .clone();
+    assert!(
+        recorded.values().all(|shapes| *shapes == fixture_shapes),
+        "the fixture train manifest feeds one shape to every family: {recorded:?}"
+    );
+    let shapes: serde_json::Map<String, Value> = families
+        .as_array()
+        .expect("families is a list")
+        .iter()
+        .map(|family| {
+            let name = family.as_str().expect("a family id is a string");
+            let kept = recorded.get(name).cloned();
+            (name.to_string(), kept.unwrap_or_else(|| fixture_shapes.clone()))
+        })
+        .collect();
     doc["trained_families"] = families;
+    doc["trained_slot_shapes"] = Value::Object(shapes);
     let bytes = serde_json::to_vec_pretty(&doc).unwrap();
     std::fs::write(&path, &bytes).unwrap();
     qd_runtime::hex(&qd_runtime::sha256(&bytes))
