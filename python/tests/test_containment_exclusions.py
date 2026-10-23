@@ -132,7 +132,7 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     the digest below was generated, and is valid, only under v5's rules (a golden names the rule
     it was generated under; Fable ruling 2026-10-21).
 
-    Pinned at d554702 as d67c7de0.... It has moved seven times since, each time by design and
+    Pinned at d554702 as d67c7de0.... It has moved eight times since, each time by design and
     with every moved byte accounted for. No move was a re-pin to whatever came out:
 
     * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
@@ -197,14 +197,25 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       code_fingerprint_version) and the shard_hash that covers them. The three manifests differ
       only in the new keys slot_shape (one per entry, all 86/12/67), slot_shape_digest,
       val_without_train and split_report.task_holdout_content_disjoint, and built_at_utc. Row
-      ids and their order are equal. Unexplained: 0."""
+      ids and their order are equal. Unexplained: 0.
+    * Fingerprint rule 3 (ft-2eb31e7d, Fable ruling 2026-10-23: SHARD_CONTENT_MODULES gained
+      manifest.py and val_requests.py) -> 431ebb22...: builds of ce76aa3 (main before the X6
+      merge; reproduces ea81e519, twice) and of 4908cda (the merge) on one host, tokenizer and
+      qd-prep binary. 27 of 33 files are byte-identical (every token, offset, supervision, remap
+      and index file, and every other shard file). The six that differ are JSON. The three
+      shard headers differ only in code_fingerprint (two keys added, manifest.py and
+      val_requests.py; every existing module digest is unchanged), code_fingerprint_version
+      2 -> 3, the shard_hash that covers them (train and train-no-decode share one value), and
+      created_at. The three data/*.json manifests differ only in provenance.built_at_utc.
+      Differing binary files: 0. Unexplained: 0.
+      AUDIT/x7-containment-repin-2026-10-23/compare.out."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False, v6_data_rules=False,
     )
     assert build_digest(tmp_path) == (
-        "ea81e519a917e7ed644fbf9909d8f45802523fa97493a1473ad257ee147ae47b"
+        "431ebb223a9c2c01d92d35b1ac44beda14b905df7b11b64518988f0c38c86489"
     )
 
 
