@@ -41,6 +41,18 @@
 //! ([`validate_trained_families`]), so an empty `available` in a refusal always means "not
 //! recorded". An [`Ensemble`]'s members must record the same list, or record none alike.
 //!
+//! `trained_slot_shapes` (`{family: [[slot key, ...], ...]}`, `qd-export` writes it from the train
+//! manifest's per-entry `slot_shape`) is the shapes each of those families trained in; admission
+//! refuses a trained family's request in any other as
+//! [`crate::refusal::Refusal::SlotShapeNotTrained`]. A manifest without the key (an explicit `null`
+//! is refused, never read as absent)
+//! opens, and the shape check does not run for it ([`crate::admission::TrainedShapes`]). A recorded
+//! set must name exactly the `trained_families` (a family with no shape, a family not trained, or
+//! shapes with no families are a manifest that disagrees with itself), hold only slot keys a
+//! request can produce ([`is_slot_key`]), each shape sorted, and stay under
+//! [`MAX_SHAPES_PER_FAMILY`], or the release is refused at open
+//! ([`validate_trained_slot_shapes`]). An ensemble's members must record the same set.
+//!
 //! # An ensemble of towers
 //!
 //! [`Ensemble::open`] reads `ensemble_manifest.json` (`qd-ensemble.v1`, written by
@@ -60,6 +72,7 @@
 //! between the two reads is not caught here; closing that needs the backend to take the verified
 //! bytes, which is a change to the backend's constructor.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -154,6 +167,60 @@ pub fn validate_trained_families(families: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The manifest key recording, per trained family, the slot shapes it trained on. One spelling for
+/// the writer (`qd-export`) and the reader.
+pub const TRAINED_SLOT_SHAPES_KEY: &str = "trained_slot_shapes";
+
+/// Bound on the shapes recorded for one family: a refusal echoes all of them, so the list is
+/// bounded like any payload. A family trains a handful (the contract's callers use one each).
+pub const MAX_SHAPES_PER_FAMILY: usize = 256;
+
+/// Per trained family, the request shapes it trained on. A shape is a request's sorted slot keys
+/// (`choice:N`, `score:N`, `span`; N counts the reserved noul row).
+pub type TrainedSlotShapes = BTreeMap<String, BTreeSet<Vec<String>>>;
+
+/// Whether `key` is a slot key a request can produce: `span`, or `choice:N` / `score:N` with N a
+/// canonically spelled positive integer. `choice:05` names a row count no request computes, so a
+/// release recording it would be recording a shape nothing can match.
+pub fn is_slot_key(key: &str) -> bool {
+    match key.split_once(':') {
+        None => key == "span",
+        Some((kind, rows)) => {
+            matches!(kind, "choice" | "score")
+                && rows.parse::<u32>().is_ok_and(|n| n > 0 && n.to_string() == rows)
+        }
+    }
+}
+
+/// Refuse a `trained_slot_shapes` a release must never carry, with what is wrong. Held against
+/// the release's own `trained_families`: the shapes are recorded for exactly the families the
+/// release admits, so a family with no shapes (nothing it could be admitted in) or shapes for a
+/// family it does not admit are both a manifest that disagrees with itself.
+pub fn validate_trained_slot_shapes(
+    shapes: &TrainedSlotShapes,
+    families: Option<&[String]>,
+) -> Result<(), String> {
+    let Some(families) = families else {
+        return Err(format!(
+            "{TRAINED_SLOT_SHAPES_KEY} is recorded but {TRAINED_FAMILIES_KEY} is not: the shapes \
+             belong to the families the release admits, and it records none"
+        ));
+    };
+    if let Some(family) = shapes.keys().find(|f| !families.contains(f)) {
+        return Err(format!(
+            "{TRAINED_SLOT_SHAPES_KEY} names family `{family}`, which {TRAINED_FAMILIES_KEY} does \
+             not list"
+        ));
+    }
+    if let Some(family) = families.iter().find(|f| !shapes.contains_key(*f)) {
+        return Err(format!(
+            "{TRAINED_FAMILIES_KEY} lists family `{family}` but {TRAINED_SLOT_SHAPES_KEY} records \
+             no shape for it, so no request could be admitted in any shape"
+        ));
+    }
+    Ok(())
+}
+
 /// Why a release was refused at load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReleaseRefusalKind {
@@ -229,6 +296,8 @@ pub struct Tower {
     tokenizer_hash: String,
     /// `None` when the manifest does not record what the tower was trained on.
     trained_families: Option<Vec<String>>,
+    /// `None` when the manifest does not record the shapes each family trained on.
+    trained_slot_shapes: Option<TrainedSlotShapes>,
     prompt_format: u32,
 }
 
@@ -348,6 +417,84 @@ impl Manifest {
             .collect::<Result<Vec<_>, _>>()?;
         validate_trained_families(&families).map_err(|detail| self.refuse(detail))?;
         Ok(Some(families))
+    }
+
+    /// `trained_slot_shapes`: `None` only when the key is absent (`null` is refused), else `{family: [[key, ...], ...]}`
+    /// with every key a [`is_slot_key`], each shape's keys strictly ascending (the sorted form a
+    /// request's shape is compared in, never re-sorted here), each family's shapes distinct and
+    /// non-empty, and the set coherent with `families` ([`validate_trained_slot_shapes`]).
+    fn trained_slot_shapes(
+        &self,
+        families: Option<&[String]>,
+    ) -> Result<Option<TrainedSlotShapes>, ReleaseRefusal> {
+        // Only an ABSENT key is a release that predates the record (the shape check then does not
+        // run, and `status` says so). An explicit `null` is a writer that wrote the key and lost
+        // the value: it is refused below as a non-object, never read as "legacy".
+        let Some(value) = self.doc.get(TRAINED_SLOT_SHAPES_KEY) else {
+            return Ok(None);
+        };
+        let key = TRAINED_SLOT_SHAPES_KEY;
+        let object = value.as_object().ok_or_else(|| {
+            self.refuse(format!("{key} is {}, not an object", json_kind(value)))
+        })?;
+        let mut out = TrainedSlotShapes::new();
+        for (family, shapes) in object {
+            let shapes = shapes.as_array().filter(|a| !a.is_empty()).ok_or_else(|| {
+                self.refuse(format!("{key}[{family}] is not a non-empty array of shapes"))
+            })?;
+            if shapes.len() > MAX_SHAPES_PER_FAMILY {
+                return Err(self.refuse(format!(
+                    "{key}[{family}] lists {} shapes, over the bound of {MAX_SHAPES_PER_FAMILY}; \
+                     every slot_shape_not_trained refusal names them all",
+                    shapes.len()
+                )));
+            }
+            let mut set = BTreeSet::new();
+            for (i, shape) in shapes.iter().enumerate() {
+                let slots = shape.as_array().filter(|a| !a.is_empty()).ok_or_else(|| {
+                    self.refuse(format!(
+                        "{key}[{family}][{i}] is not a non-empty array of slot keys"
+                    ))
+                })?;
+                if slots.len() > crate::wire::MAX_SLOTS {
+                    return Err(self.refuse(format!(
+                        "{key}[{family}][{i}] has {} slot keys, over the {} slots a request may \
+                         carry; no request could match it",
+                        slots.len(),
+                        crate::wire::MAX_SLOTS
+                    )));
+                }
+                let mut keys = Vec::with_capacity(slots.len());
+                for slot in slots {
+                    let text = slot.as_str().ok_or_else(|| {
+                        self.refuse(format!(
+                            "{key}[{family}][{i}] holds {slot}, not a string slot key"
+                        ))
+                    })?;
+                    if !is_slot_key(text) {
+                        return Err(self.refuse(format!(
+                            "{key}[{family}][{i}] holds {text:?}, not `span`, `choice:N` or \
+                             `score:N` with N a canonical positive integer"
+                        )));
+                    }
+                    keys.push(text.to_string());
+                }
+                if keys.windows(2).any(|pair| pair[0] > pair[1]) {
+                    return Err(self.refuse(format!(
+                        "{key}[{family}][{i}] {keys:?} is not sorted; the writer records a shape \
+                         as its sorted slot keys, the form a request is compared in"
+                    )));
+                }
+                if !set.insert(keys) {
+                    return Err(self.refuse(format!(
+                        "{key}[{family}] lists the same shape twice (entry {i})"
+                    )));
+                }
+            }
+            out.insert(family.clone(), set);
+        }
+        validate_trained_slot_shapes(&out, families).map_err(|detail| self.refuse(detail))?;
+        Ok(Some(out))
     }
 
     /// `expected_identity.prompt_format`, refused unless it is a positive integer equal to
@@ -484,7 +631,70 @@ fn load_calibration(dir: &Path, manifest: &Manifest) -> Result<CalibrationTable,
     Ok(table)
 }
 
-/// Read `path` as a manifest of `format`: bounded, JSON, and of exactly that format.
+/// Name the first object key a JSON document gives twice, at any depth. `serde_json::Value` keeps
+/// the later value of a repeated key, so a manifest that says `{"fam": [[a]], "fam": [[b]]}` would
+/// be read as the second while a reader of the text sees both: for `trained_slot_shapes` that
+/// widens or narrows what a release admits without a trace. `bytes` must already be valid JSON; the
+/// scan only tracks nesting and strings. The same scan is in `qd-prep` (`allocate.rs`) and
+/// `qd-export` (`safetensors.rs`); this crate cannot depend on either.
+pub fn first_duplicate_json_key(bytes: &[u8]) -> Option<String> {
+    struct Frame {
+        object: bool,
+        expect_key: bool,
+        seen: BTreeSet<String>,
+    }
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => stack.push(Frame {
+                object: true,
+                expect_key: true,
+                seen: BTreeSet::new(),
+            }),
+            b'[' => stack.push(Frame {
+                object: false,
+                expect_key: false,
+                seen: BTreeSet::new(),
+            }),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            b',' => {
+                if let Some(frame) = stack.last_mut() {
+                    frame.expect_key = frame.object;
+                }
+            }
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                if let Some(frame) = stack.last_mut()
+                    && frame.object
+                    && frame.expect_key
+                {
+                    // Valid JSON, so the slice is one string literal; if it somehow is not, the
+                    // raw text stands in for the key rather than the scan passing over it.
+                    let end = i.min(bytes.len() - 1);
+                    let key = serde_json::from_slice::<String>(&bytes[start..=end])
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&bytes[start..=end]).into());
+                    if !frame.seen.insert(key.clone()) {
+                        return Some(key);
+                    }
+                    frame.expect_key = false;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Read `path` as a manifest of `format`: bounded, JSON, of exactly that format, and without a
+/// repeated object key anywhere.
 fn read_manifest(path: PathBuf, format: &str) -> Result<(Manifest, Vec<u8>), ReleaseRefusal> {
     let bytes = read_bounded(&path, ReleaseRefusalKind::Manifest)?;
     let doc: Value = serde_json::from_slice(&bytes).map_err(|e| {
@@ -493,6 +703,16 @@ fn read_manifest(path: PathBuf, format: &str) -> Result<(Manifest, Vec<u8>), Rel
             format!("{}: not JSON: {e}", path.display()),
         )
     })?;
+    if let Some(key) = first_duplicate_json_key(&bytes) {
+        return Err(ReleaseRefusal::new(
+            ReleaseRefusalKind::Manifest,
+            format!(
+                "{}: the key {key:?} is given twice in one object; a reader keeping the later \
+                 value would admit something the text does not say once",
+                path.display()
+            ),
+        ));
+    }
     let manifest = Manifest { path, doc };
     match manifest.doc.get("format").and_then(Value::as_str) {
         Some(found) if found == format => Ok((manifest, bytes)),
@@ -524,6 +744,7 @@ fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
             )
         })?;
     let trained_families = manifest.trained_families()?;
+    let trained_slot_shapes = manifest.trained_slot_shapes(trained_families.as_deref())?;
     let recorded_config = manifest.file_sha256(CONFIG_FILE)?;
     if recorded_config != bound_config {
         return Err(manifest.refuse(format!(
@@ -555,6 +776,7 @@ fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
         weight_hash,
         tokenizer_hash,
         trained_families,
+        trained_slot_shapes,
         prompt_format,
     };
     Ok((tower, manifest))
@@ -643,6 +865,12 @@ impl Tower {
         self.trained_families.as_deref()
     }
 
+    /// The slot shapes each trained family trained on; `None` when the manifest does not record
+    /// them, and then admission's shape check does not run.
+    pub fn trained_slot_shapes(&self) -> Option<&TrainedSlotShapes> {
+        self.trained_slot_shapes.as_ref()
+    }
+
     /// The prompt format the manifest binds: always [`crate::render::PROMPT_FORMAT`], because
     /// [`Tower::open`] refuses any other.
     pub fn prompt_format(&self) -> u32 {
@@ -721,6 +949,12 @@ impl Release {
     /// them, and then the release admits no task.
     pub fn trained_families(&self) -> Option<&[String]> {
         self.tower.trained_families()
+    }
+
+    /// The slot shapes each trained family trained on; `None` when the manifest does not record
+    /// them, and then admission's shape check does not run.
+    pub fn trained_slot_shapes(&self) -> Option<&TrainedSlotShapes> {
+        self.tower.trained_slot_shapes()
     }
 }
 
@@ -893,6 +1127,18 @@ impl Ensemble {
                     ),
                 ));
             }
+            if tower.trained_slot_shapes() != first.trained_slot_shapes() {
+                return Err(ReleaseRefusal::new(
+                    ReleaseRefusalKind::MembersDisagree,
+                    format!(
+                        "ensemble member {i} records trained_slot_shapes {:?}, member 0 records \
+                         {:?}. The mean of towers trained in different request shapes answers no \
+                         shape any one of them was trained on",
+                        tower.trained_slot_shapes(),
+                        first.trained_slot_shapes()
+                    ),
+                ));
+            }
             if let Some(j) = towers[..i]
                 .iter()
                 .position(|other| other.weight_hash() == tower.weight_hash())
@@ -973,5 +1219,12 @@ impl Ensemble {
     /// task.
     pub fn trained_families(&self) -> Option<&[String]> {
         self.towers.first().and_then(Tower::trained_families)
+    }
+
+    /// The slot shapes every member trained on ([`Ensemble::open`] refuses members that
+    /// disagree); `None` when the members do not record them, and then admission's shape check
+    /// does not run.
+    pub fn trained_slot_shapes(&self) -> Option<&TrainedSlotShapes> {
+        self.towers.first().and_then(Tower::trained_slot_shapes)
     }
 }

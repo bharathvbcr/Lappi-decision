@@ -22,6 +22,30 @@
 //!   holds ([`crate::runtime::Runtime::trained_families`]), so "not run" never reads as "passed"
 //!   (GAP-RUNTIME-WITH-BACKEND-RUNS-NO-TRAINED-FAMILY-CHECK-2026-10-03).
 //!
+//! # The slot shape, for every request of a trained family
+//!
+//! A family trained in a handful of slot shapes (`docs/caller-contract.md` section 4), and a
+//! request in another one is a prompt the model never saw read through calibration fitted on other
+//! requests (GAP-QD-EXPORT-GATE-CHECKS-DECLARED-SHAPES-NOT-ADMISSION-2026-10-17). The shape is the
+//! request's sorted slot keys (`choice:N`, `score:N`, `span`; N counts the reserved noul row), the
+//! spelling the calibration lookup and `qd-export`'s gate use. After the task is admitted, it is
+//! checked against [`TrainedShapes`]:
+//!
+//! * [`TrainedShapes::Recorded`] — the release's `trained_slot_shapes`, which `qd-export` writes
+//!   from the train manifest's per-entry `slot_shape`. A shape not recorded for the task is
+//!   [`Refusal::SlotShapeNotTrained`], naming the family, the shape sent, the shapes trained and
+//!   the caller-contract section. Not part of the shape: slot names, option text and order, and
+//!   the question (they are in the prompt and the label-set hash, not in the calibration key).
+//! * [`TrainedShapes::NotRecorded`] — a release whose manifest has no `trained_slot_shapes` (every
+//!   export before 2026-10-17). It cannot say what it trained and **the shape check does not
+//!   run**: its requests are admitted on the task check alone, as before. That is "not run", not
+//!   "passed", and [`crate::runtime::Runtime::trained_slot_shapes`] reports it.
+//! * [`TrainedShapes::NoRelease`] — as for the task check, the test seam and the reference
+//!   backend: not run.
+//!
+//! The shape is checked before the `code.defect_class` context: it is structural and cheap, and a
+//! context's shape is a question only for a request in a shape the release can answer.
+//!
 //! # What is checked of the context, for which task
 //!
 //! Only [`DEFECT_CLASS_TASK`]. Its rows are rendered by one rewriter
@@ -74,7 +98,12 @@ use qd_lang::{DEFECT_CLASS_POOL_LANGUAGES, language_from_path};
 
 use crate::context::Context;
 use crate::refusal::Refusal;
+use crate::release::TrainedSlotShapes;
 use crate::schema::DecisionRequest;
+
+/// Where the caller finds the shape each family is asked in; named in every
+/// [`Refusal::SlotShapeNotTrained`].
+pub const CONTRACT_SHAPES_SECTION: &str = "docs/caller-contract.md section 4 (Ask only trained shapes)";
 
 /// The task whose contexts are held to the trained diff shape. The family id of
 /// `python/qd_data/defect_class.py::DEFECT_FAMILY_ID`; a request's `task` is its family id
@@ -118,11 +147,56 @@ impl TrainedFamilies {
     }
 }
 
+/// What a runtime knows about the slot shapes each trained family trained on. See the module docs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrainedShapes {
+    /// The release's `trained_slot_shapes`: a request of a trained family in any other shape is
+    /// refused.
+    Recorded(TrainedSlotShapes),
+    /// A release whose manifest does not record them (every export before 2026-10-17): it cannot
+    /// say what shapes it trained, and the shape check **does not run**. Reported by
+    /// [`crate::runtime::Runtime::trained_slot_shapes`], so "not run" never reads as "passed".
+    NotRecorded,
+    /// No release: nothing to check against, and the shape check does not run.
+    NoRelease,
+}
+
+impl TrainedShapes {
+    /// What a release, or every member of an ensemble, records.
+    pub fn of_release(shapes: Option<&TrainedSlotShapes>) -> Self {
+        match shapes {
+            Some(shapes) => TrainedShapes::Recorded(shapes.clone()),
+            None => TrainedShapes::NotRecorded,
+        }
+    }
+
+    /// The state as the `status` op reports it (`slot_shape_check`): `checked` only when a
+    /// recorded set is enforced; `not_recorded` for a legacy release; `no_release` for none. The
+    /// last two are the check not run and are never spelled `checked`.
+    pub fn check_state(&self) -> &'static str {
+        match self {
+            TrainedShapes::Recorded(_) => "checked",
+            TrainedShapes::NotRecorded => "not_recorded",
+            TrainedShapes::NoRelease => "no_release",
+        }
+    }
+
+    /// Whether a request's shape is checked at all; `true` only for [`TrainedShapes::Recorded`].
+    pub fn is_checked(&self) -> bool {
+        matches!(self, TrainedShapes::Recorded(_))
+    }
+}
+
 /// Refuse `request` if its task is not one the weights were trained on, or if its task holds its
 /// context to a trained shape and the context is not in it. The task is checked first: whether a
 /// context has the shape of a task is a question only for a task the release can answer.
-pub fn admit(request: &DecisionRequest, trained: &TrainedFamilies) -> Result<(), Refusal> {
+pub fn admit(
+    request: &DecisionRequest,
+    trained: &TrainedFamilies,
+    shapes: &TrainedShapes,
+) -> Result<(), Refusal> {
     admit_task(&request.task, trained)?;
+    admit_shape(&request.task, &request.slot_shape(), shapes)?;
     if request.task == DEFECT_CLASS_TASK {
         admit_defect_context(&request.context)
     } else {
@@ -143,6 +217,26 @@ pub fn admit_task(task: &str, trained: &TrainedFamilies) -> Result<(), Refusal> 
     Err(Refusal::TaskNotTrained {
         task: task.to_string(),
         available,
+    })
+}
+
+/// Refuse `shape`, the sorted slot keys of a request for `task`, unless `shapes` records it among
+/// the shapes `task` trained. A recorded set with no entry for `task` refuses too: the release
+/// reader makes that state impossible for a release, and a check that cannot find its own record
+/// must not admit. [`TrainedShapes::NotRecorded`] and [`TrainedShapes::NoRelease`] do not check.
+pub fn admit_shape(task: &str, shape: &[String], shapes: &TrainedShapes) -> Result<(), Refusal> {
+    let TrainedShapes::Recorded(by_family) = shapes else {
+        return Ok(());
+    };
+    let trained = by_family.get(task);
+    if trained.is_some_and(|set| set.contains(shape)) {
+        return Ok(());
+    }
+    Err(Refusal::SlotShapeNotTrained {
+        task: task.to_string(),
+        shape: shape.to_vec(),
+        trained: trained.map_or_else(Vec::new, |set| set.iter().cloned().collect()),
+        contract_section: CONTRACT_SHAPES_SECTION.to_string(),
     })
 }
 
@@ -506,6 +600,75 @@ mod tests {
         admit_task("anything", &TrainedFamilies::NoRelease).expect("not checked");
         assert!(!TrainedFamilies::NoRelease.is_checked());
         assert!(recorded.is_checked() && TrainedFamilies::Unrecorded.is_checked());
+    }
+
+    fn shapes_of(family: &str, shapes: &[&[&str]]) -> TrainedShapes {
+        let set = shapes
+            .iter()
+            .map(|shape| shape.iter().map(|k| k.to_string()).collect())
+            .collect();
+        TrainedShapes::Recorded(TrainedSlotShapes::from([(family.to_string(), set)]))
+    }
+
+    fn keys(shape: &[&str]) -> Vec<String> {
+        shape.iter().map(|k| k.to_string()).collect()
+    }
+
+    #[test]
+    fn a_shape_is_admitted_only_by_a_record_that_names_it_for_that_task() {
+        let recorded = shapes_of("fam.a", &[&["choice:5", "span"], &["choice:3"]]);
+        admit_shape("fam.a", &keys(&["choice:5", "span"]), &recorded).expect("recorded");
+        admit_shape("fam.a", &keys(&["choice:3"]), &recorded).expect("recorded");
+        for sent in [&["choice:5"][..], &["choice:5", "span", "span"], &["span"], &[]] {
+            match admit_shape("fam.a", &keys(sent), &recorded) {
+                Err(Refusal::SlotShapeNotTrained {
+                    task,
+                    shape,
+                    trained,
+                    contract_section,
+                }) => {
+                    assert_eq!(task, "fam.a");
+                    assert_eq!(shape, keys(sent));
+                    // Sorted, so the echo is stable.
+                    assert_eq!(trained, [keys(&["choice:3"]), keys(&["choice:5", "span"])]);
+                    assert_eq!(contract_section, CONTRACT_SHAPES_SECTION);
+                }
+                other => panic!("{sent:?} is not a trained shape: {other:?}"),
+            }
+        }
+        // A record with no entry for the task cannot admit it: fail closed, naming nothing.
+        match admit_shape("fam.b", &keys(&["choice:3"]), &recorded) {
+            Err(Refusal::SlotShapeNotTrained { trained, .. }) => assert!(trained.is_empty()),
+            other => panic!("a task with no recorded shape admits none: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_shape_check_does_not_run_without_a_record_and_says_so() {
+        admit_shape("fam.a", &keys(&["choice:99"]), &TrainedShapes::NotRecorded)
+            .expect("not checked");
+        admit_shape("fam.a", &keys(&["choice:99"]), &TrainedShapes::NoRelease).expect("not checked");
+        assert!(!TrainedShapes::NotRecorded.is_checked());
+        assert!(!TrainedShapes::NoRelease.is_checked());
+        assert!(shapes_of("fam.a", &[&["span"]]).is_checked());
+        assert_eq!(
+            TrainedShapes::of_release(None),
+            TrainedShapes::NotRecorded
+        );
+    }
+
+    #[test]
+    fn a_slot_key_is_one_a_request_can_produce() {
+        use crate::release::is_slot_key;
+        for good in ["span", "choice:2", "choice:17", "score:3", "score:129"] {
+            assert!(is_slot_key(good), "{good}");
+        }
+        for bad in [
+            "", "choice", "choice:", "choice:0", "choice:05", "choice:+5", "choice:5 ", "Choice:5",
+            "span:1", "bins:5", "choice:-1", "choice:5:5", "score:4294967296",
+        ] {
+            assert!(!is_slot_key(bad), "{bad:?}");
+        }
     }
 
     #[test]

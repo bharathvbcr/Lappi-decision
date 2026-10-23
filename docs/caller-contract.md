@@ -70,8 +70,9 @@ anything.**
 
 ## 4. Ask only trained shapes
 
-The runtime refuses a task its release did not train (`task_not_trained`), and for
-`code.defect_class` a context not in the trained shape. A caller must send **exactly** the trained
+The runtime refuses a task its release did not train (`task_not_trained`), a trained family in a
+slot shape it did not train (`slot_shape_not_trained`, below), and for `code.defect_class` a
+context not in the trained shape. A caller must send **exactly** the trained
 request: task, question and slot names are rendered into the prompt, so a renamed one serves a
 prompt the model never saw. The shapes below are pinned here. For the families no release
 trains yet, the shape is **proposed for v6**: the v6 builder must render these exact strings, or
@@ -86,6 +87,38 @@ this document and the caller change together (`GAP-CALLER-REQUEST-SHAPES-PROPOSE
 | Vani job posting: sponsorship | `career.jd_sponsorship` | `What does this job posting say about visa sponsorship and work authorization?` | `sponsorship` choice `[sponsors_visa, no_sponsorship, citizenship_or_clearance_required, not_stated]` | the rendered posting (below), as bytes | **No**: `task_not_trained` (generator written, not trained) |
 | Vani job posting: work mode | `career.jd_work_mode` | `Where does this job posting say the work is done?` | `work_mode` choice `[remote, hybrid, onsite, not_stated]` | the rendered posting (below), as bytes | **No**: `task_not_trained` (generator written, not trained) |
 | Vani job posting: seniority | `career.jd_seniority` | `What level of seniority does this job posting ask for?` | `seniority` choice `[intern_or_new_grad, mid, senior, staff_plus, manager]` | the rendered posting (below), as bytes | **No**: `task_not_trained` (generator written, not trained) |
+
+**The slot shape is checked, not only the task** (lane X1, 2026-10-22,
+`GAP-QD-EXPORT-GATE-CHECKS-DECLARED-SHAPES-NOT-ADMISSION-2026-10-17`). A release records, per
+trained family, the slot shapes it trained (`trained_slot_shapes` in `release_manifest.json`,
+written by `qd-export` from the train manifest). A request's shape is its sorted slot keys:
+`choice:N` and `score:N` with N the options (bins) plus the reserved `noul` row, and `span`;
+the order of the slots is not part of it. A request of a trained family whose shape is not one
+the release recorded for that family is refused as `slot_shape_not_trained`, before the model is
+asked, with `task`, `shape` (what was sent), `trained` (what the family trained) and
+`contract_section` (this section). The shapes this table pins are:
+
+| `task` | shape |
+| --- | --- |
+| `code.defect_class` | `[choice:5, span]` |
+| `gitpulse.commit_type` | `[choice:12]` |
+| `devtype.route` | `[choice:5]` |
+| `career.jd_role_fit`, `career.jd_seniority` | `[choice:6]` |
+| `career.jd_sponsorship`, `career.jd_work_mode` | `[choice:5]` |
+
+So a caller that adds, drops or re-counts an option (DevType adding a fifth route, GitPulse
+adding a commit type), adds a slot, or changes a slot's kind is refused, not served from a
+prompt the model never saw; the change goes through this table and a retrain, together. The
+check reads the slot kinds and counts only: slot names, option text and order and the
+question are still pinned by the table above and are not checked by the runtime. A release
+whose manifest records no `trained_slot_shapes` (every export before 2026-10-17) cannot say
+what it trained, so the shape check **does not run** for it and its requests are admitted on the
+task check alone; the `status` op reports that as `slot_shape_check` (`checked`, `not_recorded` for such a release,
+`no_release` for a runtime built without one, and `null` while nothing is warm), so "not run" is
+never read as "passed". The field is in the status op only: answers and refusals carry no new
+field, so no caller's reading of a reply changes. DevCouncil, GitPulse and DevType each send exactly the shape in the table
+(`AUDIT/x1-admission-shape-2026-10-22/enumeration.md` cites the client lines); none is refused
+by this check.
 
 The four `career.jd_*` rows are one triage question asked a slot at a time, because the decision-pool
 driver carries one choice slot per example. Their definition is Vani's

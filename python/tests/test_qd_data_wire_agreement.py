@@ -457,6 +457,12 @@ DATA_LANE_ONLY = {
 #: ``sources.TASK_FAMILIES`` (``mixture.py::_request`` -> ``task_family_by_id``, whose unknown-id
 #: failure is a ``KeyError``, not a ``QdRefusal``), and it knows nothing of what a release
 #: trained, so no refusal here stands for the kind.
+#:
+#: ``slot_shape_not_trained`` is the same kind of serving-time admission (lane X1): a release
+#: refuses a trained family's request in a slot shape its manifest's ``trained_slot_shapes`` does
+#: not record. This lane builds every request from ``sources.TASK_FAMILIES``'s own shape
+#: (``mixture.py::_request``), which is what ``Manifest.slot_shape`` records, and knows nothing of
+#: what a release trained.
 NO_QD_DATA_COUNTERPART = {
     "ambiguous_envelope",
     "calibration_entry_missing",
@@ -468,6 +474,7 @@ NO_QD_DATA_COUNTERPART = {
     "registered_route_span_unsupported",
     "slot_field_not_allowed",
     "slot_name_over_cap",
+    "slot_shape_not_trained",
     "task_not_trained",
     "unknown_op",
 }

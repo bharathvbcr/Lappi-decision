@@ -243,6 +243,23 @@ pub enum Refusal {
         available: Vec<String>,
     },
 
+    /// A trained family asked in a slot shape the release did not train it in. `shape` is the
+    /// request's sorted slot keys, `trained` the family's recorded shapes, and `contract_section`
+    /// where the caller finds the shape each family is asked in. The prompt layout and the
+    /// calibration entry it would read are the family's own only for a trained shape; any other is
+    /// a prompt the model never saw read through a table fitted on other requests.
+    #[error(
+        "task `{task}` was trained in the slot shapes {trained:?}, and this request's shape is \
+         {shape:?}. A trained family is answered only in a shape it trained; see \
+         {contract_section}"
+    )]
+    SlotShapeNotTrained {
+        task: String,
+        shape: Vec<String>,
+        trained: Vec<Vec<String>>,
+        contract_section: String,
+    },
+
     #[error(
         "the rendered prompt is {actual} bytes, over the cap of {cap}; the bound is on the bytes \
          the model sees, not only on those that arrived"
@@ -387,6 +404,7 @@ impl Refusal {
             Refusal::ContextNotUnifiedDiff { .. } => "context_not_unified_diff",
             Refusal::ContextLanguageNotInPool { .. } => "context_language_not_in_pool",
             Refusal::TaskNotTrained { .. } => "task_not_trained",
+            Refusal::SlotShapeNotTrained { .. } => "slot_shape_not_trained",
             Refusal::RenderedPromptOverCap { .. } => "rendered_prompt_over_cap",
             Refusal::EmptyOption { .. } => "empty_option",
             Refusal::OptionTextOverCap { .. } => "option_text_over_cap",

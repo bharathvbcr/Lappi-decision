@@ -25,7 +25,7 @@
 //! another workspace crate could turn on: the same inputs give the same bytes, so a release's
 //! hashes are reproducible.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::os::unix::fs::FileExt;
@@ -247,61 +247,14 @@ pub fn sha256_file(path: &Path) -> Result<[u8; 32]> {
 
 /// Refuse a JSON object that names a key twice, at any depth.
 ///
-/// `serde_json::Value` keeps the last value of a repeated key. `bytes` is already valid JSON, so
-/// the scan only tracks nesting and strings. Copied from `qd-prep`'s config scanner: that crate
-/// does not depend on this one, and this one does not depend on qd-prep.
+/// `serde_json::Value` keeps the last value of a repeated key. `bytes` is already valid JSON. The
+/// scan is `qd_runtime::release::first_duplicate_json_key`, the one this crate shares with the
+/// release reader rather than keeping a copy of its own.
 fn reject_duplicate_keys(bytes: &[u8]) -> std::result::Result<(), String> {
-    struct Frame {
-        object: bool,
-        expect_key: bool,
-        seen: BTreeSet<String>,
+    match qd_runtime::release::first_duplicate_json_key(bytes) {
+        Some(key) => Err(format!("duplicate key {key:?}")),
+        None => Ok(()),
     }
-    let mut stack: Vec<Frame> = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'{' => stack.push(Frame {
-                object: true,
-                expect_key: true,
-                seen: BTreeSet::new(),
-            }),
-            b'[' => stack.push(Frame {
-                object: false,
-                expect_key: false,
-                seen: BTreeSet::new(),
-            }),
-            b'}' | b']' => {
-                stack.pop();
-            }
-            b',' => {
-                if let Some(frame) = stack.last_mut() {
-                    frame.expect_key = frame.object;
-                }
-            }
-            b'"' => {
-                let start = i;
-                i += 1;
-                while i < bytes.len() && bytes[i] != b'"' {
-                    i += if bytes[i] == b'\\' { 2 } else { 1 };
-                }
-                if let Some(frame) = stack.last_mut()
-                    && frame.object
-                    && frame.expect_key
-                {
-                    let quoted = &bytes[start..=i.min(bytes.len() - 1)];
-                    let key: String = serde_json::from_slice(quoted)
-                        .map_err(|e| format!("duplicate-key scan: {e}"))?;
-                    if !frame.seen.insert(key.clone()) {
-                        return Err(format!("duplicate key {key:?}"));
-                    }
-                    frame.expect_key = false;
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    Ok(())
 }
 
 /// The data section is one contiguous span: offset 0 through `file_len`, no holes.
