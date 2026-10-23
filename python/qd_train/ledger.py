@@ -264,6 +264,36 @@ SPAN_REFIT_SPAN_NULL_SCORER_SHAS: Final[frozenset[str]] = frozenset({
 })
 SPAN_REFIT_TAG_PREFIX: Final[str] = "span-refit-"
 SPAN_REFIT_VALIDITY_GATE: Final[str] = "span_refit.validity_gate"
+#: Only arm (a) is exempt after its validity gate failed (an exact tag match).
+SPAN_REFIT_ARM_A_TAG: Final[str] = "span-refit-a"
+SPAN_REFIT_METRIC_NAMES: Final[tuple[str, str, str]] = (
+    SPAN_START_TOP1_METRIC,
+    SPAN_END_TOP1_METRIC,
+    SPAN_NULL_METRIC,
+)
+_SPAN_REFIT_TAG: Final[re.Pattern[str]] = re.compile(r"span-refit-[a-e]")
+#: The whitespace both languages trim (ASCII only: ``str.strip`` and Rust's ``trim`` disagree on
+#: the rest) and the largest count a Rust ``u64`` holds.
+_ASCII_WS: Final[str] = " \t\n\r\x0b\x0c"
+_U64_MAX: Final[int] = 2**64 - 1
+
+
+def _ascii_lower(s: str) -> str:
+    """Rust's ``to_ascii_lowercase``: only A-Z fold, so both languages fold the same bytes."""
+    return "".join(c.lower() if c.isascii() else c for c in s)
+
+
+def _span_refit_tag_spelling_escapes(tag: str) -> bool:
+    """A tag that folds (ASCII case, ASCII whitespace) to a ``span-refit-`` tag without being one
+    of ``span-refit-a`` .. ``span-refit-e`` exactly."""
+    return (
+        _ascii_lower(tag.strip(_ASCII_WS)).startswith(SPAN_REFIT_TAG_PREFIX)
+        and _SPAN_REFIT_TAG.fullmatch(tag) is None
+    )
+
+
+def _is_count(v: object, *, minimum: int) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and minimum <= v <= _U64_MAX
 #: The metrics a ft/eval row carries naming the decision record it was launched under.
 DECISION_RECORD_PATH: Final[str] = "decision_record.path"
 DECISION_RECORD_BLOB: Final[str] = "decision_record.blob"
@@ -1186,29 +1216,64 @@ class LedgerRow:
             return
         tag = recipe.get("tag")
         scripts = recipe.get("script_sha256")
-        if not (isinstance(tag, str) and tag.startswith(SPAN_REFIT_TAG_PREFIX)):
+        if isinstance(tag, str) and _span_refit_tag_spelling_escapes(tag):
+            raise ValueError(
+                f"recipe.tag {tag!r} is a non-canonical spelling of a span-refit tag "
+                "(span-refit-a .. span-refit-e exactly): refused so that it cannot escape the "
+                "span-null scorer check"
+            )
+        pinned = scripts.get("span_refit_score.py") if isinstance(scripts, Mapping) else None
+        if (
+            isinstance(pinned, str)
+            and pinned not in SPAN_REFIT_SPAN_NULL_SCORER_SHAS
+            and _ascii_lower(pinned.strip(_ASCII_WS)) in SPAN_REFIT_SPAN_NULL_SCORER_SHAS
+        ):
+            raise ValueError(
+                f"script_sha256['span_refit_score.py'] {pinned!r} differs from the span-null "
+                "scorer sha only in case or whitespace: refused as non-canonical"
+            )
+        if pinned not in SPAN_REFIT_SPAN_NULL_SCORER_SHAS:
             return
-        if not isinstance(scripts, Mapping):
-            return
-        if scripts.get("span_refit_score.py") not in SPAN_REFIT_SPAN_NULL_SCORER_SHAS:
-            return
+        if not (isinstance(tag, str) and _SPAN_REFIT_TAG.fullmatch(tag)):
+            raise ValueError(
+                f"recipe.tag {tag!r} is not span-refit-a .. span-refit-e but the recipe pins the "
+                "span-null scorer: a row scored by it carries its tag, and is refused otherwise "
+                "so that it cannot escape the span-null scorer check"
+            )
         gate = self.gates.get(SPAN_REFIT_VALIDITY_GATE)
-        if isinstance(gate, Ran) and gate.passed is False:
+        if tag == SPAN_REFIT_ARM_A_TAG and isinstance(gate, Ran) and gate.passed is False:
             return
-        totals: set[int | None] = set()
-        for name in (SPAN_START_TOP1_METRIC, SPAN_END_TOP1_METRIC, SPAN_NULL_METRIC):
-            m = self.metrics.get(name)
+        states = [self.metrics.get(n) for n in SPAN_REFIT_METRIC_NAMES]
+        if all(isinstance(s, NotRun) for s in states):
+            return  # nothing was measured (no pointing row): span_beats_null reads not_run
+        totals: set[int] = set()
+        for name, m in zip(SPAN_REFIT_METRIC_NAMES, states, strict=True):
             if not isinstance(m, Ran):
                 raise ValueError(
                     f"a completed {tag} row recorded under a span-null scorer lacks {name} as a "
                     "'ran' metric: the scorer emits it (amendment 2), so a row without it was "
                     "not produced by that scorer"
                 )
-            totals.add(m.n_total)
-        if len(totals) != 1 or None in totals:
+            total, hits, rate = m.n_total, m.n, m.value
+            if not (
+                _is_count(total, minimum=1)
+                and _is_count(hits, minimum=0)
+                and hits <= total
+                and isinstance(rate, int | float)
+                and not isinstance(rate, bool)
+                and math.isfinite(rate)
+                and 0.0 <= rate <= 1.0
+            ):
+                raise ValueError(
+                    f"a completed {tag} row's {name} is not a ran reading over at least one "
+                    f"pointing row (n={hits!r}, n_total={total!r}, value={rate!r}): the span-null "
+                    "scorer states whole counts and a rate in [0, 1]"
+                )
+            totals.add(total)
+        if len(totals) != 1:
             raise ValueError(
                 f"a completed {tag} row's span top-1 and null do not state one pointing-row "
-                f"count (n_total {sorted(str(t) for t in totals)})"
+                f"count (n_total {sorted(totals)})"
             )
 
     @staticmethod
@@ -1630,6 +1695,7 @@ class Ledger:
 
         for r in candidates:
             reasons.extend(_row_refusals(r))
+        reasons.extend(_base_pool_refusals(candidates))
 
         units, join_refusals = _promotion_units(candidates)
         reasons.extend(join_refusals)
@@ -1851,6 +1917,45 @@ def _read_decisions(
             "say which population it judged does not promote",
         )
     return decisions, decisions.population, ()
+
+
+#: Family id of the quantised arm (campaign/lora-2b-q8-preregistered.json) and the recipe keys
+#: its rows carry: ``recipe["family"]`` and ``recipe["base"]["format"]`` / ``["file_sha256"]``.
+LORA_2B_Q8_FAMILY: Final[str] = "lora-2b-q8"
+
+
+def _base_pool_refusals(rows: Sequence[LedgerRow]) -> list[str]:
+    """Rows pool only when (family id, base.format, base-file sha256) agree.
+
+    The pool key a promotion reads is ``Protocol.hash_without_seed``, whose ``recipe_hash`` is
+    whatever the writer hashed; a q8 row and a bf16 row of an otherwise equal protocol would
+    pool if a writer left the base out of it. This reader does not rely on the writer: a
+    ``lora-2b-q8`` row without a base format and base-file sha256 is refused, and so is a pool
+    whose rows differ in the triple (a row stating none differs from one that states them).
+    """
+    refusals: list[str] = []
+    triples: dict[tuple[Any, Any, Any], list[str]] = {}
+    for r in rows:
+        recipe = r.recipe or {}
+        raw_base = recipe.get("base")
+        base: Mapping[str, Any] = raw_base if isinstance(raw_base, Mapping) else {}
+        family, fmt, sha = recipe.get("family"), base.get("format"), base.get("file_sha256")
+        if family == LORA_2B_Q8_FAMILY and not (
+            isinstance(fmt, str) and fmt.strip() and isinstance(sha, str) and _HEX64.fullmatch(sha)
+        ):
+            refusals.append(
+                f"{r.row_id}: a {LORA_2B_Q8_FAMILY} row must record recipe.base.format and "
+                "recipe.base.file_sha256 (a lowercase hex sha256): without them it cannot be "
+                "told from a bf16 row"
+            )
+        triples.setdefault((family, fmt, sha), []).append(r.row_id)
+    if len(triples) > 1:
+        refusals.append(
+            "rows of one seed family differ in (family, recipe.base.format, "
+            f"recipe.base.file_sha256): {sorted(map(str, triples))}; a quantised row is never "
+            "pooled with a bf16 row"
+        )
+    return refusals
 
 
 def _row_refusals(r: LedgerRow) -> list[str]:

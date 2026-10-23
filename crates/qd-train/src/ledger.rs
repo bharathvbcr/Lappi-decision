@@ -454,6 +454,9 @@ pub fn read_entries(path: &Path, include_started: bool) -> Result<Vec<LedgerEntr
         };
         let status = Status::parse(&field("status")?).map_err(|e| bad(e.to_string()))?;
         let extras = RowExtras::from_line(&v).map_err(|e| bad(e.to_string()))?;
+        // Every line passes the gates Python's `LedgerRow.from_json` runs on read (the `lora`
+        // label gate and the span-refit span-null check), started rows included.
+        check_row_value(&v, false).map_err(|e| bad(e.to_string()))?;
         if include_started || status != Status::Started {
             out.push(LedgerEntry {
                 row_id: field("row_id")?,
@@ -1238,57 +1241,123 @@ pub const SPAN_REFIT_METRICS: [&str; 3] = [
 
 /// Python's `LedgerRow.check_span_refit_span_null`: a completed span-refit row recorded under a
 /// scorer that emits the span null holds the three metrics as `ran` records over one pointing-row
-/// count. Not looked at: any other status, tag or scorer sha (it predates the null), and arm (a)'s
-/// row after its validity gate failed, which records no span reading.
+/// count (whole counts, `1 <= n_total`, `n <= n_total`, a rate in `[0, 1]`), or all three as
+/// `not_run` (nothing measured). Refused outright: a tag or scorer sha that differs from a
+/// canonical one only in case or whitespace. Not looked at: any other status, tag or scorer sha
+/// (it predates the null), and arm (a)'s row after its validity gate failed, which records no
+/// span reading.
 fn check_span_refit_span_null(
     recipe: &Value,
     status: Status,
     metrics: &BTreeMap<String, TriState>,
     gates: &BTreeMap<String, TriState>,
 ) -> Result<(), LedgerError> {
-    let Some(tag) = recipe
-        .get("tag")
-        .and_then(Value::as_str)
-        .filter(|t| t.starts_with(SPAN_REFIT_TAG_PREFIX))
-    else {
-        return Ok(());
-    };
     if status != Status::Completed {
         return Ok(());
+    }
+    let tag = recipe.get("tag").and_then(Value::as_str);
+    if let Some(tag) = tag.filter(|t| span_refit_tag_spelling_escapes(t)) {
+        return refuse(format!(
+            "recipe.tag {tag:?} is a non-canonical spelling of a span-refit tag \
+             (span-refit-a .. span-refit-e exactly): refused so that it cannot escape the \
+             span-null scorer check"
+        ));
     }
     let pinned = recipe
         .get("script_sha256")
         .and_then(|s| s.get("span_refit_score.py"))
         .and_then(Value::as_str);
+    if let Some(pinned) = pinned
+        && !SPAN_REFIT_SPAN_NULL_SCORER_SHAS.contains(&pinned)
+        && SPAN_REFIT_SPAN_NULL_SCORER_SHAS.contains(
+            &pinned
+                .trim_matches(&SPAN_REFIT_ASCII_WS[..])
+                .to_ascii_lowercase()
+                .as_str(),
+        )
+    {
+        return refuse(format!(
+            "script_sha256['span_refit_score.py'] {pinned:?} differs from the span-null scorer \
+             sha only in case or whitespace: refused as non-canonical"
+        ));
+    }
     if !pinned.is_some_and(|s| SPAN_REFIT_SPAN_NULL_SCORER_SHAS.contains(&s)) {
         return Ok(());
     }
-    if matches!(
-        gates.get(SPAN_REFIT_VALIDITY_GATE),
-        Some(TriState::Ran { passed: false, .. })
-    ) {
+    let Some(tag) = tag.filter(|t| is_canonical_span_refit_tag(t)) else {
+        return refuse(format!(
+            "recipe.tag {tag:?} is not span-refit-a .. span-refit-e but the recipe pins the \
+             span-null scorer: a row scored by it carries its tag, and is refused otherwise so \
+             that it cannot escape the span-null scorer check"
+        ));
+    };
+    if tag == SPAN_REFIT_ARM_A_TAG
+        && matches!(
+            gates.get(SPAN_REFIT_VALIDITY_GATE),
+            Some(TriState::Ran { passed: false, .. })
+        )
+    {
         return Ok(());
+    }
+    if SPAN_REFIT_METRICS
+        .iter()
+        .all(|n| matches!(metrics.get(*n), Some(TriState::NotRun { .. })))
+    {
+        return Ok(()); // nothing was measured (no pointing row): span_beats_null reads not_run
     }
     let mut totals = std::collections::BTreeSet::new();
     for name in SPAN_REFIT_METRICS {
-        match metrics.get(name) {
-            Some(TriState::Ran { coverage, .. }) => {
-                totals.insert(coverage.map(|c| c.n_total));
+        let Some(TriState::Ran {
+            value, coverage, ..
+        }) = metrics.get(name)
+        else {
+            return refuse(format!(
+                "a completed {tag} row recorded under a span-null scorer lacks {name} as a \
+                 'ran' metric: the scorer emits it (amendment 2)"
+            ));
+        };
+        let rate_ok = value
+            .as_f64()
+            .is_some_and(|r| r.is_finite() && (0.0..=1.0).contains(&r));
+        match coverage {
+            Some(c) if rate_ok && c.n_total >= 1 && c.n <= c.n_total => {
+                totals.insert(c.n_total);
             }
             _ => {
                 return refuse(format!(
-                    "a completed {tag} row recorded under a span-null scorer lacks {name} as a \
-                     'ran' metric: the scorer emits it (amendment 2)"
+                    "a completed {tag} row's {name} is not a ran reading over at least one \
+                     pointing row: the span-null scorer states whole counts and a rate in [0, 1]"
                 ));
             }
         }
     }
-    if totals.len() != 1 || totals.contains(&None) {
+    if totals.len() != 1 {
         return refuse(format!(
             "a completed {tag} row's span top-1 and null do not state one pointing-row count"
         ));
     }
     Ok(())
+}
+
+/// Only arm (a) is exempt after its validity gate failed (an exact tag match).
+const SPAN_REFIT_ARM_A_TAG: &str = "span-refit-a";
+const SPAN_REFIT_ASCII_WS: [char; 6] = [' ', '\t', '\n', '\r', '\x0b', '\x0c'];
+
+/// `span-refit-a` .. `span-refit-e` exactly: the tags `tools/span_refit_rows.py` writes.
+fn is_canonical_span_refit_tag(tag: &str) -> bool {
+    matches!(
+        tag.strip_prefix(SPAN_REFIT_TAG_PREFIX).map(str::as_bytes),
+        Some([b'a'..=b'e'])
+    )
+}
+
+/// A tag that folds (ASCII case, ASCII whitespace) to a `span-refit-` tag without being a
+/// canonical one: Python's `_span_refit_tag_spelling_escapes`.
+fn span_refit_tag_spelling_escapes(tag: &str) -> bool {
+    tag.trim_matches(&SPAN_REFIT_ASCII_WS[..])
+        .to_ascii_lowercase()
+        .starts_with(SPAN_REFIT_TAG_PREFIX)
+        && !is_canonical_span_refit_tag(tag)
 }
 
 /// The reading side of [`check_optimizer_label`]: the verdict Rust's gate gives a ledger line
@@ -1299,6 +1368,16 @@ fn check_span_refit_span_null(
 pub fn check_row_line(line: &str) -> Result<(), LedgerError> {
     let v: Value = serde_json::from_str(line)
         .map_err(|e| LedgerError::Refused(format!("the line is not JSON: {e}")))?;
+    check_row_value(&v, true)
+}
+
+/// [`check_row_line`] over a line already parsed (so [`read_entries`] parses each line once).
+/// `require_shape` is the strict reading (`check_row_line`: a row with no `metrics` or `gates`
+/// object is refused, as Python's `LedgerRow.from_json` refuses it). `read_entries` reads
+/// schema-minimal lines too, so there an ABSENT `metrics` or `gates` is an empty map and the
+/// gates still run over it (a `lora` or span-refit row with nothing recorded is still refused);
+/// a PRESENT one of the wrong type is refused either way.
+fn check_row_value(v: &Value, require_shape: bool) -> Result<(), LedgerError> {
     let status = match v.get("status").and_then(Value::as_str) {
         Some("started") => Status::Started,
         Some("completed") => Status::Completed,
@@ -1306,7 +1385,7 @@ pub fn check_row_line(line: &str) -> Result<(), LedgerError> {
         Some("failed") => Status::Failed,
         other => return refuse(format!("status {other:?} is not a ledger status")),
     };
-    let extras = RowExtras::from_line(&v)?;
+    let extras = RowExtras::from_line(v)?;
     let mut metrics = BTreeMap::new();
     match v.get("metrics") {
         Some(Value::Object(m)) => {
@@ -1317,16 +1396,23 @@ pub fn check_row_line(line: &str) -> Result<(), LedgerError> {
                 );
             }
         }
+        None if !require_shape => {}
         _ => return refuse("metrics is not an object"),
     }
+    // Python's `LedgerRow.from_json` reads `gates` as an object of tri-states and refuses a row
+    // without one; the stricter reading is the one both languages give.
     let mut gates = BTreeMap::new();
-    if let Some(Value::Object(g)) = v.get("gates") {
-        for (name, raw) in g {
-            gates.insert(
-                name.clone(),
-                crate::tristate::parse_tristate(raw, &format!("gates.{name}"))?,
-            );
+    match v.get("gates") {
+        Some(Value::Object(g)) => {
+            for (name, raw) in g {
+                gates.insert(
+                    name.clone(),
+                    crate::tristate::parse_tristate(raw, &format!("gates.{name}"))?,
+                );
+            }
         }
+        None if !require_shape => {}
+        _ => return refuse("gates is not an object"),
     }
     let recipe = v.get("recipe").cloned().unwrap_or(Value::Null);
     check_optimizer_label(&recipe, status, &metrics, &extras)?;

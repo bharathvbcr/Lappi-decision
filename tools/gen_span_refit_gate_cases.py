@@ -93,7 +93,20 @@ def build_cases() -> list[dict[str, str]]:
          _line(metrics=only_joint, gates=gate_passed, tag="span-refit-a")),
         ("old_sha_without_metrics", "accept", _line(metrics=only_joint, sha=OLD_SHA)),
         ("new_sha_failed_row", "accept", _line(metrics={}, status="failed")),
-        ("new_sha_other_tag", "accept", _line(metrics={}, tag="calib-fit")),
+        ("new_sha_all_three_not_run", "accept",
+         _line(metrics={n: NotRun(reason="no pointing row") for n in THREE})),
+        ("new_sha_a_ran_reading_over_zero_rows", "refuse",
+         _line(metrics={n: Ran(passed=True, value=0.0, n=0, n_total=0) for n in THREE})),
+        ("new_sha_rate_above_one", "refuse",
+         _line(metrics={**_three(), SPAN_NULL_METRIC: Ran(passed=True, value=1.5, n=25,
+                                                           n_total=50)})),
+        ("arm_b_claiming_a_failed_validity_gate", "refuse",
+         _line(metrics=only_joint, gates=gate_failed, tag="span-refit-b")),
+        ("non_canonical_tag_case", "refuse", _line(metrics={}, tag="Span-Refit-a")),
+        ("non_canonical_tag_space", "refuse", _line(metrics={}, tag=" span-refit-a")),
+        ("non_canonical_sha_upper", "refuse", _line(metrics={}, sha=NEW_SHA.upper())),
+        ("non_canonical_sha_space", "refuse", _line(metrics={}, sha=NEW_SHA + " ")),
+        ("new_sha_under_another_tag", "refuse", _line(metrics={}, tag="calib-fit")),
     ]
     return [{"name": n, "expect": e, "line": ln} for n, e, ln in cases]
 

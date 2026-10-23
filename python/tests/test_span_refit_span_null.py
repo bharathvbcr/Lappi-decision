@@ -200,10 +200,14 @@ def test_a_new_sha_row_without_the_span_field_is_refused_on_both_doors(tmp_path:
 def test_rows_under_another_scorer_sha_or_tag_or_status_are_not_checked() -> None:
     sha = next(iter(L.SPAN_REFIT_SPAN_NULL_SCORER_SHAS))
     _row(sha="f" * 64).check_span_refit_span_null()  # predates the null: void, not refused
-    _row(sha=sha, tag="calib-fit").check_span_refit_span_null()
+    _row(sha="f" * 64, tag="calib-fit").check_span_refit_span_null()
+    with pytest.raises(ValueError, match="span-null scorer"):  # pins the scorer, not its tag
+        _row(sha=sha, tag="calib-fit").check_span_refit_span_null()
     _row(sha=sha, status="failed").check_span_refit_span_null()
     gate_failed = {L.SPAN_REFIT_VALIDITY_GATE: Ran(passed=False, value=5000)}
-    _row(sha=sha, gates=gate_failed).check_span_refit_span_null()
+    _row(sha=sha, gates=gate_failed, tag="span-refit-a").check_span_refit_span_null()
+    with pytest.raises(ValueError, match="span-null scorer"):  # the exemption is arm (a)'s only
+        _row(sha=sha, gates=gate_failed, tag="span-refit-b").check_span_refit_span_null()
 
 
 # --- the pins ----------------------------------------------------------------------------------
