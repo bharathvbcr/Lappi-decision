@@ -56,6 +56,16 @@ implemented here.
 - Two edits to adversarial tests, both required by the lead's items: `test_BREAK_a_val_record_cannot_lift...` creates
   the cited files and supplies the val hash through `VAL_SHARD_HASH_METRIC`.
 
+- A Rust door whose `qd_data` cannot decide coverage (the v64 fixture's frozen copy states no module list) records
+  `shard_code_not_covered` as `NotRun` and still opens the set; promotion treats it as not covered.
+- Round 2 runs (final tree): pytest via `make torch-pytest` (adversarial, fingerprint, artifacts, promotion, real_ft
+  shard files) 163 passed, exit 0; the wider round-2 suite (20 files) was 739 passed, 3 skipped before the last fixes
+  (its 2 failures, the unresolved gap and a test helper that tried to write `/etc/hosts`, are fixed; the system file
+  was untouched, root-owned). `cargo test -p qd-train` exit 0; `cargo test -p qd-train-metal` exit 0 with its GPU
+  tests (`#[ignore]`, 15 across targets) NOT RUN. `test_gaps_ledger` + `test_lint_gate`: 26 passed.
+- The Lappi-side lora reference writer is checked by source assertion only (`test_adv_x6_fingerprint.py`); running it
+  needs the backbone and a GPU: NOT RUN.
+
 ## Measured
 - Pinned sets, header-only, branch reader: `AUDIT/x6-fingerprint-list-2026-10-23/verify_pinned.AFTER_V3.txt`: train
   94bef49a... and val 58bd753f... both `Ran passed=True` (16 modules match) and `not_covered: [manifest.py,
