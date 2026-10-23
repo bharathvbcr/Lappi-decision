@@ -22,7 +22,7 @@ If it fails, only the arm-(a) row is written (gate failed) and the tool stops: e
 void (the pre-registration's arms.a.role). Every other metric is ``passed=True``: a reading is
 not a verdict (rule 2).
 
-Refused: a pre-registration whose sha256 is not the one recorded after amendment 1, a
+Refused: a pre-registration whose sha256 is not the one recorded after amendment 2, a
 population pin that is not the pre-registered one, a results JSON that is not of the arm asked
 for, or a head file whose sha256 differs from the one the scorer reports.
 
@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import subprocess
 import sys
 import time
@@ -58,9 +59,14 @@ from qd_train.ledger import (  # noqa: E402
     Protocol,
     RunRecorder,
 )
-from qd_train.tristate import Ran, TriState  # noqa: E402
+from qd_train.span_null import (  # noqa: E402
+    SPAN_END_TOP1_METRIC,
+    SPAN_NULL_METRIC,
+    SPAN_START_TOP1_METRIC,
+)
+from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
 
-PREREG_SHA256: Final[str] = "b4a370ff133587bf1d8f090aae50a9cbbd09bd4dd207385dcb0e628afd1778a1"
+PREREG_SHA256: Final[str] = "2252f630eeda39f907d03e339b6e2eea31f61fa932184281828d502f760c2cde"
 POPULATION_PIN: Final[str] = "bdd571b675d83b92b2180d900cee79c9a89553f240c07fac421bcff47eb4e626"
 EVAL_ROW_PREFIX: Final[str] = "6af73bef"
 GATE_TARGET: Final[int] = 5596
@@ -112,7 +118,7 @@ def check_results(result: Json, arm: str) -> Json:
     prereg = _obj(result.get("prereg"), "prereg")
     if prereg.get("sha256") != PREREG_SHA256:
         raise Refused(f"the scorer ran under pre-registration {prereg.get('sha256')}, not "
-                      f"{PREREG_SHA256} (amendment 1)")
+                      f"{PREREG_SHA256} (amendment 2)")
     if result.get("population_pin") != POPULATION_PIN:
         raise Refused(f"population pin {result.get('population_pin')} is not {POPULATION_PIN}")
     arms = _obj(result.get("arms"), "arms")
@@ -160,8 +166,57 @@ def arm_metrics(result: Json, arm: str) -> dict[str, TriState]:
                 raise Refused(f"results arms.{arm}.head.{name}: expected a number, got {cond!r}")
             out[name.lower()] = Ran(passed=True, value=float(cond),
                                     detail=f"cond(W) of the refit; {REPORT_ONLY}")
+    out.update(span_null_metrics(result, block, arm))
     out.update(null_metrics(result))
     out.update(mcnemar_metrics(result, arm))
+    return out
+
+
+def span_null_metrics(result: Json, block: Json, arm: str) -> dict[str, TriState]:
+    """The three metrics ``span_beats_null`` reads (amendment 2), as the scorer wrote them.
+
+    Refused, never defaulted, when the results lack them: a results JSON from the scorer before
+    amendment 2 is void for this gate and the arm is rerun, not re-read.
+    """
+    pointers = _obj(block.get("span_pointers"), f"arms.{arm}.span_pointers")
+    null = _obj(_obj(result.get("nulls"), "nulls").get("pointing_added_line"),
+                "nulls.pointing_added_line")
+    counts: dict[str, tuple[int, int]] = {}
+    for name in (SPAN_START_TOP1_METRIC, SPAN_END_TOP1_METRIC):
+        hit = _obj(pointers.get(name), f"arms.{arm}.span_pointers.{name}")
+        counts[name] = (_int(hit.get("n"), f"{name}.n"),
+                        _int(hit.get("n_total"), f"{name}.n_total"))
+    counts[SPAN_NULL_METRIC] = (_int(null.get("n"), "nulls.pointing_added_line.n"),
+                                _int(null.get("n_total"), "nulls.pointing_added_line.n_total"))
+    totals = {n_total for _, n_total in counts.values()}
+    if len(totals) != 1:
+        raise Refused("the start and end top-1 and the null state different pointing-row counts: "
+                      f"{ {k: v[1] for k, v in counts.items()} }")
+    (total,) = totals
+    if total == 0:
+        # No pointing row: nothing was measured. real_ft_run.span_pointer_states records NotRun
+        # here, and so does this: never a ran reading over zero rows.
+        gone = NotRun(reason="the scored val set holds no pointing span row, so there is nothing "
+                      "to measure a pointer or the random-+-line null over")
+        return dict.fromkeys(counts, gone)
+    for name, (n, n_total) in counts.items():
+        if not 0 <= n <= n_total:
+            raise Refused(f"results {name}: {n} hits of {n_total} pointing rows")
+    value = null.get("value")
+    if (isinstance(value, bool) or not isinstance(value, int | float)
+            or not math.isfinite(value) or not 0.0 <= value <= 1.0):
+        raise Refused(
+            f"results nulls.pointing_added_line.value must be a rate in [0, 1]: {value!r}")
+    out: dict[str, TriState] = {}
+    for name, what in ((SPAN_START_TOP1_METRIC, "start"), (SPAN_END_TOP1_METRIC, "end")):
+        n, n_total = counts[name]
+        out[name] = Ran(
+            passed=True, value=n / n_total, n=n, n_total=n_total,
+            detail=(f"span {what} top-1 {n}/{n_total} over the pointing val rows, "
+                    f"{pointers.get('cache')}; {REPORT_ONLY}"))
+    out[SPAN_NULL_METRIC] = Ran(
+        passed=True, value=float(value), n=counts[SPAN_NULL_METRIC][0], n_total=total,
+        detail=f"random-+-line null on the same {total} pointing rows; {REPORT_ONLY}")
     return out
 
 

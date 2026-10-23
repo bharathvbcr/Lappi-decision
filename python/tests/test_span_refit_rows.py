@@ -52,6 +52,12 @@ def _results(arm_value: int = 5596, *, prereg: str = srr.PREREG_SHA256) -> dict[
         "d": {"head": head, "fp32_live": _counts(6626), "reading": "restores"},
         "e": {"head": head, "bf16_cache": _counts(6200), "reading": "restores"},
     }
+    for block in arms.values():  # amendment 2: each arm's pointer top-1s over the pointing rows
+        block["span_pointers"] = {
+            "cache": "bf16_cache",
+            "val_span_start_top1_over_chance": {"n": 3000, "n_total": 5357},
+            "val_span_end_top1_over_chance": {"n": 2900, "n_total": 5357},
+        }
     tests = {"b_vs_c_all_rows (prereg)": {"n": 7238, "first_only": 10, "second_only": 30,
                                           "p_exact_two_sided": 0.002}}
     for cell in CELLS:
@@ -61,7 +67,8 @@ def _results(arm_value: int = 5596, *, prereg: str = srr.PREREG_SHA256) -> dict[
         "prereg": {"sha256": prereg}, "population_pin": srr.POPULATION_PIN, "arms": arms,
         "nulls": {"uniform_line": {"by_cell": {c: 12.5 for c in CELLS}},
                   "random_plus_line": {"expected_correct": 40.0, "rows": 1733},
-                  "always_abstain": {"n": 1881, "agrees": True}},
+                  "always_abstain": {"n": 1881, "agrees": True},
+                  "pointing_added_line": {"value": 0.61, "n": 4000, "n_total": 5357}},
         "mcnemar": tests,
     }
 
