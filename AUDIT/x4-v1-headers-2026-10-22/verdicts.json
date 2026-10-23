@@ -1,0 +1,625 @@
+[
+ {
+  "rel": "a2-box/shards/train",
+  "dir": "/Users/bharath/qd-campaign/a2-box/shards/train",
+  "shard_hash": "bff9606971767a0e9d7f6c7004765f09839b97f67364a912d0b51708adce630e",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "a2-box/shards/val",
+  "dir": "/Users/bharath/qd-campaign/a2-box/shards/val",
+  "shard_hash": "29aa6944f2e67bb73730b56017fdb2647799d613d82d3c0f915139e1cc4aa3d6",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "box-final-2026-09-30/phase3/shards/train",
+  "dir": "/Users/bharath/qd-campaign/box-final-2026-09-30/phase3/shards/train",
+  "shard_hash": "d773b87666e1b042279271ab0f891246b7268d4ce0cad2c3e677bb415c147e1a",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical/test-pin (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "box-final-2026-09-30/phase3/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/box-final-2026-09-30/phase3/shards/train-no-decode",
+  "shard_hash": "d773b87666e1b042279271ab0f891246b7268d4ce0cad2c3e677bb415c147e1a",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical/test-pin (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "box-final-2026-09-30/phase3/shards/val",
+  "dir": "/Users/bharath/qd-campaign/box-final-2026-09-30/phase3/shards/val",
+  "shard_hash": "105513b98887a24391339f8a19ac9dfef07645abd258a22482087b0699066a72",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical/test-pin (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "longctx-smoke-2026-10-01/shards/train",
+  "dir": "/Users/bharath/qd-campaign/longctx-smoke-2026-10-01/shards/train",
+  "shard_hash": "a43256b64a3487c8b47d3586bdbbd3726c4956c9eddb42a66d24c85759c6ed28",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "longctx-smoke-2026-10-01/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/longctx-smoke-2026-10-01/shards/train-no-decode",
+  "shard_hash": "a43256b64a3487c8b47d3586bdbbd3726c4956c9eddb42a66d24c85759c6ed28",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "longctx-smoke-2026-10-01/shards/val",
+  "dir": "/Users/bharath/qd-campaign/longctx-smoke-2026-10-01/shards/val",
+  "shard_hash": "89ce07b4b9a102f0a03bc67376b35983b6d883a51a65bf56694c2b5b4b0f20fa",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "longctx-smoke-refusegold-2026-10-01/shards/train",
+  "dir": "/Users/bharath/qd-campaign/longctx-smoke-refusegold-2026-10-01/shards/train",
+  "shard_hash": "29d9a4f41e5bacb7a3025eca4acb1df4ca7dae7e71d22bffaf6a2a6ab1b4d816",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "longctx-smoke-refusegold-2026-10-01/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/longctx-smoke-refusegold-2026-10-01/shards/train-no-decode",
+  "shard_hash": "29d9a4f41e5bacb7a3025eca4acb1df4ca7dae7e71d22bffaf6a2a6ab1b4d816",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "longctx-smoke-refusegold-2026-10-01/shards/val",
+  "dir": "/Users/bharath/qd-campaign/longctx-smoke-refusegold-2026-10-01/shards/val",
+  "shard_hash": "2925cf97c6cf82e2d2d3dbfd24a81ce728c4df287041fb643a2a8f2ef3e95290",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-fullvocab-2026-09-30/shards/replay",
+  "dir": "/Users/bharath/qd-campaign/phase4-fullvocab-2026-09-30/shards/replay",
+  "shard_hash": "ea25843879758ff8c6c16bf99e093455bfa270f8c7e6b640ed2e0cfe0ba60725",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-fullvocab-2026-09-30/shards/train",
+  "dir": "/Users/bharath/qd-campaign/phase4-fullvocab-2026-09-30/shards/train",
+  "shard_hash": "15261beecffdb7c26628e3e5cc9fcec53d209563f510b2b53f269d2563b1cc7c",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-fullvocab-2026-09-30/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/phase4-fullvocab-2026-09-30/shards/train-no-decode",
+  "shard_hash": "15261beecffdb7c26628e3e5cc9fcec53d209563f510b2b53f269d2563b1cc7c",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-fullvocab-2026-09-30/shards/val",
+  "dir": "/Users/bharath/qd-campaign/phase4-fullvocab-2026-09-30/shards/val",
+  "shard_hash": "f5643ef91be45f723c6774ea622f227748a97769db21aac533a384acbfa6c5f5",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v3-2026-10-01/shards/replay",
+  "dir": "/Users/bharath/qd-campaign/phase4-v3-2026-10-01/shards/replay",
+  "shard_hash": "636f613690dd02baa46bf340a549026b10832d0985e05ced0d167ab5e2279f1e",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v3-2026-10-01/shards/train",
+  "dir": "/Users/bharath/qd-campaign/phase4-v3-2026-10-01/shards/train",
+  "shard_hash": "70c9fb3e41771df75cda61a78aaf6fbd1f2cf6af267842ea1fae69a189745a9f",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v3-2026-10-01/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/phase4-v3-2026-10-01/shards/train-no-decode",
+  "shard_hash": "c7f226a8e40ab5747cb547514ccfdd23fcdb79ea842af5c6c307fb1740345d82",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v3-2026-10-01/shards/val",
+  "dir": "/Users/bharath/qd-campaign/phase4-v3-2026-10-01/shards/val",
+  "shard_hash": "1b3387adb24fea1749ca1e14839f607ad6ed9531313a782771e7547a2749db76",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v31-2026-10-01/shards/replay",
+  "dir": "/Users/bharath/qd-campaign/phase4-v31-2026-10-01/shards/replay",
+  "shard_hash": "8ebd1915a858d0941910e2ae1826d79a8fda7832ed4e2e6fa2a4443e0a854610",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v31-2026-10-01/shards/train",
+  "dir": "/Users/bharath/qd-campaign/phase4-v31-2026-10-01/shards/train",
+  "shard_hash": "a87ed1e726997342f1cd8cdda06dbfa1bf4d6ae7131445bf54880cce5ae43299",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v31-2026-10-01/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/phase4-v31-2026-10-01/shards/train-no-decode",
+  "shard_hash": "1fadf1add3ce99bb5a653f2ab339e253f77f31bcefe7b3ed676416948d3d7e5c",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v31-2026-10-01/shards/val",
+  "dir": "/Users/bharath/qd-campaign/phase4-v31-2026-10-01/shards/val",
+  "shard_hash": "83ae8e6757a88c792fbd565796a21cb29e732fc8497e1f8ab71d491937bed90c",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v4-2026-10-01/shards/train",
+  "dir": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01/shards/train",
+  "shard_hash": "8bcf56ad89bbf059f9926035b7b798796a0a41dd4960c2939b66671f24d2fb80",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v4-2026-10-01/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01/shards/train-no-decode",
+  "shard_hash": "fd35cbc5a48d8ea8130e6793aa62963ad17c5fb3459f3a3e9cb724b30091ee3a",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v4-2026-10-01/shards/val",
+  "dir": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01/shards/val",
+  "shard_hash": "ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v4-replay-2026-10-02/shards/replay",
+  "dir": "/Users/bharath/qd-campaign/phase4-v4-replay-2026-10-02/shards/replay",
+  "shard_hash": "290f69a48a44f15018dc8a52deb4655502182cfa9d14cf84b4f00cd4cddb7cea",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v4-replay-2026-10-02/shards/train",
+  "dir": "/Users/bharath/qd-campaign/phase4-v4-replay-2026-10-02/shards/train",
+  "shard_hash": "be617e7e3261b6e96a9f5eeb160e125066234548643ae29558a9a12728f94ff1",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v4-replay-2026-10-02/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/phase4-v4-replay-2026-10-02/shards/train-no-decode",
+  "shard_hash": "2045dccce0b20cdb59b981159794ebbdf0ae2b72d66b706d427bee0f50dca038",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v4-replay-2026-10-02/shards/val",
+  "dir": "/Users/bharath/qd-campaign/phase4-v4-replay-2026-10-02/shards/val",
+  "shard_hash": "ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "phase4-v5r-2026-10-03/shards/train",
+  "dir": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train",
+  "shard_hash": "108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4",
+  "verdict": "hold",
+  "detail": "HOLD: live-pending quick-only reader; not rebuilt, not retired; lead's call"
+ },
+ {
+  "rel": "phase4-v5r-2026-10-03/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train-no-decode",
+  "shard_hash": "e8cffbdd95747bf5e1dfe4e5505d5aa7b34fb81b229ce65d7b238373d06927f9",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "phase4-v5r-2026-10-03/shards/val",
+  "dir": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/val",
+  "shard_hash": "a485e7f7056d22b9f7e6baf8f19ae64b313db9f3b77b504a094ff1caae3f5d0f",
+  "verdict": "hold",
+  "detail": "HOLD: live-pending quick-only reader; not rebuilt, not retired; lead's call"
+ },
+ {
+  "rel": "prep2-2026-10-02/prechange-541d423/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/prep2-2026-10-02/prechange-541d423/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "prep2-2026-10-02/prechange-541d423/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/prep2-2026-10-02/prechange-541d423/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "probe-8k-2026-09-30/shards/train",
+  "dir": "/Users/bharath/qd-campaign/probe-8k-2026-09-30/shards/train",
+  "shard_hash": "fa1dd446a1ec09338f190d3819915515416c4117c3912058cd727c32d83eed23",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "probe-8k-2026-09-30/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/probe-8k-2026-09-30/shards/train-no-decode",
+  "shard_hash": "fa1dd446a1ec09338f190d3819915515416c4117c3912058cd727c32d83eed23",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "replay-v4-2026-10-02/e2e/out-plain/shards/replay",
+  "dir": "/Users/bharath/qd-campaign/replay-v4-2026-10-02/e2e/out-plain/shards/replay",
+  "shard_hash": "d5e0caafcd9e488f05483f5b518c30d802173543314621d30ce57e1d3ba39d39",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "replay-v4-2026-10-02/e2e/out-plain/shards/train",
+  "dir": "/Users/bharath/qd-campaign/replay-v4-2026-10-02/e2e/out-plain/shards/train",
+  "shard_hash": "cbe944ba56e858c904a4f15fa577ef4ec44347ecaef956539cf7a106a0ac6831",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "replay-v4-2026-10-02/e2e/out-plain/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/replay-v4-2026-10-02/e2e/out-plain/shards/train-no-decode",
+  "shard_hash": "cbe944ba56e858c904a4f15fa577ef4ec44347ecaef956539cf7a106a0ac6831",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "replay-v4-2026-10-02/e2e/out-plain/shards/val",
+  "dir": "/Users/bharath/qd-campaign/replay-v4-2026-10-02/e2e/out-plain/shards/val",
+  "shard_hash": "3d96143cbd242dd3daadef5558cb59f8a6cacedadb425187c51e181c751dc599",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "slice-v4-2026-10-01/shards/train",
+  "dir": "/Users/bharath/qd-campaign/slice-v4-2026-10-01/shards/train",
+  "shard_hash": "01219ba7347d678a17d78d3482f8de7abc27bcb6301c6f63a7c0123af3747207",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "slice-v4-2026-10-01/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/slice-v4-2026-10-01/shards/train-no-decode",
+  "shard_hash": "01219ba7347d678a17d78d3482f8de7abc27bcb6301c6f63a7c0123af3747207",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "slice-v4-2026-10-01/shards/val-report-only-composed",
+  "dir": "/Users/bharath/qd-campaign/slice-v4-2026-10-01/shards/val-report-only-composed",
+  "shard_hash": "042d9b5034f9f1b2a4213be1601ed881d16adf9422fc14eefbd812aad28eac9d",
+  "verdict": "retire",
+  "detail": "retire: readers are only dormant/historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "smoke-two-seed-2026-10-01/shards/train",
+  "dir": "/Users/bharath/qd-campaign/smoke-two-seed-2026-10-01/shards/train",
+  "shard_hash": "1b1d8ce6b6bff8878e9fbf26f5284cd55a310a4f45368478a46e280b1d0c56e5",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "smoke-two-seed-2026-10-01/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/smoke-two-seed-2026-10-01/shards/train-no-decode",
+  "shard_hash": "1b1d8ce6b6bff8878e9fbf26f5284cd55a310a4f45368478a46e280b1d0c56e5",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "smoke-two-seed-2026-10-01/shards/val",
+  "dir": "/Users/bharath/qd-campaign/smoke-two-seed-2026-10-01/shards/val",
+  "shard_hash": "c0d4c1ed887f1d5f56aec8fb4bcd57091295c73d8109b31f0709a08144f0a2bd",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "teacher-colab",
+  "dir": "/Users/bharath/qd-campaign/teacher-colab",
+  "shard_hash": "29aa6944f2e67bb73730b56017fdb2647799d613d82d3c0f915139e1cc4aa3d6",
+  "verdict": "retire",
+  "detail": "retire: readers are only historical (every one pins by shard_hash; a rebuild cannot serve it)"
+ },
+ {
+  "rel": "v5-data-2026-10-02/clinc-only-build/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-data-2026-10-02/clinc-only-build/shards/train",
+  "shard_hash": "a36baa981120e663101e66fd83b0913cc1a583d5474dd4f0ce9f8ea54f06c49d",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-data-2026-10-02/clinc-only-build/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/v5-data-2026-10-02/clinc-only-build/shards/train-no-decode",
+  "shard_hash": "a36baa981120e663101e66fd83b0913cc1a583d5474dd4f0ce9f8ea54f06c49d",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-data-2026-10-02/clinc-only-build/shards/val",
+  "dir": "/Users/bharath/qd-campaign/v5-data-2026-10-02/clinc-only-build/shards/val",
+  "shard_hash": "1df2d4e5db80fdbdf765d26a6dbf33e7bd8bd85dddb0bf637d88dfe701274e87",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/apply-check/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/apply-check/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/apply-check/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/apply-check/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/apply-tip/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/apply-tip/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/apply-tip/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/apply-tip/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/char-v3/out-v3/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/char-v3/out-v3/shards/train",
+  "shard_hash": "ce9cd6ea5f267edc6ec62fa1688ce09f922f08dac90f9a09b00342b0ff51c077",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/char-v3/out-v3/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/char-v3/out-v3/shards/train-no-decode",
+  "shard_hash": "ce9cd6ea5f267edc6ec62fa1688ce09f922f08dac90f9a09b00342b0ff51c077",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/char-v3/out-v3/shards/val",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/char-v3/out-v3/shards/val",
+  "shard_hash": "dee7dbfb80e81e0406f2744aae45fb9acd412b87dc62f225fbf51370131ecc10",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/char-v4/out-v4/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/char-v4/out-v4/shards/train",
+  "shard_hash": "7ff2433859c2b09b2c917c344743ad8915011f2c8cce91e89778705b24a07e37",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/char-v4/out-v4/shards/train-no-decode",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/char-v4/out-v4/shards/train-no-decode",
+  "shard_hash": "7ff2433859c2b09b2c917c344743ad8915011f2c8cce91e89778705b24a07e37",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/char-v4/out-v4/shards/val",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/char-v4/out-v4/shards/val",
+  "shard_hash": "5a83acc5f811f4d08b2cf5283b3edb41c749835d58aacf955228a41c46b17dba",
+  "verdict": "retire",
+  "detail": "retire: no reader"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/clean-674d564/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/clean-674d564/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/clean-674d564/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/clean-674d564/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/clean-7320707/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/clean-7320707/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/clean-7320707/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/clean-7320707/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-py-b/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-py-b/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-py-b/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-py-b/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v1/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v1/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v1/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v1/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v2/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v2/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v2/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v2/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v3a/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v3a/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v3a/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v3a/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v4a/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v4a/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v4a/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v4a/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v4b/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v4b/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/failfirst-v4b/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/failfirst-v4b/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-commit/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-commit/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-commit/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-commit/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-ff/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-ff/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-ff/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-ff/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-fix/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-fix/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-fix/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-fix/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-mut-naive/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-mut-naive/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-mut-naive/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-mut-naive/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-mut-none/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-mut-none/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "v5-decisions-data-2026-10-03/v4-mut-none/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/v4-mut-none/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "worktrees/span-pin-8a531e8/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "dir": "/Users/bharath/qd-campaign/worktrees/span-pin-8a531e8/crates/qd-train/tests/fixtures/shards-tiny/shards/train",
+  "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ },
+ {
+  "rel": "worktrees/span-pin-8a531e8/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "dir": "/Users/bharath/qd-campaign/worktrees/span-pin-8a531e8/crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only",
+  "shard_hash": "bccbcd92f75d899da37951a7343a9d8cc5e2f3f1817ee44c9d8982c34c60b7f3",
+  "verdict": "copy of tracked fixture",
+  "detail": "retire: no reader (scratch copy of tracked fixture crates/qd-train/tests/fixtures/shards-tiny, same shard_hash; the tracked fixture is the reader and lives outside ~/qd-campaign)"
+ }
+]
