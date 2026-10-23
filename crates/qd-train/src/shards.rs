@@ -286,6 +286,41 @@ impl ContrastRows {
     }
 }
 
+/// Why a retired set may not be opened (`campaign` rulings of 2026-10-22).
+pub const RETIRED_REASON: &str = "retired: contaminated (LoRA-2B amendment 3)";
+
+/// Shard sets no process may open, by full `shard_hash`. The registry both languages read is
+/// `AUDIT/x5-v5r-retire-2026-10-22/retirement.json`; this constant and
+/// `python/qd_train/artifacts.py::RETIRED_SHARD_SETS` are each tested equal to it
+/// (`tests/retired_shard_sets.rs`), so there is one list, not two.
+pub const RETIRED_SHARD_SETS: &[&str] = &[
+    "108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4",
+    "a485e7f7056d22b9f7e6baf8f19ae64b313db9f3b77b504a094ff1caae3f5d0f",
+    "e8cffbdd95747bf5e1dfe4e5505d5aa7b34fb81b229ce65d7b238373d06927f9",
+];
+
+/// The data-level identity a header records (it records no token-payload digest): the hash of
+/// the corpus snapshot the rows were drawn from. A header carrying one is refused whatever its
+/// `shard_hash`.
+pub const RETIRED_DATA_SNAPSHOTS: &[&str] = &[
+    "cb4b7d3af8dc57abdafcabd0bac9c31623a409637c45d1c259832230ba84a7b5",
+    "7d11986ad0d07737e6d92b038e77c840ad48a03a91476497e82ca81a230e585c",
+];
+
+/// `Some(why)` when `shard_hash` or `data_snapshot_hash` names a retired set.
+fn retired(shard_hash: &str, data_snapshot_hash: &str) -> Option<String> {
+    if RETIRED_SHARD_SETS.contains(&shard_hash)
+        || RETIRED_DATA_SNAPSHOTS.contains(&data_snapshot_hash)
+    {
+        return Some(format!(
+            "shard set {shard_hash} (data snapshot {data_snapshot_hash}) is {RETIRED_REASON}: it \
+             holds MMLU test/dev and CLINC test items, and no process may read it (rule 3). See \
+             AUDIT/x5-v5r-retire-2026-10-22/retirement.json"
+        ));
+    }
+    None
+}
+
 fn is_lower_hex64(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
@@ -391,7 +426,14 @@ impl ShardHeader {
         let recorded = obj.get("shard_hash").and_then(Value::as_str).ok_or(
             "header.json carries no shard_hash, so nothing says it is the header that was written",
         )?;
+        // Before the hash comparison: a retired set is refused as retired, not as "modified".
+        if let Some(why) = retired(recorded, &header.data_snapshot_hash) {
+            return Err(why);
+        }
         let derived = header.shard_hash().map_err(|e| e.to_string())?;
+        if let Some(why) = retired(&derived, &header.data_snapshot_hash) {
+            return Err(why);
+        }
         if recorded != derived {
             return Err(format!(
                 "shard_hash on disk is {recorded:?} but the header hashes to {derived:?}; the \

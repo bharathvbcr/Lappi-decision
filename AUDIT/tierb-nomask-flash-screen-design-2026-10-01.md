@@ -187,3 +187,7 @@ the GPU for about 17 h.
 4. Fused AdamW's Tier-B run is already queued. Should a passing no-mask path be screened together
    with fused (one combined outcome run), or alone as designed here? Alone keeps the attribution
    clean.
+
+## Correction (2026-10-22)
+
+The numbers this report cites from the table at lines 77-82 (15,280 / 25,703 and 9,326 / 23,208 pos/s) stand as measured. They were measured with `tools/perf_step.py --allow-stale-shards`, and the result rows say so (`allow_stale_shards: true` in AUDIT/perf-train-step-2026-10-01/session1.jsonl (7 rows), session2/bench.jsonl (9) and session2/probe-nomask.jsonl (2)). They are labelled allow_stale_shards, not performance of pinned code: the shard set's `qd_data` code had moved, the rows are not `quick`-marked, and no row carries `stale_code`. Nothing above this section was edited. One gap links all five reports that cite them: GAP-X5-PERF-STALE-NUMBERS-CITED-AS-PINNED-CODE-PERFORMANCE-2026-10-22. Fable's ruling of 2026-10-22 (lane X5) confines the flag: from that date every such row is marked `stale_code: true` and `quick`.

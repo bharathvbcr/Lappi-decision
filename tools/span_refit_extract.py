@@ -101,7 +101,19 @@ def open_reader(prereg: dict[str, Any], split: str) -> tuple[ShardReader, dict[s
 
 
 def select(reader: ShardReader, prereg: dict[str, Any], split: str) -> tuple[list[int], dict[str, Any]]:
-    """Which sequences, and (train) which of them are the 10,000 / 2,000 inner split."""
+    """Which sequences, and (train) which of them are the 10,000 / 2,000 inner split.
+
+    Refuses while any amendment of the pre-registration lists ``pending_before_any_run`` items
+    (Amendment 3): "No run is registered until the pending items are fixed". The val branch
+    already refuses at its population pin; the train branch had no pin to fail, so it drew
+    the fit set from the v6 train set today. Both refuse here, before reading either set.
+    """
+    pending = [a["id"] for a in prereg.get("amendments", []) if a.get("pending_before_any_run")]
+    if pending:
+        raise SystemExit(
+            f"amendment(s) {pending} of the pre-registration list pending_before_any_run items; "
+            f"no extraction (split={split}) is registered until a later amendment fixes them"
+        )
     span = np.flatnonzero(reader._slot_kind == SLOT_SPAN)
     seqs = reader.sequence_index.sequences
     lengths = np.asarray(reader.lengths())

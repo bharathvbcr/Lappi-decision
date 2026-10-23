@@ -484,3 +484,7 @@ and touches `/home/ubuntu/queue/nomask-p2-ruled`. Item 8 then runs, in its gap:
 ```
 bash /home/ubuntu/perf/perf_nomask_p2.sh T1
 ```
+
+## Correction (2026-10-22)
+
+The numbers this report cites from the benchmark and probe tables (lines 35 and 44-46) and the peak memory figures stand as measured. They were measured with `tools/perf_step.py --allow-stale-shards`, and the result rows say so (`allow_stale_shards: true` in AUDIT/perf-train-step-2026-10-01/session1.jsonl (7 rows), session2/bench.jsonl (9) and session2/probe-nomask.jsonl (2)). They are labelled allow_stale_shards, not performance of pinned code: the shard set's `qd_data` code had moved, the rows are not `quick`-marked, and no row carries `stale_code`. Nothing above this section was edited. One gap links all five reports that cite them: GAP-X5-PERF-STALE-NUMBERS-CITED-AS-PINNED-CODE-PERFORMANCE-2026-10-22. Fable's ruling of 2026-10-22 (lane X5) confines the flag: from that date every such row is marked `stale_code: true` and `quick`.

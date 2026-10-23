@@ -603,3 +603,7 @@ or URL inline above. Non-arXiv sources cited:
 - https://aclanthology.org/2026.gem-main.50/
 - https://github.com/lm-sys/llm-decontaminator
 - https://proceedings.neurips.cc/paper_files/paper/2025/hash/d033407a1a4b7a75cd5f9e4575ad9fb5-Abstract-Conference.html
+
+## Correction (2026-10-22)
+
+The numbers this report cites from line 455 (60.51 GiB with skip:6, via HANDOFF/train-step-perf-2026-10-01.md:36) stand as measured. They were measured with `tools/perf_step.py --allow-stale-shards`, and the result rows say so (`allow_stale_shards: true` in AUDIT/perf-train-step-2026-10-01/session1.jsonl (7 rows), session2/bench.jsonl (9) and session2/probe-nomask.jsonl (2)). They are labelled allow_stale_shards, not performance of pinned code: the shard set's `qd_data` code had moved, the rows are not `quick`-marked, and no row carries `stale_code`. Nothing above this section was edited. One gap links all five reports that cite them: GAP-X5-PERF-STALE-NUMBERS-CITED-AS-PINNED-CODE-PERFORMANCE-2026-10-22. Fable's ruling of 2026-10-22 (lane X5) confines the flag: from that date every such row is marked `stale_code: true` and `quick`.

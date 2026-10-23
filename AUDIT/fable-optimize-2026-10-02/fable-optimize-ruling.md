@@ -87,3 +87,7 @@ No queue re-order: fsucc → j5pp → j6a is right (J6(a)'s build is not ready; 
 - GAP-LINEAR-CONTROL-RERUN-WOULD-DOUBLE-THE-SELECTED-ROW-2026-10-02
 - GAP-PERF-FP32-FFMA-GEMM-OWNER-UNKNOWN-2026-10-02
 - GAP-REPLAY-ARMS-CANNOT-TAKE-NO-MASK-2026-10-02
+
+## Correction (2026-10-22)
+
+The numbers this report cites from line 15 (25,703 vs 16,543 pos/s, +55%) stand as measured. They were measured with `tools/perf_step.py --allow-stale-shards`, and the result rows say so (`allow_stale_shards: true` in AUDIT/perf-train-step-2026-10-01/session1.jsonl (7 rows), session2/bench.jsonl (9) and session2/probe-nomask.jsonl (2)). They are labelled allow_stale_shards, not performance of pinned code: the shard set's `qd_data` code had moved, the rows are not `quick`-marked, and no row carries `stale_code`. Nothing above this section was edited. One gap links all five reports that cite them: GAP-X5-PERF-STALE-NUMBERS-CITED-AS-PINNED-CODE-PERFORMANCE-2026-10-22. Fable's ruling of 2026-10-22 (lane X5) confines the flag: from that date every such row is marked `stale_code: true` and `quick`.

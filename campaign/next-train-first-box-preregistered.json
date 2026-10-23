@@ -19,7 +19,9 @@
     },
     "per_arm": "the per-step letter and span channel losses: the checkpoint's model_state.channel_log.letter / .span (float.hex; entry s-1 is step s); val choice top-1 and span top-1 from --score-val, with each val row's verdict from --verdicts-out; the timings train.optimizer_step_s (apply alone: clip_grad_norm_, optimizer.step() and zero_grad, device-synced, the median over steps 101-600, present only when all 500 were timed) and train.step_time_s, from the ft row; and the peak from gh200_footprint.py --optimizer <recipe> --out at the tool's own shape (not the arm's recipe shape).",
     "data_fact": {
-      "void": "amendment_2 (2026-10-22): computed on the retired v5r train set; recompute on the v6 train set before launch. Kept as the record of what was computed.",
+      "status": "void_until_recomputed_on_v6",
+      "void_structured": true,
+      "void": "amendment_2 (2026-10-22): computed on the retired v5r train set; recompute on the v6 train set before launch. `shard_set`, `plan` and `result` below are HISTORY (what was computed on the retired set), not a current fact; tools/read_p1_parity.py refuses to read while status is void_until_recomputed_on_v6. Recomputing replaces status with 'recomputed_on_v6' and adds a `v6` block with its own shard_hash, plan and result; the history stays.",
       "what": "letter-supervised steps in 385..600 of the seed-0 plan at batch_tokens 35403, computed on the Mac before launch from v5's train shard set; step s is batch index s-1 of epoch 0; a step is letter-supervised iff ft_supervision(batch).n_supervised > 0 (the letter loss reads 0.0 exactly when it is not).",
       "shard_set": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train, shard_hash 108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4 (the v5 ft rows' recipe shard_hash)",
       "plan": {

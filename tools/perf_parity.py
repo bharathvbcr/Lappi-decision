@@ -226,12 +226,26 @@ def _load(spec: str) -> dict[str, Any]:
     return hits[0]
 
 
+def stale_marks(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """What a report or verdict built from ``rows`` must carry when any arm read stale code.
+
+    ``{}`` when none did. Otherwise ``stale_code`` and ``quick`` true (rule 8) and the tags of
+    the stale arms: a number from an arm run with ``--allow-stale-shards`` is not the
+    performance of pinned code, so nothing computed from it may read as a promotable result.
+    """
+    tags = [str(r.get("tag")) for r in rows if r.get("stale_code") is True]
+    if not tags:
+        return {}
+    return {"stale_code": True, "quick": True, "stale_arms": tags}
+
+
 def compare(specs: list[str]) -> int:
     base = _load(specs[0])
     worst = 0
     for spec in specs[1:]:
         other = _load(spec)
         report: dict[str, Any] = {"base": base["tag"], "other": other["tag"]}
+        report.update(stale_marks([base, other]))
         for key in ("loss_log_digest", "consumed_digest", "steps"):
             report[f"{key}_identical"] = base[key] == other[key]
         for ch in ("letter", "span"):
@@ -416,6 +430,16 @@ def p2_screen(bases: list[dict[str, Any]], cands: list[dict[str, Any]]) -> dict[
             for ch, t in P2_APPLICATIONS}
     out["fail_applications"] = [[ch, t] for ch, t in P2_APPLICATIONS if apps[ch, t] == "fail"]
     out["verdict"] = _p2_shape([apps[a] for a in P2_APPLICATIONS])
+    marks = stale_marks(arms)
+    if marks:
+        # A stale arm can never yield a promotable pass: the word the gate reads moves to
+        # not_run (which cancels the outcome run as a fail does) and the one it replaced stays
+        # beside it.
+        out.update(marks)
+        out["screen_verdict"] = out["verdict"]
+        out["verdict"] = "not_run"
+        out["reason"] = ("an arm read stale code (stale_code: true): the screen's own verdict "
+                         f"{out['screen_verdict']!r} is not the performance of pinned code")
     return out
 
 
@@ -430,7 +454,9 @@ def p2_gate(rows: list[dict[str, Any]]) -> tuple[bool, str]:
     (Fable: a P2 fail cancels the outcome run; an unexamined screen is not a passed one)."""
     latest: dict[str, str] = {}
     for row in rows:
-        latest[str(row["base"][0]).split("-", 1)[0]] = str(row["verdict"])
+        # A verdict row marked stale_code is never a pass, whatever word it carries.
+        word = "stale_code" if row.get("stale_code") is True else str(row["verdict"])
+        latest[str(row["base"][0]).split("-", 1)[0]] = word
     state = {shape: latest.get(shape, "missing") for shape in P2_SHAPES}
     ok = all(v == "pass" for v in state.values())
     return ok, f"P2 verdicts {state}: outcome run {'may go' if ok else 'cancelled'}"

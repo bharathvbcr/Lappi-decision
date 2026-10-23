@@ -1,20 +1,23 @@
 {
   "recorded": "2026-10-22",
+  "amended": "2026-10-22 (adversarial pass: train-no-decode added by Fable ruling (a); data_snapshot_hash identity added; one registry for both languages)",
   "lane": "x5-v5r-retire",
-  "ruling": "Fable, relayed by the lead 2026-10-22 under the owner's delegation of the same day: 'Retire the v5r pair. It holds MMLU test/dev and CLINC test items; no training reader may build from it (rule 3), and a v5-rule rebuild reproduces the contamination. Retire means: files stay on disk untouched (ledger rows cite the hashes), the manifest and gap record mark them `retired: contaminated (LoRA-2B amendment 3)`, and no new read.'",
+  "ruling": "Fable, relayed by the lead 2026-10-22 under the owner's delegation of the same day: 'Retire the v5r pair. It holds MMLU test/dev and CLINC test items; no training reader may build from it (rule 3), and a v5-rule rebuild reproduces the contamination. Retire means: files stay on disk untouched (ledger rows cite the hashes), the manifest and gap record mark them `retired: contaminated (LoRA-2B amendment 3)`, and no new read.' Ruling (a), same day: train-no-decode is retired with the same reason.",
   "citation": {
     "campaign/lora-2b-preregistered.json": "amendments[n=3]: data.train_shard and data.val_shard (the v5r shard set) are withdrawn; decided by the human 2026-10-17 (AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md Q1)",
     "contamination_gap": "GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03",
     "held_gap_closed_by_this_record": "GAP-X4-V1-V5R-TRAIN-VAL-HELD-FOR-LEAD-2026-10-22"
   },
   "status": "retired: contaminated (LoRA-2B amendment 3)",
-  "files_on_disk": "untouched; this lane read no byte of either set (hashes taken from campaign/next-train-first-box-preregistered.json P1.data_fact.shard_set, campaign/span-refit-mac-preregistered.json inputs, and AUDIT/x4-v1-headers-2026-10-22/sets.json)",
+  "files_on_disk": "untouched. Hashes came from campaign/next-train-first-box-preregistered.json, campaign/span-refit-mac-preregistered.json and AUDIT/x4-v1-headers-2026-10-22/sets.json; train-no-decode's full shard_hash and data_snapshot_hash were read by parsing its header.json with ShardHeader.from_json, nothing else of it.",
+  "registry_for_both_languages": "THIS FILE. python/qd_train/artifacts.py (RETIRED_SHARD_SETS, RETIRED_DATA_SNAPSHOTS) and crates/qd-train/src/shards.rs (RETIRED_SHARD_SETS, RETIRED_DATA_SNAPSHOTS) each hold a constant, and python/tests/test_retired_shard_sets.py and crates/qd-train/tests/retired_shard_sets.rs each assert their language's constants equal `sets` below. Editing one without this file fails a test.",
   "sets": [
     {
       "path": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train",
       "split": "train",
       "shard_hash": "108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4",
       "short": "108082545a66",
+      "data_snapshot_hash": "cb4b7d3af8dc57abdafcabd0bac9c31623a409637c45d1c259832230ba84a7b5",
       "retired": "contaminated (LoRA-2B amendment 3)"
     },
     {
@@ -22,14 +25,23 @@
       "split": "val",
       "shard_hash": "a485e7f7056d22b9f7e6baf8f19ae64b313db9f3b77b504a094ff1caae3f5d0f",
       "short": "a485e7f7056d",
+      "data_snapshot_hash": "7d11986ad0d07737e6d92b038e77c840ad48a03a91476497e82ca81a230e585c",
+      "retired": "contaminated (LoRA-2B amendment 3)"
+    },
+    {
+      "path": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train-no-decode",
+      "split": "train",
+      "shard_hash": "e8cffbdd95747bf5e1dfe4e5505d5aa7b34fb81b229ce65d7b238373d06927f9",
+      "short": "e8cffbdd9574",
+      "data_snapshot_hash": "cb4b7d3af8dc57abdafcabd0bac9c31623a409637c45d1c259832230ba84a7b5",
       "retired": "contaminated (LoRA-2B amendment 3)"
     }
   ],
+  "payload_identity": "A shard header records NO token-payload digest (fields: data_snapshot_hash, tokenizer_hash, remap_hash, counts, buckets, code_fingerprint, corpus_rev, sequence_index_hash, ...; tokens.u32 is only length-checked). The data-level identity it does record is data_snapshot_hash, the hash of the corpus snapshot the rows were drawn from. Both guards refuse a header whose data_snapshot_hash is one of the retired ones, so a re-hashed copy, or a rebuild from the same snapshot under drifted code (which gets a new shard_hash), is refused too. Checked on all 89 headers of AUDIT/x4-v1-headers-2026-10-22/sets.json: only the three sets above carry these two snapshot hashes; the v6 sets carry 1d33e7da... (train) and 3743996d... (val). Limit: a set rebuilt from a DIFFERENT snapshot of the same sources is not identified by this key; the pipeline-level refusal (real_tokenizer_pipeline under --rev 8e6a00952a09e31a09cc3f5270229a935b7235cc with the v5 rule) is not added here because tools/real_tokenizer_pipeline.py is outside this lane's files.",
   "enforcement": {
-    "where": "python/qd_train/artifacts.py RETIRED_SHARD_SETS, checked in ShardHeader.from_json after the shard_hash verification",
-    "effect": "ShardReader (which parses the header before assert_shard_trainable) and every other tool that parses a header with ShardHeader.from_json raise ShardContractViolation for either hash, with or without allow_stale_code",
-    "test": "python/tests/test_retired_shard_sets.py"
+    "python": "python/qd_train/artifacts.py ShardHeader.from_json, after the shard_hash verification: refuses a header whose shard_hash or data_snapshot_hash is retired. ShardReader parses the header before assert_shard_trainable, so allow_stale_code does not reach it.",
+    "rust": "crates/qd-train/src/shards.rs ShardHeader::from_json (the header reader qd-train and qd-train-metal share): refuses the recorded shard_hash, the derived shard_hash and the data_snapshot_hash, before the shard_hash comparison.",
+    "tests": ["python/tests/test_retired_shard_sets.py", "crates/qd-train/tests/retired_shard_sets.rs"]
   },
-  "not_covered": "A tool that reads a shard directory's files without ShardHeader.from_json (raw json.load of header.json, np.load of tokens.u32) is not stopped by this guard; the Rust qd-train reader is a separate code path, refused by its own v1 header rule per AUDIT/x4-v1-headers-2026-10-22 (inferred from X4, not re-run here). Neither was changed: crates/ is outside this lane's files.",
-  "observation_not_ruled": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train-no-decode (shard_hash e8cffbdd95747bf5e1dfe4e5505d5aa7b34fb81b229ce65d7b238373d06927f9) is a sibling of the retired pair, built from the same v5r pipeline run. The ruling names only train and val, so it is not retired here; the lead should rule on it."
+  "not_covered": "A tool that json.loads header.json or np.loads tokens.u32 without either header parser is not stopped; neither is a v5r-snapshot set whose header was edited to another data_snapshot_hash and re-hashed (a forgery; the sequence_index would still name the same rows)."
 }
