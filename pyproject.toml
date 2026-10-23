@@ -119,3 +119,10 @@ select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "PTH"]
 "AUDIT/l3-containment-scan-2026-10-21/digest_bench.py" = ["E402", "E501"]
 "AUDIT/l3-containment-scan-2026-10-21/enter_profile.py" = ["E402", "E501"]
 "AUDIT/l3-containment-scan-2026-10-21/wait4_probe.py" = ["E501"]
+# Lane X4's v1-header evidence (2026-10-22): the enumeration, reader scan, classification and
+# retirement-append scripts the readers table and gap records cite, kept as they ran. The same
+# ruling, rule by rule, only what each already breaks (ruff 0.16.8).
+"AUDIT/x4-v1-headers-2026-10-22/append_retirements.py" = ["B007", "E501"]
+"AUDIT/x4-v1-headers-2026-10-22/classify.py" = ["E501"]
+"AUDIT/x4-v1-headers-2026-10-22/enumerate.py" = ["I001", "SIM108"]
+"AUDIT/x4-v1-headers-2026-10-22/readers.py" = ["E501"]
