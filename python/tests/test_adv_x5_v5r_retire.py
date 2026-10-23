@@ -25,6 +25,7 @@ V5R = (
     "108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4",
     "a485e7f7056d22b9f7e6baf8f19ae64b313db9f3b77b504a094ff1caae3f5d0f",
 )
+TRAIN_NO_DECODE = "e8cffbdd95747bf5e1dfe4e5505d5aa7b34fb81b229ce65d7b238373d06927f9"
 
 
 def _header(**over: object) -> ShardHeader:
@@ -41,9 +42,14 @@ def _header(**over: object) -> ShardHeader:
 
 
 def test_held_registry_keys_are_full_lowercase_64_hex() -> None:
+    """Updated 2026-10-22 for Fable's ruling (a): the registry is exactly the three ruled sets,
+    the v5r pair plus train-no-decode (it was the pair when this test was written). Exact
+    equality, so an unruled addition still fails."""
     for key in artifacts.RETIRED_SHARD_SETS:
         assert re.fullmatch(r"[0-9a-f]{64}", key), key
-    assert set(V5R) == set(artifacts.RETIRED_SHARD_SETS)
+    for key in artifacts.RETIRED_DATA_SNAPSHOTS:
+        assert re.fullmatch(r"[0-9a-f]{64}", key), key
+    assert set(artifacts.RETIRED_SHARD_SETS) == {*V5R, TRAIN_NO_DECODE}
 
 
 @pytest.mark.parametrize("mangle", [str.upper, lambda s: s + " ", lambda s: " " + s,
@@ -105,15 +111,21 @@ def test_break_rust_header_reader_has_no_retired_set_check() -> None:
 def test_break_a_rehashed_copy_of_the_retired_tokens_opens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The guard keys on the header hash, not on the data. A copy of the same tokens whose
-    header differs in any covered field (here corpus_rev) and is re-hashed carries a new
-    shard_hash and opens. (A deliberate forgery, so low severity; also what a rebuild under
-    drifted qd_data code produces: a v5-rule rebuild gets a different code_fingerprint, hence
-    a different shard_hash, hence is not retired.)"""
+    """A copy of the same data whose header differs in any covered field (here corpus_rev) and
+    is re-hashed carries a new shard_hash, so the shard_hash key alone cannot see it.
+
+    Updated 2026-10-22 to the ruled mechanism: the header records no token-payload digest, so
+    the registry keys a retired set by shard_hash AND data_snapshot_hash (the data-level
+    identity it does record), exactly as the real registry does. The re-hashed sibling with
+    the same snapshot is then refused. Residual, open gap
+    GAP-X5-REBUILD-FROM-A-DIFFERENT-SNAPSHOT-NOT-CAUGHT-2026-10-22: a rebuild from a different
+    snapshot of the same sources is not identified by either key."""
     retired = _header()
     monkeypatch.setitem(artifacts.RETIRED_SHARD_SETS, retired.shard_hash(), "retired: x")
+    monkeypatch.setitem(artifacts.RETIRED_DATA_SNAPSHOTS, retired.data_snapshot_hash, "retired: x")
     sibling = _header(corpus_rev="rebuilt")
     assert sibling.shard_hash() != retired.shard_hash()
+    assert sibling.data_snapshot_hash == retired.data_snapshot_hash
     with pytest.raises(ShardContractViolation):
         ShardHeader.from_json(sibling.to_json())
 

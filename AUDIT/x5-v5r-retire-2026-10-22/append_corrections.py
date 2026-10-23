@@ -23,7 +23,9 @@ CITES = {
     "AUDIT/fable-optimize-2026-10-02/fable-optimize-ruling.md": "line 15 "
         "(25,703 vs 16,543 pos/s, +55%)",
     "AUDIT/training-audit-2026-10-06.md": "line 455 (60.51 GiB with skip:6, via "
-        "HANDOFF/train-step-perf-2026-10-01.md:36)",
+        "HANDOFF/train-step-perf-2026-10-01.md:36; source rows: "
+        "AUDIT/perf-train-step-2026-10-01/session2/bench.jsonl lines 2, 4 and 6, config skip:6, "
+        "peak_alloc_gib 60.51, allow_stale_shards true)",
 }
 
 
