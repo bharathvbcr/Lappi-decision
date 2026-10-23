@@ -1,6 +1,7 @@
 {
   "recorded": "2026-10-06 ~19:30 UTC, before any run of either probe: no kahan row exists in any ledger, and the 4B weights are not on any machine. Written by the next-training-plan lane (session cd80fb) for HANDOFF/next-training-plan-2026-10-06.md section 9.",
   "status": "PRE-REGISTERED, NOT LAUNCHED. Needs before the first command: (1) the human's yes on cost and on the GH200 cycle; (2) for P2 only, the human's yes on the 4B download; (3) the box queue guard of HANDOFF/next-training-plan-2026-10-06.md precaution 4. Fable's ruling of 2026-10-08 (AUDIT/v6-rulings-2026-10-08/fable-p1-reading-rule-ruling.md) is applied in the definitions below. Every row it writes is quick (rule 8): --max-steps runs and footprint probes cannot promote anything.",
+  "amendment_2_notice": "promoted.amendment_2 (2026-10-22) moves P1's data from the retired v5r pair to the v6 shards and voids P1.data_fact until it is recomputed; the queue file must be repointed before launch. Read every 'v5 train/val' below that way.",
   "why": "qd_train.optim.KahanBf16AdamW (9819d16) is the recipe that fits a 4B base on one GH200 (AUDIT/next-train-2026-10-06/sizing.txt), but it has no GPU measurement (GAP-KAHAN-RECIPE-NOT-MEASURED-ON-A-GPU-2026-10-06). P1 decides whether it may be used; P2 measures the 4B's real footprint instead of the predicted one (GAP-MEMORY-PREDICTS-084-TO-097X-OF-MEASURED-BACKBONE-FOOTPRINT-ON-GH200).",
   "box": {
     "instance": "Lambda 1x GH200 (aarch64), $2.29/h (fetched 2026-10-06, AUDIT/training-audit-2026-10-06.md section 5)",
@@ -18,6 +19,7 @@
     },
     "per_arm": "the per-step letter and span channel losses: the checkpoint's model_state.channel_log.letter / .span (float.hex; entry s-1 is step s); val choice top-1 and span top-1 from --score-val, with each val row's verdict from --verdicts-out; the timings train.optimizer_step_s (apply alone: clip_grad_norm_, optimizer.step() and zero_grad, device-synced, the median over steps 101-600, present only when all 500 were timed) and train.step_time_s, from the ft row; and the peak from gh200_footprint.py --optimizer <recipe> --out at the tool's own shape (not the arm's recipe shape).",
     "data_fact": {
+      "void": "amendment_2 (2026-10-22): computed on the retired v5r train set; recompute on the v6 train set before launch. Kept as the record of what was computed.",
       "what": "letter-supervised steps in 385..600 of the seed-0 plan at batch_tokens 35403, computed on the Mac before launch from v5's train shard set; step s is batch index s-1 of epoch 0; a step is letter-supervised iff ft_supervision(batch).n_supervised > 0 (the letter loss reads 0.0 exactly when it is not).",
       "shard_set": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train, shard_hash 108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4 (the v5 ft rows' recipe shard_hash)",
       "plan": {
@@ -90,6 +92,27 @@
       "what": "corrects promoted.changes, which first said no definition was edited when a sentence had been appended to P1.definitions.S (verifier finding)",
       "before_any_result": "no P1 or P2 row exists in any ledger; no kahan or first-box row was read",
       "substance": "unchanged"
+    },
+    "amendment_2": {
+      "on": "2026-10-22",
+      "before_any_result": "no P1 or P2 row exists in any ledger (RIPGREP_CONFIG_PATH= rg -c -uu -i 'kahan' over ledger/ matches nothing, checked this day); no kahan or first-box row was read",
+      "ruling": "Fable, 2026-10-22, relayed by the lead under the owner's delegation: the v5r pair (train 108082545a66..., val a485e7f7056d...) is retired: contaminated (LoRA-2B amendment 3; AUDIT/x5-v5r-retire-2026-10-22/retirement.json), no training reader may build from it (rule 3), and a v5-rule rebuild reproduces the contamination. Reader (a), this registration, is not launched on v5r: it is amended to the v6 shards pinned by LoRA-2B's amendment that fills data.train_shard and data.val_shard (campaign/lora-2b-preregistered.json, array entry n = 5), or withdrawn.",
+      "decision": "AMENDED, not withdrawn. P1 measures whether KahanBf16AdamW tracks the master recipe over 600 steps and what it saves in memory; that is an optimizer-against-optimizer comparison on one shared batch plan, and the data is a nuisance variable held equal across the arms. The v6 train set has the same maximum width (9,638) and the same slot kinds, so the shape of every measurement is unchanged. Nothing in a formula, arm, threshold or outcome word below needs the v5r set.",
+      "data_now": {
+        "train_shard": {"path": "/Users/bharath/Code/research/Lappi-decision/build/shards-v6-lora2b-6bf4abfc/train", "shard_hash": "94bef49aa2c13ed675d64d1d93b75ce201c2b47932596908e927c7172e01a0ac", "n_sequences": 525274, "total_tokens": 378382626, "max_seq_len": 9638},
+        "val_shard": {"path": "/Users/bharath/Code/research/Lappi-decision/build/shards-v6-lora2b-6bf4abfc/val", "shard_hash": "58bd753fc93391f191f9f7ff2bf8a5ea3d1e990f83c33752c7399a951a62435b", "n_sequences": 23109, "total_tokens": 7833378, "max_seq_len": 5237},
+        "reads_replaced": "wherever this file says v5's train and val splits, v5's data, or v5's train shard set, it now means this pair; 'the v5 ft row's recipe' still names the recipe flags, not the data"
+      },
+      "voided": [
+        "P1.data_fact (the 211 of 216 letter-supervised steps, the span-only steps 386, 477, 521, 574, 594, digest cdc17329...): computed on the retired v5r train set, so it is void and is not carried. The sentence of P1.definitions.S that quotes it ('Mac data fact (P1.data_fact): |S| = 211 of 216; ...') is void with it. The file's own caveat already said so: if the shard set differs, the fact is void and is recomputed",
+        "guards[0]'s 'P1 reads v5's train and val splits only' is read as the v6 pair above"
+      ],
+      "pending_before_launch": [
+        "P1.data_fact recomputed on the v6 train set at batch_tokens 35403, seed 0, window 385..600, with the reader built from code that reads the set without allow_stale_code (the loaded qd_data code, or a pinned worktree whose fingerprint matches the v6 header's); the recomputed |S| must still meet the floor of 108 or the reading is refused as its definition already says. No bar moves: the floor, the window and the formula are unchanged",
+        "the queue (campaign/next-train-first-box-queue-2026-10-08.json) builds its arms' data from v5's argv ('v5's data argv ... verbatim from v5_common.sh V5_SPLIT') on the box and compares the result's shard_hash with v5's 108082545a66...; that rebuilds the contaminated set. It must be repointed to the v6 shard pair (copied to the box and pinned by sha256) before any launch. That file is not edited by this amendment",
+        "the human's yes on cost and the GH200 cycle, and the box queue guard, as the status line already requires"
+      ],
+      "not_changed": "No arm, formula, threshold, outcome word, seed count or held-out set. The registration stays quick (rule 8) and cannot promote."
     }
   }
 }

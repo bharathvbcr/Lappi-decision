@@ -104,6 +104,18 @@ __all__ = [
 REMAP_FORMAT: Final[str] = "qd-remap-v1"
 SHARD_FORMAT: Final[str] = "qd-shard-v1"
 
+#: Shard sets no process may open. Key: the full `shard_hash`; value: why. `ShardHeader.from_json`
+#: refuses them, so `ShardReader` and every tool that parses a header stop there, with or
+#: without `allow_stale_code`. The record is AUDIT/x5-v5r-retire-2026-10-22/retirement.json
+#: and python/tests/test_retired_shard_sets.py keeps the two equal. The files stay on disk
+#: untouched: ledger rows cite their hashes.
+RETIRED_SHARD_SETS: Final[dict[str, str]] = {
+    "108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4":
+        "retired: contaminated (LoRA-2B amendment 3)",
+    "a485e7f7056d22b9f7e6baf8f19ae64b313db9f3b77b504a094ff1caae3f5d0f":
+        "retired: contaminated (LoRA-2B amendment 3)",
+}
+
 #: `old_to_new[i]` for a token the remap dropped. Not a sentinel to be tested for and
 #: replaced — a value whose presence in real data is an error.
 DROPPED: Final[int] = -1
@@ -703,6 +715,14 @@ class ShardHeader:
             raise ShardContractViolation(
                 f"shard_hash on disk is {raw['shard_hash']!r} but the header hashes to "
                 f"{header.shard_hash()!r}; the artifact was modified after it was written"
+            )
+        retired = RETIRED_SHARD_SETS.get(header.shard_hash())
+        if retired is not None:
+            raise ShardContractViolation(
+                f"shard set {header.shard_hash()} is {retired}: it holds MMLU test/dev and "
+                "CLINC test items, and no process may read it (rule 3). The files stay on disk "
+                "for the ledger rows that cite their hashes; see "
+                "AUDIT/x5-v5r-retire-2026-10-22/retirement.json."
             )
         return header
 

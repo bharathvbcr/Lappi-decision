@@ -1,0 +1,35 @@
+{
+  "recorded": "2026-10-22",
+  "lane": "x5-v5r-retire",
+  "ruling": "Fable, relayed by the lead 2026-10-22 under the owner's delegation of the same day: 'Retire the v5r pair. It holds MMLU test/dev and CLINC test items; no training reader may build from it (rule 3), and a v5-rule rebuild reproduces the contamination. Retire means: files stay on disk untouched (ledger rows cite the hashes), the manifest and gap record mark them `retired: contaminated (LoRA-2B amendment 3)`, and no new read.'",
+  "citation": {
+    "campaign/lora-2b-preregistered.json": "amendments[n=3]: data.train_shard and data.val_shard (the v5r shard set) are withdrawn; decided by the human 2026-10-17 (AUDIT/harden-2026-10-17/human-ruling-2026-10-17.md Q1)",
+    "contamination_gap": "GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03",
+    "held_gap_closed_by_this_record": "GAP-X4-V1-V5R-TRAIN-VAL-HELD-FOR-LEAD-2026-10-22"
+  },
+  "status": "retired: contaminated (LoRA-2B amendment 3)",
+  "files_on_disk": "untouched; this lane read no byte of either set (hashes taken from campaign/next-train-first-box-preregistered.json P1.data_fact.shard_set, campaign/span-refit-mac-preregistered.json inputs, and AUDIT/x4-v1-headers-2026-10-22/sets.json)",
+  "sets": [
+    {
+      "path": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train",
+      "split": "train",
+      "shard_hash": "108082545a66ec3e0b008f8ad7a8425625cd9bc323630f8d0cd186f40e00cdf4",
+      "short": "108082545a66",
+      "retired": "contaminated (LoRA-2B amendment 3)"
+    },
+    {
+      "path": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/val",
+      "split": "val",
+      "shard_hash": "a485e7f7056d22b9f7e6baf8f19ae64b313db9f3b77b504a094ff1caae3f5d0f",
+      "short": "a485e7f7056d",
+      "retired": "contaminated (LoRA-2B amendment 3)"
+    }
+  ],
+  "enforcement": {
+    "where": "python/qd_train/artifacts.py RETIRED_SHARD_SETS, checked in ShardHeader.from_json after the shard_hash verification",
+    "effect": "ShardReader (which parses the header before assert_shard_trainable) and every other tool that parses a header with ShardHeader.from_json raise ShardContractViolation for either hash, with or without allow_stale_code",
+    "test": "python/tests/test_retired_shard_sets.py"
+  },
+  "not_covered": "A tool that reads a shard directory's files without ShardHeader.from_json (raw json.load of header.json, np.load of tokens.u32) is not stopped by this guard; the Rust qd-train reader is a separate code path, refused by its own v1 header rule per AUDIT/x4-v1-headers-2026-10-22 (inferred from X4, not re-run here). Neither was changed: crates/ is outside this lane's files.",
+  "observation_not_ruled": "/Users/bharath/qd-campaign/phase4-v5r-2026-10-03/shards/train-no-decode (shard_hash e8cffbdd95747bf5e1dfe4e5505d5aa7b34fb81b229ce65d7b238373d06927f9) is a sibling of the retired pair, built from the same v5r pipeline run. The ruling names only train and val, so it is not retired here; the lead should rule on it."
+}
