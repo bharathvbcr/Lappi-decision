@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import perf_parity  # noqa: E402
 import perf_step  # noqa: E402
+
 import qd_train.shards as shards_mod  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.fingerprint import code_fingerprint  # noqa: E402
@@ -92,7 +93,9 @@ def test_perf_parity_hands_the_marks_to_the_ledger_row_and_clears_them() -> None
     assert "allow_stale_code=True" not in src  # no second place turns the flag on
 
 
-def test_the_summary_of_a_stale_run_says_so(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_summary_of_a_stale_run_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     row = {"shape": "s", "config": "off:0", "status": "ran", "step_s_median": 1.0,
            "pos_per_s": 10.0, "stale_code": True, "quick": True}
     results = tmp_path / "r.jsonl"
