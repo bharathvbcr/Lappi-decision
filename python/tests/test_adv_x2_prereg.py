@@ -251,27 +251,77 @@ def test_old_sha_row_with_a_forged_new_sha_field_is_not_checked_as_new() -> None
 
 def test_some_reader_keeps_q8_rows_apart_from_bf16_rows() -> None:
     """The pre-registration says the pool key is (family id, base.format, base-file sha256).
-    The only pooling the ledger does is Protocol.hash_without_seed (promotion_verdict); it
-    carries no base format or base-file sha. Two protocols that differ only in what the row
-    ran over must therefore hash apart -- or some reader must read recipe.base.format."""
-    p = L.Protocol(data_snapshot_hash="d" * 64, tokenizer_hash="t" * 64, backbone_commit="b" * 40,
-                   recipe_hash="r" * 64, seed=0)
-    fields = set(p.to_json()) - {"seed"}
-    assert any("base" in f and ("format" in f or "sha" in f) for f in fields), (
-        f"Protocol keys {sorted(fields)} carry no base format / base-file sha; "
-        "nothing in code separates q8 from bf16 rows")
+
+    The attack: a q8 row and a bf16 row whose Protocol is equal, so ``Protocol.hash_without_seed``
+    (the only pooling the ledger does) puts them in one seed family. The separation is enforced
+    at the promotion reader (``_base_pool_refusals`` in ``promotion_verdict``), not in Protocol,
+    because a Protocol field would re-key every protocol hash (lead ruling, 2026-10-22; the
+    original version of this test asserted a Protocol field and was rewritten to assert the
+    outcome). The outcome: ``promotion_verdict`` over the one pool refuses and names
+    ``recipe.base.format``.
+    """
+    from test_ledger import _env, _protocol
+
+    def row(rid: str, seed: int, recipe: dict) -> L.LedgerRow:
+        return L.LedgerRow(
+            row_id=rid, written_at="2026-10-22T00:00:00+00:00", prev_row_hash=None,
+            protocol=_protocol(seed), run_kind="ft", status="completed", quick=False,
+            quick_reason=None, code_commit="c", env=_env(), metrics={},
+            noul_rate=NotRun(reason="n/a"), controls={}, gates={}, wall_clock_s=1.0,
+            cost_usd=0.0, recipe=recipe)
+
+    q8 = row("q8-0", 0, {"family": "lora-2b-q8", "base": {
+        "format": "bf16-fakequant-q8-g64", "file_sha256": "ab" * 32}})
+    bf16 = row("bf16-1", 1, {"family": "lora-2b"})
+    assert q8.protocol.hash_without_seed() == bf16.protocol.hash_without_seed()
+    with tempfile.TemporaryDirectory() as td:
+        ledger = L.Ledger(Path(td) / "l.jsonl")
+        ledger.append(q8)
+        ledger.append(bf16)
+        verdict = ledger.promotion_verdict(q8.protocol.hash_without_seed())
+    assert not verdict.promoted
+    assert any("recipe.base.format" in r and "never pooled with a bf16 row" in r
+               for r in verdict.reasons), verdict.reasons
 
 
-def test_d3_load_spec_refuses_a_bar_looser_than_section_5(tmp_path: Path) -> None:
+def test_d3_verdict_from_a_looser_copy_is_distinguishable_from_the_committed_prereg(
+    tmp_path: Path,
+) -> None:
+    """Formerly ``test_d3_load_spec_refuses_a_bar_looser_than_section_5``, rewritten (lead ruling
+    on item 7, 2026-10-22): ``tools/d3_quant_gate.py`` deliberately holds no second copy of the
+    bars (rule 2), so ``load_spec`` loads whatever pre-registration it is handed. The guard that
+    was accepted is audit: (1) the committed pre-registration's bars equal section 5 (pinned by
+    ``test_lora_2b_q8_prereg.py``), and (2) a verdict produced from a looser copy records that
+    copy's path and sha256 and the bars it ran with, all different from the committed file's, so
+    an auditor can tell the two apart.
+    """
+    import hashlib
+
     import d3_quant_gate as gate
-    doc = json.loads((REPO / "campaign/lora-2b-q8-preregistered.json").read_text())
-    doc = copy.deepcopy(doc)
+    import test_lora_2b_q8_prereg as pin
+
+    pin.test_numbers_equal_the_owner_decision_prose()  # (1) the committed bars are section 5
+    committed = REPO / "campaign/lora-2b-q8-preregistered.json"
+    doc = copy.deepcopy(json.loads(committed.read_text()))
     doc["d3_gate"]["argmax_agreement_min"] = 0.5
     doc["d3_gate"]["min_prompts"] = 1
-    p = tmp_path / "loose.json"
-    p.write_text(json.dumps(doc))
-    with pytest.raises(SystemExit):
-        gate.load_spec(p)
+    loose = tmp_path / "loose.json"
+    loose.write_text(json.dumps(doc))
+    assert isinstance(gate.load_spec(loose), gate.GateSpec)  # the tool does load it
+
+    def verdict_of(prereg: Path) -> dict:
+        out = tmp_path / f"{prereg.stem}-verdict.json"
+        gate.main(["--preregistration", str(prereg), "--model", str(tmp_path / "no-model"),
+                   "--items", str(tmp_path / "items.jsonl"), "--out", str(out)])
+        return json.loads(out.read_text())
+
+    loose_v, real_v = verdict_of(loose), verdict_of(committed)
+    assert loose_v["preregistration"] == str(loose) != real_v["preregistration"]
+    assert loose_v["preregistration_sha256"] == hashlib.sha256(loose.read_bytes()).hexdigest()
+    assert real_v["preregistration_sha256"] == hashlib.sha256(committed.read_bytes()).hexdigest()
+    assert loose_v["preregistration_sha256"] != real_v["preregistration_sha256"]
+    assert loose_v["spec"]["argmax_agreement_min"] == 0.5  # the loose bars are on the record
+    assert real_v["spec"]["argmax_agreement_min"] == 0.99
 
 
 @pytest.mark.parametrize("agree,delta,ok", [(0.99, 0.02, True), (0.9899999, 0.02, False),
