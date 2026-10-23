@@ -30,5 +30,7 @@ for name in ("lora2b-train.header.json", "lora2b-val.header.json"):
     print(f"  from_json accepted; recomputed shard_hash equals recorded: {same}")
     print(f"  _shard_code_check: {type(state).__name__} passed={getattr(state, 'passed', None)}")
     print(f"  detail: {getattr(state, 'detail', getattr(state, 'reason', ''))}")
+    covered = artifacts._shard_code_not_covered_check(header)
+    print(f"  shard_code_not_covered: value={getattr(covered, 'value', None)!r}")
 print("fingerprint a rebuild would record now:")
 print(json.dumps(shard_code_fingerprint(), indent=1, sort_keys=True))

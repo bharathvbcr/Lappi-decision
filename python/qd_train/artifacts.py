@@ -66,9 +66,10 @@ import numpy as np
 
 from qd_data.config import SPLITS, DataConfig
 from qd_data.fingerprint import (
-    FINGERPRINT_VERSION,
+    KNOWN_FINGERPRINT_VERSIONS,
     code_fingerprint,
     describe_drift,
+    not_covered_modules,
     shard_code_fingerprint,
 )
 from qd_data.render import PROMPT_FORMAT
@@ -402,7 +403,9 @@ class ShardHeader:
     #: omission; `assert_shard_trainable` reports the empty case as `NotRun`.
     code_fingerprint: dict[str, str] = field(default_factory=dict)
     #: Which rule produced ``code_fingerprint``: 1 is every ``qd_data`` module (every header
-    #: written before the field), 2 is ``qd_data.fingerprint.SHARD_CONTENT_MODULES``. It is
+    #: written before the field), 2 and 3 are ``qd_data.fingerprint.SHARD_CONTENT_MODULES_BY_RULE``
+    #: (3 is the current ``SHARD_CONTENT_MODULES``; the readers branch on this number, never on
+    #: module counts, and a v2 header's verdict carries ``not_covered``). It is
     #: serialised and hashed only when not 1, so those headers still verify unchanged (the
     #: ``prompt_format`` precedent), and it is covered, so it cannot be edited to move a set
     #: between rules.
@@ -481,10 +484,10 @@ class ShardHeader:
             )
 
     def __post_init__(self) -> None:
-        if self.code_fingerprint_version not in (1, FINGERPRINT_VERSION):
+        if self.code_fingerprint_version not in KNOWN_FINGERPRINT_VERSIONS:
             raise ShardContractViolation(
                 f"code_fingerprint_version {self.code_fingerprint_version!r} is not a rule "
-                f"this reader knows (1 or {FINGERPRINT_VERSION})"
+                f"this reader knows (one of {list(KNOWN_FINGERPRINT_VERSIONS)})"
             )
         if self.format != SHARD_FORMAT:
             raise ShardContractViolation(f"format {self.format!r}, expected {SHARD_FORMAT!r}")
@@ -1203,6 +1206,33 @@ def assert_remap_covers(token_ids: np.ndarray, remap: RemapTable) -> None:
     remap.encode(np.asarray(token_ids).reshape(-1))
 
 
+def _not_covered_note(version: int) -> str:
+    """``; not_covered: [a.py, b.py]`` for a rule that fingerprints fewer modules than the
+    current one, else empty. A pass over a narrower list is a pass about those modules only."""
+    modules = not_covered_modules(version)
+    return f"; not_covered: [{', '.join(modules)}]" if modules else ""
+
+
+def _shard_code_not_covered_check(header: ShardHeader) -> TriState:
+    """The modules the current rule fingerprints that this header's rule did not.
+
+    ``Ran`` whose ``value`` is the comma-joined list ("" when nothing is uncovered), so a
+    ledger row can carry it. ``passed`` is True because the question is answered, not because
+    the answer is empty: read ``value``. A header with no fingerprint cannot say, and is
+    ``NotRun`` for the same reason ``shard_code_current`` is.
+    """
+    if not header.code_fingerprint:
+        return NotRun(
+            reason="the header carries no code_fingerprint, so which modules it covers is unknown"
+        )
+    modules = not_covered_modules(header.code_fingerprint_version)
+    return Ran(
+        passed=True,
+        value=",".join(modules),
+        detail=f"not_covered: [{', '.join(modules)}]",
+    )
+
+
 def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
     """Whether the ``qd_data`` that is loaded now is the ``qd_data`` that wrote this set.
 
@@ -1220,12 +1250,15 @@ def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
                 "out, or read it knowing the question is open."
             )
         )
-    v1 = header.code_fingerprint_version == 1
-    current = code_fingerprint() if v1 else shard_code_fingerprint()
+    version = header.code_fingerprint_version
+    v1 = version == 1
+    # The rule the header records picks the list it is verified over (a v2 header over rule
+    # 2's frozen list, so rule 3's additions are not "added since"); never a module count.
+    current = code_fingerprint() if v1 else shard_code_fingerprint(rule=version)
     rule = (
         "v1 rule, every qd_data module, header predates the shard-content list"
         if v1
-        else f"v{header.code_fingerprint_version} rule, shard-content modules"
+        else f"v{version} rule, shard-content modules"
     )
     drift = describe_drift(header.code_fingerprint, current)
     if not drift:
@@ -1234,7 +1267,7 @@ def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
             value=len(current),
             detail=(
                 f"{len(current)} qd_data module(s) hash as they did when this shard set "
-                f"was written ({rule})"
+                f"was written ({rule}){_not_covered_note(version)}"
             ),
         )
     return Ran(
@@ -1401,4 +1434,5 @@ def assert_shard_trainable(
             detail=f"{sorted(config.held_out_families)}",
         ),
         "shard_code_current": code_check,
+        "shard_code_not_covered": _shard_code_not_covered_check(header),
     }

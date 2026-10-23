@@ -260,6 +260,9 @@ def test_a_trainable_shard_set_reports_its_checks(tmp_path: Path):
         # set with three matching hashes was found to reproduce 321 rows where it stored
         # 341. See GAP-SHARD-SET-GOES-STALE-AGAINST-THE-CORPUS-CODE-THAT-REPRODUCES-ITS-LABELS.
         "shard_code_current",
+        # Which modules the header's rule did not fingerprint (empty for rule 1 and the
+        # current rule; a v2 header names manifest.py and val_requests.py).
+        "shard_code_not_covered",
         # And the third pin, added the same day for the same shape of reason: neither of
         # the two above covers WHICH REVISION the corpus was read at, so a set built from
         # the wrong one is self-consistent in both. This fixture names a rev AND checks

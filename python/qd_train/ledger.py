@@ -52,11 +52,14 @@ from .span_null import (
 from .tristate import NotRun, Ran, TriState, aggregate, parse_tristate
 
 __all__ = [
+    "BYTE_IDENTITY_RECORD_PATH",
     "DEFAULT_DECISIONS_PATH",
     "DEFAULT_LEDGER_PATH",
     "NON_PROMOTING_RUN_KINDS",
     "NOT_APPLICABLE",
     "REQUIRED_DECISIONS",
+    "SHARD_NOT_COVERED_METRIC",
+    "VAL_SHARD_NOT_COVERED_METRIC",
     "DecisionsRecordError",
     "ForkBranch",
     "ForkPoint",
@@ -1658,7 +1661,8 @@ class Ledger:
     # -- promotion -------------------------------------------------------
 
     def promotion_verdict(
-        self, seed_family: str, *, decisions_path: Path | None = None
+        self, seed_family: str, *, decisions_path: Path | None = None,
+        byte_identity_path: Path | None = None,
     ) -> PromotionVerdict:
         """May the rows sharing this seed family promote a decision?
 
@@ -1696,6 +1700,9 @@ class Ledger:
         for r in candidates:
             reasons.extend(_row_refusals(r))
         reasons.extend(_base_pool_refusals(candidates))
+        reasons.extend(
+            _shard_not_covered_refusals(candidates, byte_identity_path=byte_identity_path)
+        )
 
         units, join_refusals = _promotion_units(candidates)
         reasons.extend(join_refusals)
@@ -1733,7 +1740,7 @@ class Ledger:
 
     def promotion_verdict_avg(
         self, avg_row_id: str, *, input_ledgers: Sequence[Ledger] = (),
-        decisions_path: Path | None = None,
+        decisions_path: Path | None = None, byte_identity_path: Path | None = None,
     ) -> PromotionVerdict:
         """May this AVERAGE of seeds' weights promote a decision? The ``avg`` kind.
 
@@ -1806,6 +1813,9 @@ class Ledger:
                 continue
             inputs.append(r)
             reasons.extend(_input_refusals(r))
+        reasons.extend(
+            _shard_not_covered_refusals([avg, *inputs], byte_identity_path=byte_identity_path)
+        )
         if inputs:
             for name in ("recipe_hash", "data_snapshot_hash", "tokenizer_hash",
                          "backbone_commit"):
@@ -1917,6 +1927,93 @@ def _read_decisions(
             "say which population it judged does not promote",
         )
     return decisions, decisions.population, ()
+
+
+#: The metric a row carries when the shard set it trained on was read with a ``not_covered``
+#: verdict (``shard_code_not_covered``, qd_train.artifacts): the comma-joined modules the set's
+#: fingerprint rule did not cover. Written by ``tools/real_ft_run.py``'s ``_recorder``.
+SHARD_NOT_COVERED_METRIC: Final[str] = "shard.code_not_covered"
+#: The same verdict for the val shard set, which promotion decisions are made on. One metric per
+#: split, each judged against its own set's ``shard_hash`` (``recipe.shard_hash`` for train,
+#: ``recipe.val_shard_hash`` for val).
+VAL_SHARD_NOT_COVERED_METRIC: Final[str] = "shard.val_code_not_covered"
+#: ``(metric, recipe key naming that split's shard_hash, split)``.
+_NOT_COVERED_SPLITS: Final[tuple[tuple[str, str, str], ...]] = (
+    (SHARD_NOT_COVERED_METRIC, "shard_hash", "train"),
+    (VAL_SHARD_NOT_COVERED_METRIC, "val_shard_hash", "val"),
+)
+#: Where byte-identity records live (Fable, 2026-10-23: a set whose fingerprint rule did not cover
+#: every shard-content module is report-only until a rebuild under the current rule has been
+#: compared byte for byte against it). One JSON object, ``{"records": [{"shard_hash": <64 hex>,
+#: "identical": true, "audit": <path of the evidence>}, ...]}``.
+BYTE_IDENTITY_RECORD_PATH: Final[Path] = (
+    REPO_ROOT / "AUDIT" / "x6-fingerprint-list-2026-10-23" / "byte_identity.json"
+)
+
+
+def _byte_identity_hashes(path: Path | None) -> tuple[frozenset[str], str | None]:
+    """The shard hashes with an ``identical: true`` byte-identity record, and why the record
+    could not be read (``None`` when it was, or when it does not exist: no record is no
+    exemption, which is the safe reading)."""
+    target = BYTE_IDENTITY_RECORD_PATH if path is None else Path(path)
+    try:
+        raw = json.loads(target.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return frozenset(), None
+    except (OSError, ValueError) as exc:
+        return frozenset(), f"the byte-identity record {target} could not be read ({exc})"
+    records = raw.get("records") if isinstance(raw, Mapping) else None
+    if not isinstance(records, list):
+        return frozenset(), f"the byte-identity record {target} has no 'records' list"
+    return frozenset(
+        rec["shard_hash"]
+        for rec in records
+        if isinstance(rec, Mapping)
+        and rec.get("identical") is True
+        and isinstance(rec.get("shard_hash"), str)
+        and isinstance(rec.get("audit"), str)
+        and rec["audit"].strip()
+    ), None
+
+
+def _shard_not_covered_refusals(
+    rows: Sequence[LedgerRow], *, byte_identity_path: Path | None = None
+) -> list[str]:
+    """A row trained on a set whose verdict carried ``not_covered`` does not promote, unless
+    the set has an AUDIT byte-identity record (``identical: true``, naming the evidence).
+
+    The set's fingerprint rule did not hash every module that shapes shard bytes, so its
+    ``shard_code_current`` pass says nothing about those modules. Only a rebuild under the
+    current rule that reproduces the set byte for byte shows they did not matter; until then
+    the set is report-only. A row that carries the metric as ``NotRun`` could not say which
+    modules were uncovered and refuses too.
+    """
+    flagged: list[tuple[LedgerRow, str, str, str]] = []
+    for r in rows:
+        for metric, hash_key, split in _NOT_COVERED_SPLITS:
+            state = r.metrics.get(metric)
+            if state is None:
+                continue
+            if isinstance(state, NotRun):
+                flagged.append(
+                    (r, hash_key, split, f"its coverage verdict did not run ({state.reason})")
+                )
+            elif state.value:
+                flagged.append((r, hash_key, split, f"not_covered: [{state.value}]"))
+    if not flagged:
+        return []
+    identical, unreadable = _byte_identity_hashes(byte_identity_path)
+    refusals: list[str] = [unreadable] if unreadable else []
+    for r, hash_key, split, why in flagged:
+        shard_hash = (r.recipe or {}).get(hash_key)
+        if isinstance(shard_hash, str) and shard_hash in identical:
+            continue
+        refusals.append(
+            f"{r.row_id}: its {split} shard set's code fingerprint did not cover every "
+            f"shard-content module ({why}); report-only until an AUDIT byte-identity record "
+            f"(identical: true) exists for that set's {hash_key} {str(shard_hash)[:16]}"
+        )
+    return refusals
 
 
 #: Family id of the quantised arm (campaign/lora-2b-q8-preregistered.json) and the recipe keys

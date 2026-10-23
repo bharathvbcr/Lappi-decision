@@ -1,0 +1,84 @@
+mac_heavy: 2026-10-23T12:23:47Z 'x6-cargo' waits without the lock: machine busy (load 129.59, max 48; 1364 processes, max 2500)
+mac_heavy: 2026-10-23T12:28:52Z 'x6-cargo' waits without the lock: machine busy (load 126.90, max 48; 1375 processes, max 2500)
+mac_heavy: 2026-10-23T12:33:57Z 'x6-cargo' waits without the lock: machine busy (load 76.09, max 48; 1399 processes, max 2500)
+mac_heavy: 2026-10-23T12:39:01Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T12:44:06Z 'x6-cargo' waits without the lock: machine busy (load 75.16, max 48; 1390 processes, max 2500)
+mac_heavy: 2026-10-23T12:49:11Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T12:54:15Z 'x6-cargo' waits without the lock: machine busy (load 84.58, max 48; 1422 processes, max 2500)
+mac_heavy: 2026-10-23T12:59:19Z 'x6-cargo' waits without the lock: machine busy (load 89.69, max 48; 1419 processes, max 2500)
+mac_heavy: 2026-10-23T13:04:29Z 'x6-cargo' waits without the lock: machine busy (load 121.52, max 48; 1409 processes, max 2500)
+mac_heavy: 2026-10-23T13:09:34Z 'x6-cargo' waits without the lock: machine busy (load 65.75, max 48; 1414 processes, max 2500)
+mac_heavy: 2026-10-23T13:14:38Z 'x6-cargo' waits without the lock: machine busy (load 52.67, max 48; 1404 processes, max 2500)
+mac_heavy: 2026-10-23T13:19:42Z 'x6-cargo' waits without the lock: machine busy (load 58.71, max 48; 1408 processes, max 2500)
+mac_heavy: 2026-10-23T13:24:45Z 'x6-cargo' waits without the lock: machine busy (load 59.76, max 48; 1393 processes, max 2500)
+mac_heavy: 2026-10-23T13:29:49Z 'x6-cargo' waits without the lock: machine busy (load 68.79, max 48; 1400 processes, max 2500)
+mac_heavy: 2026-10-23T13:34:52Z 'x6-cargo' waits without the lock: machine busy (load 48.65, max 48; 1398 processes, max 2500)
+mac_heavy: 2026-10-23T13:39:55Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T13:44:59Z 'x6-cargo' waits without the lock: machine busy (load 67.86, max 48; 1424 processes, max 2500)
+mac_heavy: 2026-10-23T13:50:08Z 'x6-cargo' waits without the lock: machine busy (load 128.60, max 48; 1441 processes, max 2500)
+mac_heavy: 2026-10-23T13:55:15Z 'x6-cargo' waits without the lock: machine busy (load 71.82, max 48; 1420 processes, max 2500)
+mac_heavy: 2026-10-23T14:00:23Z 'x6-cargo' waits without the lock: machine busy (load 73.45, max 48; 1431 processes, max 2500)
+mac_heavy: 2026-10-23T14:05:26Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T14:10:33Z 'x6-cargo' waits without the lock: machine busy (load 76.97, max 48; 1382 processes, max 2500)
+mac_heavy: 2026-10-23T14:15:39Z 'x6-cargo' waits without the lock: machine busy (load 48.73, max 48; 1410 processes, max 2500)
+mac_heavy: 2026-10-23T14:20:42Z 'x6-cargo' waits without the lock: machine busy (load 61.00, max 48; 1416 processes, max 2500)
+mac_heavy: 2026-10-23T14:25:46Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T14:30:51Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T14:35:55Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T14:41:00Z 'x6-cargo' waits without the lock: no cargo slot free (all 2 held in /Users/bharath/.cache/cargo-slots)
+mac_heavy: 2026-10-23T14:43:01Z 'x6-cargo' holds the lock (waited 8220s; load 26.97, 1348 processes); running: bash build/x6_cargo.sh
+== BEFORE: shard_code_rule (new test) against main's shards.rs
+BEFORE exit 101
+error[E0432]: unresolved import `qd_train::shards::not_covered_modules`
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+error: could not compile `qd-train` (test "shard_code_rule") due to 12 previous errors
+shards.rs restored
+== AFTER: cargo test -p qd-train
+AFTER qd-train exit 0
+test npz::tests::truncation_is_refused_not_panicked_on ... ok
+test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+test allow_not_run_snapshot_admits_not_run_but_nothing_admits_ran_and_failed ... ok
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 9 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.95s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.48s
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+== AFTER: qd-train-metal run_door
+AFTER metal exit 0
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+mac_heavy: 2026-10-23T14:43:37Z 'x6-cargo' finished with exit 0

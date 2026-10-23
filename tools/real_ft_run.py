@@ -221,7 +221,9 @@ from qd_train.heads import (
 )
 from qd_train.ledger import (
     DEFAULT_LEDGER_PATH,
+    SHARD_NOT_COVERED_METRIC,
     SUPPLEMENT_KEY,
+    VAL_SHARD_NOT_COVERED_METRIC,
     Environment,
     Ledger,
     LedgerRow,
@@ -2893,6 +2895,12 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     )
     for name, value in _RUN_METRICS.items():
         recorder.metric(name, value)
+    # What the train set's fingerprint rule did not cover. A row that trained on a set with
+    # a non-empty answer does not promote without a byte-identity record
+    # (`ledger._shard_not_covered_refusals`); a set that never said stays absent, not "".
+    not_covered = reader.checks.get("shard_code_not_covered")
+    if not_covered is not None:
+        recorder.metric(SHARD_NOT_COVERED_METRIC, not_covered)
     return recorder
 
 
@@ -5384,6 +5392,12 @@ def open_val_reader(
             f"{train.header.remap_hash[:16]}: the same id would name a different embedding "
             "row in the model being scored"
         )
+    # Promotion is decided on val metrics, so a val set whose fingerprint rule did not cover
+    # every shard-content module marks every row this run writes from here on, as the train
+    # set does in `_recorder` (`ledger._shard_not_covered_refusals`, per split).
+    not_covered = reader.checks.get("shard_code_not_covered")
+    if not_covered is not None:
+        _RUN_METRICS[VAL_SHARD_NOT_COVERED_METRIC] = not_covered
     return reader
 
 

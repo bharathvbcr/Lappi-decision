@@ -225,8 +225,13 @@ pub struct ShardHeader {
     pub code_fingerprint_version: u64,
 }
 
-/// The fingerprint rules this reader knows (`ShardHeader.__post_init__`: `(1, FINGERPRINT_VERSION)`).
-const KNOWN_FINGERPRINT_VERSIONS: [u64; 2] = [1, 2];
+/// The fingerprint rules this reader knows
+/// (`qd_data.fingerprint.KNOWN_FINGERPRINT_VERSIONS`).
+const KNOWN_FINGERPRINT_VERSIONS: [u64; 3] = [1, 2, 3];
+
+/// The current shard-content rule (`qd_data.fingerprint.FINGERPRINT_VERSION`): the one whose list
+/// is `SHARD_CONTENT_MODULES`. Rule 2's frozen list is `SHARD_CONTENT_MODULES_V2`.
+const CURRENT_FINGERPRINT_VERSION: u64 = 3;
 
 /// `artifacts.ContrastRows`: how many contrast rows a train set carries, a sha256 over their row
 /// ids and content hashes in write order, and the draw order's seed.
@@ -682,14 +687,31 @@ pub fn code_fingerprint(directory: &Path) -> Result<BTreeMap<String, String>, Sh
     Ok(out)
 }
 
-/// `qd_data.fingerprint.SHARD_CONTENT_MODULES`, read from `<directory>/fingerprint.py`.
+/// The Python tuple that is rule `rule`'s module list: `SHARD_CONTENT_MODULES` for the current
+/// rule, `SHARD_CONTENT_MODULES_V2` for rule 2. Any other rule has no list (rule 1 hashes every
+/// module; an unknown one is refused by the header).
+fn shard_list_name(directory: &Path, rule: u64) -> Result<&'static str, ShardError> {
+    match rule {
+        CURRENT_FINGERPRINT_VERSION => Ok("SHARD_CONTENT_MODULES"),
+        2 => Ok("SHARD_CONTENT_MODULES_V2"),
+        other => Err(contract(
+            directory,
+            format!("fingerprint rule {other} has no shard-content module list"),
+        )),
+    }
+}
+
+/// The module list of fingerprint rule `rule`, read from `<directory>/fingerprint.py`.
 ///
-/// The one owner of rule 2's list is that Python tuple. This reads it from the `qd_data` the
-/// caller named, so there is no second copy to drift, and the list is the one belonging to the
-/// code being compared. A file that does not state the tuple, or states an empty or malformed
-/// one, is refused: a reader that guessed would fingerprint a smaller set and pass.
-pub fn shard_content_modules(directory: &Path) -> Result<Vec<String>, ShardError> {
+/// The one owner of the lists is `qd_data/fingerprint.py`. This reads the tuple from the
+/// `qd_data` the caller named, so there is no second copy to drift, and the list is the one
+/// belonging to the code being compared. A file that does not state the tuple, or states an
+/// empty or malformed one, is refused: a reader that guessed would fingerprint a smaller set and
+/// pass. The tuple is found by its exact name: `SHARD_CONTENT_MODULES_V2` is not
+/// `SHARD_CONTENT_MODULES`.
+pub fn shard_content_modules(directory: &Path, rule: u64) -> Result<Vec<String>, ShardError> {
     let path = directory.join("fingerprint.py");
+    let list = shard_list_name(directory, rule)?;
     let text = std::fs::read_to_string(&path).map_err(|source| ShardError::Io {
         path: path.clone(),
         source,
@@ -697,13 +719,16 @@ pub fn shard_content_modules(directory: &Path) -> Result<Vec<String>, ShardError
     let bad = |why: &str| {
         contract(
             &path,
-            format!("cannot read SHARD_CONTENT_MODULES from fingerprint.py: {why}"),
+            format!("cannot read {list} from fingerprint.py: {why}"),
         )
     };
     let mut offset = 0usize;
     let mut start = None;
     for line in text.split_inclusive('\n') {
-        if line.starts_with("SHARD_CONTENT_MODULES") {
+        let name_end = line
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(line.len());
+        if &line[..name_end] == list {
             start = Some(offset);
             break;
         }
@@ -739,10 +764,28 @@ pub fn shard_content_modules(directory: &Path) -> Result<Vec<String>, ShardError
     Ok(names)
 }
 
-/// `qd_data.fingerprint.shard_code_fingerprint(directory)`: `{module: sha256}` over
-/// [`shard_content_modules`] only. A listed module that is not on disk is refused, never skipped.
-pub fn shard_code_fingerprint(directory: &Path) -> Result<BTreeMap<String, String>, ShardError> {
-    let names = shard_content_modules(directory)?;
+/// `qd_data.fingerprint.not_covered_modules(rule)`: the current rule's modules that a header
+/// written under `rule` did not fingerprint. Empty for rule 1 (every module) and the current
+/// rule.
+pub fn not_covered_modules(directory: &Path, rule: u64) -> Result<Vec<String>, ShardError> {
+    if rule == 1 || rule == CURRENT_FINGERPRINT_VERSION {
+        return Ok(Vec::new());
+    }
+    let recorded = shard_content_modules(directory, rule)?;
+    Ok(shard_content_modules(directory, CURRENT_FINGERPRINT_VERSION)?
+        .into_iter()
+        .filter(|m| !recorded.contains(m))
+        .collect())
+}
+
+/// `qd_data.fingerprint.shard_code_fingerprint(directory, rule)`: `{module: sha256}` over
+/// [`shard_content_modules`] of that rule only. A listed module that is not on disk is refused,
+/// never skipped.
+pub fn shard_code_fingerprint(
+    directory: &Path,
+    rule: u64,
+) -> Result<BTreeMap<String, String>, ShardError> {
+    let names = shard_content_modules(directory, rule)?;
     let missing: Vec<&str> = names
         .iter()
         .filter(|n| !directory.join(n).is_file())
@@ -846,6 +889,24 @@ fn shard_trainable(
     manifest: &TrainingManifest,
     opts: &ShardOpen,
 ) -> Result<Vec<(String, TriState)>, ShardError> {
+    // The modules the current rule fingerprints that this header's rule did not: what a pass of
+    // `shard_code_current` cannot say about the code that wrote the set. Empty for rule 1 and the
+    // current rule.
+    let not_covered = if header.code_fingerprint.is_empty() {
+        Vec::new()
+    } else {
+        not_covered_modules(&opts.qd_data_dir, header.code_fingerprint_version)?
+    };
+    let not_covered_check = if header.code_fingerprint.is_empty() {
+        TriState::not_run(
+            "the header carries no code_fingerprint, so which modules it covers is unknown",
+        )
+    } else {
+        TriState::passed(
+            not_covered.join(","),
+            format!("not_covered: [{}]", not_covered.join(", ")),
+        )
+    };
     let code_check = if header.code_fingerprint.is_empty() {
         TriState::not_run(format!(
             "{}: this shard set's header carries no code_fingerprint, so it was written before \
@@ -860,7 +921,7 @@ fn shard_trainable(
             )
         } else {
             (
-                shard_code_fingerprint(&opts.qd_data_dir)?,
+                shard_code_fingerprint(&opts.qd_data_dir, header.code_fingerprint_version)?,
                 format!(
                     "v{} rule, shard-content modules",
                     header.code_fingerprint_version
@@ -875,9 +936,10 @@ fn shard_trainable(
                 coverage: None,
                 detail: format!(
                     "{} qd_data module(s) ({rule}) at {} hash as they did when this shard set was \
-                     written",
+                     written; not_covered: [{}]",
                     current.len(),
-                    opts.qd_data_dir.display()
+                    opts.qd_data_dir.display(),
+                    not_covered.join(", ")
                 ),
             }
         } else {
@@ -1014,6 +1076,7 @@ fn shard_trainable(
             ),
         ),
         ("shard_code_current".to_owned(), code_check),
+        ("shard_code_not_covered".to_owned(), not_covered_check),
         (
             "shard_not_report_only".to_owned(),
             TriState::passed(false, ""),

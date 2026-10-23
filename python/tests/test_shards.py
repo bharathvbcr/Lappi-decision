@@ -2457,7 +2457,7 @@ def test_opening_a_set_whose_generating_code_moved_is_refused(
 
     drifted = dict(shard_code_fingerprint())
     drifted["render.py"] = "0" * 64
-    monkeypatch.setattr(artifacts, "shard_code_fingerprint", lambda: drifted)
+    monkeypatch.setattr(artifacts, "shard_code_fingerprint", lambda rule=0: drifted)
 
     with pytest.raises(ShardContractViolation, match="qd_data has changed"):
         ShardReader(out, config=snap.config, repo_root=snap.root)
