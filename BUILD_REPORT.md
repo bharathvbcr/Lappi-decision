@@ -1,8 +1,26 @@
-# BUILD_REPORT: GitPulse backlog, 2026-10-20/22 (session lappi-decision-0f)
+# BUILD_REPORT: GitPulse backlog, 2026-10-20/23 (session lappi-decision-0f)
 
 The previous report (2026-10-17..19) is in git at 33adfc7.
 
-Nothing has been pushed. On 2026-10-21 the owner said "commit and merge all and clean branches and next wave". The merges below follow from that instruction. Lanes still in flight merge only once they pass review.
+Nothing has been pushed. On 2026-10-21 the owner said "commit and merge all and clean branches and next wave". On 2026-10-22 the owner added: "Merge all, for more advice ask fable", and then "license I don't think so; for other spin agent and fix them". The merges below follow from those instructions. Fable ruled that "merge all" is permission, not a waiver: a lane merges once it is verified and has passed its adversarial review.
+
+## Update, 2026-10-23: owner items delegated to agents
+
+The owner delegated the remaining owner items, and Fable ruled on the method for each. All lanes below are merged and verified on main.
+
+| Lane | Card | What | Verified |
+|---|---|---|---|
+| X1 | ft-c5ea3e71 item 5 (runtime half) | qd-runtime admission binds a trained family to its recorded slot shapes, with refusal `slot_shape_not_trained`. Legacy releases are admitted and the status op reports `slot_shape_check: not_recorded`. The callers were enumerated before any refusal, and no live caller is refused. | Adversarial pass found a HIGH fail-open (`trained_slot_shapes: null` admitted unchecked) and duplicate manifest keys. Both are fixed, each with a fails-before that ran. The export gate applies the runtime's slot-key rule (`choice:0`). On main: qd-runtime all 33 binaries passed, qd-export all 18 binaries passed. |
+| X2 | owner item 5; ft-57fc7484 b4 | `campaign/lora-2b-q8-preregistered.json`: the D3 bars copied verbatim from the owner decision §5. Span-refit Amendment 2 adds the span-null scorer and re-pins the sha in the same commit. Python and Rust ledger checks agree on 68 mutated rows. | Adversarial pass found **no moved bar** and 6 breaks, all fixed. A q8 row and a bf16 row are never pooled at promotion. On main: qd-train passed, 397 Python tests passed. |
+| X4 | ft-c5ea3e71 item 3 | 87 of the 89 v1 shard sets are retired (no live reader). Nothing was rebuilt: `shard_hash` covers the code fingerprint, so a rebuild would serve no reader without a re-pin. | Readers table committed before any action. |
+| X5 | Fable's v5r rulings | The contaminated v5r train, val and train-no-decode sets are retired through one registry, refused by shard hash and data snapshot in Python and Rust. Span-refit Amendment 3 moves to v6, with its population, gate and thresholds left PENDING, so no run is possible. The next-train queue is repointed to v6 and held. The perf tools' stale-code output is confined and marked. Five dated corrections are appended to reports. | Adversarial pass found 7 breaks, all fixed. On main: qd-train 285 passed; 472 Python tests passed. |
+
+The licence answer is recorded. The owner believes no already-public artefact contains CC BY-SA rows, so W2a's `qd-release-check` rule (refuse BY-SA, research-only or vani-agreed rows unless the release is private) applies to every release, per Fable.
+
+**Open from this round:**
+- **Span-refit on v6** waits for a measurement: the content overlap of v6 val against v5r train, using W2a's MinHash door. If the overlap is nonzero, span-refit is parked until v6-trained towers exist. If it is zero, Amendment 4 re-derives the population, gate and thresholds by rule; any constant with no stated derivation goes to the owner.
+- **ft-2eb31e7d (lane X6, in flight).** Completing the shard-fingerprint list would refuse both pinned v6 LoRA-2B sets. Fable ruled: a v3 rule; v2 headers verify over the modules they recorded, carrying `not_covered`; and the v2 sets are **report-only** until a byte-identity rebuild under v3 proves the uncovered modules did not shape the bytes. That rebuild is priced at about 2.5 h of lock time and is not run.
+- **The ojas canonical-order fix (ojas ft-30dd709e)** needs a session rooted in ojas, so it is handed over, not done here.
 
 ## Method
 
