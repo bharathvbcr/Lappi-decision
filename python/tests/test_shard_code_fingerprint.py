@@ -211,10 +211,13 @@ def test_rule_3_is_current_and_v2_is_frozen_as_the_pinned_sets_recorded_it() -> 
     }
     added = set(fp.SHARD_CONTENT_MODULES) - set(fp.SHARD_CONTENT_MODULES_V2)
     assert added == set(NOT_COVERED_BY_V2)
-    assert fp.not_covered_modules(2) == NOT_COVERED_BY_V2
-    assert fp.not_covered_modules(3) == () and fp.not_covered_modules(1) == ()
-    with pytest.raises(ValueError):
-        fp.not_covered_modules(99)
+    # A set difference over what a header recorded, never a function of its version.
+    assert fp.uncovered_modules(fp.shard_code_fingerprint(rule=2)) == NOT_COVERED_BY_V2
+    assert fp.uncovered_modules(fp.shard_code_fingerprint(rule=3)) == ()
+    assert fp.uncovered_modules(fp.code_fingerprint()) == ()
+    drifted = dict(fp.shard_code_fingerprint(rule=3))
+    drifted["render.py"] = "0" * 64
+    assert fp.uncovered_modules(drifted) == ("render.py",)
     with pytest.raises(ValueError):
         fp.shard_code_fingerprint(rule=1)
 

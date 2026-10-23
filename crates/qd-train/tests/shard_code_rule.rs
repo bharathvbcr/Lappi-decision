@@ -17,11 +17,11 @@ use std::sync::Arc;
 
 use common::{copy_dir, fixture, fixture_open, qd_data_dir, scratch};
 use qd_train::files::OsFiles;
-use qd_train::tristate::TriState;
 use qd_train::shards::{
-    ShardHeader, ShardReader, code_fingerprint, not_covered_modules, shard_code_fingerprint,
-    shard_content_modules,
+    ShardHeader, ShardReader, code_fingerprint, shard_code_fingerprint, shard_content_modules,
+    uncovered_modules,
 };
+use qd_train::tristate::TriState;
 use serde_json::{Value, json};
 
 const FP_PY: &[u8] = b"\"\"\"mini.\"\"\"\n\nSHARD_CONTENT_MODULES_V2: Final[tuple[str, ...]] = (\n    \"a.py\",\n    \"b.py\",\n)\n\nSHARD_CONTENT_MODULES: Final[tuple[str, ...]] = (\n    \"a.py\",\n    \"b.py\",\n    \"c.py\",\n)\n";
@@ -128,9 +128,14 @@ fn the_current_rule_lists_what_rule_2_did_not_and_that_difference_is_not_covered
         shard_content_modules(&dir, 3).unwrap(),
         ["a.py", "b.py", "c.py"]
     );
-    assert_eq!(not_covered_modules(&dir, 2).unwrap(), ["c.py"]);
-    assert!(not_covered_modules(&dir, 3).unwrap().is_empty());
-    assert!(not_covered_modules(&dir, 1).unwrap().is_empty());
+    // A set difference over what a header recorded, not a function of its version.
+    let recorded = |header: &str| recorded_of(&fp_of(header));
+    assert_eq!(uncovered_modules(&recorded(PY_V2), &dir).unwrap(), ["c.py"]);
+    assert!(uncovered_modules(&recorded(PY_V3), &dir).unwrap().is_empty());
+    assert!(uncovered_modules(&recorded(PY_V1), &dir).unwrap().is_empty());
+    let mut drifted = recorded(PY_V3);
+    drifted.insert("a.py".to_owned(), "0".repeat(64));
+    assert_eq!(uncovered_modules(&drifted, &dir).unwrap(), ["a.py"]);
     assert!(shard_content_modules(&dir, 1).is_err(), "rule 1 has no list");
     assert!(shard_code_fingerprint(&dir, 9).is_err());
 }
@@ -187,7 +192,7 @@ fn the_real_lists_are_rule_2_frozen_plus_the_two_modules_rule_3_added() {
     let dir = qd_data_dir();
     assert_eq!(shard_content_modules(&dir, 2).unwrap().len(), 16);
     assert_eq!(
-        not_covered_modules(&dir, 2).unwrap(),
+        uncovered_modules(&shard_code_fingerprint(&dir, 2).unwrap(), &dir).unwrap(),
         ["manifest.py", "val_requests.py"]
     );
     assert_eq!(shard_content_modules(&dir, 3).unwrap().len(), 18);
@@ -236,6 +241,50 @@ fn open(shards: &Path, qd_data: &Path) -> Result<ShardReader, qd_train::shards::
         &fixture().join("data").join("pool").join("train.json"),
         &opts,
     )
+}
+
+fn recorded_of(fingerprint: &Value) -> std::collections::BTreeMap<String, String> {
+    serde_json::from_value(fingerprint.clone()).expect("a {module: sha256} map")
+}
+
+/// Like [`open`] but with `allow_stale_code`, as a read of a drifted set deliberately does.
+fn open_stale(shards: &Path, qd_data: &Path) -> ShardReader {
+    let mut opts = fixture_open(Arc::new(OsFiles));
+    opts.qd_data_dir = qd_data.to_path_buf();
+    opts.allow_stale_code = true;
+    ShardReader::open(
+        shards,
+        &fixture().join("data").join("pool").join("train.json"),
+        &opts,
+    )
+    .unwrap_or_else(|e| panic!("a stale read is refused: {e}"))
+}
+
+#[test]
+fn a_drifted_v3_set_read_with_allow_stale_code_names_the_drifted_module_as_not_covered() {
+    let qd = mini_qd_data("v3-stale");
+    let shards = set_with_fingerprint("v3-stale-set", 3, &fp_of(PY_V3));
+    std::fs::write(qd.join("c.py"), b"c = 'edited'\n").unwrap();
+    let reader = open_stale(&shards, &qd);
+    assert!(reader.check("shard_code_current").unwrap().is_fail());
+    assert_eq!(
+        value_of(reader.check("shard_code_not_covered").unwrap()),
+        json!("c.py"),
+        "a drifted set must not read as 'nothing uncovered'"
+    );
+}
+
+#[test]
+fn a_truncated_v2_set_names_what_it_did_not_record_not_just_the_rule_3_additions() {
+    let qd = mini_qd_data("v2-trunc");
+    let mut one = recorded_of(&fp_of(PY_V2));
+    one.remove("b.py");
+    let shards = set_with_fingerprint("v2-trunc-set", 2, &serde_json::to_value(&one).unwrap());
+    let reader = open_stale(&shards, &qd);
+    assert_eq!(
+        value_of(reader.check("shard_code_not_covered").unwrap()),
+        json!("b.py,c.py")
+    );
 }
 
 fn fp_of(header: &str) -> Value {

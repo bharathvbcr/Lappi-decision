@@ -59,6 +59,7 @@ __all__ = [
     "NOT_APPLICABLE",
     "REQUIRED_DECISIONS",
     "SHARD_NOT_COVERED_METRIC",
+    "VAL_SHARD_HASH_METRIC",
     "VAL_SHARD_NOT_COVERED_METRIC",
     "DecisionsRecordError",
     "ForkBranch",
@@ -87,6 +88,7 @@ __all__ = [
     "reconcile_orphan_started_rows",
     "record_build_run",
     "run_suite",
+    "shard_coverage_state",
     "verify_no_fork",
 ]
 
@@ -1937,11 +1939,41 @@ SHARD_NOT_COVERED_METRIC: Final[str] = "shard.code_not_covered"
 #: split, each judged against its own set's ``shard_hash`` (``recipe.shard_hash`` for train,
 #: ``recipe.val_shard_hash`` for val).
 VAL_SHARD_NOT_COVERED_METRIC: Final[str] = "shard.val_code_not_covered"
-#: ``(metric, recipe key naming that split's shard_hash, split)``.
-_NOT_COVERED_SPLITS: Final[tuple[tuple[str, str, str], ...]] = (
-    (SHARD_NOT_COVERED_METRIC, "shard_hash", "train"),
-    (VAL_SHARD_NOT_COVERED_METRIC, "val_shard_hash", "val"),
+#: The val set's ``shard_hash`` as a row metric, for rows whose recipe does not name it (an ft
+#: row's recipe carries ``shard_hash`` only, and adding a key would move its recipe_hash).
+#: ``open_val_reader`` records it beside :data:`VAL_SHARD_NOT_COVERED_METRIC`; the byte-identity
+#: lift reads it when ``recipe.val_shard_hash`` is absent.
+VAL_SHARD_HASH_METRIC: Final[str] = "shard.val_shard_hash"
+#: ``(metric, recipe key naming that split's shard_hash, split, metric naming it)``.
+_NOT_COVERED_SPLITS: Final[tuple[tuple[str, str, str, str | None], ...]] = (
+    (SHARD_NOT_COVERED_METRIC, "shard_hash", "train", None),
+    (VAL_SHARD_NOT_COVERED_METRIC, "val_shard_hash", "val", VAL_SHARD_HASH_METRIC),
 )
+
+
+def shard_coverage_state(checks: Mapping[str, TriState]) -> TriState:
+    """The row metric for one shard set's coverage, from a reader's ``checks``.
+
+    The reader's own ``shard_code_not_covered`` verdict. A reader that recorded none yields a
+    ``NotRun`` saying so, never nothing: an absent metric reads as "covered", and every ft-row
+    writer takes this one function so none of them can leave the metric off.
+    """
+    state = checks.get("shard_code_not_covered")
+    if state is None:
+        return NotRun(reason="the shard reader recorded no shard_code_not_covered verdict")
+    return state
+
+
+def _split_shard_hash(r: LedgerRow, hash_key: str, hash_metric: str | None) -> str | None:
+    """The shard_hash a row records for one split: its recipe key, else the hash metric. Two
+    sources that disagree name no set (``None``), so nothing lifts."""
+    from_recipe = (r.recipe or {}).get(hash_key)
+    from_recipe = from_recipe if isinstance(from_recipe, str) else None
+    state = r.metrics.get(hash_metric) if hash_metric else None
+    from_metric = state.value if isinstance(state, Ran) and isinstance(state.value, str) else None
+    if from_recipe and from_metric and from_recipe != from_metric:
+        return None
+    return from_recipe or from_metric
 #: Where byte-identity records live (Fable, 2026-10-23: a set whose fingerprint rule did not cover
 #: every shard-content module is report-only until a rebuild under the current rule has been
 #: compared byte for byte against it). One JSON object, ``{"records": [{"shard_hash": <64 hex>,
@@ -1951,29 +1983,55 @@ BYTE_IDENTITY_RECORD_PATH: Final[Path] = (
 )
 
 
-def _byte_identity_hashes(path: Path | None) -> tuple[frozenset[str], str | None]:
-    """The shard hashes with an ``identical: true`` byte-identity record, and why the record
-    could not be read (``None`` when it was, or when it does not exist: no record is no
-    exemption, which is the safe reading)."""
+def _cited_file_exists(audit: str, record_dir: Path) -> bool:
+    """Whether an ``audit`` citation names an existing file inside the repository (or, for a
+    record kept outside it, beside the record). Absolute paths and ``..`` are refused: a
+    citation is a repo path, not a way to point at anything on disk."""
+    cited = Path(audit.strip())
+    if not audit.strip() or cited.is_absolute() or ".." in cited.parts:
+        return False
+    return any((base / cited).is_file() for base in (REPO_ROOT, record_dir))
+
+
+def _byte_identity_hashes(
+    path: Path | None,
+) -> tuple[frozenset[str], frozenset[str], str | None]:
+    """``(lifting hashes, conflicting hashes, why the record could not be read)``.
+
+    A hash lifts only through a record that says ``identical: true`` (a JSON true) and cites an
+    existing file. A hash with records that disagree (``identical`` true on one and false on
+    another) is CONFLICTING and lifts nothing, whichever came last: the file is evidence, and
+    two readings of one set are not a verdict. A record that does not exist is no exemption,
+    the safe reading; one that cannot be read refuses and says why.
+    """
     target = BYTE_IDENTITY_RECORD_PATH if path is None else Path(path)
     try:
         raw = json.loads(target.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return frozenset(), None
+        return frozenset(), frozenset(), None
     except (OSError, ValueError) as exc:
-        return frozenset(), f"the byte-identity record {target} could not be read ({exc})"
+        return frozenset(), frozenset(), (
+            f"the byte-identity record {target} could not be read ({exc})"
+        )
     records = raw.get("records") if isinstance(raw, Mapping) else None
     if not isinstance(records, list):
-        return frozenset(), f"the byte-identity record {target} has no 'records' list"
-    return frozenset(
-        rec["shard_hash"]
-        for rec in records
-        if isinstance(rec, Mapping)
-        and rec.get("identical") is True
-        and isinstance(rec.get("shard_hash"), str)
-        and isinstance(rec.get("audit"), str)
-        and rec["audit"].strip()
-    ), None
+        return frozenset(), frozenset(), f"the byte-identity record {target} has no 'records' list"
+    said: dict[str, set[bool]] = {}
+    lifting: set[str] = set()
+    for rec in records:
+        if not (isinstance(rec, Mapping) and isinstance(rec.get("shard_hash"), str)):
+            continue
+        identical = rec.get("identical")
+        if isinstance(identical, bool):
+            said.setdefault(rec["shard_hash"], set()).add(identical)
+        if (
+            identical is True
+            and isinstance(rec.get("audit"), str)
+            and _cited_file_exists(rec["audit"], target.parent)
+        ):
+            lifting.add(rec["shard_hash"])
+    conflicting = frozenset(h for h, values in said.items() if len(values) > 1)
+    return frozenset(lifting - conflicting), conflicting, None
 
 
 def _shard_not_covered_refusals(
@@ -1988,24 +2046,32 @@ def _shard_not_covered_refusals(
     the set is report-only. A row that carries the metric as ``NotRun`` could not say which
     modules were uncovered and refuses too.
     """
-    flagged: list[tuple[LedgerRow, str, str, str]] = []
+    flagged: list[tuple[LedgerRow, str, str, str, str | None]] = []
     for r in rows:
-        for metric, hash_key, split in _NOT_COVERED_SPLITS:
+        for metric, hash_key, split, hash_metric in _NOT_COVERED_SPLITS:
             state = r.metrics.get(metric)
             if state is None:
                 continue
             if isinstance(state, NotRun):
-                flagged.append(
-                    (r, hash_key, split, f"its coverage verdict did not run ({state.reason})")
-                )
+                why = f"its coverage verdict did not run ({state.reason})"
             elif state.value:
-                flagged.append((r, hash_key, split, f"not_covered: [{state.value}]"))
+                why = f"not_covered: [{state.value}]"
+            else:
+                continue
+            flagged.append((r, hash_key, split, why, _split_shard_hash(r, hash_key, hash_metric)))
     if not flagged:
         return []
-    identical, unreadable = _byte_identity_hashes(byte_identity_path)
+    identical, conflicting, unreadable = _byte_identity_hashes(byte_identity_path)
     refusals: list[str] = [unreadable] if unreadable else []
-    for r, hash_key, split, why in flagged:
-        shard_hash = (r.recipe or {}).get(hash_key)
+    for r, hash_key, split, why, shard_hash in flagged:
+        if isinstance(shard_hash, str) and shard_hash in conflicting:
+            refusals.append(
+                f"{r.row_id}: its {split} shard set's code fingerprint did not cover every "
+                f"shard-content module ({why}) and its {hash_key} {shard_hash[:16]} has "
+                "byte-identity records that disagree (identical true and false); no record "
+                "wins silently, so the set stays report-only until the record is reconciled"
+            )
+            continue
         if isinstance(shard_hash, str) and shard_hash in identical:
             continue
         refusals.append(

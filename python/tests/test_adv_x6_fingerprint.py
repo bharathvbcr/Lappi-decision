@@ -22,6 +22,7 @@ from qd_train import artifacts  # noqa: E402
 from qd_train.artifacts import ShardContractViolation, ShardHeader  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
     SHARD_NOT_COVERED_METRIC,
+    VAL_SHARD_HASH_METRIC,
     VAL_SHARD_NOT_COVERED_METRIC,
 )
 from qd_train.tristate import Ran  # noqa: E402
@@ -197,8 +198,15 @@ def test_BREAK_a_val_record_cannot_lift_a_row_whose_recipe_names_no_val_shard_ha
     every row from `_RUN_METRICS` once open_val_reader ran (before _train, in main). With a
     valid byte-identity record for both sets the ft row still refuses: the lift looks up
     recipe['val_shard_hash'] == None. The lift is unreachable for ft rows."""
-    led = _led(tmp_path, {SHARD_NOT_COVERED_METRIC: COVERED, VAL_SHARD_NOT_COVERED_METRIC: NC},
+    # The ft row records its val set where open_val_reader writes it (item 3): the hash metric.
+    # With no val hash anywhere on the row no record can name its set (see the companion test
+    # in test_promotion_shard_not_covered.py).
+    led = _led(tmp_path, {SHARD_NOT_COVERED_METRIC: COVERED, VAL_SHARD_NOT_COVERED_METRIC: NC,
+                          VAL_SHARD_HASH_METRIC: Ran(passed=True, value=VAL)},
                {"shard_hash": TRAIN})
+    # The cited evidence must exist (item 4 of the lead's review): the record sits beside it.
+    (tmp_path / "a.md").write_text("train byte comparison", encoding="utf-8")
+    (tmp_path / "b.md").write_text("val byte comparison", encoding="utf-8")
     ident = _identity(
         tmp_path,
         {"shard_hash": TRAIN, "identical": True, "audit": "a.md"},

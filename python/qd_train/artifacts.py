@@ -69,8 +69,8 @@ from qd_data.fingerprint import (
     KNOWN_FINGERPRINT_VERSIONS,
     code_fingerprint,
     describe_drift,
-    not_covered_modules,
     shard_code_fingerprint,
+    uncovered_modules,
 )
 from qd_data.render import PROMPT_FORMAT
 
@@ -1206,15 +1206,18 @@ def assert_remap_covers(token_ids: np.ndarray, remap: RemapTable) -> None:
     remap.encode(np.asarray(token_ids).reshape(-1))
 
 
-def _not_covered_note(version: int) -> str:
+def _not_covered_note(recorded: dict[str, str]) -> str:
     """``; not_covered: [a.py, b.py]`` for a rule that fingerprints fewer modules than the
     current one, else empty. A pass over a narrower list is a pass about those modules only."""
-    modules = not_covered_modules(version)
+    modules = uncovered_modules(recorded)
     return f"; not_covered: [{', '.join(modules)}]" if modules else ""
 
 
 def _shard_code_not_covered_check(header: ShardHeader) -> TriState:
-    """The modules the current rule fingerprints that this header's rule did not.
+    """The current rule's modules this header's recorded fingerprint cannot vouch for: a set
+    difference over what it recorded (``uncovered_modules``), plus any listed module whose
+    recorded digest is not the code loaded now, so a drifted set read with ``allow_stale_code``
+    is marked too.
 
     ``Ran`` whose ``value`` is the comma-joined list ("" when nothing is uncovered), so a
     ledger row can carry it. ``passed`` is True because the question is answered, not because
@@ -1225,7 +1228,7 @@ def _shard_code_not_covered_check(header: ShardHeader) -> TriState:
         return NotRun(
             reason="the header carries no code_fingerprint, so which modules it covers is unknown"
         )
-    modules = not_covered_modules(header.code_fingerprint_version)
+    modules = uncovered_modules(header.code_fingerprint)
     return Ran(
         passed=True,
         value=",".join(modules),
@@ -1267,7 +1270,7 @@ def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
             value=len(current),
             detail=(
                 f"{len(current)} qd_data module(s) hash as they did when this shard set "
-                f"was written ({rule}){_not_covered_note(version)}"
+                f"was written ({rule}){_not_covered_note(header.code_fingerprint)}"
             ),
         )
     return Ran(

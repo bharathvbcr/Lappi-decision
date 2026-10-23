@@ -764,17 +764,20 @@ pub fn shard_content_modules(directory: &Path, rule: u64) -> Result<Vec<String>,
     Ok(names)
 }
 
-/// `qd_data.fingerprint.not_covered_modules(rule)`: the current rule's modules that a header
-/// written under `rule` did not fingerprint. Empty for rule 1 (every module) and the current
-/// rule.
-pub fn not_covered_modules(directory: &Path, rule: u64) -> Result<Vec<String>, ShardError> {
-    if rule == 1 || rule == CURRENT_FINGERPRINT_VERSION {
-        return Ok(Vec::new());
-    }
-    let recorded = shard_content_modules(directory, rule)?;
-    Ok(shard_content_modules(directory, CURRENT_FINGERPRINT_VERSION)?
-        .into_iter()
-        .filter(|m| !recorded.contains(m))
+/// `qd_data.fingerprint.uncovered_modules(recorded, directory)`: the current rule's modules a
+/// recorded fingerprint cannot vouch for, sorted. A set difference over what the header
+/// recorded (never a function of its version number): a current-rule module it did not record,
+/// plus a current-rule module it recorded whose digest is not the code at `directory`.
+pub fn uncovered_modules(
+    recorded: &BTreeMap<String, String>,
+    directory: &Path,
+) -> Result<Vec<String>, ShardError> {
+    let current = shard_code_fingerprint(directory, CURRENT_FINGERPRINT_VERSION)?;
+    // `current` is a BTreeMap, so the result is already sorted.
+    Ok(current
+        .iter()
+        .filter(|(module, digest)| recorded.get(*module) != Some(*digest))
+        .map(|(module, _)| module.clone())
         .collect())
 }
 
@@ -889,23 +892,26 @@ fn shard_trainable(
     manifest: &TrainingManifest,
     opts: &ShardOpen,
 ) -> Result<Vec<(String, TriState)>, ShardError> {
-    // The modules the current rule fingerprints that this header's rule did not: what a pass of
-    // `shard_code_current` cannot say about the code that wrote the set. Empty for rule 1 and the
-    // current rule.
-    let not_covered = if header.code_fingerprint.is_empty() {
-        Vec::new()
+    // The current rule's modules this header's recorded fingerprint cannot vouch for: what a pass
+    // of `shard_code_current` cannot say about the code that wrote the set, and, for a drifted
+    // set read with `allow_stale_code`, the modules that drifted.
+    // A `qd_data` that cannot say (no module list in its fingerprint.py, a listed module missing)
+    // makes the verdict a `NotRun`, which promotion treats as not covered: never a pass, and
+    // never a refusal to open the set (the door's own refusals are `shard_code_current`'s).
+    let coverage: Result<Vec<String>, String> = if header.code_fingerprint.is_empty() {
+        Err("the header carries no code_fingerprint, so which modules it covers is unknown"
+            .to_owned())
     } else {
-        not_covered_modules(&opts.qd_data_dir, header.code_fingerprint_version)?
+        uncovered_modules(&header.code_fingerprint, &opts.qd_data_dir)
+            .map_err(|e| format!("which modules the header covers could not be decided: {e}"))
     };
-    let not_covered_check = if header.code_fingerprint.is_empty() {
-        TriState::not_run(
-            "the header carries no code_fingerprint, so which modules it covers is unknown",
-        )
-    } else {
-        TriState::passed(
-            not_covered.join(","),
-            format!("not_covered: [{}]", not_covered.join(", ")),
-        )
+    let not_covered_text = match &coverage {
+        Ok(modules) => format!("not_covered: [{}]", modules.join(", ")),
+        Err(_) => "not_covered: unknown".to_owned(),
+    };
+    let not_covered_check = match &coverage {
+        Ok(modules) => TriState::passed(modules.join(","), not_covered_text.clone()),
+        Err(why) => TriState::not_run(why.clone()),
     };
     let code_check = if header.code_fingerprint.is_empty() {
         TriState::not_run(format!(
@@ -936,10 +942,10 @@ fn shard_trainable(
                 coverage: None,
                 detail: format!(
                     "{} qd_data module(s) ({rule}) at {} hash as they did when this shard set was \
-                     written; not_covered: [{}]",
+                     written; {}",
                     current.len(),
                     opts.qd_data_dir.display(),
-                    not_covered.join(", ")
+                    not_covered_text
                 ),
             }
         } else {

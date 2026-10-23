@@ -31,6 +31,31 @@ implemented here.
   `test_artifacts.py` expected check names gain `shard_code_not_covered`; `test_promotion_respec.py::_family` gains
   two optional parameters.
 
+## Round 2 (adversarial pass, branch adv/x6, tests `python/tests/test_adv_x6_fingerprint.py`)
+- `not_covered` is a set difference over what the header recorded (`fingerprint.uncovered_modules`, Python and
+  Rust `shards::uncovered_modules`), plus any listed module whose recorded digest is not the loaded code: a truncated
+  v2 header, a forged version and a drifted v3 read with `allow_stale_code` all name their modules.
+  `not_covered_modules(rule)` is deleted.
+- Every ft-row writer records the verdict through `ledger.shard_coverage_state(reader.checks)` (the reader's verdict,
+  or a `NotRun` when it recorded none, never an absent metric). Writers that read a shard set and write `ft` rows:
+  `tools/real_ft_run.py` (`_recorder`: `shard.code_not_covered`; `open_val_reader`: `shard.val_code_not_covered` and
+  `shard.val_shard_hash` via `_RUN_METRICS`), `tools/lora_reference_run.py` (`shard.code_not_covered`),
+  `crates/qd-train-metal/src/run.rs` (`shard_coverage_metrics`, `shard.code_not_covered`; it opens no val set).
+  Writers of `ft` rows that open no shard set through `ShardReader`, so have no verdict: `tools/ft_toy_run.py`,
+  `tools/rung0_real_run.py`, `tools/qd_train_oracle_tiny.py`, `tools/qd_train_oracle_trainer.py`, the fixture
+  generators `gen_lora_gate_cases.py` and `gen_ledger_schema_fixture.py`. Found with
+  `rg -uu 'RunRecorder\(|run_kind="ft"'` over tools, python/qd_train, python/qd_data, crates (text search, not DevMap).
+- The val lift: an ft row's recipe names only the train set (a recipe key would move its recipe_hash), so the val set's
+  hash rides as the metric `shard.val_shard_hash`; `ledger._split_shard_hash` reads `recipe.val_shard_hash`, else the
+  metric, and a disagreement names no set.
+- `byte_identity.json`: records that disagree on one hash lift nothing; the `audit` citation must be an existing file
+  in the repo (or beside a record kept outside it), not absolute and without `..`.
+- A `NotRun` coverage metric on either split is NOT covered: it refuses exactly like a non-empty `not_covered`, unless a
+  byte-identity record for that split's set lifts it. Rows written before these metrics existed carry none (metric
+  ABSENT) and stay as before: historical, unmarked.
+- Two edits to adversarial tests, both required by the lead's items: `test_BREAK_a_val_record_cannot_lift...` creates
+  the cited files and supplies the val hash through `VAL_SHARD_HASH_METRIC`.
+
 ## Measured
 - Pinned sets, header-only, branch reader: `AUDIT/x6-fingerprint-list-2026-10-23/verify_pinned.AFTER_V3.txt`: train
   94bef49a... and val 58bd753f... both `Ran passed=True` (16 modules match) and `not_covered: [manifest.py,

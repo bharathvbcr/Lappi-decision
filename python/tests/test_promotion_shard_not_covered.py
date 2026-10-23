@@ -18,6 +18,7 @@ from test_promotion_respec import _family, _protocol, _record
 from qd_train import ledger as ledger_mod
 from qd_train.ledger import (
     SHARD_NOT_COVERED_METRIC,
+    VAL_SHARD_HASH_METRIC,
     VAL_SHARD_NOT_COVERED_METRIC,
     Ledger,
     PromotionVerdict,
@@ -54,6 +55,19 @@ def _verdict(led: Ledger, tmp_path: Path, identity: Path | None) -> PromotionVer
 
 
 def _identity(tmp_path: Path, *records: dict[str, object]) -> Path:
+    """A record file beside the evidence files it cites (each cited file is created: a citation
+    must name an existing file, see ``test_a_citation_naming_no_file_does_not_lift``)."""
+    for rec in records:
+        audit = rec.get("audit")
+        if not (isinstance(audit, str) and audit.strip()):
+            continue
+        cited = Path(audit)
+        # Only a plain relative path is ever written: never an absolute one or one that climbs
+        # out of tmp_path (those are the refused citations, and must not touch the disk).
+        if cited.is_absolute() or ".." in cited.parts or audit.startswith("AUDIT/missing"):
+            continue
+        (tmp_path / cited).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / cited).write_text("evidence", encoding="utf-8")
     path = tmp_path / "byte_identity.json"
     path.write_text(json.dumps({"records": list(records)}), encoding="utf-8")
     return path
@@ -106,6 +120,28 @@ def test_a_record_that_is_not_identical_not_cited_or_for_another_set_does_not_li
     assert _blocked_for_coverage(verdict)
 
 
+@pytest.mark.parametrize("audit", ["AUDIT/missing/evidence.md", "/etc/hosts", "../escape.md"])
+def test_a_citation_naming_no_file_in_the_repo_does_not_lift(tmp_path: Path, audit: str) -> None:
+    (tmp_path.parent / "escape.md").write_text("outside", encoding="utf-8")
+    record = _identity(tmp_path, {"shard_hash": SET_HASH, "identical": True, "audit": audit})
+    assert _blocked_for_coverage(_verdict(_led(tmp_path, V2_NOT_COVERED), tmp_path, record))
+
+
+def test_conflicting_records_for_one_set_lift_nothing_whichever_came_last(
+    tmp_path: Path,
+) -> None:
+    for n, order in enumerate(((True, False), (False, True))):
+        work = tmp_path / f"order{n}"
+        work.mkdir()
+        records = [
+            {"shard_hash": SET_HASH, "identical": flag, "audit": f"{i}.md"}
+            for i, flag in enumerate(order)
+        ]
+        verdict = _verdict(_led(work, V2_NOT_COVERED), work, _identity(work, *records))
+        assert _blocked_for_coverage(verdict), order
+        assert any("disagree" in r for r in verdict.reasons), order
+
+
 def test_an_unreadable_record_refuses_and_says_so(tmp_path: Path) -> None:
     bad = tmp_path / "byte_identity.json"
     bad.write_text("{not json", encoding="utf-8")
@@ -145,6 +181,67 @@ def test_a_covered_val_set_with_an_uncovered_train_set_still_refuses(tmp_path: P
     verdict = _verdict(led, tmp_path, tmp_path / "absent.json")
     assert _blocked_for_coverage(verdict)
     assert any("train shard set" in r for r in verdict.reasons)
+
+
+def test_an_ft_row_naming_its_val_set_only_by_the_hash_metric_can_be_lifted(
+    tmp_path: Path,
+) -> None:
+    """An ft row's recipe carries shard_hash only; open_val_reader records the val hash as a
+    metric. A record for that hash lifts it; a metric that disagrees with the recipe names no
+    set; a row naming no val hash at all cannot be lifted by any record."""
+    metrics = {VAL_SHARD_NOT_COVERED_METRIC: V2_NOT_COVERED,
+               VAL_SHARD_HASH_METRIC: Ran(passed=True, value=OTHER_HASH)}
+    record = _identity(tmp_path, {"shard_hash": OTHER_HASH, "identical": True, "audit": "v.md"})
+
+    def ft_led(work: Path, metrics: dict[str, Ran], recipe: dict[str, object]) -> Ledger:
+        work.mkdir()
+        return _family(work, pooled=Ran(passed=True, value=1.0, n=300, n_total=300),
+                       train_recipe=recipe, train_metrics=metrics)
+
+    ft = {"shard_hash": SET_HASH}
+    assert _verdict(ft_led(tmp_path / "ok", metrics, ft), tmp_path, record).promoted
+    clash = {**ft, "val_shard_hash": SET_HASH}
+    assert _blocked_for_coverage(_verdict(ft_led(tmp_path / "clash", metrics, clash),
+                                          tmp_path, record))
+    nameless = {VAL_SHARD_NOT_COVERED_METRIC: V2_NOT_COVERED}
+    assert _blocked_for_coverage(_verdict(ft_led(tmp_path / "none", nameless, ft),
+                                          tmp_path, record))
+
+
+def test_every_ft_row_writer_takes_the_verdict_from_one_function_that_fails_closed() -> None:
+    """``shard_coverage_state`` is what real_ft_run, lora_reference_run and open_val_reader call:
+    the reader's verdict, or a NotRun when it recorded none (never an absent metric)."""
+    from qd_train.ledger import shard_coverage_state
+
+    assert shard_coverage_state({"shard_code_not_covered": V2_NOT_COVERED}) == V2_NOT_COVERED
+    assert isinstance(shard_coverage_state({}), NotRun)
+
+
+@pytest.mark.parametrize("split", ["train", "val"])
+def test_a_not_run_coverage_metric_is_not_covered_and_only_a_record_lifts_it(
+    tmp_path: Path, split: str
+) -> None:
+    """A check that could not run never passes as clean: a NotRun coverage metric refuses
+    exactly as a non-empty not_covered does, and is lifted only by a byte-identity record."""
+    not_run = NotRun(reason="the shard reader recorded no shard_code_not_covered verdict")
+    train_state, val_state = (not_run, None) if split == "train" else (None, not_run)
+    refused = tmp_path / "refused"
+    refused.mkdir()
+    verdict = _verdict(_led(refused, train_state, val_state=val_state), refused,
+                       tmp_path / "absent.json")
+    assert _blocked_for_coverage(verdict)
+    assert any(f"its {split} shard set" in r and "did not run" in r for r in verdict.reasons)
+
+    set_hash = SET_HASH if split == "train" else OTHER_HASH
+    lifted = tmp_path / "lifted"
+    lifted.mkdir()
+    record = _identity(lifted, {"shard_hash": set_hash, "identical": True, "audit": "e.md"})
+    assert _verdict(_led(lifted, train_state, val_state=val_state), lifted, record).promoted
+
+
+def test_a_row_with_the_metric_absent_is_historical_and_unmarked(tmp_path: Path) -> None:
+    """Rows written before the metric existed carry none: unchanged, not refused."""
+    assert _verdict(_led(tmp_path, None), tmp_path, tmp_path / "absent.json").promoted
 
 
 def test_a_coverage_verdict_that_did_not_run_refuses(tmp_path: Path) -> None:

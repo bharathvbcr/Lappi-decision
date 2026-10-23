@@ -43,7 +43,7 @@ closure test found missing from version 2's list, ``manifest.py`` and ``val_requ
 (ft-2eb31e7d9863d70a25807b3425fa6057). Version 2's list is frozen as
 :data:`SHARD_CONTENT_MODULES_V2`. A reader branches on the rule the header records, never on
 how many modules it lists: a v2 header is verified over its own recorded modules and the
-verdict carries ``not_covered`` (:func:`not_covered_modules`), the modules rule 3 fingerprints
+verdict carries ``not_covered`` (:func:`uncovered_modules`), the modules rule 3 fingerprints
 that the header could not have. Verifying a v2 header over rule 3's list would refuse every
 pinned v2 shard set ("added since"); silently verifying it over its own list would read an
 uncovered set as covered. Neither is done.
@@ -81,8 +81,8 @@ __all__ = [
     "containment_code_fingerprint",
     "describe_drift",
     "drifted_modules",
-    "not_covered_modules",
     "shard_code_fingerprint",
+    "uncovered_modules",
 ]
 
 #: Only ``*.py``. A ``.pyc`` is derived, and ``__pycache__`` is excluded by it.
@@ -255,19 +255,22 @@ def shard_code_fingerprint(
     return _listed_fingerprint(modules, directory, "shard-content")
 
 
-def not_covered_modules(rule: int) -> tuple[str, ...]:
-    """The shard-content modules the current rule fingerprints that a header written under
-    ``rule`` did not: what a read of that header cannot say about the code that wrote it.
+def uncovered_modules(
+    recorded: dict[str, str], directory: Path | None = None
+) -> tuple[str, ...]:
+    """The current rule's modules a recorded fingerprint cannot vouch for, sorted.
 
-    Rule 1 hashed every module, so nothing is uncovered. The current rule covers all of its
-    list. An unknown rule is refused.
+    A set difference over what the header RECORDED, not a function of its version number: a
+    module on the current rule-3 list that the header did not record, plus a listed module
+    the header recorded whose digest is not the code loaded now (a drifted set read with
+    ``allow_stale_code`` is not covered either). A truncated v2 header, a forged version and a
+    drifted v3 header all name their modules; only a header that records every listed module
+    at today's bytes names none.
     """
-    if rule == 1 or rule == FINGERPRINT_VERSION:
-        return ()
-    recorded = SHARD_CONTENT_MODULES_BY_RULE.get(rule)
-    if recorded is None:
-        raise ValueError(f"unknown fingerprint rule {rule!r}")
-    return tuple(m for m in SHARD_CONTENT_MODULES if m not in recorded)
+    current = shard_code_fingerprint(directory, FINGERPRINT_VERSION)
+    missing = set(current) - set(recorded)
+    changed = {m for m, digest in current.items() if m in recorded and recorded[m] != digest}
+    return tuple(sorted(missing | changed))
 
 
 def containment_code_fingerprint(directory: Path | None = None) -> dict[str, str]:
