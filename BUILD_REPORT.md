@@ -19,7 +19,10 @@ The licence answer is recorded. The owner believes no already-public artefact co
 
 **Open from this round:**
 - **Span-refit on v6** waits for a measurement: the content overlap of v6 val against v5r train, using W2a's MinHash door. If the overlap is nonzero, span-refit is parked until v6-trained towers exist. If it is zero, Amendment 4 re-derives the population, gate and thresholds by rule; any constant with no stated derivation goes to the owner.
-- **ft-2eb31e7d (lane X6, in flight).** Completing the shard-fingerprint list would refuse both pinned v6 LoRA-2B sets. Fable ruled: a v3 rule; v2 headers verify over the modules they recorded, carrying `not_covered`; and the v2 sets are **report-only** until a byte-identity rebuild under v3 proves the uncovered modules did not shape the bytes. That rebuild is priced at about 2.5 h of lock time and is not run.
+- **ft-2eb31e7d (lane X6, merged).** Fingerprint rule 3 fingerprints `manifest.py` and `val_requests.py`. Python and Rust readers branch on `code_fingerprint_version`. A v2 header verifies over its recorded modules and reports `not_covered`. Promotion refuses any row whose train or val set is uncovered, or whose coverage is NotRun, unless an AUDIT `byte_identity.json` record with an existing citation lifts it for that set.
+  - **Adversarial pass:** it found a HIGH fail-open, now fixed: qd-train-metal's Rust ft row recorded no coverage. Every ft-row writer now records coverage, or reads no shard set.
+  - **The pinned v6 LoRA-2B sets** (train 94bef49a, val 58bd753f) are **report-only** until a byte-identity rebuild under rule 3 runs. It is priced at about 2.6 h of lock, with an unrecorded peak footprint, in `AUDIT/x6-fingerprint-list-2026-10-23/byte-identity-rebuild-price.md`, and is not run.
+- **Lane X7 (merged).** Rule 3 moved the 60-pair containment characterization digest from ea81e519 to 431ebb22. X7 accounted for every byte: of 33 files, 27 are identical and every payload file is unchanged; three headers differ only in the fingerprint fields, and three manifests only in build time. It re-pinned the digest as the eighth accounted move. On main, `test_containment_exclusions.py` gives 32 passed.
 - **The ojas canonical-order fix (ojas ft-30dd709e)** needs a session rooted in ojas, so it is handed over, not done here.
 
 ## Method
