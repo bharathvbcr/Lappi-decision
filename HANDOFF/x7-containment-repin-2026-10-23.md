@@ -39,8 +39,12 @@ fixture-based Rust pins vendor their own shard sets and do not rebuild under rul
 
 - `test_defect_class_own_repos`: skipped, the v5 defect corpus is git-ignored and not on this host.
 - `test_pipeline_val_shards`: one test skipped, the qd-mutate defect corpus is not on this host.
-- Rust: see the report; qd-train shard_code_rule, shard_header_parity, retired_shard_sets, v4 and
-  fixture_pins were queued behind the Mac heavy lock under load 30 to 190 from other sessions.
+- `cargo test -p qd-train --test shard_code_rule --test shard_header_parity --test
+  retired_shard_sets --test v4 --test fixture_pins` ran under mac_heavy, exit 0: 14, 5, 4, 0 (2
+  ignored), 13 passed. No Rust digest moved.
+- After the audit scripts were lint-fixed (E402/E501 only: importlib instead of a late import, one
+  wrapped print), they were not re-run; compare.out is from the run of the pre-lint-fix text. The
+  re-run was queued behind the lock for hours under load and cancelled.
 
 ## First command for the next lane
 
