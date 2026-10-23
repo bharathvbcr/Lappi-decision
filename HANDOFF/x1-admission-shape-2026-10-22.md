@@ -45,6 +45,18 @@ slot keys, or it is refused at open; ensemble members must agree on the set.
 - After the fixes: `cargo test -p qd-export --no-fail-fast` (x1-export-fix) exit 0 at 2026-10-23T03:22Z: 18 binaries, 145 passed, 0 failed, 2 ignored, including the calibration-gate binary (`calibration_gate`), so the export gate still agrees with the runtime's lookup.
 - `make torch-pytest TORCH_PYTEST_RUN=<uv run ... pytest python/tests/test_wire_contract_matches_rust.py python/tests/test_qd_data_wire_agreement.py -o addopts=>` (x1-pytest) exit 0 at 05:54Z: 71 passed. The hand-added `python/qd_wire/contract.py` row matches the extractor.
 
+## Adversarial pass (2026-10-23), commits 225c978 (cherry-pick of adv/x1 726de8a), a24dd22, and the follow-up
+Predicted breaks fixed in `crates/qd-runtime/src/release.rs` (a24dd22):
+1. fail-open: `trained_slot_shapes: null` was read as the legacy unchecked release. Only an ABSENT key is legacy now; `null` is refused at open as a non-object.
+2. a repeated object key anywhere in a manifest was last-wins; `read_manifest` now refuses it via `first_duplicate_json_key` (pub; qd-export's safetensors reader now calls it and its own copy is deleted).
+3. cross-crate: qd-export's gate accepted a table entry `choice:0` plus shape `choice:0`, exporting a release the runtime refuses at open. Fails-before: `x1-gate-before` (`cargo test -p qd-export --test calibration_gate a_shape_no_request_can_produce`) exit 101, export had succeeded (exit 0). Fix: the gate's `runtime_lookup` also applies `qd_runtime::release::is_slot_key`; `is_shape_key` left alone (excluded families keep unlookable shapes, `w2b_adversarial` pins that). `choice:05` was already stopped by the gate (`calibration_gate.rs` `a_shape_spelled_so_the_runtimes_lookup_misses_it_is_refused`).
+
+Fails-before that RAN for the two runtime fixes (x1-adv, fixes reverted in the working tree only, never committed; restored blob 84ffd4bd matched; `git status` afterwards showed only gaps.jsonl): `cargo test -p qd-runtime --test adv_x1_shapes` exit 101, 4 passed 4 failed, including `a_null_trained_slot_shapes_is_not_silently_the_legacy_unchecked_release` and `a_duplicate_family_key_in_trained_slot_shapes_is_refused_not_last_wins`. The other two failures in that run (`live_callers_...`, `an_option_count_...`) were a fixture bug in the adversarial file, not the fixes: its `contract_release` listed `trained_families` as [COMMIT, DEFECT, ROUTE], and the reader has always required strictly ascending order, so the release was refused at open. One line changed to [DEFECT, ROUTE, COMMIT]; no expectation changed.
+
+After (x1-adv-after, `cargo test -p qd-runtime`) exit 0, 2026-10-23T09:47Z: 33 binaries, 489 passed, 0 failed, 1 ignored; `adv_x1_shapes` 8 passed. `cargo test -p qd-export --no-fail-fast` (x1-export-final) exit 0, 09:48Z: 18 binaries, 146 passed, 0 failed, 2 ignored (the new gate test included).
+
+New gap: GAP-DUPLICATE-JSON-KEY-SCAN-COPY-IN-QD-PREP-2026-10-23 (open): `crates/qd-prep/src/allocate.rs:120` keeps a third copy; qd-prep is lane W2a's, untouched; convergence is a new workspace edge, the owner's call.
+
 ## Not run
 - Nothing in the requested set. Not covered: an ensemble-level test that members disagreeing on `trained_slot_shapes` alone (same families) are refused `MembersDisagree` (the rule is written in `Ensemble::open`, release.rs, but no test drives it); qd-metal's own tests (`serve_cpu`, manifests with trained_families only, so the shape check is not run there) were not run; python outside the two files was not run.
 

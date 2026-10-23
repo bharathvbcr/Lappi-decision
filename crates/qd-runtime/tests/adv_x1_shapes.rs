@@ -112,7 +112,7 @@ fn release_dir(tag: &str, families: Option<Value>, shapes: Option<Value>) -> Scr
 fn contract_release(tag: &str) -> Scratch {
     release_dir(
         tag,
-        Some(json!([COMMIT, DEFECT, ROUTE])),
+        Some(json!([DEFECT, ROUTE, COMMIT])),
         Some(json!({
             DEFECT: [["choice:5", "span"]],
             COMMIT: [["choice:12"]],
