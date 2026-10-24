@@ -7,6 +7,7 @@
 pub mod base_fresh;
 pub mod cite;
 pub mod pin;
+pub mod pool_policy;
 pub mod prereg_bind;
 pub mod release_check;
 pub mod train_data;

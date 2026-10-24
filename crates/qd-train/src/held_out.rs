@@ -1260,6 +1260,29 @@ mod tests {
         assert!(DataConfig::new(fams(), vec!["r".into()], vec!["m".into()], 1).is_ok());
     }
 
+    /// The content door's inputs (`qd_prep::posting_door::DEFAULT_SIGNATURES_PATH`: Vani's held-out
+    /// posting keys and MinHash signatures) sit under the held-out root, so the training process's
+    /// path door refuses them whichever way the path is spelled. `qd-train` does not depend on
+    /// `qd-prep`, so the path is spelled out here and the two are held together by this test and
+    /// `qd-prep`'s own marker test.
+    #[test]
+    fn the_vani_posting_signatures_are_behind_the_path_door() {
+        let repo = Path::new("/definitely-missing-qd-repo");
+        let config = DataConfig::default();
+        for spelling in [
+            "data/heldout/vani-postings/signatures.json",
+            "/definitely-missing-qd-repo/data/heldout/vani-postings/signatures.json",
+            "/definitely-missing-qd-repo/data/HeldOut/vani-postings/signatures.json",
+            "/definitely-missing-qd-repo/other/heldout/../heldout/vani-postings/signatures.json",
+        ] {
+            let got = assert_path_not_held_out(Path::new(spelling), &config, repo);
+            assert!(
+                matches!(got, Err(DoorError::HeldOut(_))),
+                "{spelling}: the training door must refuse it, got {got:?}"
+            );
+        }
+    }
+
     #[test]
     fn resolve_normalises_dotdot_and_keeps_a_missing_tail() {
         let base = resolve(Path::new("/")).unwrap();

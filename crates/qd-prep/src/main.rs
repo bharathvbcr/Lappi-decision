@@ -41,6 +41,12 @@
 //! - `qd-prep commit-type --manifest M --out-dir DIR`: `gitpulse.commit_type` rows from the
 //!   manifest's train repositories' commit history (see `qd_prep::commit_type`) ->
 //!   `DIR/{examples.jsonl, manifest.json}`, the pool shape `decisions` writes.
+//! - `qd-prep posting-door-build --postings P --out SIGNATURES`: Vani's owner-labelled postings
+//!   signed into the held-out content door's file (see `qd_prep::posting_door`); `--out` must
+//!   carry a held-out path marker.
+//! - `qd-prep vani-pool --pairs P --signatures SIGNATURES --out-dir DIR`: real Vani teacher
+//!   readings as `vani-agreed` rows (see `qd_prep::vani_pool`) ->
+//!   `DIR/{rows.jsonl, refusals.jsonl, report.json}`.
 //! - `qd-prep convert --config C --view-record VR --pool NAME [--licence-cache F] --out-dir DIR`:
 //!   one downloaded v6 dataset as a decision pool (see `qd_prep::convert`), the same pool shape
 //!   `decisions` writes; `swe-rebench-filter` and `injections` write a view and a corpus.
@@ -127,6 +133,12 @@ enum Command {
     /// The one v6 cap table: every candidate pool (`convert`, `synth`) and v5's as-built pool
     /// in, one applied pool out (`qd_prep::allocate`).
     Allocate(AllocateIo),
+    /// Sign the owner-labelled postings Vani exports into the held-out content door's signature
+    /// file (`qd_prep::posting_door`).
+    PostingDoorBuild(PostingDoorBuildIo),
+    /// Real Vani teacher readings as training rows: two teachers agree, no row near a held-out
+    /// posting, no email, phone number or name left (`qd_prep::vani_pool`).
+    VaniPool(VaniPoolIo),
 }
 
 /// `qd-prep allocate`'s inputs.
@@ -336,6 +348,38 @@ struct OwnSwiftIo {
     out_dir: PathBuf,
 }
 
+/// `qd-prep posting-door-build`'s inputs.
+#[derive(clap::Args, Debug)]
+struct PostingDoorBuildIo {
+    /// JSONL, one `{"key", "text"}` per line: the owner-labelled postings Vani exports. A
+    /// decontamination target, never training input; it may sit under a held-out marker.
+    #[arg(long)]
+    postings: PathBuf,
+    /// The signature file to create. It must sit under a held-out path marker (the default is
+    /// `data/heldout/vani-postings/signatures.json`); refused if it exists.
+    #[arg(long)]
+    out: PathBuf,
+    /// The MinHash seed (`qd_data.config.DataConfig.seed`).
+    #[arg(long, default_value_t = 20_260_919)]
+    seed: u64,
+}
+
+/// `qd-prep vani-pool`'s inputs.
+#[derive(clap::Args, Debug)]
+struct VaniPoolIo {
+    /// JSONL, one posting with exactly two teacher readings per line, from Vani's ledger.
+    #[arg(long)]
+    pairs: PathBuf,
+    /// The held-out posting signatures (`posting-door-build`). A missing, corrupt or wrong-version
+    /// file refuses the whole run.
+    #[arg(long)]
+    signatures: PathBuf,
+    /// The directory to create (`rows.jsonl`, `refusals.jsonl`, `report.json`); refused if it,
+    /// or DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+}
+
 /// `qd-prep natural-bugs`' inputs. Every one is required; none has a default.
 #[derive(clap::Args, Debug)]
 struct NaturalBugsIo {
@@ -535,6 +579,10 @@ fn main() -> ExitCode {
         Command::Convert(io) => run_convert(io),
         Command::Allocate(io) => run_allocate(io),
         Command::CommitType(io) => qd_prep::commit_type::run(&io.manifest, &io.out_dir, io.seed),
+        Command::PostingDoorBuild(io) => {
+            qd_prep::posting_door::run_build(&io.postings, &io.out, io.seed)
+        }
+        Command::VaniPool(io) => qd_prep::vani_pool::run(&io.pairs, &io.signatures, &io.out_dir),
     };
     match result {
         Ok(line) => {

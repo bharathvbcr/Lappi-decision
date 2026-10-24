@@ -47,6 +47,9 @@
 //! - [`commit_type`]: `gitpulse.commit_type` rows from the own train repositories' commit
 //!   history, rendered as the request GitPulse sends (v6 R5). `devtype.route` is a
 //!   [`synth_tools`] variant (`synth` kind `route`).
+//! - [`vani_pool`] (with [`posting_door`] and [`redact`]): real Vani teacher readings as rows
+//!   under the v2 gates -- two teachers agree, no row near a held-out posting, no email, phone
+//!   number or name left. Not a port: the rules are the owner's rulings of 2026-10-20.
 //! - [`convert`] (with [`convert_licence`], [`convert_tools`], [`convert_text`],
 //!   [`convert_code`] and [`convert_inject`]): the downloaded v6 datasets made into decision
 //!   pools through the [`pool`] seam, with licence filters. Not a port: its licence table is a
@@ -78,9 +81,11 @@ pub mod own_repos;
 pub mod own_swift;
 pub mod pairwise;
 pub mod pool;
+pub mod posting_door;
 pub mod pyunicode;
 #[rustfmt::skip]
 mod pyunicode_tables;
+pub mod redact;
 pub mod sha256;
 pub mod spancheck;
 pub mod synth;
@@ -89,4 +94,5 @@ pub mod synth_email;
 pub mod synth_jarvis;
 pub mod synth_tools;
 pub mod team;
+pub mod vani_pool;
 pub mod wire;

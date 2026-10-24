@@ -45,6 +45,8 @@ use serde_json::{Value, json};
 
 pub use crate::tristate::{TriState, aggregate};
 
+use crate::pool_policy::{RunTarget, check_run_target, is_vani_agreed};
+
 /// The exit code of a verdict that found a benchmark target in the train set.
 pub const EXIT_FAILED: u8 = 1;
 /// The exit code of a verdict that could not be reached (the Makefile's `NOT_RUN`).
@@ -78,6 +80,9 @@ pub struct Inputs {
     pub n: u32,
     pub threshold: f64,
     pub threads: usize,
+    /// Where the run trains (`--run-target`). `None` is unstated, which refuses any `vani-agreed`
+    /// row ([`tier_mac_only`]).
+    pub run_target: Option<RunTarget>,
 }
 
 /// One tier's result: its tri-state, how many train rows it found, and a few of their ids.
@@ -192,6 +197,8 @@ struct Entry {
     id: String,
     source_id: String,
     family_id: String,
+    /// The row is a `vani-agreed` row ([`is_vani_agreed`]).
+    vani_agreed: bool,
 }
 
 #[derive(Deserialize)]
@@ -199,6 +206,11 @@ struct ManifestEntry {
     row_id: String,
     source_id: String,
     family_id: String,
+    /// Optional: older manifests have neither. `source_id` alone already names a vani-agreed row.
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    licence_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -206,6 +218,9 @@ struct Manifest {
     data_snapshot_hash: String,
     n_rows: u64,
     entries: Vec<ManifestEntry>,
+    /// Where the run this manifest feeds trains, when the manifest says (`"mac"` or `"cloud"`).
+    #[serde(default)]
+    run_target: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -215,7 +230,10 @@ struct Header {
 
 /// The train manifest of a shard set and whether its hash is the header's. Every refusal is a
 /// reason string: the manifest-level tiers are then `NOT_RUN`, never silently clean.
-fn read_manifest(set: &Path, explicit: Option<&Path>) -> Result<Vec<Entry>, String> {
+fn read_manifest(
+    set: &Path,
+    explicit: Option<&Path>,
+) -> Result<(Vec<Entry>, Option<String>), String> {
     let header_path = set.join("header.json");
     let header: Header = read_json(&header_path)?;
     let manifest_path = match explicit {
@@ -249,15 +267,20 @@ fn read_manifest(set: &Path, explicit: Option<&Path>) -> Result<Vec<Entry>, Stri
             manifest.entries.len()
         ));
     }
-    Ok(manifest
+    let run_target = manifest.run_target;
+    let entries = manifest
         .entries
         .into_iter()
         .map(|e| Entry {
+            vani_agreed: is_vani_agreed(&e.source_id)
+                || e.source.as_deref().is_some_and(is_vani_agreed)
+                || e.licence_id.as_deref().is_some_and(is_vani_agreed),
             id: e.row_id,
             source_id: e.source_id,
             family_id: e.family_id,
         })
-        .collect())
+        .collect();
+    Ok((entries, run_target))
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
@@ -439,6 +462,42 @@ fn tier_ngram(
     )
 }
 
+/// Ruling 12 (owner, 2026-10-20): real Vani rows never leave the Mac. Rows of the `vani-agreed`
+/// source in a pool whose run is not stated to train on the Mac are a hit. The run's target is
+/// the command line's (`--run-target`) and the manifest's own `run_target`; either saying `cloud`
+/// is a cloud run, and an unstated target is read as not-Mac. Rows that cannot be read make the
+/// tier `NOT_RUN`, never clean.
+fn tier_mac_only(
+    entries: Option<&[Entry]>,
+    why: &str,
+    flag: Option<RunTarget>,
+    manifest: Option<&str>,
+) -> Tier {
+    let name = "mac_only";
+    let Some(entries) = entries else {
+        return Tier::not_run(name, why.to_owned());
+    };
+    let declared = match manifest.map(RunTarget::parse).transpose() {
+        Ok(t) => t,
+        Err(e) => return Tier::not_run(name, format!("the train manifest's run_target: {e}")),
+    };
+    let target = match (flag, declared) {
+        (Some(RunTarget::Cloud), _) | (_, Some(RunTarget::Cloud)) => Some(RunTarget::Cloud),
+        (Some(RunTarget::Mac), _) | (_, Some(RunTarget::Mac)) => Some(RunTarget::Mac),
+        (None, None) => None,
+    };
+    let hit: Vec<&Entry> = entries.iter().filter(|e| e.vani_agreed).collect();
+    match check_run_target(hit.len() as u64, target) {
+        Ok(detail) => Tier::ran(name, 0, Vec::new(), detail),
+        Err(detail) => Tier::ran(
+            name,
+            hit.len() as u64,
+            hit.iter().map(|e| e.id.clone()).collect(),
+            detail,
+        ),
+    }
+}
+
 /// What the exact tier left as a residual: rows in which a short target is one line inside a
 /// longer text (not a hit under the owner's whole-text rule, 2026-10-19), and how many distinct
 /// short targets those rows hold.
@@ -568,6 +627,7 @@ pub fn check(inputs: &Inputs) -> Verdict {
     let is_dir = inputs.train.is_dir();
     let mut entries: Option<Vec<Entry>> = None;
     let mut entries_why = String::new();
+    let mut manifest_target: Option<String> = None;
     let mut examples: Option<Vec<pool::ExampleText>> = None;
     let mut text_why = String::new();
     let examples_path = if is_dir {
@@ -588,13 +648,17 @@ pub fn check(inputs: &Inputs) -> Verdict {
     }
     if is_dir {
         match read_manifest(&inputs.train, inputs.manifest.as_deref()) {
-            Ok(e) => entries = Some(e),
+            Ok((e, declared)) => {
+                entries = Some(e);
+                manifest_target = declared;
+            }
             Err(reason) => entries_why = format!("cannot read the train manifest: {reason}"),
         }
     } else if let Some(rows) = &examples {
         entries = Some(
             rows.iter()
                 .map(|r| Entry {
+                    vani_agreed: is_vani_agreed(&r.source_id),
                     id: r.id.clone(),
                     source_id: r.source_id.clone(),
                     family_id: r.family_id.clone(),
@@ -617,6 +681,12 @@ pub fn check(inputs: &Inputs) -> Verdict {
     tiers.push(tier_ngram(examples.as_deref(), &text_why, &targets, inputs));
     let (exact_tier, embedded) = tier_exact_short(examples.as_deref(), &text_why, &targets, n);
     tiers.push(exact_tier);
+    tiers.push(tier_mac_only(
+        entries.as_deref(),
+        &entries_why,
+        inputs.run_target,
+        manifest_target.as_deref(),
+    ));
 
     let exact_ran = tiers[3].state.did_run();
     let mut coverage = Coverage {

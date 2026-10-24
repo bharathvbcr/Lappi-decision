@@ -50,13 +50,20 @@ from .errors import LicenceRefused
 __all__ = [
     "COMMITPACKFT_DECLARED_VALUES",
     "LICENCE_POLICY",
+    "PRIVATE_ONLY_LICENCES",
+    "RESEARCH_ONLY_MARKERS",
+    "SHARE_ALIKE_MARKER",
+    "AdapterVisibility",
     "LicenceConfig",
     "LicencePolicy",
     "LicenceTier",
     "admit_licence",
+    "admit_licence_for",
     "classify",
     "is_non_commercial",
     "normalise_licence",
+    "parse_visibility",
+    "private_only_reason",
 ]
 
 
@@ -350,3 +357,77 @@ def admit_licence(
             f"admitted_by_human. {policy.note or 'no policy note recorded'}"
         ),
     )
+
+
+class AdapterVisibility(Enum):
+    """Who may receive the adapter a pool trains: the second licence gate.
+
+    The tier above answers "may this row be in *a* pool". Visibility answers "may it be in a pool
+    whose adapter is *published*". Share-alike and research-only rows are admissible for an
+    adapter that never leaves the owner (v2 plan ruling 7) and for no other.
+    """
+
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
+#: Share-alike licences. They stay in the global ALLOW tier (v1's pools read them); a public
+#: adapter is what they are scoped out of.
+PRIVATE_ONLY_LICENCES: Final[frozenset[str]] = frozenset({"cc-by-sa-3.0", "cc-by-sa-4.0"})
+
+#: A licence id carrying this segment is a CC BY-SA licence (`pool_policy::SHARE_ALIKE_MARKER`).
+SHARE_ALIKE_MARKER: Final[str] = "by-sa"
+
+#: A licence id carrying one of these is a research-only grant (Mind2Web's wording is not an SPDX
+#: id, so a human admits it under a per-source id that says so).
+RESEARCH_ONLY_MARKERS: Final[tuple[str, ...]] = ("research-only",)
+
+
+def private_only_reason(raw: str) -> str | None:
+    """Why this licence may only reach a private adapter, or ``None`` when it may reach any."""
+    # Read the way `qd_preflight::pool_policy` reads it: `_` and spaces are `-`, and the marker is
+    # a substring, so "CC BY-SA 4.0" and a future cc-by-sa-2.5 are scoped out with the listed ids.
+    key = normalise_licence(raw).replace("_", "-").replace(" ", "-")
+    if key in PRIVATE_ONLY_LICENCES or SHARE_ALIKE_MARKER in key:
+        return f"{key!r} is share-alike: a published adapter would redistribute a derivative"
+    if any(marker in key for marker in RESEARCH_ONLY_MARKERS):
+        return f"{key!r} is a research-only grant: a published adapter exceeds it"
+    return None
+
+
+def parse_visibility(raw: object) -> AdapterVisibility:
+    """The manifest's ``adapter_visibility``. An absent field is ``PUBLIC``, never ``PRIVATE``.
+
+    Public is the stricter reading: a manifest that forgot the field is refused for a
+    share-alike row, where the opposite default would let that row reach a published adapter. An
+    unrecognised value is an error: guessing is how a typo becomes ``private``.
+    """
+    if raw is None:
+        return AdapterVisibility.PUBLIC
+    if isinstance(raw, str):
+        for visibility in AdapterVisibility:
+            if raw == visibility.value:
+                return visibility
+    raise ValueError(
+        f"adapter_visibility must be 'public' or 'private' (or absent, read as public), got {raw!r}"
+    )
+
+
+def admit_licence_for(
+    raw: str,
+    *,
+    visibility: AdapterVisibility,
+    config: LicenceConfig = DEFAULT_LICENCE_CONFIG,
+    source: str = "<unnamed>",
+) -> LicencePolicy:
+    """:func:`admit_licence`, then the visibility gate. It narrows only: it never admits more."""
+    policy = admit_licence(raw, config=config, source=source)
+    if visibility is AdapterVisibility.PUBLIC:
+        reason = private_only_reason(policy.licence_id)
+        if reason is not None:
+            raise LicenceRefused(
+                expected="a licence a public adapter may carry (not share-alike, not research-only)",
+                actual=policy.licence_id,
+                detail=f"{source}: {reason}; this pool's adapter_visibility is public",
+            )
+    return policy

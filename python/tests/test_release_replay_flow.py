@@ -59,11 +59,20 @@ def _write_lines(path: Path, rows: list[dict], *, bound_to: str | None = "ab" * 
 def _release(d: Path) -> Path:
     rel = d / "rel"
     rel.mkdir(exist_ok=True)
+    # The train manifest the release records (`adapter_visibility` reads it): a private adapter
+    # over permissive rows, bound to the release by its sha256.
+    train = json.dumps({
+        "adapter_visibility": "private",
+        "entries": [{"row_id": "r0", "source_id": "s/permissive", "licence_id": "mit"}],
+    }).encode()
+    (rel / "train-manifest.json").write_bytes(train)
     (rel / "release_manifest.json").write_text(json.dumps({
         "format": "qd-release.v2",
         "trained_families": ["code.defect_class", "fam.b"],
         "excluded_families": [],
         "train_manifest": {
+            "path": str(rel / "train-manifest.json"),
+            "sha256": hashlib.sha256(train).hexdigest(),
             "ledger_binding": {"verified": True, "train_manifest_sha256": "ab" * 32},
         },
         "expected_identity": {"weight_hash": WEIGHT, "calibration_hash": CALIB},
