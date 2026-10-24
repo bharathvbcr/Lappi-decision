@@ -29,28 +29,38 @@ def test_by_sa_is_still_in_the_global_allow_tier() -> None:
     assert admit_licence("cc-by-sa-3.0").licence_id == "cc-by-sa-3.0"
 
 
-@pytest.mark.parametrize("licence", ["cc-by-sa-3.0", "CC-BY-SA-3.0", "cc-by-sa-4.0", " cc-by-sa-4.0 "])
+@pytest.mark.parametrize(
+    "licence", ["cc-by-sa-3.0", "CC-BY-SA-3.0", "cc-by-sa-4.0", " cc-by-sa-4.0 "]
+)
 def test_a_public_adapter_refuses_share_alike_and_a_private_one_admits_it(licence: str) -> None:
     with pytest.raises(LicenceRefused) as exc:
         admit_licence_for(licence, visibility=AdapterVisibility.PUBLIC)
     assert "share-alike" in str(exc.value)
-    assert admit_licence_for(licence, visibility=AdapterVisibility.PRIVATE).tier is LicenceTier.ALLOW
+    assert (
+        admit_licence_for(licence, visibility=AdapterVisibility.PRIVATE).tier is LicenceTier.ALLOW
+    )
 
 
 def test_a_public_adapter_refuses_a_research_only_licence_even_when_a_human_admitted_it() -> None:
     config = LicenceConfig(admitted_by_human={"mind2web-research-only": "owner ruling 2026-10-20"})
     assert private_only_reason("mind2web-research-only") is not None
     with pytest.raises(LicenceRefused):
-        admit_licence_for("mind2web-research-only", visibility=AdapterVisibility.PUBLIC, config=config)
+        admit_licence_for(
+            "mind2web-research-only", visibility=AdapterVisibility.PUBLIC, config=config
+        )
     # Private: the human's admission is honoured, and nothing else changed.
-    admitted = admit_licence_for("mind2web-research-only", visibility=AdapterVisibility.PRIVATE, config=config)
+    admitted = admit_licence_for(
+        "mind2web-research-only", visibility=AdapterVisibility.PRIVATE, config=config
+    )
     assert admitted.licence_id == "mind2web-research-only"
 
 
 def test_a_research_only_licence_is_not_admitted_privately_without_the_human_call() -> None:
     with pytest.raises(LicenceRefused):
         admit_licence_for(
-            "mind2web-research-only", visibility=AdapterVisibility.PRIVATE, config=DEFAULT_LICENCE_CONFIG
+            "mind2web-research-only",
+            visibility=AdapterVisibility.PRIVATE,
+            config=DEFAULT_LICENCE_CONFIG,
         )
 
 

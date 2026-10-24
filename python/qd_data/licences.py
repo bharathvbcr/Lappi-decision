@@ -426,7 +426,9 @@ def admit_licence_for(
         reason = private_only_reason(policy.licence_id)
         if reason is not None:
             raise LicenceRefused(
-                expected="a licence a public adapter may carry (not share-alike, not research-only)",
+                expected=(
+                    "a licence a public adapter may carry (not share-alike, not research-only)"
+                ),
                 actual=policy.licence_id,
                 detail=f"{source}: {reason}; this pool's adapter_visibility is public",
             )
