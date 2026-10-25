@@ -51,7 +51,15 @@ fn release(
         std::fs::write(&train_path, bytes).unwrap();
         tm["path"] = json!(train_path.display().to_string());
         tm["sha256"] = json!(
-            recorded_sha.map_or_else(|| format!("{:x}", sha2::Sha256::digest(bytes.as_bytes())), str::to_owned)
+            recorded_sha.map_or_else(
+                || {
+                    sha2::Sha256::digest(bytes.as_bytes())
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                },
+                str::to_owned,
+            )
         );
     } else {
         tm["path"] = json!(rel.join("absent.json").display().to_string());

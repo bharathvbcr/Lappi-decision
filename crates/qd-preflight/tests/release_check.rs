@@ -67,7 +67,10 @@ fn release(dir: &Path, shapes: Option<Value>, weight: &str) {
         "excluded_families": [],
         "train_manifest": {
             "path": train_path.display().to_string(),
-            "sha256": format!("{:x}", sha2::Sha256::digest(train.as_bytes())),
+            "sha256": sha2::Sha256::digest(train.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
             "ledger_binding": {"verified": true, "train_manifest_sha256": "ab".repeat(32)},
         },
         "expected_identity": {"weight_hash": weight, "calibration_hash": CALIB},

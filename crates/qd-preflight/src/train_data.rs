@@ -852,6 +852,7 @@ mod tests {
             n: DEFAULT_N,
             threshold: DEFAULT_THRESHOLD,
             threads: 2,
+            run_target: None,
         }
     }
 

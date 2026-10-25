@@ -286,8 +286,12 @@ fn canonical(v: &Value) -> String {
 }
 
 fn request_hash(req: &Value) -> String {
-    let d = Sha256::digest(canonical(req).as_bytes());
-    d.iter().map(|b| format!("{b:02x}")).collect()
+    sha256_hex(canonical(req).as_bytes())
+}
+
+/// Lowercase hex sha256 (sha2 0.11's digest no longer implements `LowerHex`).
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -780,7 +784,7 @@ fn adapter_visibility_check(r: &ReleaseView) -> Check {
         },
         Err(e) => return Check::not_run(NAME, format!("cannot read the train manifest {}: {e}", path.display())),
     };
-    let sha = format!("{:x}", Sha256::digest(&bytes));
+    let sha = sha256_hex(&bytes);
     match r.train_manifest_sha256.as_deref() {
         Some(recorded) if recorded == sha => {}
         Some(recorded) => {
