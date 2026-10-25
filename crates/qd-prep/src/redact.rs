@@ -355,6 +355,18 @@ fn sign_off_key(line: &str) -> String {
         .to_lowercase()
 }
 
+/// Whether `line` (trimmed) opens a signature block: the whole line is a sign-off (`Thanks,`), or
+/// its last sentence is (`... or ring us. Thanks,`), so the name on a following line is removed.
+fn ends_in_sign_off(line: &str) -> bool {
+    let is_sign_off = |s: &str| SIGN_OFFS.contains(&sign_off_key(s).as_str());
+    if is_sign_off(line) {
+        return true;
+    }
+    let body = line.trim_end_matches([',', '.', '!', ':', '-', ' ']);
+    body.rfind(['.', '!', '?'])
+        .is_some_and(|i| line[i + 1..].starts_with(' ') && is_sign_off(&line[i + 1..]))
+}
+
 /// The byte range within `line` of a name to replace, if the line carries one on its own
 /// (`Jane Doe`), after a sign-off (`Regards, Jane Doe`) or after a label (`Recruiter: Jane Doe`).
 fn inline_name(line: &str) -> Option<(usize, usize)> {
@@ -418,7 +430,7 @@ fn redact_names(text: &str) -> (String, usize) {
             count += 1;
             after_sign_off = false;
         } else {
-            after_sign_off = SIGN_OFFS.contains(&sign_off_key(trimmed).as_str());
+            after_sign_off = ends_in_sign_off(trimmed);
         }
         out.push_str(&line);
         out.push_str(ending);
@@ -557,6 +569,23 @@ mod tests {
         assert_eq!(red("Recruiter: Jane Doe"), "Recruiter: [NAME]");
         assert_eq!(red("Posted by J. Smith"), "Posted by [NAME]");
         assert_eq!(red("Hiring manager - \u{5f20}\u{4f1f}"), "Hiring manager - [NAME]");
+    }
+
+    #[test]
+    fn a_sign_off_ending_a_prose_line_still_opens_the_signature_block() {
+        assert_eq!(
+            red("Write to us or ring the clinic. Thanks,\n\nJos\u{e9} O'Neil"),
+            "Write to us or ring the clinic. Thanks,\n\n[NAME]"
+        );
+        assert_eq!(red("Apply today! Best regards\nJane Doe"), "Apply today! Best regards\n[NAME]");
+        // Only the last sentence counts, and it must be the whole sign-off.
+        for s in [
+            "Say thanks to the team.\nJane Doe",
+            "We said thanks, then left.\nJane Doe",
+            "Version 2.Thanks\nJane Doe",
+        ] {
+            assert_eq!(red(s), s);
+        }
     }
 
     #[test]
