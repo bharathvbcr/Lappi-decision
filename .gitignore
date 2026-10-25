@@ -59,7 +59,15 @@ credentials.json
 # they quote the specific log lines any claim rests on. The raw logs themselves are not
 # tracked, for the same reason stack/.build.log is not.
 stack/.build.log
-AUDIT/*.log
+AUDIT/**/*.log
+AUDIT/**/*.out
+
+# Local-only documents (owner decision 2026-10-25): agent instructions, session and branch
+# reports, and outreach drafts stay on disk but are not published.
+/CLAUDE.md
+/BUILD_REPORT.md
+/BRANCH_REPORT.md
+/docs/outreach/
 
 # The DevMap code-intelligence index: generated, binary, 15 MB, and rebuilt in 186 ms by
 # `devmap build .`. It is derived state, not provenance.
