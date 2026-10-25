@@ -4,6 +4,46 @@ The previous report (2026-10-17..19) is in git at 33adfc7.
 
 Nothing has been pushed. On 2026-10-21 the owner said "commit and merge all and clean branches and next wave". On 2026-10-22 the owner added: "Merge all, for more advice ask fable", and then "license I don't think so; for other spin agent and fix them". The merges below follow from those instructions. Fable ruled that "merge all" is permission, not a waiver: a lane merges once it is verified and has passed its adversarial review.
 
+## Wrap-up, 2026-10-24
+
+The owner asked to wind the session down: let running agents finish, start no new ones, verify and merge the completed lanes as Opus, clean the branches, and put every gap and pending task on the GitPulse board.
+
+**Merged** (both lanes had stopped on 2026-10-21 with their work committed; neither appeared in ListAgents):
+
+| Merge | Card | What | Verified |
+|---|---|---|---|
+| eaf7f39 | ft-5dfe48e7 criteria 1-4 (W3b) | `tools/qd_serve_launchd.py`: install, restart, health and `held` for qd-metal-serve, tested against a fake launchctl and a stub daemon; nothing was installed. `mac_heavy.sh` serving guard: a `MAC_HEAVY_TRAINING=1` job exits 77 while the qd socket answers, and 78 when that cannot be determined. It checks before queueing and again under the lock, and the EXIT trap releases the lock. Also drafts for the windows, the Mac schedule and the cloud cost (NEEDS HUMAN YES). | Opus diff review only; no adversarial pass, by the wrap-up instruction. On main under the lock: `test_qd_serve_launchd`, `test_mac_heavy_lock`, `test_licence_visibility` and `test_release_replay_flow` together gave 140 passed, 1 skipped. |
+| 7606211 | ft-951c360d (W2a) | The five v2 Vani gates: two-teacher agreement filter, posting content door (v5 thresholds held as constants with a parity test against the Python source), redactor, `adapter_visibility` in `qd-release-check`, and the `mac_only` tier in `qd-train-data`. Security impact, from its HANDOFF: every change narrows access. | Opus diff review only. **Merged unverified, my error.** The lane's last qd-prep after-run never went green: run 2 failed a sign-off test, and run 3 exited 76. Merged main had three reds, fixed below. GAP-WRAPUP-W2A-MERGED-WITH-UNVERIFIED-AFTER-RUN-2026-10-24. |
+| 2b89aae | post-merge | W2a left six E501 lines; they are re-wrapped with no behaviour change. | `test_gaps_ledger` + `test_lint_gate`: 26 passed (1 failed, 25 passed before the fix). |
+| 8dc6a2b | post-merge | Merged main did not build qd-preflight. W2a's digests used sha2 0.10's `LowerHex`, but main moved to 0.11 in bb4df87 (E0277). A test helper from d367424 also lacked W2a's new `run_target` field (E0063). Fixed with one `sha256_hex` helper and `run_target: None`. | `cargo test -p qd-prep -p qd-preflight -p qd-train --no-fail-fast` under the lock: qd-preflight and qd-train all green. qd-prep had two reds: the next row's, and the pre-existing stress_v6 S8 email timeout (GAP-STRESS-V6-CLI-LIMIT-1800S-LOAD-SENSITIVE-2026-10-18, card ft-b5110a5c). |
+| f203f9a | post-merge | Redactor: a sign-off ending a prose line (`... [PHONE]. Thanks,`) did not open the signature block, so the name after it reached the row. Now the last sentence of a line counts when it is exactly a sign-off. | Fails-before: the `vani_gates` test on merged main. After, under the lock: qd-prep `--lib` 283 passed (new test plus three kept-text negatives), `vani_gates` 15 passed, 1 ignored (bench). |
+
+**Consequence of W2a (Fable: the rule applies to all releases).** `qd-release-check` now fails every release that does not record a train manifest bound by its sha256, including the v0.1 preview. A release with BY-SA, research-only or vani-agreed rows also fails unless both of its manifests say `private`. Nothing writes `adapter_visibility` yet, so no release can pass until that writer exists (card ft-2257e042).
+
+**Cleaned.** The W2a and W3b worktrees are removed, after their `build/` logs were copied to `build/evidence-2026-10-24/`. Deleted: `lane/ft-951c360d`, `lane/ft-5dfe48e7` and both `worktree-agent-*` branches, all merged into main. Two older worktrees, not this session's, are left alone: `build/main-gates-2026-10-15` (3 uncommitted files) and `~/qd-campaign/worktrees/span-pin-8a531e8`.
+
+**Not run.** The workspace-wide `cargo test --workspace --offline --no-run` exited 101 before compiling anything (`build/evidence-2026-10-24/postmerge-workspace-norun.txt`): `ahash 0.8.12`, needed by qd-metal's `tokenizers 0.22`, is not in the local cargo cache, and `--offline` refuses the download. Neither merge touched `Cargo.lock` (its last change is ecfa035), so this cache gap predates them. The crates the merges touched (qd-prep, qd-preflight, qd-train) and the Python suites were run and are listed above. Crates outside that set are not verified on merged main. This belongs on card ft-7f8c80f3 (see below).
+
+**Board moves not made.** GitPulse's MCP refused every task call on 2026-10-25 with "unsupported DevCouncil schema version 10; this binary knows 9" (GAP-GITPULSE-MCP-DC-SCHEMA-10-UNREADABLE-2026-10-25). Once GitPulse is re-vendored and reinstalled, make these moves by hand:
+- ft-951c360d → review: merged as 7606211, with the three post-merge fixes above.
+- ft-5dfe48e7 → review: criteria 1-4 merged in eaf7f39; criteria 5-6 are not done.
+- ft-7f8c80f3: add the offline workspace-build cache gap.
+
+**Closed.** GAP-LORA2B-D3-THRESHOLD-NOT-MACHINE-READABLE-2026-10-21 (eb0a4ff): on main the q8 pre-registration's `d3_gate` loads.
+
+**New GitPulse cards (backlog), for the owner to pick up later:**
+- ft-2257e042 (P1): wire the writers for W2a's and W3b's refusals (`adapter_visibility`, `--run-target mac`, `MAC_HEAVY_TRAINING=1` in launchers), measure the daemon-plus-training budget, and the first real launchd install.
+- ft-cacd1b71 (P1): byte-identity rebuild to lift report-only on the pinned v6 LoRA-2B sets.
+- ft-ffeb5005 (P2): span-refit on v6. Measure the overlap first, then park it or write Amendment 4.
+- ft-7f8c80f3 (P2): test reds and hermeticity, including the toy split-cache test that fails only in the main checkout.
+- ft-33e1b940 (P3): small hardening follow-ups.
+- ft-a9018e41 (P3): agent navigation and tooling gaps.
+
+**Cards still in progress:**
+- ft-57fc7484: b5 is blocked on ojas ft-30dd709e.
+- ft-c5ea3e71: items 4, 7 and 8, plus item 6's caller, are open.
+- ft-5dfe48e7: criteria 5 and 6 are not done.
+
 ## Update, 2026-10-23: owner items delegated to agents
 
 The owner delegated the remaining owner items, and Fable ruled on the method for each. All lanes below are merged and verified on main.
@@ -74,14 +114,7 @@ Only L3 touched a hot path, the v6 containment scan:
 
 No other lane touched a hot path. That is DevMap-incomplete and rg-confirmed, not graph-confirmed.
 
-## In flight (code committed on the branch, verification queued behind the lock)
-
-| Lane | Branch | Card | State |
-|---|---|---|---|
-| W2a | lane/ft-951c360d | ft-951c360d | All five v2 Vani gates written. Fails-before ran for the Python visibility test (ImportError) and qd-prep's gates (0/14). The after-runs are queued. **Merge waits on an owner decision** (below). |
-| W3b | lane/ft-5dfe48e7 | ft-5dfe48e7 criteria 1-4 | `qd_serve_launchd.py` (temp dir and fake launchctl only; nothing installed). A mac_heavy training guard, opt-in via `MAC_HEAVY_TRAINING=1`. Mac schedule from measured rates. A cloud cost draft marked NEEDS HUMAN YES. The lock suite on the edited `mac_heavy.sh` is queued. |
-
-Open beyond these lanes:
+## Open beyond the merged lanes (as of 2026-10-23; W2a and W3b merged 2026-10-24, above)
 
 - **ft-57fc7484.** b5's producer needs ojas-model's LoRA provider to be reachable. b4's span-refit half needs the pinned scorer amended, which is the owner's call.
 - **ft-c5ea3e71 items 3, 4, 7, 8.** Item 3 is the owner's. Items 4, 7 and 8 wait on W2a's and W2b's files. Item 8 (hardlinks) was ruled by Fable: refuse `st_nlink > 1`, and measure the on-disk count first.
@@ -112,10 +145,11 @@ Open beyond these lanes:
    - It refuses a release without a train manifest matching its sha256.
    - It refuses BY-SA, research-only or `vani-agreed` rows unless the release is marked `private`. v5's `squad_v2` is CC BY-SA 4.0, so a v5 or v0.1 re-release must be marked private.
    - The question: merge as written, or scope the rule to v2 pools?
+   - **Resolved 2026-10-24.** Merged as written, per Fable (the rule applies to all releases), after the owner's licence answer.
 2. **L3's time-for-memory trade** (about +17% wall time for a 47% lower peak), or a quiet-host 3+3 first.
 3. **Three adversarial branches** (`adv/ft-57fc7484-l2`, `-l4`, `-l5`). Their tests are on main. The blast-radius gate held `git branch -D` (5 commits would be unreachable): approve, or keep them.
 4. **ojas.** The canonical-order fix (ojas ft-30dd709e) must be done from a session rooted in ojas. After it, the Lappi pin bump past 4123dfb needs your yes, and `make pin` is owner-run.
-5. **D3 threshold.** Owner item 5: the q8 pre-registration carrying a machine-readable `d3_gate` block. Until it exists, the gate reports NOT_RUN.
+5. **D3 threshold.** Owner item 5: the q8 pre-registration carrying a machine-readable `d3_gate` block. **Resolved** by X2 and closed in eb0a4ff: on main the gate loads it.
 6. **b4 span-refit.** Amending the sha-pinned `tools/span_refit_score.py`.
 7. **Machine load.** Pausing other repos' heavy jobs would let the four queued lanes verify in hours instead of days.
 8. **From earlier runs, still open:** ft-8139b5b1 (push main, held-out ratio, re-export allowlist, unowned worktrees). Item 13 there looks stale: a rebuilt v6 pool passes the length band (W2c).
