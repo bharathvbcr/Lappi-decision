@@ -200,8 +200,10 @@ cargo test --workspace
 The GPU tests in `crates/qd-metal` are `#[ignore]`d and run with `--ignored` on Apple silicon. The
 newest `HANDOFF/` file records the last measured totals; re-run rather than quote them.
 
-## Licence
+## Licence & Acknowledgements
 
-The code is Apache-2.0 (`LICENSE`). The v0.1 preview weights are released under Apache-2.0; the base
-model is Apache-2.0, and the training data's sources, licences and attributions are listed in the
-model card (`docs/outreach/hf-model-card.md`).
+The code is Apache-2.0 ([`LICENSE`](LICENSE); see [`NOTICE`](NOTICE)). The v0.1 preview weights are released under Apache-2.0; the base
+model (**[Qwen/Qwen3.5-2B](https://huggingface.co/Qwen)** by the Alibaba Cloud Qwen Team) is Apache-2.0, and the training data's sources, licences and attributions are listed in the
+model card ([`docs/outreach/hf-model-card.md`](docs/outreach/hf-model-card.md)).
+
+Prior art and comparative decision-engine baselines examined in [`AUDIT/prior-art-jev-nimble-2026-09-19.md`](AUDIT/prior-art-jev-nimble-2026-09-19.md) include **[Shanghua-Gao/RSI-Jev](https://github.com/Shanghua-Gao/RSI-Jev)** (`Shanghua Gao`), **[Mapika/decider](https://github.com/Mapika/decider)** (`Mapika`), and **[chenmingtang830/jevarena](https://github.com/chenmingtang830/jevarena)** (`Chenming Tang`).

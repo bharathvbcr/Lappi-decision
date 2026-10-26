@@ -1,0 +1,14 @@
+Lappi-decision
+Copyright 2026 Bharath Chandra Vaddaram
+
+Licensed under the Apache License, Version 2.0.
+
+Upstream Models, Benchmarks & Prior Art Acknowledgements
+--------------------------------------------------------
+- Base Language Model: Qwen3.5-2B (https://huggingface.co/Qwen)
+  Copyright Alibaba Cloud Qwen Team, licensed under the Apache License, Version 2.0.
+
+- Prior Art & Comparative Baselines Audited (`AUDIT/prior-art-jev-nimble-2026-09-19.md`):
+  - Shanghua-Gao/RSI-Jev (https://github.com/Shanghua-Gao/RSI-Jev) — Shanghua Gao
+  - Mapika/decider (https://github.com/Mapika/decider) — Mapika / decider-ai
+  - chenmingtang830/jevarena (https://github.com/chenmingtang830/jevarena) — Chenming Tang
